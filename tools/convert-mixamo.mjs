@@ -174,15 +174,21 @@ for (let i = 0; i < files.length; i++) {
   }
   const info = inspectGlb(tmp);
   const name = file.replace(/\.fbx$/i, '');
-  if (info.animationen === 0 && info.hatMeshes) {
+  const typ = animTypFuer(name);
+  /* Einordnung:
+     - keine Meshes  -> reine Animation ("Without Skin"-Download)
+     - Meshes + Bewegungsname im Dateinamen -> Animation ("With Skin")
+     - Meshes ohne Bewegungsname -> Charaktermodell (z. B. "Remy.fbx").
+       Mixamo legt auch in T-Pose-Exporte eine "T-Pose"-Spur, deshalb darf
+       die Anwesenheit einer Animation hier nicht entscheiden. */
+  if (!info.hatMeshes && info.animationen > 0) {
+    gefundeneAnims.push({ name, tmp, typ, groesse: fs.statSync(tmp).size,
+                          slot: slotArg || slotAusName(name) });
+  } else if (info.hatMeshes && typ) {
+    gefundeneAnims.push({ name, tmp, typ, groesse: fs.statSync(tmp).size,
+                          slot: slotArg || slotAusName(name) });
+  } else if (info.hatMeshes) {
     gefundeneModelle.push({ name, tmp });
-  } else if (info.animationen > 0) {
-    gefundeneAnims.push({
-      name, tmp,
-      typ: animTypFuer(name),
-      groesse: fs.statSync(tmp).size,
-      slot: slotArg || slotAusName(name),
-    });
   } else {
     console.warn(`⚠ ${file}: weder Modell noch Animation – übersprungen.`);
     fehler++;
@@ -190,6 +196,17 @@ for (let i = 0; i < files.length; i++) {
 }
 
 console.log(`Erkannt: ${gefundeneModelle.length} Modell(e), ${gefundeneAnims.length} Animation(en)\n`);
+
+/* Kein reines Modell dabei? Dann dient die kleinste Datei mit Netz als Modell. */
+if (!gefundeneModelle.length) {
+  const mitMesh = gefundeneAnims
+    .filter((a) => inspectGlb(a.tmp).hatMeshes)
+    .sort((a, b) => a.groesse - b.groesse)[0];
+  if (mitMesh) {
+    console.log(`Kein eigenes Charaktermodell gefunden – "${mitMesh.name}" wird als Modell verwendet.\n`);
+    gefundeneModelle.push({ name: mitMesh.name, tmp: mitMesh.tmp });
+  }
+}
 
 /* ---------- 2. Modelle den Figuren zuordnen ---------- */
 const belegt = new Map();      // slot -> {name, tmp}
