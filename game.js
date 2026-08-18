@@ -492,7 +492,7 @@ const glbModels = {}; // Slot -> {scene, clips, scale, yOffset, yaw}
 
 /* Blickrichtungs-Korrektur pro Modell: Das Spiel erwartet Blick nach +Z.
    Läuft ein Modell rückwärts, hier Math.PI eintragen (Standard: 0). */
-const GLB_YAW = { thug: Math.PI };
+const GLB_YAW = {};
 
 /* Zusätzliche Animations-Dateien pro Modell: assets/<slot>@<teil>.glb
    (entstehen automatisch aus Mixamo-Downloads „Without Skin“, siehe tools/) */
@@ -2312,7 +2312,12 @@ animate();
 
 // Nur für automatisierte Tests sichtbar
 if (window.__WEBHERO_TEST__ === true) {
-  window.__dbg = { player, enemies, civilians, cars, glbModels, get actorsReady() { return actorsReady; } };
+  window.__dbg = {
+    player, enemies, civilians, cars, glbModels, camera,
+    get actorsReady() { return actorsReady; },
+    // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
+    lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
+  };
 }
 
 })();
