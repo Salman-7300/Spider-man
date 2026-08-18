@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web Hero – Die Stadt braucht dich!</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0a0e1a;
+    font-family:'Segoe UI', Arial, sans-serif; color:#fff; }
+  canvas { display:block; }
+
+  /* ---------- HUD ---------- */
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:10; display:none; }
+
+  #topleft { position:absolute; top:18px; left:18px; }
+  #hpwrap { width:260px; height:16px; background:rgba(0,0,0,.55); border:2px solid rgba(255,255,255,.35);
+    border-radius:9px; overflow:hidden; }
+  #hpbar { height:100%; width:100%; background:linear-gradient(90deg,#e3212d,#ff6b4a);
+    transition:width .15s ease; }
+  #score { margin-top:8px; font-size:20px; font-weight:700; text-shadow:0 2px 6px #000; }
+  #best { font-size:13px; opacity:.75; text-shadow:0 1px 4px #000; }
+
+  #combo { position:absolute; right:26px; top:90px; text-align:right;
+    font-size:34px; font-weight:800; color:#ffd23c; text-shadow:0 2px 8px #000;
+    opacity:0; transition:opacity .2s; transform:rotate(-4deg); }
+  #combo small { display:block; font-size:14px; color:#fff; letter-spacing:2px; }
+
+  #objective { position:absolute; top:16px; left:50%; transform:translateX(-50%);
+    background:rgba(160,20,25,.8); border:1px solid rgba(255,255,255,.4);
+    padding:8px 22px; border-radius:20px; font-weight:700; font-size:16px;
+    text-shadow:0 1px 4px #000; display:none; }
+
+  #crosshair { position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px;
+    border-radius:50%; background:rgba(255,255,255,.85); box-shadow:0 0 5px #000; }
+
+  #hint { position:absolute; bottom:14px; right:18px; font-size:13px; opacity:.7;
+    text-shadow:0 1px 4px #000; }
+
+  #help { position:absolute; bottom:44px; right:18px; background:rgba(5,8,18,.85);
+    border:1px solid rgba(255,255,255,.25); border-radius:12px; padding:14px 18px;
+    font-size:13.5px; line-height:1.75; display:none; }
+  #help b { color:#ffd23c; display:inline-block; min-width:150px; }
+
+  #vignette { position:absolute; inset:0; box-shadow:inset 0 0 140px rgba(227,33,45,0);
+    transition:box-shadow .25s; }
+
+  .popup { position:absolute; font-weight:800; font-size:20px; color:#ffd23c;
+    text-shadow:0 2px 6px #000; pointer-events:none; white-space:nowrap;
+    transform:translate(-50%,-50%); transition:opacity .9s ease, margin-top .9s ease; }
+
+  /* ---------- Start / Pause Overlay ---------- */
+  #overlay { position:fixed; inset:0; z-index:20; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; cursor:pointer;
+    background:radial-gradient(ellipse at 50% 35%, rgba(20,30,70,.88), rgba(4,6,14,.96));
+    backdrop-filter:blur(3px); }
+  #title { font-size:64px; font-weight:900; letter-spacing:3px;
+    background:linear-gradient(180deg,#ff4b55,#c8102e 55%, #1b3fa0);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 6px 30px rgba(200,16,46,.35); }
+  #subtitle { font-size:19px; margin-top:6px; color:#cfd8ff; }
+  #clickmsg { margin-top:34px; font-size:22px; font-weight:700; color:#ffd23c;
+    animation:pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+  #ctrl { margin-top:26px; font-size:14.5px; line-height:1.9; color:#dfe6ff;
+    background:rgba(0,0,0,.35); padding:16px 30px; border-radius:14px;
+    border:1px solid rgba(255,255,255,.15); text-align:left; }
+  #ctrl b { color:#ffd23c; display:inline-block; min-width:170px; }
+  #note { margin-top:18px; font-size:12px; opacity:.55; max-width:560px; }
+
+  #msg { position:fixed; inset:0; z-index:15; display:none; flex-direction:column;
+    align-items:center; justify-content:center; background:rgba(60,0,5,.55); }
+  #msg h1 { font-size:56px; text-shadow:0 4px 14px #000; }
+  #msg p { margin-top:10px; font-size:20px; }
+
+  #loaderr { position:fixed; inset:0; z-index:30; display:none; align-items:center;
+    justify-content:center; text-align:center; background:#0a0e1a; padding:30px; }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <div id="title">WEB&nbsp;HERO</div>
+  <div id="subtitle">Die Stadt braucht dich! – Schwinge dich durch die Straßenschluchten,<br>
+    stoppe die Gangs und rette die Zivilisten.</div>
+  <div id="clickmsg">▶ Klicken zum Starten</div>
+  <div id="ctrl">
+    <b>W A S D</b> Laufen &nbsp;·&nbsp; <b>Maus</b> Kamera &nbsp;·&nbsp; <b>Shift</b> Sprinten<br>
+    <b>Leertaste</b> Springen · in der Luft halten: <b>Netzschwung</b><br>
+    <b>Rechte Maustaste (halten)</b> Netzschwung (alternativ)<br>
+    <b>Linksklick</b> Schlag-Kombo &nbsp;·&nbsp; <b>F</b> Tritt &nbsp;·&nbsp; <b>Strg</b> Ausweichrolle<br>
+    <b>Q</b> Netzschuss (Gegner einwickeln) &nbsp;·&nbsp; <b>E</b> Netz-Zip / Netz-Angriff<br>
+    <b>Wand berühren (in der Luft)</b> Klettern &nbsp;·&nbsp; <b>H</b> Hilfe &nbsp;·&nbsp; <b>M</b> Ton
+  </div>
+  <div id="note">Fan-Projekt mit einem eigenen Netz-Helden im klassischen Rot-Blau-Look.
+    Läuft komplett im Browser (Three.js). Beim ersten Start wird eine Internetverbindung benötigt.</div>
+</div>
+
+<div id="hud">
+  <div id="topleft">
+    <div id="hpwrap"><div id="hpbar"></div></div>
+    <div id="score">Punkte: 0</div>
+    <div id="best"></div>
+  </div>
+  <div id="combo"><span id="comboN">0</span><small>KOMBO</small></div>
+  <div id="objective"></div>
+  <div id="crosshair"></div>
+  <div id="hint">H – Hilfe · M – Ton · Esc – Pause</div>
+  <div id="help">
+    <b>W A S D</b> Laufen / Klettern<br>
+    <b>Shift</b> Sprinten<br>
+    <b>Leertaste</b> Springen (2× Doppelsprung)<br>
+    <b>Leertaste / RMT halten</b> Netzschwung in der Luft<br>
+    <b>Linksklick</b> Schlag-Kombo<br>
+    <b>F</b> Tritt (mehr Schaden)<br>
+    <b>Q</b> Netzschuss – wickelt Gegner ein<br>
+    <b>E</b> Netz-Zip nach vorn / zu Gegnern<br>
+    <b>Strg</b> Ausweichrolle (unverwundbar)<br>
+    <b>An Wänden</b> automatisch klettern, Leertaste = Absprung<br>
+    <b>R</b> Zurück zum Startpunkt
+  </div>
+  <div id="vignette"></div>
+</div>
+
+<div id="msg">
+  <h1>K.O.!</h1>
+  <p>Drücke <b>R</b>, um weiterzumachen.</p>
+</div>
+
+<div id="loaderr">
+  <div>
+    <h2>Three.js konnte nicht geladen werden 😢</h2>
+    <p style="margin-top:10px">Bitte Internetverbindung prüfen und die Seite neu laden.<br>
+    (Die 3D-Bibliothek wird beim ersten Start aus dem Netz geladen.)</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+  if (typeof THREE === 'undefined') {
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('loaderr').style.display = 'flex';
+  }
+</script>
+<script src="game.js"></script>
+</body>
+</html>
