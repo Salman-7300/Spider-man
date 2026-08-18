@@ -93,7 +93,7 @@
     <b>Wand berühren (in der Luft)</b> Klettern &nbsp;·&nbsp; <b>H</b> Hilfe &nbsp;·&nbsp; <b>M</b> Ton
   </div>
   <div id="note">Fan-Projekt mit einem eigenen Netz-Helden im klassischen Rot-Blau-Look.
-    Läuft komplett im Browser (Three.js). Beim ersten Start wird eine Internetverbindung benötigt.</div>
+    Läuft komplett offline im Browser (Three.js liegt im Spielordner bei).</div>
 </div>
 
 <div id="hud">
@@ -130,12 +130,19 @@
 <div id="loaderr">
   <div>
     <h2>Three.js konnte nicht geladen werden 😢</h2>
-    <p style="margin-top:10px">Bitte Internetverbindung prüfen und die Seite neu laden.<br>
-    (Die 3D-Bibliothek wird beim ersten Start aus dem Netz geladen.)</p>
+    <p style="margin-top:10px">Bitte sicherstellen, dass der Ordner <b>lib</b> mit
+    <b>three.min.js</b> neben der index.html liegt (kompletten Spielordner entpacken),<br>
+    oder Internetverbindung prüfen und die Seite neu laden.</p>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="lib/three.min.js"></script>
+<script>
+  // Fallback: falls die lokale Kopie fehlt, aus dem CDN laden
+  if (typeof THREE === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');
+  }
+</script>
 <script>
   if (typeof THREE === 'undefined') {
     document.getElementById('overlay').style.display = 'none';

@@ -10,22 +10,31 @@ Komplett in **JavaScript + Three.js** – keine Installation nötig.
 ![Engine](https://img.shields.io/badge/Engine-Three.js-blue)
 ![Sprache](https://img.shields.io/badge/Sprache-Deutsch-yellow)
 
-## ▶️ Spiel starten
+## ▶️ Spiel starten (kein Python, keine Installation nötig)
 
-1. Repository herunterladen (oder klonen)
-2. **`index.html` doppelklicken** – fertig! (öffnet sich im Browser)
-3. Beim ersten Start wird eine Internetverbindung benötigt (lädt die
-   3D-Bibliothek Three.js aus dem Netz)
+1. Auf GitHub oben den grünen Button **„Code“ → „Download ZIP“** klicken
+   (dabei oben links den richtigen Branch auswählen, falls das Spiel noch
+   nicht auf `main` liegt)
+2. Die ZIP-Datei **komplett entpacken** (Rechtsklick → „Alle extrahieren…“)
+3. Im entpackten Ordner **`index.html` doppelklicken** – das Spiel öffnet
+   sich im Browser. Fertig! 🎉
 
-Falls der Browser die Datei blockiert, alternativ einen Mini-Server starten:
-
-```bash
-# im Spielordner:
-python3 -m http.server 8000
-# dann im Browser öffnen: http://localhost:8000
-```
+Das Spiel läuft **komplett offline** – die 3D-Bibliothek Three.js liegt im
+Ordner `lib/` bei. Wichtig ist nur, dass `index.html`, `game.js` und der
+`lib`-Ordner zusammen in einem Ordner bleiben.
 
 Empfohlen: Chrome, Edge oder Firefox am Desktop (Maus + Tastatur nötig).
+Im Startbildschirm einmal klicken, damit das Spiel die Maus übernehmen darf.
+
+## 🌐 Online spielen (GitHub Pages, kostenlos)
+
+Das Spiel kann direkt über GitHub gehostet werden – dann reicht ein Link:
+
+1. Auf GitHub im Repository auf **Settings → Pages** gehen
+2. Bei **Source**: „Deploy from a branch“ wählen
+3. Als Branch den Spiel-Branch (oder `main`) und Ordner **`/ (root)`** wählen → **Save**
+4. Nach 1–2 Minuten ist das Spiel erreichbar unter:
+   `https://salman-7300.github.io/Spider-man/`
 
 ## 🎮 Steuerung
 
