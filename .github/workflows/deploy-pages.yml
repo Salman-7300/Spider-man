@@ -1,5 +1,9 @@
 name: Spiel auf GitHub Pages veröffentlichen
 
+# Veröffentlicht den Spielordner in den Branch gh-pages.
+# GitHub Pages liefert diesen Branch automatisch unter
+# https://salman-7300.github.io/Spider-man/ aus.
+
 on:
   push:
     branches:
@@ -8,9 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
@@ -19,23 +21,15 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: GitHub Pages einrichten
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Spielordner als Pages-Artefakt hochladen
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-      - name: Auf GitHub Pages veröffentlichen
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: In den Branch gh-pages veröffentlichen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan gh-pages-tmp
+          git add -A
+          git commit -m "Pages-Deploy von $GITHUB_SHA"
+          git push origin gh-pages-tmp:gh-pages --force
