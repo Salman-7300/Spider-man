@@ -508,6 +508,13 @@ function loadGlbAssets(done) {
   for (const slot of slots) {
     loader.load(GLB_SLOTS[slot], (gltf) => {
       try {
+        /* Manche Modelle bringen durchnummerierte Knochennamen mit
+           ("mixamorig:Hips_98"). Die Bewegungsdateien sprechen aber die
+           reinen Mixamo-Namen an – deshalb hier die Nummern entfernen,
+           sonst greift keine Animation. */
+        gltf.scene.traverse((o) => {
+          if (o.isBone && /_\d+$/.test(o.name)) o.name = o.name.replace(/_\d+$/, '');
+        });
         const box = new THREE.Box3().setFromObject(gltf.scene);
         const h = box.max.y - box.min.y;
         glbModels[slot] = {
@@ -516,24 +523,13 @@ function loadGlbAssets(done) {
           scale: h > 0.01 ? 1.76 / h : 1,
           yOffset: -box.min.y,
           yaw: GLB_YAW[slot] || 0,
+          aufhellen: slot === 'hero',
         };
       } catch (e) { /* unbrauchbares Modell -> eingebaute Figur */ }
       finish();
     }, undefined, finish);
   }
   function loadCompanionClips() {
-    /* Kein eigenes hero.glb? Dann einen der Menschkörper ausleihen und ihm
-       das Netz-Kostüm verpassen – so bewegt sich der Held wie ein Mensch. */
-    if (!glbModels.hero) {
-      const basis = glbModels.civilian || glbModels.civilian2 || glbModels.civilian3;
-      if (basis) {
-        /* Wichtig: dieselbe Clip-Liste weiterverwenden (keine Kopie) – die
-           Bewegungsdateien werden erst danach geladen und landen so auch
-           beim Helden. */
-        glbModels.hero = Object.assign({}, basis, { clips: basis.clips, suit: true });
-        if (!slots.includes('hero')) slots.push('hero');
-      }
-    }
     const jobs = [];
     for (const slot of slots) {
       if (!glbModels[slot]) continue;
@@ -669,39 +665,29 @@ function faerbeAlsKostuem(mesh, bbox) {
    hauteng, bewegt sich mit den geladenen Animationen und sieht nach Anzug
    aus statt nach Freizeitkleidung. */
 
-/* Radien in Metern für eine 1,76 m große Figur: [von, bis] je Abschnitt */
-const KOERPER_TEILE = [
-  ['hips', 'spine', 0.145, 0.122],        // Becken -> schlanke Taille
-  ['spine', 'spine1', 0.122, 0.140],
-  ['spine1', 'spine2', 0.140, 0.160],     // Brustkorb wird breiter
-  ['spine2', 'neck', 0.160, 0.062],
-  ['neck', 'head', 0.062, 0.070],
-  ['leftshoulder', 'leftarm', 0.095, 0.078],
-  ['rightshoulder', 'rightarm', 0.095, 0.078],
-  ['leftarm', 'leftforearm', 0.074, 0.055],
-  ['rightarm', 'rightforearm', 0.074, 0.055],
-  ['leftforearm', 'lefthand', 0.053, 0.045],
-  ['rightforearm', 'righthand', 0.053, 0.045],
-  ['leftupleg', 'leftleg', 0.108, 0.076],
-  ['rightupleg', 'rightleg', 0.108, 0.076],
-  ['leftleg', 'leftfoot', 0.074, 0.055],
-  ['rightleg', 'rightfoot', 0.074, 0.055],
-  ['leftfoot', 'lefttoebase', 0.062, 0.050],
-  ['rightfoot', 'righttoebase', 0.062, 0.050],
+/* ---- Anzugkörper ----
+   Der Körper wird als durchgehende Hülle um die Knochenketten gelegt:
+   entlang jeder Kette (Rumpf, Arme, Beine) laufen Ringe, deren Radius weich
+   überblendet und deren Gewichte zwischen zwei Nachbarknochen verteilt sind.
+   Dadurch gibt es keine sichtbaren Segmentkanten und keine Kugelgelenke
+   mehr – die Figur wirkt wie ein Mensch im hautengen Anzug. */
+
+/* Ketten mit Radien in Metern, bezogen auf eine 1,76 m große Figur */
+const KOERPER_KETTEN = [
+  { knochen: ['hips', 'spine', 'spine1', 'spine2', 'neck', 'head'],
+    radien: [0.150, 0.122, 0.142, 0.168, 0.064, 0.072],
+    breit: 1.18, tief: 0.82, kappeAnfang: true },
+  { knochen: ['leftshoulder', 'leftarm', 'leftforearm', 'lefthand'],
+    radien: [0.082, 0.072, 0.052, 0.044], breit: 1, tief: 1, kappeEnde: true },
+  { knochen: ['rightshoulder', 'rightarm', 'rightforearm', 'righthand'],
+    radien: [0.082, 0.072, 0.052, 0.044], breit: 1, tief: 1, kappeEnde: true },
+  { knochen: ['leftupleg', 'leftleg', 'leftfoot', 'lefttoebase'],
+    radien: [0.108, 0.072, 0.055, 0.042], breit: 1, tief: 1, kappeEnde: true },
+  { knochen: ['rightupleg', 'rightleg', 'rightfoot', 'righttoebase'],
+    radien: [0.108, 0.072, 0.055, 0.042], breit: 1, tief: 1, kappeEnde: true },
 ];
-/* Kugeln an allen Gelenken, damit nirgends eine Lücke bleibt */
-const KOERPER_GELENKE = [
-  ['hips', 0.148], ['spine', 0.124], ['spine1', 0.142], ['spine2', 0.162],
-  ['neck', 0.064],
-  ['leftshoulder', 0.100], ['rightshoulder', 0.100],
-  ['leftarm', 0.080], ['rightarm', 0.080],
-  ['leftforearm', 0.057], ['rightforearm', 0.057],
-  ['lefthand', 0.055], ['righthand', 0.055],
-  ['leftupleg', 0.112], ['rightupleg', 0.112],
-  ['leftleg', 0.080], ['rightleg', 0.080],
-  ['leftfoot', 0.058], ['rightfoot', 0.058],
-  ['lefttoebase', 0.048], ['righttoebase', 0.048],
-];
+const RING_ECKEN = 14;      // Auflösung rund um den Körper
+const RING_PRO_TEIL = 5;    // Zwischenringe je Knochenabschnitt
 
 function knochenSchluessel(name) {
   return name.replace(/mixamorig:?/i, '').replace(/\s+/g, '').toLowerCase();
@@ -714,100 +700,140 @@ function baueAnzugKoerper(quelle, einheit) {
   skeleton.bones.forEach((b, i) => { const k = knochenSchluessel(b.name); if (!(k in index)) index[k] = i; });
   if (index.hips === undefined || index.head === undefined) return null;
 
-  /* Bindepose: Position jedes Knochens im Geometrieraum des Quellmodells */
+  /* Bindepose: Lage jedes Knochens im Geometrieraum */
   const bindInv = new THREE.Matrix4().copy(quelle.bindMatrix).invert();
-  const knochenMatrix = skeleton.bones.map((b, i) =>
+  const knochenPos = skeleton.bones.map((b, i) => new THREE.Vector3().setFromMatrixPosition(
     new THREE.Matrix4().copy(bindInv).multiply(
-      new THREE.Matrix4().copy(skeleton.boneInverses[i]).invert()));
-  const knochenPos = knochenMatrix.map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+      new THREE.Matrix4().copy(skeleton.boneInverses[i]).invert())));
 
-  /* Ausdehnung aus den Knochen ableiten – ein einzelnes Teil-Mesh (Hemd,
-     Haare, Schuhe) deckt nur einen Ausschnitt ab und würde den Maßstab
-     verfälschen. */
   let minY = Infinity, maxY = -Infinity;
   for (const p of knochenPos) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
-  const box = { min: { y: minY }, max: { y: maxY } };
+  const hoehe = Math.max(0.001, maxY - minY);
+  const brust = knochenPos[index.spine2 !== undefined ? index.spine2 : index.spine1];
 
   const pos = [], farb = [], sIdx = [], sGew = [], idx = [];
-  const tmpV = new THREE.Vector3();
-  const brustMitte = knochenPos[index.spine2] || knochenPos[index.spine1];
 
-  function farbeFuer(schluessel, punkt) {
-    const partie = partieFuerKnochen(schluessel);
+  function farbeFuer(bone, punkt) {
+    const partie = partieFuerKnochen(skeleton.bones[bone].name);
     const c = new THREE.Color(partie === 'blau' ? SUIT_BLAU : SUIT_ROT);
     if (partie !== 'blau') {
-      // Netzmuster: Ringe über die Höhe, Speichen um die Körperachse
-      const t = (punkt.y - box.min.y) / (box.max.y - box.min.y || 1);
+      const t = (punkt.y - minY) / hoehe;
       const winkel = Math.atan2(punkt.x, punkt.z);
-      const ring = Math.abs(((t * 26) % 1) - 0.5) * 2;
-      const speiche = Math.abs((((winkel / Math.PI) * 8) % 1) - 0.5) * 2;
-      if (ring > 0.88 || speiche > 0.9) c.lerp(SUIT_NETZ, 0.7);
+      const ring = Math.abs(((t * 30) % 1) - 0.5) * 2;
+      const speiche = Math.abs((((winkel / Math.PI) * 9) % 1) - 0.5) * 2;
+      if (ring > 0.9 || speiche > 0.92) c.lerp(SUIT_NETZ, 0.65);
     }
-    // kleines Spinnenzeichen mittig auf der Brust
-    if (brustMitte && punkt.z > brustMitte.z) {
-      const dy = (punkt.y - brustMitte.y) / einheit;
-      const dx = (punkt.x - brustMitte.x) / einheit;
-      const koerper = Math.abs(dx) < 0.028 && dy > -0.10 && dy < 0.01;
-      const beine = Math.abs(dy + 0.045) < 0.012 && Math.abs(dx) < 0.075;
-      if (koerper || beine) c.setHex(0x140609);
+    if (brust && punkt.z > brust.z) {   // Spinnenzeichen auf der Brust
+      const dy = (punkt.y - brust.y) / einheit, dx = (punkt.x - brust.x) / einheit;
+      if ((Math.abs(dx) < 0.026 && dy > -0.10 && dy < 0.015) ||
+          (Math.abs(dy + 0.042) < 0.011 && Math.abs(dx) < 0.07)) c.setHex(0x140609);
     }
     return c;
   }
 
-  function anhaengen(geo, boneIndex, schluessel) {
-    const gp = geo.attributes.position;
-    const basis = pos.length / 3;
-    for (let i = 0; i < gp.count; i++) {
-      tmpV.set(gp.getX(i), gp.getY(i), gp.getZ(i));
-      pos.push(tmpV.x, tmpV.y, tmpV.z);
-      const c = farbeFuer(schluessel, tmpV);
-      farb.push(c.r, c.g, c.b);
-      sIdx.push(boneIndex, 0, 0, 0);
-      sGew.push(1, 0, 0, 0);
-    }
-    const gi = geo.index;
-    for (let i = 0; i < gi.count; i++) idx.push(basis + gi.getX(i));
-    geo.dispose();
+  function punktAnhaengen(p, bone, gewicht2, bone2) {
+    pos.push(p.x, p.y, p.z);
+    const c = farbeFuer(gewicht2 > 0.5 && bone2 !== undefined ? bone2 : bone, p);
+    farb.push(c.r, c.g, c.b);
+    sIdx.push(bone, bone2 === undefined ? 0 : bone2, 0, 0);
+    sGew.push(1 - gewicht2, gewicht2, 0, 0);
+    return pos.length / 3 - 1;
   }
 
   const hoch = new THREE.Vector3(0, 1, 0);
-  for (const [vonK, bisK, r0, r1] of KOERPER_TEILE) {
-    const a = index[vonK], b = index[bisK];
-    if (a === undefined || b === undefined) continue;
-    const p0 = knochenPos[a], p1 = knochenPos[b];
-    const richtung = new THREE.Vector3().subVectors(p1, p0);
-    const laenge = richtung.length();
-    if (laenge < 1e-4) continue;
-    const geo = new THREE.CylinderGeometry(r1 * einheit, r0 * einheit, laenge, 12, 1, false);
-    geo.translate(0, laenge / 2, 0);
-    geo.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(
-      new THREE.Quaternion().setFromUnitVectors(hoch, richtung.clone().normalize())));
-    geo.translate(p0.x, p0.y, p0.z);
-    anhaengen(geo, a, vonK);
+  const vorne = new THREE.Vector3(0, 0, 1);
+
+  for (const kette of KOERPER_KETTEN) {
+    const bones = kette.knochen.map((k) => index[k]);
+    if (bones.some((b) => b === undefined)) continue;
+    const punkte = bones.map((b) => knochenPos[b]);
+
+    /* Stationen entlang der Kette aufbauen */
+    const stationen = [];
+    for (let i = 0; i < punkte.length - 1; i++) {
+      const teile = RING_PRO_TEIL;
+      for (let j = 0; j < teile; j++) {
+        const t = j / teile;
+        const glatt = t * t * (3 - 2 * t);          // weicher Übergang
+        stationen.push({
+          p: new THREE.Vector3().lerpVectors(punkte[i], punkte[i + 1], t),
+          r: lerp(kette.radien[i], kette.radien[i + 1], glatt) * einheit,
+          b1: bones[i], b2: bones[i + 1], w: t,
+        });
+      }
+    }
+    const letzte = punkte.length - 1;
+    stationen.push({ p: punkte[letzte].clone(), r: kette.radien[letzte] * einheit,
+                     b1: bones[letzte], b2: bones[letzte], w: 0 });
+
+    /* Ringe mit mitgeführter Normale erzeugen (verhindert Verdrehen) */
+    let normale = null;
+    const ringe = [];
+    for (let i = 0; i < stationen.length; i++) {
+      const st = stationen[i];
+      const vor = stationen[Math.min(i + 1, stationen.length - 1)].p;
+      const zurueck = stationen[Math.max(i - 1, 0)].p;
+      const richtung = new THREE.Vector3().subVectors(vor, zurueck);
+      if (richtung.lengthSq() < 1e-10) richtung.copy(hoch);
+      richtung.normalize();
+      if (!normale) {
+        normale = Math.abs(richtung.dot(vorne)) < 0.9
+          ? new THREE.Vector3().crossVectors(richtung, vorne).normalize()
+          : new THREE.Vector3().crossVectors(richtung, hoch).normalize();
+      } else {
+        normale.addScaledVector(richtung, -normale.dot(richtung));
+        if (normale.lengthSq() < 1e-8) normale.crossVectors(richtung, hoch);
+        normale.normalize();
+      }
+      const binormale = new THREE.Vector3().crossVectors(richtung, normale).normalize();
+      const ring = [];
+      for (let k = 0; k < RING_ECKEN; k++) {
+        const a = (k / RING_ECKEN) * TAU;
+        const p = st.p.clone()
+          .addScaledVector(normale, Math.cos(a) * st.r * (kette.tief || 1))
+          .addScaledVector(binormale, Math.sin(a) * st.r * (kette.breit || 1));
+        ring.push(punktAnhaengen(p, st.b1, st.w, st.b2));
+      }
+      ringe.push({ ecken: ring, st });
+    }
+
+    for (let i = 0; i < ringe.length - 1; i++) {
+      const a = ringe[i].ecken, b = ringe[i + 1].ecken;
+      for (let k = 0; k < RING_ECKEN; k++) {
+        const k2 = (k + 1) % RING_ECKEN;
+        idx.push(a[k], b[k], b[k2]);
+        idx.push(a[k], b[k2], a[k2]);
+      }
+    }
+    /* Enden schließen */
+    if (kette.kappeEnde) {
+      const r = ringe[ringe.length - 1];
+      const m = punktAnhaengen(r.st.p, r.st.b1, r.st.w, r.st.b2);
+      for (let k = 0; k < RING_ECKEN; k++) idx.push(r.ecken[k], m, r.ecken[(k + 1) % RING_ECKEN]);
+    }
+    if (kette.kappeAnfang) {
+      const r = ringe[0];
+      const m = punktAnhaengen(r.st.p, r.st.b1, r.st.w, r.st.b2);
+      for (let k = 0; k < RING_ECKEN; k++) idx.push(r.ecken[(k + 1) % RING_ECKEN], m, r.ecken[k]);
+    }
   }
-  for (const [k, r] of KOERPER_GELENKE) {
-    const a = index[k];
-    if (a === undefined) continue;
-    const p = knochenPos[a];
-    const geo = new THREE.SphereGeometry(r * einheit, 12, 9);
-    if (k === 'spine2') geo.scale(1.18, 0.92, 0.88);      // Schulterpartie
-    if (k === 'hips') geo.scale(1.1, 0.9, 0.95);
-    geo.translate(p.x, p.y, p.z);
-    anhaengen(geo, a, k);
-  }
-  /* Kopf: Der Kopfknochen sitzt am Halsansatz – der Schädel gehört ein
-     Stück darüber, sonst wirkt der Kopf flach und zu tief. */
+
+  /* Kopf als eigene Kugel (der Kopfknochen sitzt am Halsansatz) */
   if (index.head !== undefined) {
     const kp = knochenPos[index.head];
-    const richtung = index.neck !== undefined
-      ? new THREE.Vector3().subVectors(kp, knochenPos[index.neck]).normalize()
-      : new THREE.Vector3(0, 1, 0);
-    const kopf = new THREE.SphereGeometry(0.118 * einheit, 16, 12);
-    kopf.scale(0.92, 1.1, 1.0);
-    kopf.translate(kp.x + richtung.x * 0.085 * einheit,
-                   kp.y + richtung.y * 0.085 * einheit,
-                   kp.z + richtung.z * 0.085 * einheit);
-    anhaengen(kopf, index.head, 'head');
+    const auf = index.neck !== undefined
+      ? new THREE.Vector3().subVectors(kp, knochenPos[index.neck]).normalize() : hoch.clone();
+    const geo = new THREE.SphereGeometry(0.115 * einheit, 18, 14);
+    geo.scale(0.92, 1.12, 1.02);
+    geo.translate(kp.x + auf.x * 0.09 * einheit, kp.y + auf.y * 0.09 * einheit, kp.z + auf.z * 0.09 * einheit);
+    const gp = geo.attributes.position, basis = pos.length / 3;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < gp.count; i++) {
+      v.set(gp.getX(i), gp.getY(i), gp.getZ(i));
+      punktAnhaengen(v, index.head, 0, index.head);
+    }
+    for (let i = 0; i < geo.index.count; i++) idx.push(basis + geo.index.getX(i));
+    geo.dispose();
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -819,7 +845,7 @@ function baueAnzugKoerper(quelle, einheit) {
   geometry.computeVertexNormals();
 
   const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshPhongMaterial({
-    vertexColors: true, skinning: true, shininess: 34, specular: 0x2b2b30,
+    vertexColors: true, skinning: true, shininess: 40, specular: 0x33333a,
   }));
   mesh.position.copy(quelle.position);
   mesh.quaternion.copy(quelle.quaternion);
@@ -869,6 +895,14 @@ function makeGlbVisual(m) {
     if (o.isMesh || o.isSkinnedMesh) {
       o.castShadow = true; o.frustumCulled = false;
       originale.push(o);
+      /* Sehr dunkle Anzüge verschwinden im Schatten der Häuserschluchten –
+         ein Hauch Eigenleuchten hält die Silhouette sichtbar. */
+      if (m.aufhellen) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const mat of mats) {
+          if (mat && mat.emissive) mat.emissive.setHex(0x14141a);
+        }
+      }
     }
   });
   if (m.suit) {
@@ -983,6 +1017,51 @@ function makeGlbVisual(m) {
       drehe(knochen.rightfoot, 0.3, 0, 0, 1);
       drehe(knochen.spine1, -0.16, 0, 0, 1);
       drehe(knochen.head, 0.2, 0, 0, 1);
+    },
+    /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
+       Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
+       Abschluss-Schlag – statt immer derselben Animation. */
+    poseSchlag(t, art, arm, stufe) {
+      const links = arm === 'L';
+      const sh = links ? 'leftarm' : 'rightarm';
+      const el = links ? 'leftforearm' : 'rightforearm';
+      const shA = links ? 'rightarm' : 'leftarm';
+      const elA = links ? 'rightforearm' : 'leftforearm';
+      const seite = links ? 1 : -1;
+      const aus = clamp(t / 0.3, 0, 1);            // Ausholen
+      const zieh = clamp((t - 0.28) / 0.22, 0, 1); // Durchziehen
+      const zurueck = clamp((t - 0.58) / 0.42, 0, 1);
+      const stoss = zieh - zurueck;                // 0..1..0
+
+      if (art === 'kick') {
+        const bein = links ? 'leftupleg' : 'rightupleg';
+        const knie = links ? 'leftleg' : 'rightleg';
+        drehe(knochen[bein], lerp(0.45 * aus, -1.75, stoss), 0, 0, 1);
+        drehe(knochen[knie], lerp(1.7 * aus, 0.12, stoss), 0, 0, 1);
+        drehe(knochen.spine1, -0.3 * stoss, 0, 0, 1);
+        drehe(knochen[sh], -0.5, 0, seite * -0.7, 1);
+        drehe(knochen[shA], -0.5, 0, seite * 0.7, 1);
+        return;
+      }
+      /* Faustschlag: Schulter dreht mit, Arm streckt sich beim Treffer */
+      const haken = stufe % 2 === 1;               // abwechselnd gerade / Haken
+      drehe(knochen[sh], lerp(0.5 * aus, -1.55, stoss), haken ? seite * -0.5 * stoss : 0,
+            seite * (haken ? -0.5 : -0.12) * stoss, 1);
+      drehe(knochen[el], lerp(-1.9 * aus, -0.06, stoss), 0, 0, 1);
+      drehe(knochen[shA], -0.45 + 0.3 * stoss, 0, seite * 0.55, 1);
+      drehe(knochen[elA], -1.1, 0, 0, 1);
+      drehe(knochen.spine1, 0.12 * stoss, seite * 0.42 * stoss, 0, 1);
+      drehe(knochen.spine2, 0, seite * 0.3 * stoss, 0, 1);
+      drehe(knochen.head, 0, seite * -0.2 * stoss, 0, 1);
+    },
+    /* Getroffen: kurzes Zurückzucken */
+    poseTreffer(t) {
+      const z = Math.sin(clamp(t, 0, 1) * Math.PI);
+      drehe(knochen.spine1, -0.45 * z, 0, 0, 1);
+      drehe(knochen.spine2, -0.3 * z, 0, 0, 1);
+      drehe(knochen.head, -0.35 * z, 0, 0, 1);
+      drehe(knochen.leftarm, -0.4 * z, 0, 0.6 * z, 1);
+      drehe(knochen.rightarm, -0.4 * z, 0, -0.6 * z, 1);
     },
     /* Kletter-Pose: flach an der Wand, Arme und Beine greifen abwechselnd */
     poseKlettern(phase) {
@@ -1836,6 +1915,9 @@ function tryJump() {
     player.onGround = false;
     player.state = 'air';
     player.jumps = 1;
+    /* Leertaste gedrückt halten soll direkt in den Schwung übergehen –
+       ohne diese Freigabe müsste man erst loslassen und neu drücken. */
+    player.swingLock = false;
   } else if (player.jumps < 2) {
     player.vel.y = CFG.jumpVel * 0.92;
     player.jumps = 2;
@@ -1875,7 +1957,8 @@ function tryAttack(type) {
   player.combo = player.comboTimer > 0 ? player.combo : 0;
   const arm = (player.combo % 2 === 0) ? 'R' : 'L';
   const finisher = type === 'punch' && player.combo > 0 && (player.combo + 1) % 4 === 0;
-  player.attack = { type: finisher ? 'kick' : type, t: 0, arm, hitDone: false, finisher };
+  player.attack = { type: finisher ? 'kick' : type, t: 0, arm, hitDone: false,
+                    finisher, stufe: player.combo };
   heroVisual.attackOneShot(finisher ? 1.35 : (type === 'kick' ? 1.5 : 2.0));
   player.attackCd = finisher ? 0.46 : (type === 'kick' ? 0.38 : 0.27);
   // Magnetismus: zum nächsten Gegner ziehen
@@ -2087,7 +2170,7 @@ function updatePlayer(dt) {
        Höhe oder im Fallen greift das Netz. Startet man tief, gibt es einen
        kräftigen Satz nach oben, damit der Schwung Platz hat. */
     const hoehe = player.pos.y - groundY(player.pos.x, player.pos.z);
-    if (hoehe > 3.5 || player.vel.y < 0) {
+    if (hoehe > 2.0 || player.vel.y < 0) {
       if (hoehe < 7 && player.vel.y < 4) player.vel.y = Math.max(player.vel.y, 5.5);
       startSwing();
     }
@@ -2307,7 +2390,11 @@ function updateHeroVisual(dt) {
     overlayAttack(heroVisual.human, player.attack, dt);
   } else {
     /* Pose-Korrekturen für das Menschmodell (nach der Animation) */
-    if (player.state === 'swing' && player.swing) {
+    if (player.attack && player.attack.type !== 'web' && heroVisual.poseSchlag) {
+      heroVisual.poseSchlag(player.attack.t, player.attack.type,
+                            player.attack.arm, player.attack.stufe || 0);
+      heroVisual.bodenAusgleich(1);
+    } else if (player.state === 'swing' && player.swing) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed);
     } else if (player.state === 'climb') {
       heroVisual.poseKlettern(player.phase);
@@ -2809,6 +2896,8 @@ function updateEnemies(dt) {
       collideBody(e);
       e.visual.root.position.copy(e.pos);
       e.visual.play('air', { t: elapsed }, dt);
+      // Pose erst nach der Animation setzen, sonst überschreibt der Mixer sie
+      if (e.visual.poseTreffer) e.visual.poseTreffer(1 - e.staggerT / 0.9);
       continue;
     }
 
