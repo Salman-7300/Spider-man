@@ -515,6 +515,7 @@ function loadGlbAssets(done) {
         gltf.scene.traverse((o) => {
           if (o.isBone && /_\d+$/.test(o.name)) o.name = o.name.replace(/_\d+$/, '');
         });
+        bindeSteuerteileAnSkelett(gltf.scene);
         const box = new THREE.Box3().setFromObject(gltf.scene);
         const h = box.max.y - box.min.y;
         glbModels[slot] = {
@@ -560,6 +561,35 @@ function loadGlbAssets(done) {
 function entferneVersatz(clip) {
   clip.tracks = clip.tracks.filter((t) => !/\.position$/.test(t.name));
   return clip;
+}
+
+/* Manche Modelle bringen neben dem Skelett noch ein zweites Steuer-Rig mit
+   (Ctrl_Head, Ctrl_Spine ...). Teile, die dort hängen – bei diesem Modell die
+   Augenlinsen –, folgen den Bewegungen nicht und bleiben im Gesicht stehen
+   bzw. schweben daneben. Hier werden sie an den passenden echten Knochen
+   umgehängt, ohne ihre Lage zu verändern. */
+function bindeSteuerteileAnSkelett(scene) {
+  const knochen = {};
+  scene.traverse((o) => { if (o.isBone) knochen[knochenSchluessel(o.name)] = o; });
+  const steuer = [];
+  scene.traverse((o) => { if (!o.isBone && /^ctrl_/i.test(o.name || '')) steuer.push(o); });
+  if (!steuer.length) return;
+  scene.updateMatrixWorld(true);
+  for (const c of steuer) {
+    const schluessel = c.name.replace(/^ctrl_/i, '').replace(/_\d+$/, '')
+                             .replace(/\s+/g, '').toLowerCase();
+    const ziel = knochen[schluessel];
+    if (!ziel) continue;
+    for (const kind of c.children.slice()) {
+      let hatMesh = false;
+      kind.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh) hatMesh = true; });
+      if (!hatMesh) continue;
+      /* Die örtliche Lage relativ zum Steuerknochen bleibt erhalten. Die
+         Ruhepose beider Skelette unterscheidet sich; würde man stattdessen
+         die Weltlage einfrieren, säßen die Teile schief. */
+      ziel.add(kind);
+    }
+  }
 }
 
 /* Modelle ohne eigene Bewegungen bekommen die eines anderen Modells.
@@ -871,7 +901,85 @@ function baueAnzugKoerper(quelle, einheit) {
   return mesh;
 }
 
-/* Weiße Augenlinsen an den Kopfknochen hängen */
+/* Augenlinsen sauber auf die Maske setzen.
+   Die mitgelieferten Augen dieses Modells hängen an einem eigenen Steuer-Rig
+   und sitzen schon in der Ruhepose neben dem Gesicht. Sie werden deshalb
+   ausgeblendet und durch zwei Linsen ersetzt, die fest am Kopfknochen sitzen. */
+function setzeMaskenAugen(inner) {
+  let kopf = null;
+  inner.traverse((o) => { if (!kopf && o.isBone && /head$/i.test(o.name)) kopf = o; });
+  if (!kopf) return;
+  // vorhandene Augen des Modells ausblenden
+  inner.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    if (mats.some((m) => m && /eye|auge/i.test(m.name || ''))) o.visible = false;
+  });
+  /* Die lokalen Achsen eines Kopfknochens zeigen je nach Modell in beliebige
+     Richtungen. Deshalb werden Lage und Ausrichtung in Weltkoordinaten
+     bestimmt (Modell schaut nach +Z) und danach in den Knochenraum
+     umgerechnet – so sitzen die Linsen bei jedem Rig im Gesicht. */
+  inner.updateMatrixWorld(true);
+  const kopfInv = new THREE.Matrix4().copy(kopf.matrixWorld).invert();
+  /* Den echten Schädel ausmessen: alle Vertices, deren stärkster Knochen der
+     Kopf ist. Daraus ergibt sich, wo vorne, oben und seitlich wirklich ist –
+     unabhängig davon, wie das Rig aufgebaut ist. */
+  const schaedel = new THREE.Box3();
+  schaedel.makeEmpty();
+  const _pv = new THREE.Vector3();
+  inner.traverse((o) => {
+    if (!o.isSkinnedMesh || !o.geometry.attributes.skinIndex) return;
+    const kopfNr = o.skeleton.bones.indexOf(kopf);
+    if (kopfNr < 0) return;
+    const pos = o.geometry.attributes.position;
+    const si = o.geometry.attributes.skinIndex, sw = o.geometry.attributes.skinWeight;
+    for (let i = 0; i < pos.count; i++) {
+      let bi = si.getX(i), bw = sw.getX(i);
+      if (sw.getY(i) > bw) { bw = sw.getY(i); bi = si.getY(i); }
+      if (sw.getZ(i) > bw) { bw = sw.getZ(i); bi = si.getZ(i); }
+      if (sw.getW(i) > bw) { bw = sw.getW(i); bi = si.getW(i); }
+      if (bi !== kopfNr) continue;
+      _pv.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      schaedel.expandByPoint(_pv);
+    }
+  });
+  const kopfMitte = new THREE.Vector3().setFromMatrixPosition(kopf.matrixWorld);
+  let breite = 0.16, augenY = kopfMitte.y + 0.075, augenZ = kopfMitte.z + 0.079;
+  if (!schaedel.isEmpty()) {
+    const mitte = schaedel.getCenter(new THREE.Vector3());
+    const groesse = schaedel.getSize(new THREE.Vector3());
+    breite = groesse.x;
+    kopfMitte.x = mitte.x;
+    augenY = mitte.y + groesse.y * 0.09;
+    augenZ = schaedel.max.z - groesse.z * 0.13;
+  }
+  const kopfDreh = new THREE.Quaternion();
+  kopf.getWorldQuaternion(kopfDreh);
+  const drehInv = kopfDreh.clone().invert();
+  const skal = new THREE.Vector3();
+  kopf.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), skal);
+  const sk = skal.x || 1;
+  const weiss = new THREE.MeshBasicMaterial({ color: 0xf4f8ff });
+  const rand = new THREE.MeshBasicMaterial({ color: 0x08080a });
+  for (const seite of [-1, 1]) {
+    const stelle = new THREE.Vector3(kopfMitte.x + seite * breite * 0.23, augenY, augenZ);
+    const dreh = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(0.1, seite * 0.33, seite * -0.30));
+    const auge = new THREE.Mesh(new THREE.SphereGeometry(0.042, 14, 10), weiss);
+    auge.position.copy(stelle.clone().applyMatrix4(kopfInv));
+    auge.quaternion.copy(drehInv.clone().multiply(dreh));
+    const gr = (breite / 0.16);
+    auge.scale.set(1.3 * gr / sk, 1.75 * gr / sk, 0.34 * gr / sk);
+    kopf.add(auge);
+    const umriss = new THREE.Mesh(new THREE.SphereGeometry(0.046, 14, 10), rand);
+    umriss.position.copy(auge.position);
+    umriss.quaternion.copy(auge.quaternion);
+    umriss.scale.set(1.3 * gr / sk, 1.75 * gr / sk, 0.30 * gr / sk);
+    kopf.add(umriss);
+  }
+}
+
+/* Weiße Augenlinsen an den Kopfknochen hängen (alte Fassung) */
 function setzeAugen(inner) {
   let kopf = null;
   inner.traverse((o) => { if (!kopf && o.isBone && /head$/i.test(o.name)) kopf = o; });
@@ -1017,21 +1125,14 @@ function makeGlbVisual(m) {
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
       const andere = seite === 'L' ? 'rightarm' : 'leftarm';
       const andereK = seite === 'L' ? 'rightforearm' : 'leftforearm';
+      /* Nur der Netzarm wird geführt. Die Beine überlässt der Schwung der
+         laufenden Animation – eigene Beinposen haben gegen sie gearbeitet
+         und zu zuckenden Beinen geführt. */
       zieleKnochen(knochen[gross], knochen[klein], zielWelt, 1);
       drehe(knochen[klein], -0.12, 0, 0, 1);
-      // freier Arm hängt leicht nach hinten und schwingt ruhig mit
-      const wiegen = Math.sin((t || 0) * 1.6) * 0.12;
-      drehe(knochen[andere], -0.35 + wiegen, 0, seite === 'L' ? -0.75 : 0.75, 1);
-      drehe(knochen[andereK], -0.5, 0, 0, 1);
-      // Beine: ein Bein angezogen, eines gestreckt – ruhige Schwunghaltung
-      drehe(knochen.leftupleg, -0.95 + wiegen * 0.5, 0, 0.12, 1);
-      drehe(knochen.rightupleg, -0.3 - wiegen * 0.5, 0, -0.12, 1);
-      drehe(knochen.leftleg, 1.35, 0, 0, 1);
-      drehe(knochen.rightleg, 0.55, 0, 0, 1);
-      drehe(knochen.leftfoot, 0.3, 0, 0, 1);
-      drehe(knochen.rightfoot, 0.3, 0, 0, 1);
-      drehe(knochen.spine1, -0.16, 0, 0, 1);
-      drehe(knochen.head, 0.2, 0, 0, 1);
+      const wiegen = Math.sin((t || 0) * 1.6) * 0.1;
+      drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5);
+      drehe(knochen[andereK], -0.5, 0, 0, 0.5);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -1124,7 +1225,7 @@ function makeGlbVisual(m) {
       if (fussRuhe === null) { fussRuhe = relativ; return; }   // Ruhehöhe merken
       /* relativ enthält bereits die bisherige Korrektur – der Fehler wird
          deshalb auf sie aufaddiert, sonst pendelt sich der Fuß zu tief ein. */
-      const fehler = (fussRuhe - 0.04) - relativ;
+      const fehler = (fussRuhe - 0.07) - relativ;
       const ziel = Math.max(0, bodenKorrektur + fehler);
       /* Nach oben sofort ausgleichen (sonst sinkt die Figur kurz ein),
          nach unten weich zurückgleiten. */
@@ -2379,12 +2480,14 @@ function updateHeroVisual(dt) {
   if (player.state === 'climb') {
     r.rotation.x = lerp(r.rotation.x, 0.28, Math.min(1, dt * 10));
   } else
-  /* Ausweichrolle: der Körper überschlägt sich einmal vorwärts */
+  /* Ausweichen: schneller Satz mit Vorlage – bewusst OHNE Überschlag.
+     Die frühere Rolle drehte den Körper um die Füße, dadurch verschwand die
+     Figur im Boden und tauchte anschließend von oben wieder auf. */
   if (player.rollT > 0) {
     player.rollT -= dt;
     const fortschritt = 1 - clamp(player.rollT / CFG.rollDauer, 0, 1);
-    r.rotation.x = -fortschritt * TAU;
-    r.position.y += Math.sin(fortschritt * Math.PI) * 0.35;   // Körpermitte hebt sich
+    const bogen = Math.sin(fortschritt * Math.PI);
+    r.rotation.x = lerp(r.rotation.x, 0.55 * bogen, Math.min(1, dt * 18));
   } else {
     // Körperneigung beim Schwingen/Fallen
     let tilt = 0;
@@ -2405,9 +2508,9 @@ function updateHeroVisual(dt) {
     overlayAttack(heroVisual.human, player.attack, dt);
   } else {
     /* Pose-Korrekturen für das Menschmodell (nach der Animation) */
-    if (player.attack && player.attack.type !== 'web' && heroVisual.poseSchlag) {
-      heroVisual.poseSchlag(player.attack.t, player.attack.type,
-                            player.attack.arm, player.attack.stufe || 0);
+    if (player.attack && player.attack.type !== 'web') {
+      /* Die geladene Schlag-Animation führt allein – eigene Knochenposen
+         haben hier wiederholt für schiefe Haltungen gesorgt. */
       heroVisual.bodenAusgleich(1);
     } else if (player.state === 'swing' && player.swing) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed);
