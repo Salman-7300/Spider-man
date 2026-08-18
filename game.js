@@ -474,6 +474,151 @@ function buildFarShore() {
 
 buildCity();
 
+/* ======================= GLB-Charaktermodelle (optional) =======================
+   Eigene Modelle einfach in den Ordner assets/ legen – z. B. von Mixamo
+   (FBX mit Blender zu GLB konvertieren), Ready Player Me oder Sketchfab.
+   Slots: hero.glb, civilian.glb (+ civilian2/3.glb für Vielfalt), thug.glb.
+   Fehlt eine Datei, wird automatisch die eingebaute Figur verwendet.
+   Hinweis: GLB-Laden funktioniert nur über http(s) – also auf der Webseite
+   oder mit lokalem Server, nicht bei Doppelklick auf die Datei (file://). */
+const GLB_SLOTS = {
+  hero: 'assets/hero.glb',
+  civilian: 'assets/civilian.glb',
+  civilian2: 'assets/civilian2.glb',
+  civilian3: 'assets/civilian3.glb',
+  thug: 'assets/thug.glb',
+};
+const glbModels = {}; // Slot -> {scene, clips, scale, yOffset, yaw}
+
+/* Blickrichtungs-Korrektur pro Modell: Das Spiel erwartet Blick nach +Z.
+   Läuft ein Modell rückwärts, hier Math.PI eintragen (Standard: 0). */
+const GLB_YAW = { thug: Math.PI };
+
+function loadGlbAssets(done) {
+  if (typeof THREE.GLTFLoader !== 'function' || location.protocol === 'file:') { done(); return; }
+  const loader = new THREE.GLTFLoader();
+  const slots = Object.keys(GLB_SLOTS);
+  let pending = slots.length;
+  const finish = () => { if (--pending === 0) done(); };
+  for (const slot of slots) {
+    loader.load(GLB_SLOTS[slot], (gltf) => {
+      try {
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const h = box.max.y - box.min.y;
+        glbModels[slot] = {
+          scene: gltf.scene,
+          clips: gltf.animations || [],
+          scale: h > 0.01 ? 1.76 / h : 1,
+          yOffset: -box.min.y,
+          yaw: GLB_YAW[slot] || 0,
+        };
+      } catch (e) { /* unbrauchbares Modell -> eingebaute Figur */ }
+      finish();
+    }, undefined, finish);
+  }
+}
+
+/* Animations-Zuordnung: Spielzustand -> Clip-Name (per Muster) */
+const GLB_CLIP_PATTERNS = {
+  idle: [/idle/i, /stand/i, /breath/i],
+  walk: [/walk/i],
+  run: [/run/i, /jog/i, /sprint/i],
+  air: [/jump/i, /fall/i, /air/i],
+  swing: [/swing/i, /fly/i, /hang/i],
+  climb: [/climb/i, /crawl/i],
+  sit: [/sit/i, /hurt/i, /crouch/i],
+  webbed: [/idle/i],
+  downed: [/idle/i],
+  attack: [/punch/i, /attack/i, /hit/i, /kick/i, /melee/i],
+};
+const GLB_FALLBACK = {
+  walk: ['run', 'idle'], run: ['walk', 'idle'], air: ['run', 'idle'],
+  swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
+  sit: ['idle'], webbed: ['idle'], downed: ['idle'], attack: [],
+};
+
+function findClip(clips, key) {
+  for (const re of GLB_CLIP_PATTERNS[key] || []) {
+    const c = clips.find((cl) => re.test(cl.name) && !/t-?pose/i.test(cl.name));
+    if (c) return c;
+  }
+  return null;
+}
+
+function makeGlbVisual(m) {
+  const root = new THREE.Group();
+  const inner = THREE.SkeletonUtils.clone(m.scene);
+  inner.scale.setScalar(m.scale);
+  inner.position.y = m.yOffset * m.scale;
+  inner.rotation.y = m.yaw;
+  inner.traverse((o) => {
+    if (o.isMesh || o.isSkinnedMesh) { o.castShadow = true; o.frustumCulled = false; }
+  });
+  root.add(inner);
+  const mixer = new THREE.AnimationMixer(inner);
+  const actions = {};
+  function actionFor(key) {
+    if (key in actions) return actions[key];
+    let clip = findClip(m.clips, key);
+    if (!clip) {
+      for (const fb of (GLB_FALLBACK[key] || [])) {
+        clip = findClip(m.clips, fb);
+        if (clip) break;
+      }
+    }
+    actions[key] = clip ? mixer.clipAction(clip) : null;
+    return actions[key];
+  }
+  let current = null;
+  return {
+    root, procedural: false, mixer,
+    play(key, p, dt) {
+      // 'run' je nach Tempo als Gehen oder Rennen abspielen
+      let want = key;
+      if (key === 'run' && (p.speed01 || 0) < 0.5 && findClip(m.clips, 'walk')) want = 'walk';
+      const a = actionFor(want) || actionFor('idle');
+      if (a && a !== current) {
+        if (current) current.fadeOut(0.22);
+        a.reset().fadeIn(0.22).play();
+        current = a;
+      }
+      if (current && (want === 'run' || want === 'walk')) {
+        current.timeScale = 0.6 + (p.speed01 || 0) * 0.8;
+      }
+      mixer.update(dt);
+    },
+    attackOneShot() {
+      const a = actionFor('attack');
+      if (!a) return;
+      a.setLoop(THREE.LoopOnce, 1);
+      a.reset().play();
+    },
+  };
+}
+
+function makeProceduralVisual(cfg) {
+  const human = makeHuman(cfg);
+  return {
+    root: human.root, procedural: true, human,
+    play(key, p, dt) { poseHuman(human, key, p, dt); },
+    attackOneShot() {},
+  };
+}
+
+/** Erzeugt die Optik einer Figur: GLB-Modell falls geladen, sonst eingebaute Figur. */
+function makeCharacterVisual(kind, cfg) {
+  let m = null;
+  if (kind === 'civilian') {
+    const variants = ['civilian', 'civilian2', 'civilian3'].filter((s) => glbModels[s]);
+    if (variants.length) m = glbModels[pick(variants)];
+  } else if (glbModels[kind]) {
+    m = glbModels[kind];
+  }
+  const v = m ? makeGlbVisual(m) : makeProceduralVisual(cfg);
+  scene.add(v.root);
+  return v;
+}
+
 /* ======================= Menschen-Baukasten ======================= */
 const SKINS = ['#e8b48c', '#d29b6e', '#a86e4b', '#7c4f33', '#f0c9a0'];
 const SHIRTS = ['#c0554e', '#4d7dc4', '#58a15c', '#c9a23f', '#8e5fae', '#d97c33', '#4ea9a5', '#c45a8c', '#e6e2d8'];
@@ -757,8 +902,7 @@ function flashWebShot(from, to) {
 }
 
 /* ======================= Spieler ======================= */
-const heroModel = makeHuman({ hero: true });
-scene.add(heroModel.root);
+let heroVisual = null; // wird nach dem Laden der GLB-Assets erzeugt
 
 const player = {
   pos: V3(25, 0.05, 25),
@@ -787,8 +931,16 @@ const player = {
 };
 
 function heroHandPos(out) {
-  heroModel.root.updateMatrixWorld(true);
-  return heroModel.handR.getWorldPosition(out);
+  if (heroVisual && heroVisual.procedural) {
+    heroVisual.human.root.updateMatrixWorld(true);
+    return heroVisual.human.handR.getWorldPosition(out);
+  }
+  // Näherung für GLB-Modelle (rechte Hand auf Schulterhöhe)
+  return out.set(
+    player.pos.x + Math.sin(player.facing) * 0.3,
+    player.pos.y + 1.5,
+    player.pos.z + Math.cos(player.facing) * 0.3
+  );
 }
 
 /* ======================= Eingabe ======================= */
@@ -1010,7 +1162,7 @@ function coneTargetEnemy(maxDist, minDot) {
 }
 
 function webShot() {
-  if (player.dead || player.attackCd > 0.05) return;
+  if (!heroVisual || player.dead || player.attackCd > 0.05) return;
   player.attack = { type: 'web', t: 0, hitDone: true };
   player.attackCd = 0.45;
   const from = heroHandPos(_v1).clone();
@@ -1090,12 +1242,13 @@ function dodge() {
 }
 
 function tryAttack(type) {
-  if (player.dead || player.attackCd > 0) return;
+  if (!heroVisual || player.dead || player.attackCd > 0) return;
   if (player.state === 'climb') return;
   player.combo = player.comboTimer > 0 ? player.combo : 0;
   const arm = (player.combo % 2 === 0) ? 'R' : 'L';
   const finisher = type === 'punch' && player.combo > 0 && (player.combo + 1) % 4 === 0;
   player.attack = { type: finisher ? 'kick' : type, t: 0, arm, hitDone: false, finisher };
+  heroVisual.attackOneShot();
   player.attackCd = type === 'kick' || finisher ? 0.55 : 0.38;
   // Magnetismus: zum nächsten Gegner ziehen
   const target = nearestEnemy(4.2, 0.2);
@@ -1194,7 +1347,8 @@ function addScore(n, label, worldPos) {
 let onWallTimer = 0;
 
 function updatePlayer(dt) {
-  if (player.dead) { poseHuman(heroModel, 'downed', { t: elapsed }, dt); return; }
+  if (!heroVisual) return;
+  if (player.dead) { heroVisual.play('downed', { t: elapsed }, dt); return; }
 
   const dir = inputDir();
   const wantSwing = (keys['Space'] || swingHeld);
@@ -1434,22 +1588,24 @@ function updatePlayer(dt) {
 }
 
 function updateHeroVisual(dt) {
-  heroModel.root.position.copy(player.pos);
-  heroModel.root.rotation.y = player.facing;
+  if (!heroVisual) return;
+  const r = heroVisual.root;
+  r.position.copy(player.pos);
+  r.rotation.y = player.facing;
   // Körperneigung beim Schwingen/Fallen
   let tilt = 0;
   if (player.state === 'swing') tilt = clamp(player.vel.y * 0.02, -0.5, 0.4) - 0.5;
   else if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
   else if (player.dodgeT > 0) tilt = -0.9;
-  heroModel.root.rotation.x = lerp(heroModel.root.rotation.x, tilt, Math.min(1, dt * 8));
+  r.rotation.x = lerp(r.rotation.x, tilt, Math.min(1, dt * 8));
 
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
-  poseHuman(heroModel, player.anim, {
+  heroVisual.play(player.anim, {
     phase: player.phase,
     speed01: clamp(hSpeed / CFG.sprintSpeed, 0, 1),
     t: elapsed,
   }, dt);
-  overlayAttack(heroModel, player.attack, dt);
+  if (heroVisual.procedural) overlayAttack(heroVisual.human, player.attack, dt);
 }
 
 /* ======================= Autos / Verkehr ======================= */
@@ -1582,11 +1738,10 @@ function spawnCivilian() {
   const bi = randi(0, BLOCKS - 1), bj = randi(0, BLOCKS - 1);
   const loop = sidewalkLoop(bi, bj);
   const wp = randi(0, 3);
-  const model = makeHuman({});
-  scene.add(model.root);
+  const visual = makeCharacterVisual('civilian', {});
   const start = loop[wp];
   civilians.push({
-    model, loop, wp,
+    visual, loop, wp,
     pos: V3(start.x + rand(-1, 1), 0, start.z + rand(-1, 1)),
     vel: V3(0, 0, 0),
     radius: 0.35,
@@ -1599,7 +1754,6 @@ function spawnCivilian() {
     onGround: true, wall: null,
   });
 }
-for (let i = 0; i < CFG.civCount; i++) spawnCivilian();
 
 function nearestThreatTo(pos, maxDist) {
   let best = null, bestD = maxDist;
@@ -1616,8 +1770,8 @@ function updateCivilians(dt) {
     if (c.savedCd > 0) c.savedCd -= dt;
     if (c.state === 'hurt') {
       c.hurtT -= dt;
-      c.model.root.position.copy(c.pos);
-      poseHuman(c.model, 'sit', { t: elapsed }, dt);
+      c.visual.root.position.copy(c.pos);
+      c.visual.play('sit', { t: elapsed }, dt);
       if (c.hurtT <= 0) { c.state = 'walk'; c.hp = 20; }
       continue;
     }
@@ -1669,9 +1823,9 @@ function updateCivilians(dt) {
       }
     }
 
-    c.model.root.position.copy(c.pos);
-    c.model.root.rotation.y = c.facing;
-    poseHuman(c.model, speed > 0.1 ? 'run' : 'idle',
+    c.visual.root.position.copy(c.pos);
+    c.visual.root.rotation.y = c.facing;
+    c.visual.play(speed > 0.1 ? 'run' : 'idle',
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
   }
 }
@@ -1712,21 +1866,20 @@ function makeHPBar() {
 function spawnGang(cx, cz, n) {
   const gang = { enemies: [], home: V3(cx, 0, cz), cleared: false };
   for (let i = 0; i < n; i++) {
-    const model = makeHuman({
+    const visual = makeCharacterVisual('thug', {
       thug: true,
       shirt: pick(['#3a3f4a', '#54303a', '#2e4038', '#463a2e']),
       pants: pick(['#26262e', '#3a3630', '#2e3440']),
     });
-    scene.add(model.root);
     const hpBar = makeHPBar();
-    model.root.add(hpBar.g);
+    visual.root.add(hpBar.g);
     const cocoon = new THREE.Mesh(cocoonGeo, cocoonMat);
     cocoon.scale.set(1.1, 1.9, 1.1);
     cocoon.position.y = 0.95;
     cocoon.visible = false;
-    model.root.add(cocoon);
+    visual.root.add(cocoon);
     const e = {
-      model, hpBar, cocoon,
+      visual, hpBar, cocoon,
       pos: V3(cx + rand(-4, 4), 0, cz + rand(-4, 4)),
       vel: V3(0, 0, 0),
       radius: 0.4,
@@ -1769,10 +1922,6 @@ function spawnGangAwayFromPlayer() {
   return spawnGang(x, z, randi(3, 4));
 }
 
-// Startgangs (auf Gehwegen, mit Abstand zum Startpunkt)
-spawnGangAwayFromPlayer();
-spawnGangAwayFromPlayer();
-spawnGangAwayFromPlayer();
 
 function applyWeb(e) {
   if (e.dead) return;
@@ -1836,12 +1985,12 @@ function updateEnemies(dt) {
     const e = enemies[i];
     if (e.dead) {
       e.deadT -= dt;
-      e.model.root.position.copy(e.pos);
-      e.model.root.rotation.x = lerp(e.model.root.rotation.x, -Math.PI / 2 * 0.94, dt * 6);
-      e.model.root.position.y = e.pos.y + 0.15;
-      poseHuman(e.model, 'downed', { t: elapsed }, dt);
+      e.visual.root.position.copy(e.pos);
+      e.visual.root.rotation.x = lerp(e.visual.root.rotation.x, -Math.PI / 2 * 0.94, dt * 6);
+      e.visual.root.position.y = e.pos.y + 0.15;
+      e.visual.play('downed', { t: elapsed }, dt);
       if (e.deadT <= 0) {
-        scene.remove(e.model.root);
+        scene.remove(e.visual.root);
         enemies.splice(i, 1);
       }
       continue;
@@ -1850,8 +1999,8 @@ function updateEnemies(dt) {
     if (e.webT > 0) {
       e.webT -= dt;
       e.cocoon.visible = true;
-      e.model.root.position.copy(e.pos);
-      poseHuman(e.model, 'webbed', { t: elapsed }, dt);
+      e.visual.root.position.copy(e.pos);
+      e.visual.play('webbed', { t: elapsed }, dt);
       if (e.webT <= 0) e.cocoon.visible = false;
       continue;
     }
@@ -1866,8 +2015,8 @@ function updateEnemies(dt) {
       const gy = groundY(e.pos.x, e.pos.z);
       if (e.pos.y < gy) { e.pos.y = gy; e.vel.y = 0; }
       collideBody(e);
-      e.model.root.position.copy(e.pos);
-      poseHuman(e.model, 'air', { t: elapsed }, dt);
+      e.visual.root.position.copy(e.pos);
+      e.visual.play('air', { t: elapsed }, dt);
       continue;
     }
 
@@ -1910,6 +2059,7 @@ function updateEnemies(dt) {
         } else if (e.attackCd <= 0 && !e.attack) {
           e.attack = { type: 'thugSwing', t: 0, hitDone: false };
           e.attackCd = rand(1.1, 1.8);
+          e.visual.attackOneShot();
         }
       }
     } else {
@@ -1963,12 +2113,12 @@ function updateEnemies(dt) {
     e.pos.y = groundY(e.pos.x, e.pos.z);
     if (speed > 0.1) e.phase += dt * (4 + speed * 1.7);
 
-    e.model.root.position.copy(e.pos);
-    e.model.root.rotation.x = lerp(e.model.root.rotation.x, 0, dt * 8);
-    e.model.root.rotation.y = e.facing;
-    poseHuman(e.model, anim === 'run' ? 'run' : 'idle',
+    e.visual.root.position.copy(e.pos);
+    e.visual.root.rotation.x = lerp(e.visual.root.rotation.x, 0, dt * 8);
+    e.visual.root.rotation.y = e.facing;
+    e.visual.play(anim === 'run' ? 'run' : 'idle',
       { phase: e.phase, speed01: clamp(speed / 5, 0, 1), t: elapsed + e.phase }, dt);
-    overlayAttack(e.model, e.attack, dt);
+    if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
     // HP-Balken zur Kamera & ausblenden wenn voll
     e.hpBar.g.visible = e.hp < CFG.enemyHP;
   }
@@ -2077,6 +2227,19 @@ function hideObjective() {
 let hitstopT = 0;
 function hitstop(sec) { hitstopT = Math.max(hitstopT, sec); }
 
+/* ======================= Startaufbau der Figuren ======================= */
+let actorsReady = false;
+function initActors() {
+  heroVisual = makeCharacterVisual('hero', { hero: true });
+  for (let i = 0; i < CFG.civCount; i++) spawnCivilian();
+  // Startgangs (auf Gehwegen, mit Abstand zum Startpunkt)
+  spawnGangAwayFromPlayer();
+  spawnGangAwayFromPlayer();
+  spawnGangAwayFromPlayer();
+  actorsReady = true;
+}
+loadGlbAssets(initActors);
+
 /* ======================= Hauptschleife ======================= */
 const clock = new THREE.Clock();
 let elapsed = 0;
@@ -2084,7 +2247,7 @@ let elapsed = 0;
 function animate() {
   requestAnimationFrame(animate);
   let dt = Math.min(clock.getDelta(), 0.05);
-  if (!isActive()) { renderer.render(scene, camera); return; }
+  if (!isActive() || !actorsReady) { renderer.render(scene, camera); return; }
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
   elapsed += dt;
 
@@ -2109,5 +2272,10 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+
+// Nur für automatisierte Tests sichtbar
+if (window.__WEBHERO_TEST__ === true) {
+  window.__dbg = { player, enemies, civilians, cars, glbModels, get actorsReady() { return actorsReady; } };
+}
 
 })();

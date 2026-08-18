@@ -26,15 +26,28 @@ Ordner `lib/` bei. Wichtig ist nur, dass `index.html`, `game.js` und der
 Empfohlen: Chrome, Edge oder Firefox am Desktop (Maus + Tastatur nötig).
 Im Startbildschirm einmal klicken, damit das Spiel die Maus übernehmen darf.
 
-## 🌐 Online spielen (GitHub Pages, kostenlos)
+## 🌐 Online spielen (GitHub Pages)
 
-Das Spiel kann direkt über GitHub gehostet werden – dann reicht ein Link:
+Das Spiel wird bei jedem Push **automatisch** über GitHub Actions auf
+GitHub Pages veröffentlicht (Workflow: `.github/workflows/deploy-pages.yml`).
 
-1. Auf GitHub im Repository auf **Settings → Pages** gehen
-2. Bei **Source**: „Deploy from a branch“ wählen
-3. Als Branch den Spiel-Branch (oder `main`) und Ordner **`/ (root)`** wählen → **Save**
-4. Nach 1–2 Minuten ist das Spiel erreichbar unter:
-   `https://salman-7300.github.io/Spider-man/`
+**▶️ Spiel-Link: https://salman-7300.github.io/Spider-man/**
+
+Auf der Webseite werden zusätzlich die 3D-Menschenmodelle aus dem
+`assets/`-Ordner geladen (siehe unten).
+
+## 🧍 Echte 3D-Menschen-Charaktere (GLB-Modelle)
+
+Das Spiel unterstützt geriggte 3D-Menschenmodelle im **GLB-Format** – ein
+animiertes Beispielmodell für die Gegner (`assets/thug.glb`, Mixamo-Charakter
+aus den offiziellen Three.js-Beispielen) liegt schon bei. Eigene Modelle
+(z. B. von [Mixamo](https://www.mixamo.com), [Ready Player Me](https://readyplayer.me)
+oder [Sketchfab](https://sketchfab.com)) einfach in den `assets/`-Ordner
+legen – Dateinamen und Anleitung stehen in [`assets/README.md`](assets/README.md).
+
+Fehlt ein Modell, verwendet das Spiel automatisch die eingebauten Figuren.
+Hinweis: GLB-Modelle laden nur über http(s) (Webseite oder lokaler Server) –
+beim Offline-Start per Doppelklick erscheinen die eingebauten Figuren.
 
 ## 🎮 Steuerung
 
