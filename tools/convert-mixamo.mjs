@@ -2,20 +2,22 @@
 /* =========================================================================
    Wandelt Mixamo-FBX-Dateien in spielfertige GLB-Dateien um.
 
-   Die Dateinamen dürfen so bleiben, wie Mixamo sie vergibt
-   ("Running (7).fbx", "Idle (5).fbx", "Ch24_nonPBR.fbx", ...).
-   Ob eine Datei das Modell oder eine Animation ist, wird am INHALT erkannt.
+   AUTOMATIK (Standard): Einfach ALLE heruntergeladenen Dateien in einen
+   Ordner werfen – das Skript erkennt selbst, was Modell und was Animation
+   ist, und verteilt alles richtig. Dateinamen dürfen bleiben, wie Mixamo
+   sie vergibt ("Running (7).fbx", "Warrok W Kurniawan.fbx", ...).
+
+   Weil alle Mixamo-Figuren dasselbe Skelett benutzen, gelten die
+   Animationen für ALLE Figuren – ein Satz reicht.
 
    Aufruf:
-     node tools/convert-mixamo.mjs <eingabeordner> <ausgabeordner> [--slot=thug]
-
-   --slot   Für welche Figur die Dateien sind: hero | civilian | civilian2 |
-            civilian3 | thug. Ohne Angabe muss der Dateiname mit dem Slot
-            beginnen (z. B. "thug-run.fbx").
+     node tools/convert-mixamo.mjs <eingabe> <ausgabe>            (Automatik)
+     node tools/convert-mixamo.mjs <eingabe> <ausgabe> --slot=thug (nur eine Figur)
+     ... --map="warrok:thug,remy:civilian"   (feste Zuordnung nach Namensteil)
 
    Ausgabe:
      <slot>.glb          – Modell (Texturen auf max. 1024 px)
-     <slot>@<anim>.glb   – je eine Animation (winzig, nur Bewegung)
+     <slot>@<anim>.glb   – Animation (winzig, nur Bewegung)
    ========================================================================= */
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -28,6 +30,13 @@ const { NodeIO } = require('@gltf-transform/core');
 const { prune, dedup, textureCompress } = require('@gltf-transform/functions');
 
 const SLOTS = ['hero', 'civilian', 'civilian2', 'civilian3', 'thug'];
+/* Reihenfolge, in der gefundene Modelle verteilt werden.
+   "hero" bleibt frei: Der Held soll standardmäßig sein Netz-Kostüm behalten. */
+const AUTO_REIHENFOLGE = ['civilian', 'civilian2', 'civilian3'];
+/* Figuren, die nach Schurke aussehen -> Gegner */
+const GEGNER_NAMEN = /warrok|brute|thug|goon|zombie|mutant|monster|maw|vampire|boss|ninja|guard|swat|joe|shae|mremireh|castle/i;
+/* Figuren, die nach Held klingen */
+const HELD_NAMEN = /hero|spider|spinne|held/i;
 
 /* Mixamo-Animationsnamen -> Bezeichnung im Spiel */
 const ANIM_KEYWORDS = [
@@ -45,7 +54,9 @@ const ANIM_KEYWORDS = [
 
 const args = process.argv.slice(2);
 const positional = args.filter((a) => !a.startsWith('--'));
-const slotArg = (args.find((a) => a.startsWith('--slot=')) || '').split('=')[1] || null;
+const opt = (name) => (args.find((a) => a.startsWith(`--${name}=`)) || '').split('=').slice(1).join('=') || null;
+const slotArg = opt('slot');
+const mapArg = opt('map');
 const inputDir = positional[0] || 'tools/input';
 const outputDir = positional[1] || 'assets';
 
@@ -53,6 +64,15 @@ if (slotArg && !SLOTS.includes(slotArg)) {
   console.error(`Unbekannter Slot "${slotArg}". Erlaubt: ${SLOTS.join(', ')}`);
   process.exit(1);
 }
+/* --map="warrok:thug,remy:civilian" -> [[/warrok/i,'thug'], ...] */
+const festeZuordnung = (mapArg || '').split(',').filter(Boolean).map((paar) => {
+  const [teil, slot] = paar.split(':');
+  if (!SLOTS.includes(slot)) {
+    console.error(`Unbekannter Slot "${slot}" in --map`);
+    process.exit(1);
+  }
+  return [new RegExp(teil.trim(), 'i'), slot];
+});
 
 const fbxBin = path.join(
   path.dirname(require.resolve('fbx2gltf/package.json')),
@@ -66,7 +86,7 @@ function fbxToGlb(src, dst) {
     { stdio: ['ignore', 'ignore', 'inherit'] });
 }
 
-/* Verrät, was in einer GLB-Datei steckt: Modell oder Animation? */
+/* Verrät, was in einer GLB-Datei steckt */
 function inspectGlb(file) {
   const b = fs.readFileSync(file);
   const json = JSON.parse(b.slice(20, 20 + b.readUInt32LE(12)).toString());
@@ -90,8 +110,7 @@ async function optimizeModel(file) {
   await io.write(file, doc);
 }
 
-/* Aus einer Animationsdatei alles entfernen, was nicht die Bewegung ist –
-   spart rund 80 % Größe, selbst bei „With Skin“-Downloads. */
+/* Aus einer Animationsdatei alles entfernen außer der Bewegung */
 async function stripToAnimation(file) {
   const io = new NodeIO();
   const doc = await io.read(file);
@@ -106,19 +125,17 @@ async function stripToAnimation(file) {
   return true;
 }
 
-/* Slot und Animationsname aus dem Dateinamen ableiten */
-function deuteDateiname(file) {
-  const base = file.replace(/\.fbx$/i, '');
-  const norm = base.toLowerCase().replace(/[\s_]+/g, '-');
-  let slot = slotArg;
-  let rest = norm;
-  const m = norm.match(/^([a-z0-9]+)-(.+)$/);
-  if (m && SLOTS.includes(m[1])) { slot = m[1]; rest = m[2]; }
-  let anim = null;
-  for (const [re, name] of ANIM_KEYWORDS) {
-    if (re.test(rest)) { anim = name; break; }
-  }
-  return { slot, anim, rest };
+function animTypFuer(name) {
+  for (const [re, typ] of ANIM_KEYWORDS) if (re.test(name)) return typ;
+  return null;
+}
+
+/* Slot aus dem Dateinamen ableiten (falls vorangestellt oder per --map) */
+function slotAusName(name) {
+  for (const [re, slot] of festeZuordnung) if (re.test(name)) return slot;
+  const m = name.toLowerCase().replace(/[\s_]+/g, '-').match(/^([a-z0-9]+)-/);
+  if (m && SLOTS.includes(m[1])) return m[1];
+  return null;
 }
 
 if (!fs.existsSync(inputDir)) {
@@ -127,52 +144,132 @@ if (!fs.existsSync(inputDir)) {
 }
 fs.mkdirSync(outputDir, { recursive: true });
 
-const files = fs.readdirSync(inputDir).filter((f) => /\.fbx$/i.test(f)).sort();
+const files = fs.readdirSync(inputDir).filter((f) => /\.fbx$/i.test(f));
 if (!files.length) {
   console.error(`Keine FBX-Dateien in ${inputDir} gefunden.`);
   process.exit(1);
 }
-console.log(`${files.length} FBX-Datei(en) gefunden${slotArg ? ` (Slot: ${slotArg})` : ''}\n`);
+/* Nach Änderungszeit sortieren – so bleibt die Download-Reihenfolge erhalten */
+files.sort((a, b) => fs.statSync(path.join(inputDir, a)).mtimeMs
+                   - fs.statSync(path.join(inputDir, b)).mtimeMs);
+
+console.log(`${files.length} FBX-Datei(en) gefunden` +
+            (slotArg ? ` (feste Figur: ${slotArg})` : ' (Automatik)') + '\n');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbx-'));
-let modelle = 0, animationen = 0, uebersprungen = 0;
+const gefundeneModelle = [];   // {name, tmp}
+const gefundeneAnims = [];     // {name, tmp, typ, groesse, slot}
+let fehler = 0;
 
-for (const file of files) {
-  const { slot, anim, rest } = deuteDateiname(file);
-  if (!slot) {
-    console.warn(`⚠ ${file}: kein Slot erkennbar – bitte --slot=<name> angeben ` +
-                 `oder Datei "<slot>-<teil>.fbx" nennen. Übersprungen.`);
-    uebersprungen++;
-    continue;
-  }
-  const tmp = path.join(tmpDir, 'out.glb');
+/* ---------- 1. Durchgang: alles umwandeln und einordnen ---------- */
+for (let i = 0; i < files.length; i++) {
+  const file = files[i];
+  const tmp = path.join(tmpDir, `${i}.glb`);
   try {
     fbxToGlb(path.join(inputDir, file), tmp);
   } catch (e) {
-    console.warn(`⚠ ${file}: konnte nicht umgewandelt werden. Übersprungen.`);
-    uebersprungen++;
+    console.warn(`⚠ ${file}: konnte nicht umgewandelt werden – übersprungen.`);
+    fehler++;
     continue;
   }
   const info = inspectGlb(tmp);
-  // Inhalt entscheidet: Animationen drin -> Animationsdatei, sonst Modell
-  const istModell = info.animationen === 0 && info.hatMeshes;
-  const zielName = istModell ? `${slot}.glb` : `${slot}@${anim || rest.replace(/[^a-z0-9]/g, '')}.glb`;
-  const ziel = path.join(outputDir, zielName);
-  fs.copyFileSync(tmp, ziel);
-
-  const vorher = fs.statSync(ziel).size;
-  if (istModell) {
-    await optimizeModel(ziel);
-    console.log(`✓ ${file}\n    -> ${zielName} (Modell, ${(vorher / 1e6).toFixed(1)} MB -> ${(fs.statSync(ziel).size / 1e6).toFixed(1)} MB)`);
-    modelle++;
+  const name = file.replace(/\.fbx$/i, '');
+  if (info.animationen === 0 && info.hatMeshes) {
+    gefundeneModelle.push({ name, tmp });
+  } else if (info.animationen > 0) {
+    gefundeneAnims.push({
+      name, tmp,
+      typ: animTypFuer(name),
+      groesse: fs.statSync(tmp).size,
+      slot: slotArg || slotAusName(name),
+    });
   } else {
-    await stripToAnimation(ziel);
-    console.log(`✓ ${file}\n    -> ${zielName} (Animation, ${(vorher / 1e3).toFixed(0)} KB -> ${(fs.statSync(ziel).size / 1e3).toFixed(0)} KB)`);
-    animationen++;
+    console.warn(`⚠ ${file}: weder Modell noch Animation – übersprungen.`);
+    fehler++;
   }
 }
+
+console.log(`Erkannt: ${gefundeneModelle.length} Modell(e), ${gefundeneAnims.length} Animation(en)\n`);
+
+/* ---------- 2. Modelle den Figuren zuordnen ---------- */
+const belegt = new Map();      // slot -> {name, tmp}
+const freieSlots = [...AUTO_REIHENFOLGE];
+
+for (const modell of gefundeneModelle) {
+  let slot = slotArg || slotAusName(modell.name);
+  if (!slot) {
+    if (HELD_NAMEN.test(modell.name) && !belegt.has('hero')) slot = 'hero';
+    else if (GEGNER_NAMEN.test(modell.name) && !belegt.has('thug')) slot = 'thug';
+    else slot = freieSlots.shift() || null;
+  }
+  if (!slot) {
+    console.warn(`⚠ ${modell.name}: keine freie Figur mehr – übersprungen.`);
+    continue;
+  }
+  if (belegt.has(slot)) {
+    console.warn(`⚠ ${modell.name}: Figur "${slot}" schon vergeben – übersprungen.`);
+    continue;
+  }
+  belegt.set(slot, modell);
+  const idx = freieSlots.indexOf(slot);
+  if (idx >= 0) freieSlots.splice(idx, 1);
+}
+
+/* ---------- 3. Beste Animation je Bewegungsart wählen ---------- */
+/* Bei mehreren Dateien derselben Bewegung gewinnt die kleinste
+   (das ist der "Without Skin"-Download – die anderen enthalten
+   überflüssigerweise das ganze Modell). */
+const besteAnims = new Map();  // "slot|typ" oder "*|typ" -> eintrag
+let ohneTyp = 0;
+for (const anim of gefundeneAnims) {
+  if (!anim.typ) {
+    ohneTyp++;
+    console.warn(`⚠ ${anim.name}: Bewegungsart nicht erkennbar – übersprungen.`);
+    continue;
+  }
+  const key = `${anim.slot || '*'}|${anim.typ}`;
+  const vorhanden = besteAnims.get(key);
+  if (!vorhanden || anim.groesse < vorhanden.groesse) besteAnims.set(key, anim);
+}
+
+/* ---------- 4. Schreiben ---------- */
+const zielSlots = belegt.size ? [...belegt.keys()]
+  : (slotArg ? [slotArg] : [...new Set(gefundeneAnims.map((a) => a.slot).filter(Boolean))]);
+
+let geschriebeneModelle = 0, geschriebeneAnims = 0;
+
+for (const [slot, modell] of belegt) {
+  const ziel = path.join(outputDir, `${slot}.glb`);
+  fs.copyFileSync(modell.tmp, ziel);
+  const vorher = fs.statSync(ziel).size;
+  await optimizeModel(ziel);
+  console.log(`✓ Modell   "${modell.name}" -> ${slot}.glb ` +
+              `(${(vorher / 1e6).toFixed(1)} MB -> ${(fs.statSync(ziel).size / 1e6).toFixed(1)} MB)`);
+  geschriebeneModelle++;
+}
+
+for (const [key, anim] of besteAnims) {
+  const [keySlot, typ] = key.split('|');
+  // Animationen ohne feste Figur gelten für alle Figuren (gleiches Skelett)
+  const slots = keySlot === '*' ? zielSlots : [keySlot];
+  for (const slot of slots) {
+    const ziel = path.join(outputDir, `${slot}@${typ}.glb`);
+    fs.copyFileSync(anim.tmp, ziel);
+    const vorher = fs.statSync(ziel).size;
+    await stripToAnimation(ziel);
+    console.log(`✓ Bewegung "${anim.name}" -> ${slot}@${typ}.glb ` +
+                `(${(vorher / 1e3).toFixed(0)} KB -> ${(fs.statSync(ziel).size / 1e3).toFixed(0)} KB)`);
+    geschriebeneAnims++;
+  }
+}
+
 fs.rmSync(tmpDir, { recursive: true, force: true });
 
-console.log(`\nFertig: ${modelle} Modell(e), ${animationen} Animation(en)` +
-            (uebersprungen ? `, ${uebersprungen} übersprungen` : '') + ` -> ${outputDir}/`);
-if (!modelle && !animationen) process.exit(1);
+console.log(`\nFertig: ${geschriebeneModelle} Modell(e), ${geschriebeneAnims} Animationsdatei(en) -> ${outputDir}/`);
+if (belegt.size) {
+  console.log('Zuordnung:');
+  for (const [slot, m] of belegt) console.log(`  ${slot.padEnd(10)} = ${m.name}`);
+  if (!belegt.has('hero')) console.log('  hero       = eingebautes Netz-Kostüm (unverändert)');
+}
+if (fehler || ohneTyp) console.log(`Hinweis: ${fehler + ohneTyp} Datei(en) übersprungen.`);
+if (!geschriebeneModelle && !geschriebeneAnims) process.exit(1);

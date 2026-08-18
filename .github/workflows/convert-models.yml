@@ -4,13 +4,13 @@ name: 3D-Charaktere aus Release umwandeln (FBX zu GLB)
 # wandelt sie in kleine GLB-Dateien um und committet sie nach assets/.
 # Der Push löst danach automatisch das Pages-Deployment aus.
 #
-# Für welche Figur die Dateien sind, wird am RELEASE-TAG erkannt:
-#   Tag "thug-1"      -> Gegner
-#   Tag "civilian-1"  -> Zivilist
-#   Tag "civilian2-1" -> zweiter Zivilist
-#   Tag "hero-1"      -> Held
+# AUTOMATIK: Einfach ALLE Mixamo-Dateien an EIN Release hängen – das Skript
+# erkennt selbst, was Modell und was Animation ist, und verteilt alles.
 # Die Dateinamen dürfen bleiben, wie Mixamo sie vergibt
-# ("Running (7).fbx", "Idle (5).fbx", ...).
+# ("Running (7).fbx", "Warrok W Kurniawan.fbx", ...).
+#
+# Optional: Enthält der Release-Tag einen Figurennamen (z. B. "thug-1"),
+# gehören alle Dateien des Releases zu genau dieser Figur.
 
 on:
   release:
@@ -69,11 +69,10 @@ jobs:
             esac
           fi
           if [ -z "$SLOT" ]; then
-            echo "Kein Slot im Tag '$TAG' erkannt."
-            echo "Bitte den Release-Tag z. B. 'thug-1' oder 'civilian-1' nennen,"
-            echo "oder die Dateien '<slot>-<teil>.fbx' benennen."
+            echo "Keine Figur im Tag '$TAG' genannt -> Automatik:"
+            echo "Modelle und Animationen werden selbst erkannt und zugeordnet."
           else
-            echo "Erkannte Figur: $SLOT"
+            echo "Alle Dateien gehören zur Figur: $SLOT"
           fi
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
 

@@ -9,26 +9,35 @@ eingebaute Figur – es kann also nie etwas kaputtgehen.
 Der normale Datei-Upload („Add file → Upload files“) erlaubt **nur 25 MB**.
 Für große Dateien gibt es **Releases** – dort sind **2 GB pro Datei** erlaubt.
 
-**Der richtige Weg:**
+**Der einfachste Weg – alles auf einmal:**
 
 1. Öffne: <https://github.com/Salman-7300/Spider-man/releases/new>
-2. Bei **„Choose a tag“** einen Namen eintippen, der die Figur nennt, und auf
-   **„Create new tag“** klicken:
-   - `thug-1` → Gegner
-   - `civilian-1` → Zivilist · `civilian2-1` → zweiter Zivilist
-   - `hero-1` → Held
-3. Alle FBX-Dateien dieser Figur in das Feld
-   **„Attach binaries by dropping them here“** ziehen –
-   **die Dateinamen dürfen bleiben, wie Mixamo sie vergibt**
-   (`Running (7).fbx`, `Idle (5).fbx`, `Punching (1).fbx`, …)
+2. Bei **„Choose a tag“** irgendeinen Namen eintippen (z. B. `mixamo-1`) und
+   **„Create new tag“** klicken
+3. **Alle** FBX-Dateien aus dem Download-Ordner in das Feld
+   **„Attach binaries by dropping them here“** ziehen – auf einmal, ohne
+   Sortieren und ohne Umbenennen
 4. **„Publish release“** klicken
 
-Danach läuft der Workflow *„3D-Charaktere aus Release umwandeln“* automatisch:
-FBX → GLB, Texturen verkleinert, Animationsdateien auf reine Bewegung
-reduziert (spart ~80 %), Modelle committet – und das Spiel auf der Webseite
-aktualisiert sich von selbst.
+Die Umwandlung erkennt dann von selbst:
 
-👉 Für jede Figur ein eigenes Release (der Tag bestimmt, welche Figur es ist).
+- welche Datei ein **Modell** ist (enthält ein Netz, aber keine Bewegung)
+- welche Datei eine **Animation** ist und welche Bewegung sie zeigt
+- welche Dateien **doppelt** sind – von mehreren Versionen derselben Bewegung
+  gewinnt automatisch die kleinste (der „Without Skin“-Download)
+
+Modelle werden der Reihe nach auf `civilian`, `civilian2`, `civilian3`
+verteilt; Figuren mit typischen Schurkennamen (z. B. *Warrok*, *Brute*,
+*Zombie*) landen beim Gegner (`thug`). Der Held behält sein Netz-Kostüm,
+außer eine Datei heißt ausdrücklich `hero...` oder `spider...`.
+
+Weil alle Mixamo-Figuren dasselbe Skelett benutzen, gilt **ein Satz
+Animationen für alle Figuren** – du musst also nicht pro Charakter
+Bewegungen hochladen.
+
+**Wenn du die Zuordnung selbst bestimmen willst:** Nenne den Release-Tag nach
+der Figur (`thug-1`, `civilian-1`, `hero-1`) – dann gehören alle Dateien
+dieses Releases zu genau dieser Figur.
 
 ## Wie Dateien erkannt werden
 

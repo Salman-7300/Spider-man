@@ -42,10 +42,11 @@ Das Spiel unterstützt geriggte 3D-Menschenmodelle im **GLB-Format** – ein
 animiertes Beispielmodell für die Gegner (`assets/thug.glb`, Mixamo-Charakter
 aus den offiziellen Three.js-Beispielen) liegt schon bei.
 
-**Mixamo-Dateien sind zu groß für GitHub (>25 MB)?** Kein Problem: Hänge die
-FBX-Dateien einfach an ein **GitHub-Release** an (erlaubt bis 2 GB). Der
-Workflow `convert-models.yml` wandelt sie automatisch in kleine GLB-Dateien
-um, verkleinert Texturen und veröffentlicht sie aufs Spiel. Die komplette
+**Mixamo-Dateien sind zu groß für GitHub (>25 MB)?** Kein Problem: Hänge
+einfach **alle** FBX-Dateien an ein **GitHub-Release** an (erlaubt bis 2 GB) –
+ohne Sortieren, ohne Umbenennen. Der Workflow `convert-models.yml` erkennt
+selbst, welche Datei ein Modell und welche eine Animation ist, wandelt alles
+in kleine GLB-Dateien um und veröffentlicht sie aufs Spiel. Die komplette
 Anleitung steht in [`assets/README.md`](assets/README.md).
 
 Umwandeln geht auch lokal:
