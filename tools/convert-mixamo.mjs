@@ -2,17 +2,20 @@
 /* =========================================================================
    Wandelt Mixamo-FBX-Dateien in spielfertige GLB-Dateien um.
 
-   Erwartete Eingabedateien (Ordner: tools/input/):
-     <slot>-model.fbx   – Charakter in T-Pose, "With Skin"
-     <slot>-idle.fbx    – Animation "Without Skin"
-     <slot>-walk.fbx, <slot>-run.fbx, <slot>-punch.fbx, ...
-   <slot> = hero | civilian | civilian2 | civilian3 | thug
+   Die Dateinamen dürfen so bleiben, wie Mixamo sie vergibt
+   ("Running (7).fbx", "Idle (5).fbx", "Ch24_nonPBR.fbx", ...).
+   Ob eine Datei das Modell oder eine Animation ist, wird am INHALT erkannt.
 
-   Ausgabe (Ordner: assets/):
-     <slot>.glb            – Modell (Texturen auf max. 1024px verkleinert)
-     <slot>@<anim>.glb     – je eine Animations-Datei (winzig, nur Skelett)
+   Aufruf:
+     node tools/convert-mixamo.mjs <eingabeordner> <ausgabeordner> [--slot=thug]
 
-   Aufruf:  node tools/convert-mixamo.mjs [eingabeordner] [ausgabeordner]
+   --slot   Für welche Figur die Dateien sind: hero | civilian | civilian2 |
+            civilian3 | thug. Ohne Angabe muss der Dateiname mit dem Slot
+            beginnen (z. B. "thug-run.fbx").
+
+   Ausgabe:
+     <slot>.glb          – Modell (Texturen auf max. 1024 px)
+     <slot>@<anim>.glb   – je eine Animation (winzig, nur Bewegung)
    ========================================================================= */
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -24,9 +27,32 @@ const require = createRequire(import.meta.url);
 const { NodeIO } = require('@gltf-transform/core');
 const { prune, dedup, textureCompress } = require('@gltf-transform/functions');
 
-const inputDir = process.argv[2] || 'tools/input';
-const outputDir = process.argv[3] || 'assets';
 const SLOTS = ['hero', 'civilian', 'civilian2', 'civilian3', 'thug'];
+
+/* Mixamo-Animationsnamen -> Bezeichnung im Spiel */
+const ANIM_KEYWORDS = [
+  [/idle|breathing|standing/i, 'idle'],
+  [/walk/i, 'walk'],
+  [/run|jog|sprint/i, 'run'],
+  [/jump|fall/i, 'jump'],
+  [/punch|jab|hook/i, 'punch'],
+  [/kick/i, 'kick'],
+  [/hit|impact|react/i, 'hit'],
+  [/sit|crouch|dying|death/i, 'sit'],
+  [/climb/i, 'climb'],
+  [/swing|hang|fly/i, 'swing'],
+];
+
+const args = process.argv.slice(2);
+const positional = args.filter((a) => !a.startsWith('--'));
+const slotArg = (args.find((a) => a.startsWith('--slot=')) || '').split('=')[1] || null;
+const inputDir = positional[0] || 'tools/input';
+const outputDir = positional[1] || 'assets';
+
+if (slotArg && !SLOTS.includes(slotArg)) {
+  console.error(`Unbekannter Slot "${slotArg}". Erlaubt: ${SLOTS.join(', ')}`);
+  process.exit(1);
+}
 
 const fbxBin = path.join(
   path.dirname(require.resolve('fbx2gltf/package.json')),
@@ -36,9 +62,16 @@ const fbxBin = path.join(
 );
 
 function fbxToGlb(src, dst) {
-  execFileSync(fbxBin, ['--binary', '--anim-framerate', 'bake30', '--input', src, '--output', dst], {
-    stdio: 'inherit',
-  });
+  execFileSync(fbxBin, ['--binary', '--anim-framerate', 'bake30', '--input', src, '--output', dst],
+    { stdio: ['ignore', 'ignore', 'inherit'] });
+}
+
+/* Verrät, was in einer GLB-Datei steckt: Modell oder Animation? */
+function inspectGlb(file) {
+  const b = fs.readFileSync(file);
+  const json = JSON.parse(b.slice(20, 20 + b.readUInt32LE(12)).toString());
+  const anims = (json.animations || []).filter((a) => (a.channels || []).length > 0);
+  return { hatMeshes: (json.meshes || []).length > 0, animationen: anims.length };
 }
 
 async function optimizeModel(file) {
@@ -50,24 +83,20 @@ async function optimizeModel(file) {
   }
   if (sharp) {
     await doc.transform(textureCompress({
-      encoder: sharp,
-      targetFormat: 'jpeg',
-      quality: 82,
-      resize: [1024, 1024],
+      encoder: sharp, targetFormat: 'jpeg', quality: 82, resize: [1024, 1024],
     }));
   }
   await doc.transform(dedup(), prune());
   await io.write(file, doc);
 }
 
-/* Aus einer Animationsdatei alles entfernen, was nicht die Bewegung ist.
-   So bleibt die Datei winzig, selbst wenn sie versehentlich „With Skin“
-   heruntergeladen wurde – das Skelett und die Animation bleiben erhalten. */
+/* Aus einer Animationsdatei alles entfernen, was nicht die Bewegung ist –
+   spart rund 80 % Größe, selbst bei „With Skin“-Downloads. */
 async function stripToAnimation(file) {
   const io = new NodeIO();
   const doc = await io.read(file);
   const root = doc.getRoot();
-  if (!root.listAnimations().length) return false; // keine Animation – unverändert lassen
+  if (!root.listAnimations().length) return false;
   for (const skin of root.listSkins()) skin.dispose();
   for (const mesh of root.listMeshes()) mesh.dispose();
   for (const mat of root.listMaterials()) mat.dispose();
@@ -77,53 +106,73 @@ async function stripToAnimation(file) {
   return true;
 }
 
+/* Slot und Animationsname aus dem Dateinamen ableiten */
+function deuteDateiname(file) {
+  const base = file.replace(/\.fbx$/i, '');
+  const norm = base.toLowerCase().replace(/[\s_]+/g, '-');
+  let slot = slotArg;
+  let rest = norm;
+  const m = norm.match(/^([a-z0-9]+)-(.+)$/);
+  if (m && SLOTS.includes(m[1])) { slot = m[1]; rest = m[2]; }
+  let anim = null;
+  for (const [re, name] of ANIM_KEYWORDS) {
+    if (re.test(rest)) { anim = name; break; }
+  }
+  return { slot, anim, rest };
+}
+
 if (!fs.existsSync(inputDir)) {
   console.error(`Eingabeordner ${inputDir} fehlt.`);
   process.exit(1);
 }
 fs.mkdirSync(outputDir, { recursive: true });
 
-const files = fs.readdirSync(inputDir).filter((f) => f.toLowerCase().endsWith('.fbx'));
+const files = fs.readdirSync(inputDir).filter((f) => /\.fbx$/i.test(f)).sort();
 if (!files.length) {
   console.error(`Keine FBX-Dateien in ${inputDir} gefunden.`);
   process.exit(1);
 }
-console.log('Gefundene FBX-Dateien:', files.join(', '));
+console.log(`${files.length} FBX-Datei(en) gefunden${slotArg ? ` (Slot: ${slotArg})` : ''}\n`);
 
-let converted = 0;
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbx-'));
+let modelle = 0, animationen = 0, uebersprungen = 0;
+
 for (const file of files) {
-  // Dateiname zerlegen: "<slot>-<teil>.fbx" (Groß/Kleinschreibung egal)
-  const base = file.replace(/\.fbx$/i, '').toLowerCase().replace(/[\s_]+/g, '-');
-  const m = base.match(/^([a-z0-9]+)-(.+)$/);
-  if (!m || !SLOTS.includes(m[1])) {
-    console.warn(`Überspringe ${file} – Name muss "<slot>-<teil>.fbx" sein (Slots: ${SLOTS.join(', ')})`);
+  const { slot, anim, rest } = deuteDateiname(file);
+  if (!slot) {
+    console.warn(`⚠ ${file}: kein Slot erkennbar – bitte --slot=<name> angeben ` +
+                 `oder Datei "<slot>-<teil>.fbx" nennen. Übersprungen.`);
+    uebersprungen++;
     continue;
   }
-  const [, slot, part] = m;
-  const src = path.join(inputDir, file);
-  const isModel = part === 'model' || part === 'tpose' || part === 't-pose';
-  const dst = path.join(outputDir, isModel ? `${slot}.glb` : `${slot}@${part}.glb`);
-  console.log(`\n→ ${file}  =>  ${dst}`);
-  fbxToGlb(src, dst);
-  if (isModel) {
-    const before = fs.statSync(dst).size;
-    await optimizeModel(dst);
-    const after = fs.statSync(dst).size;
-    console.log(`  Modell optimiert: ${(before / 1e6).toFixed(1)} MB → ${(after / 1e6).toFixed(1)} MB`);
-  } else {
-    const before = fs.statSync(dst).size;
-    const stripped = await stripToAnimation(dst);
-    const after = fs.statSync(dst).size;
-    if (!stripped) {
-      console.warn(`  ACHTUNG: keine Animation gefunden in ${file}`);
-    }
-    console.log(`  Animationsdatei: ${(before / 1e3).toFixed(0)} KB → ${(after / 1e3).toFixed(0)} KB`);
+  const tmp = path.join(tmpDir, 'out.glb');
+  try {
+    fbxToGlb(path.join(inputDir, file), tmp);
+  } catch (e) {
+    console.warn(`⚠ ${file}: konnte nicht umgewandelt werden. Übersprungen.`);
+    uebersprungen++;
+    continue;
   }
-  converted++;
-}
+  const info = inspectGlb(tmp);
+  // Inhalt entscheidet: Animationen drin -> Animationsdatei, sonst Modell
+  const istModell = info.animationen === 0 && info.hatMeshes;
+  const zielName = istModell ? `${slot}.glb` : `${slot}@${anim || rest.replace(/[^a-z0-9]/g, '')}.glb`;
+  const ziel = path.join(outputDir, zielName);
+  fs.copyFileSync(tmp, ziel);
 
-if (!converted) {
-  console.error('Keine Datei entsprach dem Namensschema – nichts umgewandelt.');
-  process.exit(1);
+  const vorher = fs.statSync(ziel).size;
+  if (istModell) {
+    await optimizeModel(ziel);
+    console.log(`✓ ${file}\n    -> ${zielName} (Modell, ${(vorher / 1e6).toFixed(1)} MB -> ${(fs.statSync(ziel).size / 1e6).toFixed(1)} MB)`);
+    modelle++;
+  } else {
+    await stripToAnimation(ziel);
+    console.log(`✓ ${file}\n    -> ${zielName} (Animation, ${(vorher / 1e3).toFixed(0)} KB -> ${(fs.statSync(ziel).size / 1e3).toFixed(0)} KB)`);
+    animationen++;
+  }
 }
-console.log(`\nFertig: ${converted} Datei(en) umgewandelt nach ${outputDir}/`);
+fs.rmSync(tmpDir, { recursive: true, force: true });
+
+console.log(`\nFertig: ${modelle} Modell(e), ${animationen} Animation(en)` +
+            (uebersprungen ? `, ${uebersprungen} übersprungen` : '') + ` -> ${outputDir}/`);
+if (!modelle && !animationen) process.exit(1);

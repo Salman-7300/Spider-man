@@ -1,13 +1,16 @@
 name: 3D-Charaktere aus Release umwandeln (FBX zu GLB)
 
-# Lädt die FBX-Dateien aus einem GitHub-Release (bis 2 GB pro Datei!),
+# Holt die FBX-Dateien aus einem GitHub-Release (bis 2 GB pro Datei!),
 # wandelt sie in kleine GLB-Dateien um und committet sie nach assets/.
-# Der anschließende Push löst automatisch das Pages-Deployment aus.
+# Der Push löst danach automatisch das Pages-Deployment aus.
 #
-# Erwartete Dateinamen im Release:
-#   thug-model.fbx, thug-idle.fbx, thug-walk.fbx, thug-run.fbx, thug-punch.fbx
-#   civilian-model.fbx, civilian-idle.fbx, ...  (Slots: hero, civilian,
-#   civilian2, civilian3, thug)
+# Für welche Figur die Dateien sind, wird am RELEASE-TAG erkannt:
+#   Tag "thug-1"      -> Gegner
+#   Tag "civilian-1"  -> Zivilist
+#   Tag "civilian2-1" -> zweiter Zivilist
+#   Tag "hero-1"      -> Held
+# Die Dateinamen dürfen bleiben, wie Mixamo sie vergibt
+# ("Running (7).fbx", "Idle (5).fbx", ...).
 
 on:
   release:
@@ -17,6 +20,9 @@ on:
       tag:
         description: "Release-Tag mit den FBX-Dateien"
         required: true
+      slot:
+        description: "Figur (hero, civilian, civilian2, civilian3, thug)"
+        required: false
 
 permissions:
   contents: write
@@ -45,11 +51,44 @@ jobs:
             --dir tools/input --pattern "*.fbx" --pattern "*.FBX"
           ls -la tools/input
 
+      - name: Figur aus dem Release-Tag bestimmen
+        id: slot
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          SLOT_INPUT: ${{ inputs.slot }}
+        run: |
+          SLOT="$SLOT_INPUT"
+          if [ -z "$SLOT" ]; then
+            LOWER=$(echo "$TAG" | tr '[:upper:]' '[:lower:]')
+            case "$LOWER" in
+              *civilian2*) SLOT=civilian2 ;;
+              *civilian3*) SLOT=civilian3 ;;
+              *civilian*)  SLOT=civilian ;;
+              *hero*)      SLOT=hero ;;
+              *thug*|*gegner*) SLOT=thug ;;
+            esac
+          fi
+          if [ -z "$SLOT" ]; then
+            echo "Kein Slot im Tag '$TAG' erkannt."
+            echo "Bitte den Release-Tag z. B. 'thug-1' oder 'civilian-1' nennen,"
+            echo "oder die Dateien '<slot>-<teil>.fbx' benennen."
+          else
+            echo "Erkannte Figur: $SLOT"
+          fi
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+
       - name: Abhängigkeiten installieren
         run: npm install --prefix tools --no-audit --no-fund
 
       - name: FBX nach GLB umwandeln
-        run: node tools/convert-mixamo.mjs tools/input assets
+        env:
+          SLOT: ${{ steps.slot.outputs.slot }}
+        run: |
+          if [ -n "$SLOT" ]; then
+            node tools/convert-mixamo.mjs tools/input assets "--slot=$SLOT"
+          else
+            node tools/convert-mixamo.mjs tools/input assets
+          fi
 
       - name: Umgewandelte Modelle committen
         run: |

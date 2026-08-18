@@ -4,26 +4,55 @@ Das Spiel lädt automatisch 3D-Menschenmodelle aus diesem Ordner und ersetzt
 damit die eingebauten Figuren. Fehlt eine Datei, erscheint automatisch die
 eingebaute Figur – es kann also nie etwas kaputtgehen.
 
-## Der einfache Weg: FBX ins Release, Rest macht GitHub
+## ⚠️ Wichtig: Mixamo-Dateien gehören ins RELEASE, nicht in den Datei-Upload
 
-Mixamo-Dateien sind oft größer als 25 MB und lassen sich deshalb **nicht**
-normal zu GitHub hochladen. Lösung: **GitHub Releases** (erlaubt bis 2 GB pro
-Datei). Ein Workflow wandelt die Dateien dann automatisch um.
+Der normale Datei-Upload („Add file → Upload files“) erlaubt **nur 25 MB**.
+Für große Dateien gibt es **Releases** – dort sind **2 GB pro Datei** erlaubt.
 
-1. Auf GitHub: **Releases → „Draft a new release“**
-2. Tag z. B. `mixamo-1` eingeben, Titel frei wählen
-3. Alle FBX-Dateien in das Feld **„Attach binaries“** ziehen
-   – Namensschema: `<slot>-<teil>.fbx`, zum Beispiel:
-   `thug-model.fbx`, `thug-idle.fbx`, `thug-walk.fbx`, `thug-run.fbx`,
-   `thug-punch.fbx`, `civilian-model.fbx`, `civilian-idle.fbx`, …
+**Der richtige Weg:**
+
+1. Öffne: <https://github.com/Salman-7300/Spider-man/releases/new>
+2. Bei **„Choose a tag“** einen Namen eintippen, der die Figur nennt, und auf
+   **„Create new tag“** klicken:
+   - `thug-1` → Gegner
+   - `civilian-1` → Zivilist · `civilian2-1` → zweiter Zivilist
+   - `hero-1` → Held
+3. Alle FBX-Dateien dieser Figur in das Feld
+   **„Attach binaries by dropping them here“** ziehen –
+   **die Dateinamen dürfen bleiben, wie Mixamo sie vergibt**
+   (`Running (7).fbx`, `Idle (5).fbx`, `Punching (1).fbx`, …)
 4. **„Publish release“** klicken
 
 Danach läuft der Workflow *„3D-Charaktere aus Release umwandeln“* automatisch:
-Er wandelt FBX → GLB um, verkleinert Texturen, entfernt aus Animationsdateien
-alles außer der Bewegung (spart ~80 % Größe) und committet die fertigen
-Modelle hierher. Das Pages-Deployment startet danach von selbst.
+FBX → GLB, Texturen verkleinert, Animationsdateien auf reine Bewegung
+reduziert (spart ~80 %), Modelle committet – und das Spiel auf der Webseite
+aktualisiert sich von selbst.
 
-## Slots (Dateinamen)
+👉 Für jede Figur ein eigenes Release (der Tag bestimmt, welche Figur es ist).
+
+## Wie Dateien erkannt werden
+
+- **Modell oder Animation?** Wird am *Inhalt* der Datei erkannt, nicht am Namen.
+  Eine Datei ohne Animation (T-Pose-Export) wird zum Modell, alles andere zur
+  Animation.
+- **Welche Animation?** Über Schlüsselwörter im Dateinamen:
+
+| Im Dateinamen | wird zu |
+|---|---|
+| `Idle`, `Breathing`, `Standing` | Stehen |
+| `Walking` | Gehen |
+| `Running`, `Jog`, `Sprint` | Rennen |
+| `Jump`, `Fall` | Springen |
+| `Punching`, `Jab`, `Hook` | Schlag |
+| `Kick` | Tritt |
+| `Sit`, `Crouch`, `Dying` | Verletzt am Boden |
+| `Climb` | Klettern |
+| `Swing`, `Hang`, `Fly` | Netzschwung |
+
+Fehlende Animationen werden automatisch durch passende ersetzt.
+`Idle` + `Walking` oder `Running` reichen schon für ein gutes Ergebnis.
+
+## Slots (Figuren)
 
 | Slot | Wird verwendet für |
 |---|---|
@@ -32,40 +61,24 @@ Modelle hierher. Das Pages-Deployment startet danach von selbst.
 | `civilian2`, `civilian3` | weitere Zivilisten-Varianten (optional) |
 | `thug` | Gegner ✅ *(Beispiel liegt bei)* |
 
-Ergebnisdateien: `<slot>.glb` (Modell) und `<slot>@<teil>.glb` (je Animation).
+Ergebnisdateien: `<slot>.glb` (Modell) und `<slot>@<animation>.glb`.
 
 ## Mixamo-Downloadeinstellungen
 
 - **Modell** (einmal pro Charakter): Charakter wählen → Download →
-  Format **FBX Binary**, Pose **T-Pose** → speichern als `<slot>-model.fbx`
+  Format **FBX Binary**, Pose **T-Pose**
 - **Animationen**: Format **FBX Binary**, Skin **Without Skin**, 30 FPS,
   bei „Walking“/„Running“ unbedingt **„In Place“** ankreuzen
-  → speichern als `<slot>-idle.fbx`, `<slot>-walk.fbx`, `<slot>-run.fbx`,
-  `<slot>-punch.fbx`
 
-## Welche Animationen erkennt das Spiel?
-
-Über den Dateinamen-Teil bzw. Clip-Namen (Groß-/Kleinschreibung egal):
-
-| Spielsituation | erkannte Teile / Namen |
-|---|---|
-| Stehen | `idle`, `stand` |
-| Gehen / Rennen | `walk`, `run`, `jog`, `sprint` |
-| Springen / Fallen | `jump`, `fall` |
-| Schwingen (Held) | `swing`, `fly`, `hang` |
-| Klettern (Held) | `climb`, `crawl` |
-| Angriff | `punch`, `attack`, `hit`, `kick` |
-| Verletzt sitzen | `sit`, `hurt`, `crouch` |
-
-Fehlende Animationen werden automatisch durch passende ersetzt.
-`idle` + `walk` oder `run` reichen schon für ein gutes Ergebnis.
+„With Skin“ funktioniert auch – die Umwandlung räumt automatisch auf, der
+Upload dauert nur länger.
 
 ## Selbst umwandeln (ohne GitHub)
 
 ```bash
-npm install --prefix tools          # einmalig
+npm install --prefix tools               # einmalig
 # FBX-Dateien nach tools/input/ legen, dann:
-node tools/convert-mixamo.mjs tools/input assets
+node tools/convert-mixamo.mjs tools/input assets --slot=thug
 ```
 
 ## Modell läuft rückwärts?
