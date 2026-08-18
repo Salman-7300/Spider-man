@@ -600,44 +600,64 @@ const SUIT_ROT = new THREE.Color(0xc8102e);
 const SUIT_BLAU = new THREE.Color(0x1b3fa0);
 const SUIT_NETZ = new THREE.Color(0x2a0409);
 
+/* Welche Körperpartie gehört zu welchem Knochen?
+   So sitzen die Farbgrenzen exakt an Schulter, Hüfte und Handgelenk –
+   unabhängig davon, welche Kleidung das Ausgangsmodell trägt. */
+function partieFuerKnochen(name) {
+  const n = name.replace(/mixamorig:?/i, '').replace(/\s+/g, '').toLowerCase();
+  if (/toe|foot/.test(n)) return 'rot';        // Stiefel
+  if (/leg/.test(n)) return 'blau';            // Beine
+  if (/hand|thumb|index|middle|ring|pinky/.test(n)) return 'rot';   // Handschuhe
+  if (/forearm|arm$/.test(n) && /left|right/.test(n)) return 'blau';// Arme
+  return 'rot';                                // Rumpf, Kopf, Schultern
+}
+
 function faerbeAlsKostuem(mesh, bbox) {
   const geo = mesh.geometry;
   const pos = geo.attributes.position;
   if (!pos) return;
+  const skinIndex = geo.attributes.skinIndex;
+  const skinWeight = geo.attributes.skinWeight;
+  const knochenNamen = (mesh.skeleton && mesh.skeleton.bones)
+    ? mesh.skeleton.bones.map((b) => partieFuerKnochen(b.name)) : null;
   const hoehe = bbox.max.y - bbox.min.y || 1;
   const mitteX = (bbox.max.x + bbox.min.x) / 2;
   const mitteZ = (bbox.max.z + bbox.min.z) / 2;
   const farben = new Float32Array(pos.count * 3);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const t = (y - bbox.min.y) / hoehe;                 // 0 = Füße, 1 = Kopf
-    const seit = Math.abs(x - mitteX) / (hoehe * 0.5);  // 0 = Mitte, ~1 = Fingerspitzen
-    /* Klassische Aufteilung: Kopf, Brust, Hände und Stiefel rot,
-       Beine und Arme blau. */
-    let rot;
-    if (t < 0.06) rot = true;               // Stiefel
-    else if (t < 0.52) rot = false;         // Beine
-    else if (seit > 0.86) rot = true;       // Handschuhe
-    else if (seit > 0.40) rot = false;      // Arme
-    else rot = true;                        // Rumpf und Kopf
+    let rot = true;
+    if (knochenNamen && skinIndex && skinWeight) {
+      // Der Knochen mit dem größten Gewicht bestimmt die Partie
+      let bestIdx = skinIndex.getX(i), bestW = skinWeight.getX(i);
+      const paare = [[skinIndex.getY(i), skinWeight.getY(i)],
+                     [skinIndex.getZ(i), skinWeight.getZ(i)],
+                     [skinIndex.getW(i), skinWeight.getW(i)]];
+      for (const [idx, w] of paare) if (w > bestW) { bestW = w; bestIdx = idx; }
+      rot = knochenNamen[bestIdx] !== 'blau';
+    } else {
+      rot = (pos.getY(i) - bbox.min.y) / hoehe > 0.52;   // Notfall ohne Skelett
+    }
     c.copy(rot ? SUIT_ROT : SUIT_BLAU);
-    /* Netzmuster nur auf den roten Flächen – waagerechte Ringe und
-       senkrechte Speichen, ruhig genug, um nicht fleckig zu wirken. */
+    /* Feines Netzmuster nur auf Rot – Ringe und Speichen um die Körperachse */
     if (rot) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const t = (y - bbox.min.y) / hoehe;
       const winkel = Math.atan2(x - mitteX, z - mitteZ);
-      const ring = Math.abs(((t * 15) % 1) - 0.5) * 2;
-      const speiche = Math.abs((((winkel / Math.PI) * 6) % 1) - 0.5) * 2;
-      if (ring > 0.9 || speiche > 0.93) c.lerp(SUIT_NETZ, 0.6);
+      const ring = Math.abs(((t * 20) % 1) - 0.5) * 2;
+      const speiche = Math.abs((((winkel / Math.PI) * 7) % 1) - 0.5) * 2;
+      if (ring > 0.92 || speiche > 0.94) c.lerp(SUIT_NETZ, 0.55);
     }
     farben[i * 3] = c.r; farben[i * 3 + 1] = c.g; farben[i * 3 + 2] = c.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
-  /* skinning muss in Three.js r128 ausdrücklich an sein – sonst bleibt das
-     Modell in der Bindepose stehen, obwohl sich das Skelett bewegt. */
-  mesh.material = new THREE.MeshLambertMaterial({
+  /* Leicht glänzend, damit es nach Anzugstoff aussieht und nicht nach Hemd.
+     skinning muss in Three.js r128 ausdrücklich an sein. */
+  mesh.material = new THREE.MeshPhongMaterial({
     vertexColors: true,
     skinning: !!mesh.isSkinnedMesh,
+    shininess: 22,
+    specular: 0x222226,
   });
 }
 
@@ -683,6 +703,14 @@ function makeGlbVisual(m) {
   });
   if (m.suit) setzeAugen(inner);
   root.add(inner);
+  /* Fußknochen merken – damit die Figur nie im Boden versinkt */
+  const fuesse = [];
+  inner.traverse((o) => {
+    if (o.isBone && /(left|right) ?foot$/i.test(o.name.replace(/mixamorig:?/i, ''))) fuesse.push(o);
+  });
+  const basisY = inner.position.y;
+  let fussRuhe = null, bodenKorrektur = 0;
+
   /* Handknochen merken – daran hängt später der Netzfaden */
   const haende = { L: null, R: null };
   inner.traverse((o) => {
@@ -741,19 +769,48 @@ function makeGlbVisual(m) {
   let angriff = null, angriffT = 0;
   return {
     root, procedural: false, mixer,
-    /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen */
-    poseSchwung(zielWelt, seite, k) {
+    /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen.
+       Die Beine werden vollständig gesetzt (nicht angenähert) – sonst kämpft
+       die laufende Geh-Animation dagegen an und die Beine zappeln. */
+    poseSchwung(zielWelt, seite, t) {
       const gross = seite === 'L' ? 'leftarm' : 'rightarm';
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
-      zieleKnochen(knochen[gross], knochen[klein], zielWelt, 1);
-      drehe(knochen[klein], 0, 0, 0, 0.5);
       const andere = seite === 'L' ? 'rightarm' : 'leftarm';
-      drehe(knochen[andere], 0.5, 0, seite === 'L' ? -0.9 : 0.9, k);
-      drehe(knochen.leftupleg, -1.0, 0, 0.12, k);
-      drehe(knochen.rightupleg, -0.45, 0, -0.12, k);
-      drehe(knochen.leftleg, 1.5, 0, 0, k);
-      drehe(knochen.rightleg, 0.9, 0, 0, k);
-      drehe(knochen.spine1, -0.18, 0, 0, k);
+      const andereK = seite === 'L' ? 'rightforearm' : 'leftforearm';
+      zieleKnochen(knochen[gross], knochen[klein], zielWelt, 1);
+      drehe(knochen[klein], -0.12, 0, 0, 1);
+      // freier Arm hängt leicht nach hinten und schwingt ruhig mit
+      const wiegen = Math.sin((t || 0) * 1.6) * 0.12;
+      drehe(knochen[andere], -0.35 + wiegen, 0, seite === 'L' ? -0.75 : 0.75, 1);
+      drehe(knochen[andereK], -0.5, 0, 0, 1);
+      // Beine: ein Bein angezogen, eines gestreckt – ruhige Schwunghaltung
+      drehe(knochen.leftupleg, -0.95 + wiegen * 0.5, 0, 0.12, 1);
+      drehe(knochen.rightupleg, -0.3 - wiegen * 0.5, 0, -0.12, 1);
+      drehe(knochen.leftleg, 1.35, 0, 0, 1);
+      drehe(knochen.rightleg, 0.55, 0, 0, 1);
+      drehe(knochen.leftfoot, 0.3, 0, 0, 1);
+      drehe(knochen.rightfoot, 0.3, 0, 0, 1);
+      drehe(knochen.spine1, -0.16, 0, 0, 1);
+      drehe(knochen.head, 0.2, 0, 0, 1);
+    },
+    /* Kletter-Pose: flach an der Wand, Arme und Beine greifen abwechselnd */
+    poseKlettern(phase) {
+      const g = Math.sin(phase);          // Greifzyklus
+      drehe(knochen.spine, 0.22, 0, 0, 1);
+      drehe(knochen.spine1, 0.16, 0, 0, 1);
+      drehe(knochen.head, -0.75, 0, 0, 1);        // Kopf schaut nach oben
+      // Arme über Kopf, wechselseitig weiter greifend
+      drehe(knochen.leftarm, -2.5 - g * 0.45, 0, 0.55, 1);
+      drehe(knochen.rightarm, -2.5 + g * 0.45, 0, -0.55, 1);
+      drehe(knochen.leftforearm, -0.55 + g * 0.3, 0, 0, 1);
+      drehe(knochen.rightforearm, -0.55 - g * 0.3, 0, 0, 1);
+      // Beine angewinkelt wie beim Krabbeln
+      drehe(knochen.leftupleg, -1.15 + g * 0.5, 0, 0.4, 1);
+      drehe(knochen.rightupleg, -1.15 - g * 0.5, 0, -0.4, 1);
+      drehe(knochen.leftleg, 1.5 - g * 0.35, 0, 0, 1);
+      drehe(knochen.rightleg, 1.5 + g * 0.35, 0, 0, 1);
+      drehe(knochen.leftfoot, 0.5, 0, 0, 1);
+      drehe(knochen.rightfoot, 0.5, 0, 0, 1);
     },
     /* Netzschuss-Pose: Arm nach vorn strecken */
     poseSchuss(zielWelt, seite, k) {
@@ -768,6 +825,28 @@ function makeGlbVisual(m) {
       if (!bone) return null;
       root.updateMatrixWorld(true);
       return bone.getWorldPosition(out);
+    },
+    /* Fremde Animationen stammen von anders proportionierten Figuren.
+       Ohne Ausgleich stechen die Füße in den Boden (z. B. beim Schlagen).
+       Hier wird der tiefste Fuß gemessen und der Körper so weit angehoben,
+       dass er auf dem Boden bleibt. */
+    bodenAusgleich(k) {
+      if (!fuesse.length) return;
+      root.updateMatrixWorld(true);
+      let tiefster = Infinity;
+      for (const f of fuesse) { f.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
+      const relativ = tiefster - root.position.y;
+      if (fussRuhe === null) { fussRuhe = relativ; return; }   // Ruhehöhe merken
+      /* relativ enthält bereits die bisherige Korrektur – der Fehler wird
+         deshalb auf sie aufaddiert, sonst pendelt sich der Fuß zu tief ein. */
+      const fehler = (fussRuhe - 0.04) - relativ;
+      const ziel = Math.max(0, bodenKorrektur + fehler);
+      /* Nach oben sofort ausgleichen (sonst sinkt die Figur kurz ein),
+         nach unten weich zurückgleiten. */
+      bodenKorrektur = ziel > bodenKorrektur
+        ? ziel
+        : lerp(bodenKorrektur, ziel, k === undefined ? 0.4 : k);
+      inner.position.y = basisY + bodenKorrektur;
     },
     play(key, p, dt) {
       /* Detailstufe nach Entfernung: Skelett-Animation ist teuer, deshalb
@@ -786,8 +865,10 @@ function makeGlbVisual(m) {
         if (++lodFrame % 3) return;      // nur jedes dritte Bild animieren
         dt = lodAcc; lodAcc = 0;
       }
-      // 'run' je nach Tempo als Gehen oder Rennen abspielen
+      // Beim Schwingen und Klettern übernimmt die Pose die Führung – als
+      // Grundlage dient dann die ruhige Steh-Animation statt des Laufzyklus.
       let want = key;
+      if (key === 'swing' || key === 'climb') want = 'idle';
       if (key === 'run' && (p.speed01 || 0) < 0.5 && findClip(m.clips, 'walk')) want = 'walk';
       const a = actionFor(want) || actionFor('idle');
       if (a && a !== current) {
@@ -1473,16 +1554,20 @@ function stopSwing(boost) {
 }
 
 function coneTargetEnemy(maxDist, minDot) {
+  /* Es gewinnt der Gegner, auf den am genauesten gezielt wird – nicht
+     einfach der nächste. So landen mehrere Netzschüsse auch wirklich auf
+     demselben Gegner und wickeln ihn Stück für Stück ein. */
   const f = camForward();
-  let best = null, bestD = maxDist;
+  let best = null, bestScore = -1e9;
   for (const e of enemies) {
     if (e.dead) continue;
     const dx = e.pos.x - player.pos.x, dy = (e.pos.y + 1) - (player.pos.y + 1.4), dz = e.pos.z - player.pos.z;
     const d = Math.hypot(dx, dy, dz);
-    if (d > bestD) continue;
+    if (d > maxDist) continue;
     const dot = (dx * f.x + dz * f.z) / (Math.hypot(dx, dz) || 1);
     if (dot < minDot) continue;
-    best = e; bestD = d;
+    const score = dot * 3 - d / maxDist;
+    if (score > bestScore) { bestScore = score; best = e; }
   }
   return best;
 }
@@ -2012,14 +2097,17 @@ function updateHeroVisual(dt) {
     overlayAttack(heroVisual.human, player.attack, dt);
   } else {
     /* Pose-Korrekturen für das Menschmodell (nach der Animation) */
-    const k = Math.min(1, dt * 16);
     if (player.state === 'swing' && player.swing) {
-      heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, k);
+      heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed);
+    } else if (player.state === 'climb') {
+      heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
       heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
     } else if (player.schussT > 0) {
       player.schussT -= dt;
       heroVisual.poseSchuss(player.schussZiel, netzHand, 1);
+    } else if (player.onGround) {
+      heroVisual.bodenAusgleich(Math.min(1, dt * 12));   // Füße bleiben oben
     }
   }
 
@@ -2253,6 +2341,7 @@ function updateCivilians(dt) {
     c.visual.root.rotation.y = c.facing;
     c.visual.play(speed > 0.1 ? 'run' : 'idle',
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
+    if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
   }
 }
 
@@ -2294,29 +2383,44 @@ const cocoonKoerperGeo = (() => {
 })();
 const bandGeo = new THREE.TorusGeometry(0.47, 0.045, 5, 14);
 
+/* Der Kokon wächst mit der Anzahl der Treffer:
+   Stufe 1 = ein paar Fäden quer über den Körper,
+   Stufe 2 = deutlich mehr Wicklungen,
+   Stufe 3 = komplett eingesponnen. Ein einzelner Schuss wickelt also
+   niemanden mehr vollständig ein. */
 function makeCocoon() {
   const g = new THREE.Group();
   const koerper = new THREE.Mesh(cocoonKoerperGeo, cocoonMat);
   koerper.castShadow = true;
+  koerper.visible = false;                // erst ab Stufe 3
   g.add(koerper);
-  // quer laufende Wickelbänder
-  for (let i = 0; i < 5; i++) {
+  const baender = [];
+  for (let i = 0; i < 7; i++) {
     const b = new THREE.Mesh(bandGeo, bandMat);
-    const t = -0.72 + i * 0.36;
+    const t = -0.78 + i * 0.26;
     b.position.y = t;
-    b.rotation.x = Math.PI / 2 + rand(-0.22, 0.22);
-    b.rotation.z = rand(-0.2, 0.2);
-    const w = 1 - Math.abs(t) * 0.42;
+    b.rotation.x = Math.PI / 2 + rand(-0.3, 0.3);
+    b.rotation.z = rand(-0.25, 0.25);
+    const w = (1 - Math.abs(t) * 0.4) * 0.92;
     b.scale.set(w, w, 1);
-    g.add(b);
+    b.visible = false;
+    g.add(b); baender.push(b);
   }
-  // ein paar lose Fäden
-  for (let i = 0; i < 3; i++) {
-    const f = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, rand(0.5, 1.0), 4), bandMat);
-    f.position.set(rand(-0.35, 0.35), rand(-0.6, 0.6), rand(-0.35, 0.35));
+  const faeden = [];
+  for (let i = 0; i < 4; i++) {
+    const f = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, rand(0.6, 1.2), 4), bandMat);
+    f.position.set(rand(-0.3, 0.3), rand(-0.6, 0.6), rand(-0.3, 0.3));
     f.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
-    g.add(f);
+    f.visible = false;
+    g.add(f); faeden.push(f);
   }
+  g.userData.setzeStufe = (stufe) => {
+    // Stufe 1: 2 Bänder + 2 Fäden · Stufe 2: 4 Bänder + alle Fäden · Stufe 3: alles
+    const bAnzahl = stufe >= 3 ? baender.length : (stufe === 2 ? 4 : 2);
+    baender.forEach((b, i) => { b.visible = i < bAnzahl; });
+    faeden.forEach((f, i) => { f.visible = stufe >= 2 || i < 2; });
+    koerper.visible = stufe >= 3;
+  };
   return g;
 }
 
@@ -2360,7 +2464,7 @@ function spawnGang(cx, cz, n) {
       target: null,        // 'player' | Zivilist
       waypoint: null, waitT: rand(0, 2),
       attackT: 0, attackCd: 0, attack: null,
-      staggerT: 0, webT: 0,
+      staggerT: 0, webT: 0, webStufe: 0,
       dead: false, deadT: 0,
       gang,
       onGround: true, wall: null,
@@ -2395,9 +2499,13 @@ function spawnGangAwayFromPlayer() {
 
 function applyWeb(e) {
   if (e.dead) return;
-  e.webT = 5;
-  e.vel.set(0, 0, 0);
-  e.attack = null;
+  /* Jeder weitere Treffer wickelt fester ein. Erst ab Stufe 3 ist der
+     Gegner vollständig bewegungsunfähig. */
+  e.webStufe = Math.min(3, (e.webStufe || 0) + 1);
+  e.webT = Math.max(e.webT, 1.6 + e.webStufe * 1.6);
+  if (e.cocoon && e.cocoon.userData.setzeStufe) e.cocoon.userData.setzeStufe(e.webStufe);
+  if (e.webStufe >= 3) { e.vel.set(0, 0, 0); e.attack = null; }
+  else { e.vel.multiplyScalar(0.3); e.staggerT = Math.max(e.staggerT, 0.35); }
 }
 
 function damageEnemy(e, dmg, kind) {
@@ -2469,10 +2577,14 @@ function updateEnemies(dt) {
     if (e.webT > 0) {
       e.webT -= dt;
       e.cocoon.visible = true;
-      e.visual.root.position.copy(e.pos);
-      e.visual.play('webbed', { t: elapsed }, dt);
-      if (e.webT <= 0) e.cocoon.visible = false;
-      continue;
+      if (e.webT <= 0) { e.cocoon.visible = false; e.webStufe = 0; }
+      /* Nur voll eingesponnene Gegner stehen still – teilweise eingewickelte
+         zappeln weiter und können sich langsam bewegen. */
+      if (e.webStufe >= 3) {
+        e.visual.root.position.copy(e.pos);
+        e.visual.play('webbed', { t: elapsed }, dt);
+        continue;
+      }
     }
 
     if (e.staggerT > 0) {
@@ -2577,6 +2689,7 @@ function updateEnemies(dt) {
       }
     }
 
+    if (e.webT > 0) speed *= 0.35;      // im Netz zappelnd, kaum vorwärts
     e.vel.x = moveX * speed; e.vel.z = moveZ * speed;
     e.pos.x += e.vel.x * dt; e.pos.z += e.vel.z * dt;
     collideBody(e);
@@ -2592,6 +2705,7 @@ function updateEnemies(dt) {
     e.visual.play(anim === 'run' ? 'run' : 'idle',
       { phase: e.phase, speed01: clamp(speed / 5, 0, 1), t: elapsed + e.phase }, dt);
     if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
+    else if (e.visual.bodenAusgleich) e.visual.bodenAusgleich(Math.min(1, dt * 12));
     // HP-Balken zur Kamera & ausblenden wenn voll
     e.hpBar.g.visible = e.hp < CFG.enemyHP;
   }
@@ -2753,6 +2867,7 @@ if (window.__WEBHERO_TEST__ === true) {
     player, enemies, civilians, cars, glbModels, camera,
     get actorsReady() { return actorsReady; },
     get heroVisual() { return heroVisual; },
+    colliders,
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
   };
