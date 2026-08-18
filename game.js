@@ -494,12 +494,16 @@ const glbModels = {}; // Slot -> {scene, clips, scale, yOffset, yaw}
    Läuft ein Modell rückwärts, hier Math.PI eintragen (Standard: 0). */
 const GLB_YAW = { thug: Math.PI };
 
+/* Zusätzliche Animations-Dateien pro Modell: assets/<slot>@<teil>.glb
+   (entstehen automatisch aus Mixamo-Downloads „Without Skin“, siehe tools/) */
+const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'punch', 'attack', 'kick', 'sit', 'swing', 'climb'];
+
 function loadGlbAssets(done) {
   if (typeof THREE.GLTFLoader !== 'function' || location.protocol === 'file:') { done(); return; }
   const loader = new THREE.GLTFLoader();
   const slots = Object.keys(GLB_SLOTS);
   let pending = slots.length;
-  const finish = () => { if (--pending === 0) done(); };
+  const finish = () => { if (--pending === 0) loadCompanionClips(); };
   for (const slot of slots) {
     loader.load(GLB_SLOTS[slot], (gltf) => {
       try {
@@ -507,7 +511,7 @@ function loadGlbAssets(done) {
         const h = box.max.y - box.min.y;
         glbModels[slot] = {
           scene: gltf.scene,
-          clips: gltf.animations || [],
+          clips: (gltf.animations || []).slice(),
           scale: h > 0.01 ? 1.76 / h : 1,
           yOffset: -box.min.y,
           yaw: GLB_YAW[slot] || 0,
@@ -515,6 +519,28 @@ function loadGlbAssets(done) {
       } catch (e) { /* unbrauchbares Modell -> eingebaute Figur */ }
       finish();
     }, undefined, finish);
+  }
+  function loadCompanionClips() {
+    const jobs = [];
+    for (const slot of slots) {
+      if (!glbModels[slot]) continue;
+      for (const part of GLB_ANIM_PARTS) jobs.push([slot, part]);
+    }
+    if (!jobs.length) { done(); return; }
+    let pending2 = jobs.length;
+    const finish2 = () => { if (--pending2 === 0) done(); };
+    for (const [slot, part] of jobs) {
+      loader.load(`assets/${slot}@${part}.glb`, (gltf) => {
+        try {
+          const clip = (gltf.animations || [])[0];
+          if (clip) {
+            clip.name = part; // Clip nach dem Dateinamens-Teil benennen
+            glbModels[slot].clips.push(clip);
+          }
+        } catch (e) { /* ignorieren */ }
+        finish2();
+      }, undefined, finish2);
+    }
   }
 }
 
@@ -570,9 +596,20 @@ function makeGlbVisual(m) {
     return actions[key];
   }
   let current = null;
+  let lodAcc = 0, lodFrame = 0;
   return {
     root, procedural: false, mixer,
     play(key, p, dt) {
+      /* Detailstufe nach Entfernung: Skelett-Animation ist teuer, deshalb
+         weit entfernte Figuren ausblenden bzw. seltener animieren. */
+      const dist2 = root.position.distanceToSquared(player.pos);
+      if (dist2 > 130 * 130) { root.visible = false; return; }
+      root.visible = true;
+      if (dist2 > 45 * 45) {
+        lodAcc += dt;
+        if (++lodFrame % 3) return;      // nur jedes dritte Bild animieren
+        dt = lodAcc; lodAcc = 0;
+      }
       // 'run' je nach Tempo als Gehen oder Rennen abspielen
       let want = key;
       if (key === 'run' && (p.speed01 || 0) < 0.5 && findClip(m.clips, 'walk')) want = 'walk';

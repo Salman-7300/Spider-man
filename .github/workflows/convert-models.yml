@@ -1,0 +1,64 @@
+name: 3D-Charaktere aus Release umwandeln (FBX zu GLB)
+
+# Lädt die FBX-Dateien aus einem GitHub-Release (bis 2 GB pro Datei!),
+# wandelt sie in kleine GLB-Dateien um und committet sie nach assets/.
+# Der anschließende Push löst automatisch das Pages-Deployment aus.
+#
+# Erwartete Dateinamen im Release:
+#   thug-model.fbx, thug-idle.fbx, thug-walk.fbx, thug-run.fbx, thug-punch.fbx
+#   civilian-model.fbx, civilian-idle.fbx, ...  (Slots: hero, civilian,
+#   civilian2, civilian3, thug)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release-Tag mit den FBX-Dateien"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Spiel-Branch auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: claude/spider-man-game-dev-8cepen
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: FBX-Dateien aus dem Release herunterladen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          mkdir -p tools/input
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir tools/input --pattern "*.fbx" --pattern "*.FBX"
+          ls -la tools/input
+
+      - name: Abhängigkeiten installieren
+        run: npm install --prefix tools --no-audit --no-fund
+
+      - name: FBX nach GLB umwandeln
+        run: node tools/convert-mixamo.mjs tools/input assets
+
+      - name: Umgewandelte Modelle committen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/*.glb
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen an den Modellen."
+            exit 0
+          fi
+          git commit -m "3D-Charaktere aus Release umgewandelt (FBX zu GLB)"
+          git push origin claude/spider-man-game-dev-8cepen

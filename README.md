@@ -40,10 +40,20 @@ Auf der Webseite werden zusätzlich die 3D-Menschenmodelle aus dem
 
 Das Spiel unterstützt geriggte 3D-Menschenmodelle im **GLB-Format** – ein
 animiertes Beispielmodell für die Gegner (`assets/thug.glb`, Mixamo-Charakter
-aus den offiziellen Three.js-Beispielen) liegt schon bei. Eigene Modelle
-(z. B. von [Mixamo](https://www.mixamo.com), [Ready Player Me](https://readyplayer.me)
-oder [Sketchfab](https://sketchfab.com)) einfach in den `assets/`-Ordner
-legen – Dateinamen und Anleitung stehen in [`assets/README.md`](assets/README.md).
+aus den offiziellen Three.js-Beispielen) liegt schon bei.
+
+**Mixamo-Dateien sind zu groß für GitHub (>25 MB)?** Kein Problem: Hänge die
+FBX-Dateien einfach an ein **GitHub-Release** an (erlaubt bis 2 GB). Der
+Workflow `convert-models.yml` wandelt sie automatisch in kleine GLB-Dateien
+um, verkleinert Texturen und veröffentlicht sie aufs Spiel. Die komplette
+Anleitung steht in [`assets/README.md`](assets/README.md).
+
+Umwandeln geht auch lokal:
+
+```bash
+npm install --prefix tools
+node tools/convert-mixamo.mjs tools/input assets
+```
 
 Fehlt ein Modell, verwendet das Spiel automatisch die eingebauten Figuren.
 Hinweis: GLB-Modelle laden nur über http(s) (Webseite oder lokaler Server) –
