@@ -535,9 +535,9 @@ function loadGlbAssets(done) {
       if (!glbModels[slot]) continue;
       for (const part of GLB_ANIM_PARTS) jobs.push([slot, part]);
     }
-    if (!jobs.length) { done(); return; }
+    if (!jobs.length) { teileBewegungen(); done(); return; }
     let pending2 = jobs.length;
-    const finish2 = () => { if (--pending2 === 0) done(); };
+    const finish2 = () => { if (--pending2 === 0) { teileBewegungen(); done(); } };
     for (const [slot, part] of jobs) {
       loader.load(`assets/${slot}@${part}.glb`, (gltf) => {
         try {
@@ -560,6 +560,21 @@ function loadGlbAssets(done) {
 function entferneVersatz(clip) {
   clip.tracks = clip.tracks.filter((t) => !/\.position$/.test(t.name));
   return clip;
+}
+
+/* Modelle ohne eigene Bewegungen bekommen die eines anderen Modells.
+   Alle Figuren nutzen dasselbe Mixamo-Skelett, deshalb passen die Clips
+   überall – so braucht ein mitgebrachtes Heldenmodell keine eigenen
+   Animationsdateien. */
+function teileBewegungen() {
+  const echte = (m) => m.clips.filter((c) => !/t-?pose|mixamo\.com/i.test(c.name));
+  const alle = Object.keys(glbModels).map((k) => glbModels[k]).filter(Boolean);
+  const spender = alle.find((m) => echte(m).length >= 2);
+  if (!spender) return;
+  for (const m of alle) {
+    if (m === spender || echte(m).length >= 2) continue;
+    for (const c of echte(spender)) if (m.clips.indexOf(c) < 0) m.clips.push(c);
+  }
 }
 
 /* Animations-Zuordnung: Spielzustand -> Clip-Name (per Muster) */
