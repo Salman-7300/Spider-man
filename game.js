@@ -21,6 +21,7 @@ const CFG = {
   civCount: 22,
   carCount: 26,
   maxEnemies: 14,
+  rollDauer: 0.45,
 };
 
 const BLOCKS = 7;           // 7x7 Häuserblöcke
@@ -521,6 +522,18 @@ function loadGlbAssets(done) {
     }, undefined, finish);
   }
   function loadCompanionClips() {
+    /* Kein eigenes hero.glb? Dann einen der Menschkörper ausleihen und ihm
+       das Netz-Kostüm verpassen – so bewegt sich der Held wie ein Mensch. */
+    if (!glbModels.hero) {
+      const basis = glbModels.civilian || glbModels.civilian2 || glbModels.civilian3;
+      if (basis) {
+        /* Wichtig: dieselbe Clip-Liste weiterverwenden (keine Kopie) – die
+           Bewegungsdateien werden erst danach geladen und landen so auch
+           beim Helden. */
+        glbModels.hero = Object.assign({}, basis, { clips: basis.clips, suit: true });
+        if (!slots.includes('hero')) slots.push('hero');
+      }
+    }
     const jobs = [];
     for (const slot of slots) {
       if (!glbModels[slot]) continue;
@@ -535,13 +548,22 @@ function loadGlbAssets(done) {
           const clip = (gltf.animations || [])[0];
           if (clip) {
             clip.name = part; // Clip nach dem Dateinamens-Teil benennen
-            glbModels[slot].clips.push(clip);
+            glbModels[slot].clips.push(entferneVersatz(clip));
           }
         } catch (e) { /* ignorieren */ }
         finish2();
       }, undefined, finish2);
     }
   }
+}
+
+/* Mixamo-Bewegungen stammen oft von einem anderen Charakter als das Modell.
+   Ihre Hüft-Positionsspur ist dann in fremden Maßen und würde die Figur in
+   den Boden ziehen oder schweben lassen. Deshalb bleiben nur die Drehungen
+   erhalten – die passen bei jedem Mixamo-Skelett. */
+function entferneVersatz(clip) {
+  clip.tracks = clip.tracks.filter((t) => !/\.position$/.test(t.name));
+  return clip;
 }
 
 /* Animations-Zuordnung: Spielzustand -> Clip-Name (per Muster) */
@@ -571,16 +593,103 @@ function findClip(clips, key) {
   return null;
 }
 
+/* ---- Netz-Kostüm: färbt ein Menschmodell zum Helden um ----
+   Rot am Oberkörper, Blau an Beinen und Oberarmen, dunkle Netzlinien –
+   alles über Vertexfarben, damit es ohne passende Textur funktioniert. */
+const SUIT_ROT = new THREE.Color(0xc8102e);
+const SUIT_BLAU = new THREE.Color(0x1b3fa0);
+const SUIT_NETZ = new THREE.Color(0x2a0409);
+
+function faerbeAlsKostuem(mesh, bbox) {
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  if (!pos) return;
+  const hoehe = bbox.max.y - bbox.min.y || 1;
+  const mitteX = (bbox.max.x + bbox.min.x) / 2;
+  const mitteZ = (bbox.max.z + bbox.min.z) / 2;
+  const farben = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const t = (y - bbox.min.y) / hoehe;                 // 0 = Füße, 1 = Kopf
+    const seit = Math.abs(x - mitteX) / (hoehe * 0.5);  // 0 = Mitte, ~1 = Fingerspitzen
+    /* Klassische Aufteilung: Kopf, Brust, Hände und Stiefel rot,
+       Beine und Arme blau. */
+    let rot;
+    if (t < 0.06) rot = true;               // Stiefel
+    else if (t < 0.52) rot = false;         // Beine
+    else if (seit > 0.86) rot = true;       // Handschuhe
+    else if (seit > 0.40) rot = false;      // Arme
+    else rot = true;                        // Rumpf und Kopf
+    c.copy(rot ? SUIT_ROT : SUIT_BLAU);
+    /* Netzmuster nur auf den roten Flächen – waagerechte Ringe und
+       senkrechte Speichen, ruhig genug, um nicht fleckig zu wirken. */
+    if (rot) {
+      const winkel = Math.atan2(x - mitteX, z - mitteZ);
+      const ring = Math.abs(((t * 15) % 1) - 0.5) * 2;
+      const speiche = Math.abs((((winkel / Math.PI) * 6) % 1) - 0.5) * 2;
+      if (ring > 0.9 || speiche > 0.93) c.lerp(SUIT_NETZ, 0.6);
+    }
+    farben[i * 3] = c.r; farben[i * 3 + 1] = c.g; farben[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  /* skinning muss in Three.js r128 ausdrücklich an sein – sonst bleibt das
+     Modell in der Bindepose stehen, obwohl sich das Skelett bewegt. */
+  mesh.material = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    skinning: !!mesh.isSkinnedMesh,
+  });
+}
+
+/* Weiße Augenlinsen an den Kopfknochen hängen */
+function setzeAugen(inner) {
+  let kopf = null;
+  inner.traverse((o) => { if (!kopf && o.isBone && /head$/i.test(o.name)) kopf = o; });
+  if (!kopf) return;
+  inner.updateMatrixWorld(true);
+  const skal = new THREE.Vector3();
+  kopf.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), skal);
+  const gruppe = new THREE.Group();
+  gruppe.scale.setScalar(1 / (skal.x || 1));    // ab hier in Metern rechnen
+  kopf.add(gruppe);
+  const weiss = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const rand = new THREE.MeshBasicMaterial({ color: 0x14060a });
+  for (const seite of [-1, 1]) {
+    const auge = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 8), weiss);
+    auge.scale.set(1.25, 1.65, 0.55);
+    auge.position.set(seite * 0.055, 0.075, 0.093);
+    auge.rotation.set(0.1, seite * 0.34, seite * -0.36);
+    gruppe.add(auge);
+    const umriss = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), rand);
+    umriss.scale.set(1.25, 1.65, 0.5);
+    umriss.position.copy(auge.position).multiplyScalar(0.985);
+    umriss.rotation.copy(auge.rotation);
+    gruppe.add(umriss);
+  }
+}
+
 function makeGlbVisual(m) {
   const root = new THREE.Group();
   const inner = THREE.SkeletonUtils.clone(m.scene);
   inner.scale.setScalar(m.scale);
   inner.position.y = m.yOffset * m.scale;
   inner.rotation.y = m.yaw;
+  const bbox = new THREE.Box3().setFromObject(m.scene);
   inner.traverse((o) => {
-    if (o.isMesh || o.isSkinnedMesh) { o.castShadow = true; o.frustumCulled = false; }
+    if (o.isMesh || o.isSkinnedMesh) {
+      o.castShadow = true; o.frustumCulled = false;
+      if (m.suit) { o.geometry = o.geometry.clone(); faerbeAlsKostuem(o, bbox); }
+    }
   });
+  if (m.suit) setzeAugen(inner);
   root.add(inner);
+  /* Handknochen merken – daran hängt später der Netzfaden */
+  const haende = { L: null, R: null };
+  inner.traverse((o) => {
+    if (!o.isBone) return;
+    if (!haende.R && /right ?hand$/i.test(o.name.replace(/mixamorig:?/i, ''))) haende.R = o;
+    if (!haende.L && /left ?hand$/i.test(o.name.replace(/mixamorig:?/i, ''))) haende.L = o;
+  });
   const mixer = new THREE.AnimationMixer(inner);
   const actions = {};
   function actionFor(key) {
@@ -595,16 +704,83 @@ function makeGlbVisual(m) {
     actions[key] = clip ? mixer.clipAction(clip) : null;
     return actions[key];
   }
+  /* Knochen für die Pose-Korrekturen merken */
+  const knochen = {};
+  inner.traverse((o) => {
+    if (!o.isBone) return;
+    const n = o.name.replace(/mixamorig:?/i, '').replace(/\s+/g, '').toLowerCase();
+    if (!knochen[n]) knochen[n] = o;
+  });
+  const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+  const _va = new THREE.Vector3(), _vb = new THREE.Vector3();
+
+  /* Einen Knochen auf einen Weltpunkt ausrichten (einfache Ziel-Kinematik).
+     Die Knochenachse ergibt sich aus der Lage des Kindknochens. */
+  function zieleKnochen(bone, child, zielWelt, staerke) {
+    if (!bone || !child) return;
+    bone.updateMatrixWorld(true);
+    _va.copy(child.position).normalize();                       // Knochenachse (lokal)
+    _vb.setFromMatrixPosition(bone.matrixWorld);
+    _vb.subVectors(zielWelt, _vb).normalize();                  // Zielrichtung (Welt)
+    bone.parent.getWorldQuaternion(_q2);
+    _vb.applyQuaternion(_q2.invert());                          // in Elternraum
+    _q.setFromUnitVectors(_va, _vb);
+    bone.quaternion.slerp(_q, staerke === undefined ? 1 : staerke);
+    bone.updateMatrixWorld(true);
+  }
+
+  function drehe(bone, x, y, z, k) {
+    if (!bone) return;
+    bone.rotation.x = lerp(bone.rotation.x, x, k);
+    bone.rotation.y = lerp(bone.rotation.y, y || 0, k);
+    bone.rotation.z = lerp(bone.rotation.z, z || 0, k);
+  }
+
   let current = null;
   let lodAcc = 0, lodFrame = 0;
+  let angriff = null, angriffT = 0;
   return {
     root, procedural: false, mixer,
+    /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen */
+    poseSchwung(zielWelt, seite, k) {
+      const gross = seite === 'L' ? 'leftarm' : 'rightarm';
+      const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
+      zieleKnochen(knochen[gross], knochen[klein], zielWelt, 1);
+      drehe(knochen[klein], 0, 0, 0, 0.5);
+      const andere = seite === 'L' ? 'rightarm' : 'leftarm';
+      drehe(knochen[andere], 0.5, 0, seite === 'L' ? -0.9 : 0.9, k);
+      drehe(knochen.leftupleg, -1.0, 0, 0.12, k);
+      drehe(knochen.rightupleg, -0.45, 0, -0.12, k);
+      drehe(knochen.leftleg, 1.5, 0, 0, k);
+      drehe(knochen.rightleg, 0.9, 0, 0, k);
+      drehe(knochen.spine1, -0.18, 0, 0, k);
+    },
+    /* Netzschuss-Pose: Arm nach vorn strecken */
+    poseSchuss(zielWelt, seite, k) {
+      const gross = seite === 'L' ? 'leftarm' : 'rightarm';
+      const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
+      zieleKnochen(knochen[gross], knochen[klein], zielWelt, k);
+      drehe(knochen[klein], 0, 0, 0, k);
+    },
+    /* Weltposition einer Hand – für den Netzfaden */
+    handPos(seite, out) {
+      const bone = haende[seite] || haende.R || haende.L;
+      if (!bone) return null;
+      root.updateMatrixWorld(true);
+      return bone.getWorldPosition(out);
+    },
     play(key, p, dt) {
       /* Detailstufe nach Entfernung: Skelett-Animation ist teuer, deshalb
          weit entfernte Figuren ausblenden bzw. seltener animieren. */
       const dist2 = root.position.distanceToSquared(player.pos);
       if (dist2 > 130 * 130) { root.visible = false; return; }
       root.visible = true;
+      /* Läuft gerade ein Angriff, hat der Vorrang vor Laufen/Stehen */
+      if (angriff) {
+        angriffT -= dt;
+        if (angriffT > 0) { mixer.update(dt); return; }
+        angriff.fadeOut(0.14); angriff = null; current = null;
+      }
       if (dist2 > 45 * 45) {
         lodAcc += dt;
         if (++lodFrame % 3) return;      // nur jedes dritte Bild animieren
@@ -624,11 +800,16 @@ function makeGlbVisual(m) {
       }
       mixer.update(dt);
     },
-    attackOneShot() {
+    attackOneShot(tempo) {
       const a = actionFor('attack');
       if (!a) return;
+      const v = tempo || 1.7;
       a.setLoop(THREE.LoopOnce, 1);
-      a.reset().play();
+      a.clampWhenFinished = true;
+      if (current) current.fadeOut(0.1);
+      a.reset(); a.timeScale = v; a.fadeIn(0.07); a.play();
+      angriff = a;
+      angriffT = a.getClip().duration / v;
     },
   };
 }
@@ -830,15 +1011,24 @@ function poseHuman(h, anim, p, dt) {
       setRot(h.elL, -0.5, 0, 0, k); setRot(h.elR, -0.5, 0, 0, k);
       setRot(h.chest, 0.12, 0, 0, k);
       break;
-    case 'swing':
-      setRot(h.shR, Math.PI - 0.25, 0, -0.18, k);       // Arm nach oben zum Seil
-      setRot(h.elR, -0.15, 0, 0, k);
-      setRot(h.shL, -0.7, 0, 0.7, k); setRot(h.elL, -0.9, 0, 0, k);
-      setRot(h.hipL, -0.75, 0, 0, k); setRot(h.kneeL, 1.15, 0, 0, k);
-      setRot(h.hipR, -0.35, 0, 0, k); setRot(h.kneeR, 0.75, 0, 0, k);
-      setRot(h.chest, -0.25, 0, 0, k);
+    case 'swing': {
+      /* Die Schwunghand wechselt – die Pose spiegelt sich entsprechend. */
+      const links = p.hand === 'L';
+      const zug = links ? h.shL : h.shR;      // Arm am Seil
+      const zugE = links ? h.elL : h.elR;
+      const frei = links ? h.shR : h.shL;     // freier Arm
+      const freiE = links ? h.elR : h.elL;
+      setRot(zug, Math.PI - 0.2, 0, links ? 0.14 : -0.14, k);
+      setRot(zugE, -0.12, 0, 0, k);
+      // freier Arm deutlich vom Körper weg, sonst steckt er im Rumpf
+      setRot(frei, -0.55, 0, links ? -1.15 : 1.15, k);
+      setRot(freiE, -0.65, 0, 0, k);
+      setRot(h.hipL, -0.85, 0, 0.1, k); setRot(h.kneeL, 1.25, 0, 0, k);
+      setRot(h.hipR, -0.3, 0, -0.1, k); setRot(h.kneeR, 0.7, 0, 0, k);
+      setRot(h.chest, -0.28, links ? 0.12 : -0.12, 0, k);
       setRot(h.headG, 0.25, 0, 0, k);
       break;
+    }
     case 'climb': {
       const c = Math.sin(ph);
       setRot(h.shL, Math.PI - 0.6 + c * 0.45, 0, 0.25, k);
@@ -938,6 +1128,68 @@ function flashWebShot(from, to) {
   activeShots.push({ mesh, life: 0.18 });
 }
 
+/* ======================= Treffer-Effekte ======================= */
+/* Kleine Sammlung wiederverwendbarer Effekte: ein aufblitzender Ring und
+   ein paar Funken. Das gibt Schlägen spürbares Gewicht. */
+const effektRinge = [];
+const effektFunken = [];
+const ringGeo = new THREE.RingGeometry(0.25, 0.42, 14);
+for (let i = 0; i < 6; i++) {
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+  }));
+  m.visible = false; scene.add(m);
+  effektRinge.push({ mesh: m, t: 0 });
+}
+const funkenGeo = new THREE.SphereGeometry(0.07, 5, 4);
+for (let i = 0; i < 30; i++) {
+  const m = new THREE.Mesh(funkenGeo, new THREE.MeshBasicMaterial({
+    color: 0xffe9a8, transparent: true, opacity: 0, depthWrite: false,
+  }));
+  m.visible = false; scene.add(m);
+  effektFunken.push({ mesh: m, t: 0, vel: V3(0, 0, 0) });
+}
+
+function treffEffekt(pos, staerke, farbe) {
+  const ring = effektRinge.find((r) => r.t <= 0) || effektRinge[0];
+  ring.t = 0.26;
+  ring.mesh.visible = true;
+  ring.mesh.position.copy(pos);
+  ring.mesh.lookAt(camera.position);
+  ring.mesh.scale.setScalar(0.5 * staerke);
+  ring.mesh.material.color.setHex(farbe || 0xffffff);
+  ring.mesh.material.opacity = 0.95;
+  let n = 0;
+  for (const f of effektFunken) {
+    if (f.t > 0) continue;
+    f.t = rand(0.22, 0.4);
+    f.mesh.visible = true;
+    f.mesh.position.copy(pos);
+    f.mesh.material.color.setHex(farbe || 0xffe9a8);
+    f.vel.set(rand(-1, 1), rand(-0.3, 1), rand(-1, 1)).normalize().multiplyScalar(rand(4, 9) * staerke);
+    if (++n >= 6 + Math.round(staerke * 3)) break;
+  }
+}
+
+function updateEffekte(dt) {
+  for (const r of effektRinge) {
+    if (r.t <= 0) continue;
+    r.t -= dt;
+    const f = clamp(1 - r.t / 0.26, 0, 1);
+    r.mesh.scale.setScalar(0.5 + f * 2.6);
+    r.mesh.material.opacity = 0.95 * (1 - f);
+    if (r.t <= 0) r.mesh.visible = false;
+  }
+  for (const f of effektFunken) {
+    if (f.t <= 0) continue;
+    f.t -= dt;
+    f.vel.y -= 22 * dt;
+    f.mesh.position.addScaledVector(f.vel, dt);
+    f.mesh.material.opacity = clamp(f.t * 4, 0, 1);
+    if (f.t <= 0) f.mesh.visible = false;
+  }
+}
+
 /* ======================= Spieler ======================= */
 let heroVisual = null; // wird nach dem Laden der GLB-Assets erzeugt
 
@@ -956,9 +1208,12 @@ const player = {
   swing: null,            // {anchor, len}
   zip: null,              // {target, t, enemy}
   attack: null,           // {type, t, arm, hitDone}
+  attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
+  fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0,
   attackCd: 0,
-  dodgeT: 0, iFrames: 0,
+  dodgeT: 0, iFrames: 0, rollT: 0,
+  schussT: 0, schussZiel: V3(0, 0, 0),
   hurtCd: 0, regenCd: 0,
   platform: null,
   lastDamageFrom: null,
@@ -967,16 +1222,27 @@ const player = {
   anim: 'idle',
 };
 
-function heroHandPos(out) {
+/* Welche Hand gerade schießt – wechselt bei jedem Netzeinsatz */
+let netzHand = 'R';
+function wechsleNetzHand() { netzHand = netzHand === 'R' ? 'L' : 'R'; return netzHand; }
+
+function heroHandPos(out, seite) {
+  const s = seite || netzHand;
   if (heroVisual && heroVisual.procedural) {
     heroVisual.human.root.updateMatrixWorld(true);
-    return heroVisual.human.handR.getWorldPosition(out);
+    const hand = s === 'L' ? heroVisual.human.handL : heroVisual.human.handR;
+    return hand.getWorldPosition(out);
   }
-  // Näherung für GLB-Modelle (rechte Hand auf Schulterhöhe)
+  if (heroVisual && heroVisual.handPos) {
+    const p = heroVisual.handPos(s, out);
+    if (p) return p;
+  }
+  // Notfall-Näherung
+  const seitlich = s === 'L' ? -0.28 : 0.28;
   return out.set(
-    player.pos.x + Math.sin(player.facing) * 0.3,
-    player.pos.y + 1.5,
-    player.pos.z + Math.cos(player.facing) * 0.3
+    player.pos.x + Math.cos(player.facing) * seitlich + Math.sin(player.facing) * 0.15,
+    player.pos.y + 1.45,
+    player.pos.z - Math.sin(player.facing) * seitlich + Math.cos(player.facing) * 0.15
   );
 }
 
@@ -1138,35 +1404,53 @@ function collideBody(body, prevY) {
 
 /* ======================= Netzschwung & Netz-Aktionen ======================= */
 function findAnchor() {
-  // Bevorzugt: hohes Gebäude vor dem Spieler; sonst Himmelspunkt
+  /* Guter Ankerpunkt: möglichst weit VOR dem Spieler und deutlich über ihm –
+     dann entsteht ein weiter Bogen statt eines abrupten Rucks.
+     Die Flugrichtung zählt mit, damit der Schwung nicht bei jedem Kameraruck
+     die Richtung wechselt. */
   const f = camForward();
+  const vh = Math.hypot(player.vel.x, player.vel.z);
+  let rx = f.x, rz = f.z;
+  if (vh > 4) {                       // Flugrichtung einmischen
+    rx = f.x * 0.55 + (player.vel.x / vh) * 0.45;
+    rz = f.z * 0.55 + (player.vel.z / vh) * 0.45;
+    const l = Math.hypot(rx, rz) || 1; rx /= l; rz /= l;
+  }
   const px = player.pos.x, py = player.pos.y, pz = player.pos.z;
-  let best = null, bestScore = -1;
+  const wunschWeite = clamp(12 + vh * 1.1, 14, 34);   // schneller = weiter greifen
+  let best = null, bestScore = -1e9;
   for (const c of colliders) {
-    if (c.h < py + 9) continue;
-    const cx = clamp(px + f.x * 18, c.x0, c.x1);
-    const cz = clamp(pz + f.z * 18, c.z0, c.z1);
+    if (c.h < py + 7) continue;
+    const cx = clamp(px + rx * wunschWeite, c.x0, c.x1);
+    const cz = clamp(pz + rz * wunschWeite, c.z0, c.z1);
     const dx = cx - px, dz = cz - pz;
     const dist = Math.hypot(dx, dz);
-    if (dist > 55 || dist < 2) continue;
-    const dot = (dx * f.x + dz * f.z) / (dist || 1);
-    if (dot < 0.25) continue;
-    const anchorY = Math.min(c.h, py + 14 + dist * 0.6);
-    const score = dot * 2 - dist / 55 + Math.min(1, (anchorY - py) / 40);
-    if (score > bestScore) {
-      bestScore = score;
-      best = V3(cx, anchorY, cz);
-    }
+    if (dist > 60 || dist < 3) continue;
+    const dot = (dx * rx + dz * rz) / (dist || 1);
+    if (dot < 0.3) continue;
+    const anchorY = Math.min(c.h - 0.5, py + 16 + dist * 0.55);
+    if (anchorY < py + 6) continue;                  // zu flach -> kein Bogen
+    const hoehe = anchorY - py;
+    const score = dot * 3
+                - Math.abs(dist - wunschWeite) / 18   // Wunschweite bevorzugen
+                + clamp(hoehe / 26, 0, 1.4);
+    if (score > bestScore) { bestScore = score; best = V3(cx, anchorY, cz); }
   }
   if (best) return best;
-  // Himmelsanker als Fallback (hält den Fluss überquerbar)
-  return V3(px + f.x * 7, py + 24, pz + f.z * 7);
+  // Himmelsanker: hält auch über dem Fluss einen sauberen Bogen
+  return V3(px + rx * wunschWeite * 0.55, py + 22, pz + rz * wunschWeite * 0.55);
 }
 
 function startSwing() {
   const anchor = findAnchor();
-  const len = Math.max(CFG.ropeMin, anchor.distanceTo(player.pos) * 0.98);
-  player.swing = { anchor, len };
+  const abstand = anchor.distanceTo(player.pos);
+  const hand = wechsleNetzHand();             // Hände wechseln sich ab
+  player.swing = {
+    anchor, hand,
+    len: Math.max(CFG.ropeMin, abstand),
+    zielLen: Math.max(CFG.ropeMin, abstand),
+    t: 0,
+  };
   player.state = 'swing';
   SFX.thwip();
 }
@@ -1176,8 +1460,13 @@ function stopSwing(boost) {
   player.swing = null;
   player.state = 'air';
   if (boost) {
-    player.vel.multiplyScalar(1.06);
-    if (player.vel.y > 0) player.vel.y += 1.5;
+    /* Am tiefsten Punkt loslassen gibt den größten Schub – wie beim
+       echten Pendel wird die Drehbewegung in Weite umgesetzt. */
+    const vh = Math.hypot(player.vel.x, player.vel.z);
+    player.vel.multiplyScalar(1.05);
+    if (player.vel.y > -2) player.vel.y += 2.6;
+    else player.vel.y += 1.2;
+    if (vh > 6) { player.vel.x *= 1.04; player.vel.z *= 1.04; }
   }
   swingStrand.visible = false;
   SFX.swoosh();
@@ -1201,17 +1490,23 @@ function coneTargetEnemy(maxDist, minDot) {
 function webShot() {
   if (!heroVisual || player.dead || player.attackCd > 0.05) return;
   player.attack = { type: 'web', t: 0, hitDone: true };
-  player.attackCd = 0.45;
-  const from = heroHandPos(_v1).clone();
+  player.attackCd = 0.34;
+  const hand = wechsleNetzHand();
   const target = coneTargetEnemy(26, 0.55);
+  const ziel = target
+    ? V3(target.pos.x, target.pos.y + 1.1, target.pos.z)
+    : (() => { const f = camForward();
+               return V3(player.pos.x + f.x * 22, player.pos.y + 3.5, player.pos.z + f.z * 22); })();
+  // Arm zeigt ab sofort kurz auf das Ziel
+  player.schussZiel.copy(ziel);
+  player.schussT = 0.3;
+  if (heroVisual.poseSchuss) heroVisual.poseSchuss(ziel, hand, 1);
+  flashWebShot(heroHandPos(_v1, hand).clone(), ziel);
   SFX.web();
   if (target) {
-    flashWebShot(from, _v2.set(target.pos.x, target.pos.y + 1.1, target.pos.z).clone());
     applyWeb(target);
+    treffEffekt(ziel, 0.8, 0xbfe8ff);
     popupWorld('Eingewickelt!', target.pos, '#bfe8ff');
-  } else {
-    const f = camForward();
-    flashWebShot(from, from.clone().addScaledVector(f, 22).add(_v3.set(0, 3, 0)));
   }
 }
 
@@ -1232,11 +1527,12 @@ function webZip() {
     }
   }
   stopSwing(false);
+  const hand = wechsleNetzHand();
   player.state = 'zip';
-  player.zip = { target, enemy: enemy || null, t: 0.6 };
+  player.zip = { target, enemy: enemy || null, t: 0.6, hand };
   const dir = _v1.copy(target).sub(player.pos).sub(_v2.set(0, 1.2, 0)).normalize();
   player.vel.copy(dir).multiplyScalar(27);
-  flashWebShot(heroHandPos(_v3).clone(), target.clone());
+  flashWebShot(heroHandPos(_v3, hand).clone(), target.clone());
   SFX.zip();
 }
 
@@ -1271,22 +1567,38 @@ function tryJump() {
 function dodge() {
   if (player.dead || player.dodgeT > 0 || player.state === 'climb') return;
   const dir = inputDir() || { x: -Math.sin(player.facing), z: -Math.cos(player.facing) };
-  player.vel.x = dir.x * 16;
-  player.vel.z = dir.z * 16;
-  player.dodgeT = 0.42;
-  player.iFrames = 0.5;
+  /* Kurzer, kräftiger Satz in Bewegungsrichtung; der Körper rollt sich dabei
+     einmal ab und ist währenddessen unverwundbar. */
+  const tempo = player.onGround ? 19 : 15;
+  player.vel.x = dir.x * tempo;
+  player.vel.z = dir.z * tempo;
+  if (player.onGround) player.vel.y = 3.2;      // kleiner Hüpfer, wirkt sprungiger
+  player.facing = Math.atan2(dir.x, dir.z);
+  player.dodgeT = CFG.rollDauer;
+  player.rollT = CFG.rollDauer;
+  player.iFrames = CFG.rollDauer + 0.12;
+  player.attack = null;                          // Angriff sauber abbrechen
+  player.attackCd = Math.min(player.attackCd, 0.12);
+  camShake = Math.max(camShake, 0.03);
   SFX.swoosh();
 }
 
 function tryAttack(type) {
-  if (!heroVisual || player.dead || player.attackCd > 0) return;
-  if (player.state === 'climb') return;
+  if (!heroVisual || player.dead || player.state === 'climb') return;
+  if (player.rollT > 0) return;
+  /* Zu früh gedrückt? Eingabe kurz merken und automatisch nachziehen –
+     dadurch fühlt sich die Schlagfolge zusammenhängend an. */
+  if (player.attackCd > 0) {
+    if (player.attackCd < 0.22) player.attackBuffer = { type, t: 0.22 };
+    return;
+  }
+  player.attackBuffer = null;
   player.combo = player.comboTimer > 0 ? player.combo : 0;
   const arm = (player.combo % 2 === 0) ? 'R' : 'L';
   const finisher = type === 'punch' && player.combo > 0 && (player.combo + 1) % 4 === 0;
   player.attack = { type: finisher ? 'kick' : type, t: 0, arm, hitDone: false, finisher };
-  heroVisual.attackOneShot();
-  player.attackCd = type === 'kick' || finisher ? 0.55 : 0.38;
+  heroVisual.attackOneShot(finisher ? 1.35 : (type === 'kick' ? 1.5 : 2.0));
+  player.attackCd = finisher ? 0.46 : (type === 'kick' ? 0.38 : 0.27);
   // Magnetismus: zum nächsten Gegner ziehen
   const target = nearestEnemy(4.2, 0.2);
   if (target) {
@@ -1317,24 +1629,43 @@ function nearestEnemy(maxDist, minDot) {
 
 function resolveAttackHit() {
   const a = player.attack;
-  const range = a.type === 'kick' ? 2.8 : 2.5;
-  const e = nearestEnemy(range, 0.1);
-  if (!e) return;
-  let dmg = a.type === 'kick' ? 16 : 11;
-  if (e.webT > 0) dmg *= 2;
+  const range = a.type === 'kick' ? 3.0 : 2.6;
+  const e = nearestEnemy(range, 0.05);
+  if (!e) {
+    player.combo = 0;                 // Luftschlag bricht die Kombo
+    return;
+  }
+  const wucht = a.finisher ? 1.9 : (a.type === 'kick' ? 1.5 : 1);
+  let dmg = (a.type === 'kick' ? 16 : 11) * (a.finisher ? 1.5 : 1);
+  if (e.webT > 0) dmg *= 2;           // eingewickelte Gegner sind wehrlos
+  dmg *= 1 + Math.min(player.combo, 6) * 0.06;   // Kombo steigert den Schaden
+
+  const treffer = _v1.set(
+    (player.pos.x + e.pos.x) / 2,
+    Math.max(player.pos.y, e.pos.y) + 1.15,
+    (player.pos.z + e.pos.z) / 2
+  );
+  treffEffekt(treffer, wucht, a.finisher ? 0xffd23c : 0xffffff);
+
   damageEnemy(e, dmg, a.type);
   player.combo++;
   player.comboTimer = 3;
-  hitstop(a.type === 'kick' ? 0.07 : 0.045);
-  camShake = Math.max(camShake, 0.05);
+  hitstop(a.finisher ? 0.11 : (a.type === 'kick' ? 0.075 : 0.05));
+  camShake = Math.max(camShake, 0.05 + wucht * 0.035);
   (a.type === 'kick' ? SFX.kick : SFX.punch)();
-  // Rückstoß
+
+  // Rückstoß – Finisher schleudert den Gegner richtig weg
   const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
   const d = Math.hypot(dx, dz) || 1;
-  const kb = a.type === 'kick' ? 9 : 5.5;
+  const kb = (a.type === 'kick' ? 9 : 5.5) * wucht;
   e.vel.x += (dx / d) * kb; e.vel.z += (dz / d) * kb;
-  e.vel.y += a.type === 'kick' ? 4 : 2;
-  e.staggerT = Math.max(e.staggerT, 0.5);
+  e.vel.y += (a.type === 'kick' ? 4 : 2) * wucht;
+  e.staggerT = Math.max(e.staggerT, a.finisher ? 0.9 : 0.5);
+  if (e.visual && e.visual.attackOneShot && !e.dead) e.visual.attackOneShot(2.2);
+
+  /* Leichter Vorwärtsschub des Helden: die Schläge "greifen" dadurch */
+  player.vel.x += (dx / d) * 2.2;
+  player.vel.z += (dz / d) * 2.2;
 }
 
 function damagePlayer(dmg, srcPos) {
@@ -1439,7 +1770,7 @@ function updatePlayer(dt) {
     const t = player.zip.target;
     const d = _v1.set(t.x - player.pos.x, t.y - player.pos.y, t.z - player.pos.z);
     const dist = d.length();
-    placeStrand(swingStrand, heroHandPos(_v2), t);
+    player.fadenZiel = t; player.fadenHand = player.zip.hand;
     if (dist < 2 || player.zip.t <= 0) {
       swingStrand.visible = false;
       if (player.zip.enemy && !player.zip.enemy.dead && dist < 3.5) {
@@ -1515,30 +1846,50 @@ function updatePlayer(dt) {
   const prevY = player.pos.y;
   player.pos.addScaledVector(player.vel, dt);
 
-  /* ---- Seil-Constraint ---- */
+  /* ---- Seil ----
+     Das Seil wird in mehreren Teilschritten gelöst. Ein einziger Schritt pro
+     Bild lässt das Pendel bei hohem Tempo hart anschlagen – genau das hat den
+     Schwung ruckeln lassen. */
   if (player.state === 'swing' && player.swing) {
     const s = player.swing;
-    const d = _v1.copy(player.pos).sub(s.anchor);
-    const dist = d.length();
-    if (dist > s.len) {
-      d.multiplyScalar(s.len / dist);
-      player.pos.copy(s.anchor).add(d);
-      const n = d.normalize();
-      const vn = player.vel.dot(n);
-      if (vn > 0) player.vel.addScaledVector(n, -vn);
-    }
-    // Pump-Boost in Blickrichtung
+    s.t += dt;
+    /* Seil sanft auf die Wunschlänge bringen statt ruckartig einzuholen */
+    const tief = player.pos.y < s.anchor.y - s.zielLen * 0.72;   // nahe dem Tiefpunkt?
     if (keys['KeyW'] || keys['ArrowUp']) {
-      const f = camForward();
-      player.vel.addScaledVector(f, 9 * dt);
+      // Pumpen: unten einholen, oben nachgeben – so schaukelt man sich hoch
+      s.zielLen += (tief ? -6 : 4) * dt;
+    } else {
+      s.zielLen -= 0.8 * dt;
     }
-    // leichtes Einholen des Seils
-    s.len = Math.max(CFG.ropeMin, s.len - dt * 1.5);
-    player.vel.multiplyScalar(1 - 0.03 * dt);
+    s.zielLen = clamp(s.zielLen, CFG.ropeMin, 46);
+    s.len = lerp(s.len, s.zielLen, Math.min(1, dt * 3.5));
+
+    const schritte = 4;
+    const hdt = dt / schritte;
+    for (let i = 0; i < schritte; i++) {
+      const d = _v1.copy(player.pos).sub(s.anchor);
+      const dist = d.length() || 0.001;
+      if (dist > s.len) {
+        const n = d.multiplyScalar(1 / dist);
+        player.pos.copy(s.anchor).addScaledVector(n, s.len);
+        const vn = player.vel.dot(n);
+        if (vn > 0) player.vel.addScaledVector(n, -vn * 0.98);   // weich abfangen
+        /* Tangentialer Antrieb in Blickrichtung: fühlt sich an wie Schwung
+           holen, ohne das Pendel zu verzerren. */
+        if (keys['KeyW'] || keys['ArrowUp']) {
+          const f = camForward();
+          _v2.copy(f).addScaledVector(n, -f.dot(n)).normalize();
+          player.vel.addScaledVector(_v2, 16 * hdt);
+        }
+      }
+    }
+    player.vel.multiplyScalar(1 - 0.02 * dt);
+    const maxV = 40;
+    if (player.vel.length() > maxV) player.vel.setLength(maxV);
     if (player.vel.length() > 2) {
       player.facing = dampAngle(player.facing, Math.atan2(player.vel.x, player.vel.z), dt * 8);
     }
-    placeStrand(swingStrand, heroHandPos(_v2), s.anchor);
+    player.fadenZiel = s.anchor; player.fadenHand = s.hand;
     if (Math.random() < dt * 1.2) SFX.swoosh();
   }
 
@@ -1589,6 +1940,11 @@ function updatePlayer(dt) {
 
   /* ---- Timer ---- */
   if (player.attackCd > 0) player.attackCd -= dt;
+  if (player.attackBuffer) {
+    player.attackBuffer.t -= dt;
+    if (player.attackCd <= 0) { const b = player.attackBuffer; player.attackBuffer = null; tryAttack(b.type); }
+    else if (player.attackBuffer.t <= 0) player.attackBuffer = null;
+  }
   if (player.iFrames > 0) player.iFrames -= dt;
   if (player.hurtCd > 0) player.hurtCd -= dt;
   if (player.comboTimer > 0) {
@@ -1601,8 +1957,8 @@ function updatePlayer(dt) {
   /* ---- Angriff auswerten ---- */
   if (player.attack) {
     const a = player.attack;
-    a.t += dt / (a.type === 'kick' ? 0.55 : 0.4);
-    if (!a.hitDone && a.t > 0.38) { a.hitDone = true; resolveAttackHit(); }
+    a.t += dt / (a.finisher ? 0.46 : (a.type === 'kick' ? 0.4 : 0.3));
+    if (!a.hitDone && a.t > 0.33) { a.hitDone = true; resolveAttackHit(); }
     if (a.t >= 1) player.attack = null;
   }
 
@@ -1629,20 +1985,52 @@ function updateHeroVisual(dt) {
   const r = heroVisual.root;
   r.position.copy(player.pos);
   r.rotation.y = player.facing;
-  // Körperneigung beim Schwingen/Fallen
-  let tilt = 0;
-  if (player.state === 'swing') tilt = clamp(player.vel.y * 0.02, -0.5, 0.4) - 0.5;
-  else if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
-  else if (player.dodgeT > 0) tilt = -0.9;
-  r.rotation.x = lerp(r.rotation.x, tilt, Math.min(1, dt * 8));
+
+  /* Ausweichrolle: der Körper überschlägt sich einmal vorwärts */
+  if (player.rollT > 0) {
+    player.rollT -= dt;
+    const fortschritt = 1 - clamp(player.rollT / CFG.rollDauer, 0, 1);
+    r.rotation.x = -fortschritt * TAU;
+    r.position.y += Math.sin(fortschritt * Math.PI) * 0.35;   // Körpermitte hebt sich
+  } else {
+    // Körperneigung beim Schwingen/Fallen
+    let tilt = 0;
+    if (player.state === 'swing') tilt = clamp(player.vel.y * 0.02, -0.45, 0.35) - 0.35;
+    else if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
+    r.rotation.x = lerp(r.rotation.x, tilt, Math.min(1, dt * 8));
+  }
 
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   heroVisual.play(player.anim, {
     phase: player.phase,
     speed01: clamp(hSpeed / CFG.sprintSpeed, 0, 1),
     t: elapsed,
+    hand: player.swing ? player.swing.hand : netzHand,
   }, dt);
-  if (heroVisual.procedural) overlayAttack(heroVisual.human, player.attack, dt);
+
+  if (heroVisual.procedural) {
+    overlayAttack(heroVisual.human, player.attack, dt);
+  } else {
+    /* Pose-Korrekturen für das Menschmodell (nach der Animation) */
+    const k = Math.min(1, dt * 16);
+    if (player.state === 'swing' && player.swing) {
+      heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, k);
+    } else if (player.state === 'zip' && player.zip) {
+      heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
+    } else if (player.schussT > 0) {
+      player.schussT -= dt;
+      heroVisual.poseSchuss(player.schussZiel, netzHand, 1);
+    }
+  }
+
+  /* Netzfaden ganz zum Schluss setzen – erst jetzt steht die Hand wirklich
+     dort, wo sie im Bild zu sehen ist. Vorher hing der Faden ein Bild
+     hinterher und schnitt durch den Körper. */
+  if (player.fadenZiel) {
+    heroVisual.root.updateMatrixWorld(true);
+    placeStrand(swingStrand, heroHandPos(_v3, player.fadenHand), player.fadenZiel);
+    player.fadenZiel = null;
+  }
 }
 
 /* ======================= Autos / Verkehr ======================= */
@@ -1844,7 +2232,8 @@ function updateCivilians(dt) {
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
     c.pos.x += c.vel.x * dt; c.pos.z += c.vel.z * dt;
     collideBody(c);
-    c.pos.y = groundY(c.pos.x, c.pos.z);
+    c.pos.y = lerp(c.pos.y, groundY(c.pos.x, c.pos.z), Math.min(1, dt * 12));
+    c.pos.y = Math.max(c.pos.y, groundY(c.pos.x, c.pos.z) - 0.02);
     if (speed > 0.1) {
       c.facing = dampAngle(c.facing, Math.atan2(dirX, dirZ), dt * 8);
       c.phase += dt * (4 + speed * 1.6);
@@ -1883,8 +2272,53 @@ const enemies = [];
 const gangs = [];
 let crimeGang = null, crimeTimer = 20;
 
-const cocoonGeo = new THREE.SphereGeometry(0.5, 10, 8);
-const cocoonMat = new THREE.MeshLambertMaterial({ color: 0xf2f2f2, transparent: true, opacity: 0.88 });
+/* ---- Netzkokon ----
+   Statt einer glatten Kugel ein unregelmäßig umwickeltes Bündel: leicht
+   verbeulter Körper plus quer laufende Netzbänder und ein paar Fäden. */
+const cocoonMat = new THREE.MeshLambertMaterial({
+  color: 0xeef1f4, transparent: true, opacity: 0.93, flatShading: true,
+});
+const bandMat = new THREE.MeshLambertMaterial({ color: 0xfbfdff });
+
+const cocoonKoerperGeo = (() => {
+  const g = new THREE.SphereGeometry(0.46, 14, 12);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    // in die Länge ziehen und unregelmäßig eindellen
+    const beule = 1 + Math.sin(y * 22) * 0.05 + Math.sin(x * 17 + z * 13) * 0.04;
+    pos.setXYZ(i, x * beule, y * 1.95, z * beule);
+  }
+  g.computeVertexNormals();
+  return g;
+})();
+const bandGeo = new THREE.TorusGeometry(0.47, 0.045, 5, 14);
+
+function makeCocoon() {
+  const g = new THREE.Group();
+  const koerper = new THREE.Mesh(cocoonKoerperGeo, cocoonMat);
+  koerper.castShadow = true;
+  g.add(koerper);
+  // quer laufende Wickelbänder
+  for (let i = 0; i < 5; i++) {
+    const b = new THREE.Mesh(bandGeo, bandMat);
+    const t = -0.72 + i * 0.36;
+    b.position.y = t;
+    b.rotation.x = Math.PI / 2 + rand(-0.22, 0.22);
+    b.rotation.z = rand(-0.2, 0.2);
+    const w = 1 - Math.abs(t) * 0.42;
+    b.scale.set(w, w, 1);
+    g.add(b);
+  }
+  // ein paar lose Fäden
+  for (let i = 0; i < 3; i++) {
+    const f = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, rand(0.5, 1.0), 4), bandMat);
+    f.position.set(rand(-0.35, 0.35), rand(-0.6, 0.6), rand(-0.35, 0.35));
+    f.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
+    g.add(f);
+  }
+  return g;
+}
 
 function makeHPBar() {
   const g = new THREE.Group();
@@ -1910,8 +2344,7 @@ function spawnGang(cx, cz, n) {
     });
     const hpBar = makeHPBar();
     visual.root.add(hpBar.g);
-    const cocoon = new THREE.Mesh(cocoonGeo, cocoonMat);
-    cocoon.scale.set(1.1, 1.9, 1.1);
+    const cocoon = makeCocoon();
     cocoon.position.y = 0.95;
     cocoon.visible = false;
     visual.root.add(cocoon);
@@ -2147,7 +2580,10 @@ function updateEnemies(dt) {
     e.vel.x = moveX * speed; e.vel.z = moveZ * speed;
     e.pos.x += e.vel.x * dt; e.pos.z += e.vel.z * dt;
     collideBody(e);
-    e.pos.y = groundY(e.pos.x, e.pos.z);
+    /* Höhe weich nachführen: bei Bordsteinkanten sonst sichtbares Springen,
+       und niemals unter den Boden. */
+    e.pos.y = lerp(e.pos.y, groundY(e.pos.x, e.pos.z), Math.min(1, dt * 12));
+    e.pos.y = Math.max(e.pos.y, groundY(e.pos.x, e.pos.z) - 0.02);
     if (speed > 0.1) e.phase += dt * (4 + speed * 1.7);
 
     e.visual.root.position.copy(e.pos);
@@ -2293,6 +2729,7 @@ function animate() {
   updateCivilians(dt);
   updateEnemies(dt);
   updateCamera(dt);
+  updateEffekte(dt);
 
   // Wasser-Animation
   if (waterMesh) waterTex.offset.x = elapsed * 0.015;
@@ -2315,6 +2752,7 @@ if (window.__WEBHERO_TEST__ === true) {
   window.__dbg = {
     player, enemies, civilians, cars, glbModels, camera,
     get actorsReady() { return actorsReady; },
+    get heroVisual() { return heroVisual; },
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
   };
