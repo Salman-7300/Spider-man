@@ -661,6 +661,175 @@ function faerbeAlsKostuem(mesh, bbox) {
   });
 }
 
+/* ---- Anliegender Anzugkörper ----
+   Die Mixamo-Alltagsmodelle tragen T-Shirt und Shorts – umfärben allein
+   ergibt keinen Superhelden. Deshalb wird hier ein eigener, schlanker
+   Körper direkt auf das vorhandene Skelett gebaut: für jeden Knochen ein
+   sich verjüngendes Rohr plus Kugeln an den Gelenken. Das Ergebnis ist
+   hauteng, bewegt sich mit den geladenen Animationen und sieht nach Anzug
+   aus statt nach Freizeitkleidung. */
+
+/* Radien in Metern für eine 1,76 m große Figur: [von, bis] je Abschnitt */
+const KOERPER_TEILE = [
+  ['hips', 'spine', 0.145, 0.122],        // Becken -> schlanke Taille
+  ['spine', 'spine1', 0.122, 0.140],
+  ['spine1', 'spine2', 0.140, 0.160],     // Brustkorb wird breiter
+  ['spine2', 'neck', 0.160, 0.062],
+  ['neck', 'head', 0.062, 0.070],
+  ['leftshoulder', 'leftarm', 0.095, 0.078],
+  ['rightshoulder', 'rightarm', 0.095, 0.078],
+  ['leftarm', 'leftforearm', 0.074, 0.055],
+  ['rightarm', 'rightforearm', 0.074, 0.055],
+  ['leftforearm', 'lefthand', 0.053, 0.045],
+  ['rightforearm', 'righthand', 0.053, 0.045],
+  ['leftupleg', 'leftleg', 0.108, 0.076],
+  ['rightupleg', 'rightleg', 0.108, 0.076],
+  ['leftleg', 'leftfoot', 0.074, 0.055],
+  ['rightleg', 'rightfoot', 0.074, 0.055],
+  ['leftfoot', 'lefttoebase', 0.062, 0.050],
+  ['rightfoot', 'righttoebase', 0.062, 0.050],
+];
+/* Kugeln an allen Gelenken, damit nirgends eine Lücke bleibt */
+const KOERPER_GELENKE = [
+  ['hips', 0.148], ['spine', 0.124], ['spine1', 0.142], ['spine2', 0.162],
+  ['neck', 0.064],
+  ['leftshoulder', 0.100], ['rightshoulder', 0.100],
+  ['leftarm', 0.080], ['rightarm', 0.080],
+  ['leftforearm', 0.057], ['rightforearm', 0.057],
+  ['lefthand', 0.055], ['righthand', 0.055],
+  ['leftupleg', 0.112], ['rightupleg', 0.112],
+  ['leftleg', 0.080], ['rightleg', 0.080],
+  ['leftfoot', 0.058], ['rightfoot', 0.058],
+  ['lefttoebase', 0.048], ['righttoebase', 0.048],
+];
+
+function knochenSchluessel(name) {
+  return name.replace(/mixamorig:?/i, '').replace(/\s+/g, '').toLowerCase();
+}
+
+function baueAnzugKoerper(quelle, einheit) {
+  const skeleton = quelle.skeleton;
+  if (!skeleton || !skeleton.bones.length) return null;
+  const index = {};
+  skeleton.bones.forEach((b, i) => { const k = knochenSchluessel(b.name); if (!(k in index)) index[k] = i; });
+  if (index.hips === undefined || index.head === undefined) return null;
+
+  /* Bindepose: Position jedes Knochens im Geometrieraum des Quellmodells */
+  const bindInv = new THREE.Matrix4().copy(quelle.bindMatrix).invert();
+  const knochenMatrix = skeleton.bones.map((b, i) =>
+    new THREE.Matrix4().copy(bindInv).multiply(
+      new THREE.Matrix4().copy(skeleton.boneInverses[i]).invert()));
+  const knochenPos = knochenMatrix.map((m) => new THREE.Vector3().setFromMatrixPosition(m));
+
+  /* Ausdehnung aus den Knochen ableiten – ein einzelnes Teil-Mesh (Hemd,
+     Haare, Schuhe) deckt nur einen Ausschnitt ab und würde den Maßstab
+     verfälschen. */
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of knochenPos) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  const box = { min: { y: minY }, max: { y: maxY } };
+
+  const pos = [], farb = [], sIdx = [], sGew = [], idx = [];
+  const tmpV = new THREE.Vector3();
+  const brustMitte = knochenPos[index.spine2] || knochenPos[index.spine1];
+
+  function farbeFuer(schluessel, punkt) {
+    const partie = partieFuerKnochen(schluessel);
+    const c = new THREE.Color(partie === 'blau' ? SUIT_BLAU : SUIT_ROT);
+    if (partie !== 'blau') {
+      // Netzmuster: Ringe über die Höhe, Speichen um die Körperachse
+      const t = (punkt.y - box.min.y) / (box.max.y - box.min.y || 1);
+      const winkel = Math.atan2(punkt.x, punkt.z);
+      const ring = Math.abs(((t * 26) % 1) - 0.5) * 2;
+      const speiche = Math.abs((((winkel / Math.PI) * 8) % 1) - 0.5) * 2;
+      if (ring > 0.88 || speiche > 0.9) c.lerp(SUIT_NETZ, 0.7);
+    }
+    // kleines Spinnenzeichen mittig auf der Brust
+    if (brustMitte && punkt.z > brustMitte.z) {
+      const dy = (punkt.y - brustMitte.y) / einheit;
+      const dx = (punkt.x - brustMitte.x) / einheit;
+      const koerper = Math.abs(dx) < 0.028 && dy > -0.10 && dy < 0.01;
+      const beine = Math.abs(dy + 0.045) < 0.012 && Math.abs(dx) < 0.075;
+      if (koerper || beine) c.setHex(0x140609);
+    }
+    return c;
+  }
+
+  function anhaengen(geo, boneIndex, schluessel) {
+    const gp = geo.attributes.position;
+    const basis = pos.length / 3;
+    for (let i = 0; i < gp.count; i++) {
+      tmpV.set(gp.getX(i), gp.getY(i), gp.getZ(i));
+      pos.push(tmpV.x, tmpV.y, tmpV.z);
+      const c = farbeFuer(schluessel, tmpV);
+      farb.push(c.r, c.g, c.b);
+      sIdx.push(boneIndex, 0, 0, 0);
+      sGew.push(1, 0, 0, 0);
+    }
+    const gi = geo.index;
+    for (let i = 0; i < gi.count; i++) idx.push(basis + gi.getX(i));
+    geo.dispose();
+  }
+
+  const hoch = new THREE.Vector3(0, 1, 0);
+  for (const [vonK, bisK, r0, r1] of KOERPER_TEILE) {
+    const a = index[vonK], b = index[bisK];
+    if (a === undefined || b === undefined) continue;
+    const p0 = knochenPos[a], p1 = knochenPos[b];
+    const richtung = new THREE.Vector3().subVectors(p1, p0);
+    const laenge = richtung.length();
+    if (laenge < 1e-4) continue;
+    const geo = new THREE.CylinderGeometry(r1 * einheit, r0 * einheit, laenge, 12, 1, false);
+    geo.translate(0, laenge / 2, 0);
+    geo.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(
+      new THREE.Quaternion().setFromUnitVectors(hoch, richtung.clone().normalize())));
+    geo.translate(p0.x, p0.y, p0.z);
+    anhaengen(geo, a, vonK);
+  }
+  for (const [k, r] of KOERPER_GELENKE) {
+    const a = index[k];
+    if (a === undefined) continue;
+    const p = knochenPos[a];
+    const geo = new THREE.SphereGeometry(r * einheit, 12, 9);
+    if (k === 'spine2') geo.scale(1.18, 0.92, 0.88);      // Schulterpartie
+    if (k === 'hips') geo.scale(1.1, 0.9, 0.95);
+    geo.translate(p.x, p.y, p.z);
+    anhaengen(geo, a, k);
+  }
+  /* Kopf: Der Kopfknochen sitzt am Halsansatz – der Schädel gehört ein
+     Stück darüber, sonst wirkt der Kopf flach und zu tief. */
+  if (index.head !== undefined) {
+    const kp = knochenPos[index.head];
+    const richtung = index.neck !== undefined
+      ? new THREE.Vector3().subVectors(kp, knochenPos[index.neck]).normalize()
+      : new THREE.Vector3(0, 1, 0);
+    const kopf = new THREE.SphereGeometry(0.118 * einheit, 16, 12);
+    kopf.scale(0.92, 1.1, 1.0);
+    kopf.translate(kp.x + richtung.x * 0.085 * einheit,
+                   kp.y + richtung.y * 0.085 * einheit,
+                   kp.z + richtung.z * 0.085 * einheit);
+    anhaengen(kopf, index.head, 'head');
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(farb, 3));
+  geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(sIdx, 4));
+  geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sGew, 4));
+  geometry.setIndex(idx);
+  geometry.computeVertexNormals();
+
+  const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshPhongMaterial({
+    vertexColors: true, skinning: true, shininess: 34, specular: 0x2b2b30,
+  }));
+  mesh.position.copy(quelle.position);
+  mesh.quaternion.copy(quelle.quaternion);
+  mesh.scale.copy(quelle.scale);
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  mesh.bind(skeleton, quelle.bindMatrix);
+  return mesh;
+}
+
 /* Weiße Augenlinsen an den Kopfknochen hängen */
 function setzeAugen(inner) {
   let kopf = null;
@@ -675,13 +844,13 @@ function setzeAugen(inner) {
   const weiss = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const rand = new THREE.MeshBasicMaterial({ color: 0x14060a });
   for (const seite of [-1, 1]) {
-    const auge = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 8), weiss);
-    auge.scale.set(1.25, 1.65, 0.55);
-    auge.position.set(seite * 0.055, 0.075, 0.093);
+    const auge = new THREE.Mesh(new THREE.SphereGeometry(0.044, 10, 8), weiss);
+    auge.scale.set(1.3, 1.7, 0.5);
+    auge.position.set(seite * 0.05, 0.095, 0.088);
     auge.rotation.set(0.1, seite * 0.34, seite * -0.36);
     gruppe.add(auge);
-    const umriss = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), rand);
-    umriss.scale.set(1.25, 1.65, 0.5);
+    const umriss = new THREE.Mesh(new THREE.SphereGeometry(0.051, 10, 8), rand);
+    umriss.scale.set(1.3, 1.7, 0.46);
     umriss.position.copy(auge.position).multiplyScalar(0.985);
     umriss.rotation.copy(auge.rotation);
     gruppe.add(umriss);
@@ -695,13 +864,35 @@ function makeGlbVisual(m) {
   inner.position.y = m.yOffset * m.scale;
   inner.rotation.y = m.yaw;
   const bbox = new THREE.Box3().setFromObject(m.scene);
+  const originale = [];
   inner.traverse((o) => {
     if (o.isMesh || o.isSkinnedMesh) {
       o.castShadow = true; o.frustumCulled = false;
-      if (m.suit) { o.geometry = o.geometry.clone(); faerbeAlsKostuem(o, bbox); }
+      originale.push(o);
     }
   });
-  if (m.suit) setzeAugen(inner);
+  if (m.suit) {
+    /* Zuerst versuchen, einen anliegenden Anzugkörper zu bauen. Klappt das,
+       verschwindet die Alltagskleidung des Ausgangsmodells komplett. */
+    let ersetzt = false;
+    /* Modelle bestehen oft aus mehreren Teilen (Körper, Haare, Schuhe) mit
+       jeweils eigenem Teilskelett. Für den Anzug wird das Teil mit den
+       meisten Knochen gebraucht – nur das kennt Arme UND Beine. */
+    const kandidaten = originale
+      .filter((o) => o.isSkinnedMesh && o.skeleton && o.skeleton.bones.length)
+      .sort((a, b) => b.skeleton.bones.length - a.skeleton.bones.length);
+    if (kandidaten.length) {
+      const anzug = baueAnzugKoerper(kandidaten[0], 1 / (m.scale || 1));
+      if (anzug) { kandidaten[0].parent.add(anzug); ersetzt = true; }
+    }
+    if (ersetzt) {
+      for (const o of originale) o.visible = false;
+    } else {
+      // Notfall: wenigstens einfärben
+      for (const o of originale) { o.geometry = o.geometry.clone(); faerbeAlsKostuem(o, bbox); }
+    }
+    setzeAugen(inner);
+  }
   root.add(inner);
   /* Fußknochen merken – damit die Figur nie im Boden versinkt */
   const fuesse = [];
@@ -858,7 +1049,10 @@ function makeGlbVisual(m) {
       if (angriff) {
         angriffT -= dt;
         if (angriffT > 0) { mixer.update(dt); return; }
-        angriff.fadeOut(0.14); angriff = null; current = null;
+        /* Gleiche Blenddauer wie beim Einblenden der Grundanimation – sonst
+           sinkt die Gesamtgewichtung kurz unter 1 und das Modell rutscht
+           sichtbar in die T-Pose zurück. */
+        angriff.fadeOut(0.22); angriff = null; current = null;
       }
       if (dist2 > 45 * 45) {
         lodAcc += dt;
@@ -888,7 +1082,7 @@ function makeGlbVisual(m) {
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
       if (current) current.fadeOut(0.1);
-      a.reset(); a.timeScale = v; a.fadeIn(0.07); a.play();
+      a.reset(); a.timeScale = v; a.fadeIn(0.1); a.play();
       angriff = a;
       angriffT = a.getClip().duration / v;
     },
@@ -1826,7 +2020,7 @@ function updatePlayer(dt) {
     // seitlich begrenzen
     if (w.nx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.2, c.z1 - 0.2);
     else player.pos.x = clamp(player.pos.x, c.x0 + 0.2, c.x1 - 0.2);
-    player.phase += dt * (Math.abs(up) + Math.abs(side)) * 6;
+    player.phase += dt * (1 + (Math.abs(up) + Math.abs(side)) * 6);
     // Oben angekommen → aufs Dach ziehen
     if (player.pos.y + 1.3 > c.h && up > 0) {
       player.pos.y = c.h;
@@ -1888,8 +2082,15 @@ function updatePlayer(dt) {
   /* ---- Schwingen starten/stoppen ---- */
   if (player.state === 'swing') {
     if (!wantSwing) stopSwing(true);
-  } else if (wantSwing && player.state === 'air' && player.vel.y < 6 && !player.swingLock) {
-    startSwing();
+  } else if (wantSwing && player.state === 'air' && !player.swingLock) {
+    /* Direkt über dem Boden gibt es keinen brauchbaren Bogen – erst ab etwas
+       Höhe oder im Fallen greift das Netz. Startet man tief, gibt es einen
+       kräftigen Satz nach oben, damit der Schwung Platz hat. */
+    const hoehe = player.pos.y - groundY(player.pos.x, player.pos.z);
+    if (hoehe > 3.5 || player.vel.y < 0) {
+      if (hoehe < 7 && player.vel.y < 4) player.vel.y = Math.max(player.vel.y, 5.5);
+      startSwing();
+    }
   }
   if (!keys['Space'] && !swingHeld) player.swingLock = false;
 
@@ -1907,8 +2108,11 @@ function updatePlayer(dt) {
       player.vel.z = lerp(player.vel.z, dir.z * speed, Math.min(1, dt * 10));
       player.facing = dampAngle(player.facing, Math.atan2(dir.x, dir.z), Math.min(1, dt * 12));
     } else {
-      player.vel.x = lerp(player.vel.x, 0, Math.min(1, dt * 12));
-      player.vel.z = lerp(player.vel.z, 0, Math.min(1, dt * 12));
+      /* Kräftige Bodenreibung: ohne Eingabe steht die Figur zügig still,
+         statt noch meterweit zu schlittern. */
+      player.vel.x = lerp(player.vel.x, 0, Math.min(1, dt * 22));
+      player.vel.z = lerp(player.vel.z, 0, Math.min(1, dt * 22));
+      if (Math.hypot(player.vel.x, player.vel.z) < 0.35) { player.vel.x = 0; player.vel.z = 0; }
     }
   } else {
     // Luftsteuerung
@@ -2052,10 +2256,11 @@ function updatePlayer(dt) {
   if (player.state === 'swing') player.anim = 'swing';
   else if (player.state === 'zip') player.anim = 'air';
   else if (!player.onGround) player.anim = 'air';
-  else if (hSpeed > 0.6) {
+  else if (dir && hSpeed > 0.4) {
+    /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
+       sonst „läuft" die Figur beim Ausrollen weiter, obwohl man steht. */
     player.anim = 'run';
     player.phase += dt * (5 + hSpeed * 1.15);
-    if (dir) { /* facing schon gesetzt */ }
   } else player.anim = 'idle';
 
   if (player.anim !== 'run' && player.anim !== 'idle' && player.vel.lengthSq() > 4 && player.state !== 'climb') {
@@ -2071,6 +2276,11 @@ function updateHeroVisual(dt) {
   r.position.copy(player.pos);
   r.rotation.y = player.facing;
 
+  /* Beim Klettern lehnt der Körper leicht zur Wand – das liest sich sofort
+     als Kleben statt als Hochlaufen. */
+  if (player.state === 'climb') {
+    r.rotation.x = lerp(r.rotation.x, 0.28, Math.min(1, dt * 10));
+  } else
   /* Ausweichrolle: der Körper überschlägt sich einmal vorwärts */
   if (player.rollT > 0) {
     player.rollT -= dt;
