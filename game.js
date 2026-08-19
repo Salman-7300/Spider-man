@@ -99,6 +99,7 @@ const SFX = (() => {
     score() { tone(660, 0.09, 'sine', 0.12); setTimeout(() => tone(880, 0.12, 'sine', 0.12), 90); },
     zip() { tone(500, 0.22, 'sine', 0.08, 2.2); },
     splash() { noise(0.4, 0.2, 200); },
+    hupe() { tone(430, 0.28, 'square', 0.07); setTimeout(() => tone(360, 0.22, 'square', 0.06), 60); },
   };
 })();
 
@@ -245,6 +246,118 @@ function groundY(x, z) {
 const cityGroup = new THREE.Group();
 scene.add(cityGroup);
 
+/* ---------- Stadt-Details ----------
+   Gesimse, Ladenzeilen, Feuerleitern, Dachaufbauten: Das sind pro Haus
+   schnell zwanzig Kisten – bei über hundert Häusern wären das tausende
+   einzelne Objekte und damit tausende Zeichenaufrufe pro Bild.
+   Deshalb werden alle Details gesammelt und am Ende zu EINER Geometrie
+   verschmolzen. Die Farbe steckt dann in den Eckpunkten. */
+const dekoTeile = [];
+function deko(w, h, d, x, y, z, farbe, ry) {
+  dekoTeile.push({ w, h, d, x, y, z, farbe, ry: ry || 0 });
+}
+
+function baueDekoMesh() {
+  if (!dekoTeile.length) return;
+  const basis = new THREE.BoxGeometry(1, 1, 1);
+  const bp = basis.attributes.position, bn = basis.attributes.normal, bi = basis.index;
+  const anzahl = dekoTeile.length;
+  const positionen = new Float32Array(anzahl * bp.count * 3);
+  const normalen = new Float32Array(anzahl * bp.count * 3);
+  const farben = new Float32Array(anzahl * bp.count * 3);
+  const indizes = new Uint32Array(anzahl * bi.count);
+  const m = new THREE.Matrix4(), nm = new THREE.Matrix3();
+  const pos = new THREE.Vector3(), quat = new THREE.Quaternion();
+  const skal = new THREE.Vector3(), eul = new THREE.Euler();
+  const v = new THREE.Vector3(), farbe = new THREE.Color();
+  let vo = 0, io = 0;
+  for (const t of dekoTeile) {
+    eul.set(0, t.ry, 0);
+    m.compose(pos.set(t.x, t.y, t.z), quat.setFromEuler(eul), skal.set(t.w, t.h, t.d));
+    nm.getNormalMatrix(m);
+    farbe.set(t.farbe);
+    for (let i = 0; i < bp.count; i++) {
+      v.fromBufferAttribute(bp, i).applyMatrix4(m);
+      positionen[(vo + i) * 3] = v.x; positionen[(vo + i) * 3 + 1] = v.y; positionen[(vo + i) * 3 + 2] = v.z;
+      v.fromBufferAttribute(bn, i).applyMatrix3(nm).normalize();
+      normalen[(vo + i) * 3] = v.x; normalen[(vo + i) * 3 + 1] = v.y; normalen[(vo + i) * 3 + 2] = v.z;
+      farben[(vo + i) * 3] = farbe.r; farben[(vo + i) * 3 + 1] = farbe.g; farben[(vo + i) * 3 + 2] = farbe.b;
+    }
+    for (let i = 0; i < bi.count; i++) indizes[io + i] = bi.getX(i) + vo;
+    vo += bp.count; io += bi.count;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(positionen, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(normalen, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  g.setIndex(new THREE.BufferAttribute(indizes, 1));
+  g.computeBoundingSphere();
+  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  cityGroup.add(mesh);
+  dekoTeile.length = 0;
+}
+
+/* Ladenzeile, Gesims, Feuerleiter und Dachaufbauten für ein Haus. */
+const MARKISEN = [0x7d3029, 0x2e4f3c, 0x2b3f5e, 0x6b5730, 0x4f3350];
+function schmueckeHaus(w, h, d, x, z) {
+  const unten = SLAB_H, oben = SLAB_H + h;
+
+  /* Erdgeschoss: dunkler Sockel mit Schaufensterband und Vordach.
+     Auf Straßenhöhe spielt der Kampf – dort fällt Detail am meisten auf. */
+  deko(w + 0.5, 3.0, d + 0.5, x, unten + 1.5, z, 0x23272f);
+  deko(w + 0.62, 0.9, d + 0.62, x, unten + 2.1, z, 0xffe9a8);   // Schaufensterband
+  const markise = pick(MARKISEN);
+  deko(w + 1.05, 0.15, d + 1.05, x, unten + 3.2, z, markise);    // Vordach
+
+  /* Gesims am Dachrand – gibt dem Haus oben einen Abschluss. */
+  deko(w + 0.9, 0.55, d + 0.9, x, oben - 0.28, z, 0x8b9099);
+  deko(w + 0.5, 0.7, d + 0.5, x, oben - 1.1, z, 0x6f757e);
+
+  /* Feuerleiter an einer Seitenwand – beim Klettern und Schwingen
+     ständig im Blick. */
+  if (h > 22 && Math.random() < 0.55) {
+    const anX = Math.random() < 0.5;
+    const seite = Math.random() < 0.5 ? 1 : -1;
+    const ebenen = Math.min(7, Math.floor((h - 6) / 4.5));
+    for (let e = 0; e < ebenen; e++) {
+      const y = unten + 4.5 + e * 4.5;
+      if (y > oben - 2) break;
+      const px = anX ? x + seite * (w / 2 + 0.5) : x + rand(-w / 4, w / 4);
+      const pz = anX ? z + rand(-d / 4, d / 4) : z + seite * (d / 2 + 0.5);
+      const bw = anX ? 1.4 : 3.0, bd = anX ? 3.0 : 1.4;
+      deko(bw, 0.16, bd, px, y, pz, 0x30343a);                    // Podest
+      deko(bw, 0.75, 0.07, px, y + 0.45, pz + (anX ? 0 : seite * 0.45), 0x4a5058);
+      if (anX) deko(0.07, 0.75, bd, px + seite * 0.45, y + 0.45, pz, 0x4a5058);
+      // Leiter zur nächsten Ebene
+      if (e < ebenen - 1) deko(0.5, 4.5, 0.09, px, y + 2.25, pz, 0x3d4249);
+    }
+  }
+
+  /* Dachaufbauten: Lüftungskästen, Rohre, Antenne, manchmal Reklame. */
+  const anzahl = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < anzahl; i++) {
+    const kw = rand(1.2, 2.6), kh = rand(0.7, 1.8), kd = rand(1.2, 2.6);
+    deko(kw, kh, kd, x + rand(-w / 2 + 1.5, w / 2 - 1.5), oben + kh / 2,
+         z + rand(-d / 2 + 1.5, d / 2 - 1.5), pick([0x767c85, 0x646a72, 0x878d96]));
+  }
+  for (let i = 0; i < 2; i++) {
+    deko(0.35, rand(1.2, 2.4), 0.35, x + rand(-w / 3, w / 3), oben + 1.0,
+         z + rand(-d / 3, d / 3), 0x555b63);
+  }
+  if (Math.random() < 0.45) {                       // Antennenmast
+    const ah = rand(4, 9);
+    deko(0.22, ah, 0.22, x + rand(-w / 4, w / 4), oben + ah / 2, z + rand(-d / 4, d / 4), 0x484d55);
+  }
+  if (h > 30 && Math.random() < 0.3) {              // Reklametafel
+    const bw = Math.min(w * 0.9, 10), bh = rand(3, 5);
+    const quer = Math.random() < 0.5;
+    deko(quer ? bw : 0.3, bh, quer ? 0.3 : bw, x, oben + bh / 2 + 0.6, z,
+         pick([0xc8402f, 0x2f6fc8, 0xe0b23a, 0x35a06a]));
+    deko(quer ? bw : 0.5, 0.5, quer ? 0.5 : bw, x, oben + 0.3, z, 0x3a3f47);
+  }
+}
+
 function buildCity() {
   // Boden (Asphalt) – Stadtseite
   const ground = new THREE.Mesh(
@@ -299,6 +412,8 @@ function buildCity() {
 
   buildRiverAndBridge();
   buildFarShore();
+  baueAmpeln();
+  baueDekoMesh();
 }
 
 function makeBuildingMesh(w, h, d, x, z) {
@@ -313,6 +428,25 @@ function makeBuildingMesh(w, h, d, x, z) {
   m.castShadow = true; m.receiveShadow = true;
   cityGroup.add(m);
   addCollider({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h: SLAB_H + h });
+  schmueckeHaus(w, h, d, x, z);
+  /* Hohe Häuser bekommen Staffelgeschosse: Der Turm wird nach oben
+     schmaler, statt als glatter Quader zu enden. Jede Stufe ist ein
+     eigenes Hindernis, an dem man auch klettern kann. */
+  if (h > 45) {
+    let sw = w, sd = d, sy = SLAB_H + h;
+    const stufen = h > 75 ? 2 : 1;
+    for (let i = 0; i < stufen; i++) {
+      sw *= rand(0.62, 0.78); sd *= rand(0.62, 0.78);
+      const sh = rand(6, 14);
+      const st = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), mats);
+      st.position.set(x, sy + sh / 2, z);
+      st.castShadow = true; st.receiveShadow = true;
+      cityGroup.add(st);
+      addCollider({ x0: x - sw / 2, x1: x + sw / 2, z0: z - sd / 2, z1: z + sd / 2, h: sy + sh });
+      deko(sw + 0.7, 0.45, sd + 0.7, x, sy + sh - 0.22, z, 0x8b9099);
+      sy += sh;
+    }
+  }
   // Dachaufbauten
   if (Math.random() < 0.6) {
     const b = new THREE.Mesh(new THREE.BoxGeometry(rand(1.5, 3), rand(1, 2), rand(1.5, 3)),
@@ -2750,6 +2884,22 @@ function updateHeroVisual(dt) {
 const cars = [];
 const CAR_COLORS = [0xc23b30, 0x3059b5, 0xd8d8d8, 0x2c2c30, 0xd5a021, 0x3b7a3f, 0x8446a8, 0x9fa8b5];
 
+/* Fahrzeugtypen. Vorher gab es nur acht Farben derselben Karosserie –
+   eine Straße wirkt erst lebendig, wenn Größe und Form sich unterscheiden. */
+const FAHRZEUGE = [
+  { art: 'pkw',    laenge: 4.4, breite: 1.9, hoehe: 0.6, gewicht: 46 },
+  { art: 'taxi',   laenge: 4.5, breite: 1.9, hoehe: 0.6, gewicht: 16 },
+  { art: 'bus',    laenge: 9.5, breite: 2.4, hoehe: 2.4, gewicht: 10 },
+  { art: 'lkw',    laenge: 8.0, breite: 2.3, hoehe: 2.0, gewicht: 14 },
+  { art: 'polizei',laenge: 4.6, breite: 2.0, hoehe: 0.65, gewicht: 6 },
+];
+function waehleFahrzeug() {
+  const summe = FAHRZEUGE.reduce((a, f) => a + f.gewicht, 0);
+  let r = Math.random() * summe;
+  for (const f of FAHRZEUGE) { r -= f.gewicht; if (r <= 0) return f; }
+  return FAHRZEUGE[0];
+}
+
 function makeCarMesh(color) {
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color });
@@ -2944,6 +3094,159 @@ function collidePlayerHelis(prevY) {
   }
 }
 
+/* Baut ein Fahrzeug nach Typ. Alles aus Kisten, damit es zum Stil passt. */
+function makeFahrzeugMesh(typ, farbe) {
+  if (typ.art === 'pkw') return makeCarMesh(farbe);
+  const g = new THREE.Group();
+  const L = typ.laenge, B = typ.breite;
+  const lack = new THREE.MeshLambertMaterial({ color: farbe });
+  const dunkel = new THREE.MeshLambertMaterial({ color: 0x17181c });
+  const glas = new THREE.MeshLambertMaterial({ color: 0x9fd2e8 });
+
+  if (typ.art === 'taxi') {
+    const auto = makeCarMesh(0xf2c12e);
+    const schild = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.28, 0.35),
+      new THREE.MeshBasicMaterial({ color: 0xfff3c0 }));
+    schild.position.set(0, 1.56, -0.2);
+    auto.add(schild);
+    for (const sz of [1, -1]) {                       // Schachbrettstreifen
+      const streifen = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 2.6),
+        new THREE.MeshLambertMaterial({ color: 0x1b1b1f }));
+      streifen.position.set(sz * 0.97, 0.75, 0);
+      auto.add(streifen);
+    }
+    return auto;
+  }
+  if (typ.art === 'polizei') {
+    const auto = makeCarMesh(0xf0f0f2);
+    for (const sz of [1, -1]) {
+      const tuer = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 2.4),
+        new THREE.MeshLambertMaterial({ color: 0x1c3f8c }));
+      tuer.position.set(sz * 0.97, 0.62, 0);
+      auto.add(tuer);
+    }
+    const balken = new THREE.Group();
+    for (const [sx, col] of [[-0.28, 0x2f6fff], [0.28, 0xff3020]]) {
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.3),
+        new THREE.MeshBasicMaterial({ color: col }));
+      l.position.set(sx, 0, 0);
+      balken.add(l);
+    }
+    balken.position.set(0, 1.5, -0.2);
+    auto.add(balken);
+    auto.userData.blaulicht = balken;
+    return auto;
+  }
+  // Bus und LKW
+  const raeder = (positionen) => {
+    const geo = new THREE.CylinderGeometry(0.46, 0.46, 0.3, 10);
+    for (const [sx, sz] of positionen) {
+      const w = new THREE.Mesh(geo, dunkel);
+      w.rotation.z = Math.PI / 2;
+      w.position.set(sx * (B / 2 - 0.1), 0.46, sz);
+      g.add(w);
+    }
+  };
+  if (typ.art === 'bus') {
+    const k = new THREE.Mesh(new THREE.BoxGeometry(B, typ.hoehe, L), lack);
+    k.position.y = 1.35; k.castShadow = true; g.add(k);
+    for (let i = -1; i <= 1; i++) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(B + 0.04, 0.8, 2.4), glas);
+      f.position.set(0, 1.85, i * 2.9); g.add(f);
+    }
+    const front = new THREE.Mesh(new THREE.BoxGeometry(B - 0.15, 1.0, 0.08), glas);
+    front.position.set(0, 1.9, L / 2 - 0.02); g.add(front);
+    raeder([[-1, L / 2 - 1.3], [1, L / 2 - 1.3], [-1, -L / 2 + 1.6], [1, -L / 2 + 1.6]]);
+  } else {                                            // LKW
+    const kabine = new THREE.Mesh(new THREE.BoxGeometry(B, 1.9, 2.3), lack);
+    kabine.position.set(0, 1.35, L / 2 - 1.15); kabine.castShadow = true; g.add(kabine);
+    const scheibe = new THREE.Mesh(new THREE.BoxGeometry(B - 0.2, 0.75, 0.08), glas);
+    scheibe.position.set(0, 1.75, L / 2 - 0.02); g.add(scheibe);
+    const kasten = new THREE.Mesh(new THREE.BoxGeometry(B + 0.1, 2.3, L - 2.6),
+      new THREE.MeshLambertMaterial({ color: 0xd9dbe0 }));
+    kasten.position.set(0, 1.6, -1.3); kasten.castShadow = true; g.add(kasten);
+    raeder([[-1, L / 2 - 1.2], [1, L / 2 - 1.2], [-1, -L / 2 + 1.4], [1, -L / 2 + 1.4]]);
+  }
+  const licht = new THREE.MeshBasicMaterial({ color: 0xfff4c0 });
+  for (const sx of [-1, 1]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.08), licht);
+    l.position.set(sx * (B / 2 - 0.4), 0.75, L / 2 + 0.02);
+    g.add(l);
+  }
+  scene.add(g);
+  return g;
+}
+
+/* ======================= Ampeln =======================
+   Eine gemeinsame Schaltung für die ganze Stadt: erst haben die
+   Ost-West-Straßen Grün, dann die Nord-Süd-Straßen. Dazwischen Gelb.
+   Die Lampenköpfe liegen in zwei InstancedMesh – dadurch kosten alle
+   Ampeln zusammen nur zwei Zeichenaufrufe statt hunderte. */
+/* var, weil die Stadt weiter oben gebaut wird als diese Zeile steht. */
+var AMPEL = { phase: 0, t: 0, gruenDauer: 9, gelbDauer: 2 };
+var ampelX = null, ampelZ = null;
+
+function baueAmpeln() {
+  const stellen = [];
+  for (let i = 0; i <= BLOCKS; i++) {
+    for (let j = 0; j <= BLOCKS; j++) {
+      const x = ORIGIN + i * PITCH, z = ORIGIN + j * PITCH;
+      if (x > RIVER_X0 - 20) continue;                 // nicht im Fluss
+      for (const [sx, sz] of [[1, 1], [-1, -1]]) {
+        const px = x + sx * (ROAD_HALF + 1.2), pz = z + sz * (ROAD_HALF + 1.2);
+        stellen.push([px, pz]);
+        deko(0.22, 5.2, 0.22, px, SLAB_H + 2.6, pz, 0x2c3037);          // Mast
+        deko(0.5, 1.3, 0.5, px, SLAB_H + 5.4, pz, 0x23262b);            // Gehäuse quer
+        deko(0.5, 1.3, 0.5, px, SLAB_H + 5.4, pz, 0x23262b);
+      }
+    }
+  }
+  const geo = new THREE.SphereGeometry(0.17, 8, 6);
+  ampelX = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0x22c55e }), stellen.length);
+  ampelZ = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xef4444 }), stellen.length);
+  const m = new THREE.Matrix4();
+  stellen.forEach(([px, pz], i) => {
+    m.makeTranslation(px + 0.3, SLAB_H + 5.6, pz);
+    ampelX.setMatrixAt(i, m);
+    m.makeTranslation(px, SLAB_H + 5.6, pz + 0.3);
+    ampelZ.setMatrixAt(i, m);
+  });
+  ampelX.instanceMatrix.needsUpdate = true;
+  ampelZ.instanceMatrix.needsUpdate = true;
+  cityGroup.add(ampelX); cityGroup.add(ampelZ);
+}
+
+/* Farbe der Ampel für eine Fahrtrichtung: 'gruen' | 'gelb' | 'rot' */
+function ampelFuer(axis) {
+  const meins = (axis === 'x') === (AMPEL.phase === 0);
+  if (!meins) return 'rot';
+  return AMPEL.t > AMPEL.gruenDauer ? 'gelb' : 'gruen';
+}
+
+function updateAmpeln(dt) {
+  AMPEL.t += dt;
+  if (window.__WEBHERO_TEST__ !== undefined) { window.__ampelPhase = AMPEL.phase; window.__ampelX = ampelFuer('x'); window.__ampelZ = ampelFuer('z'); }
+  if (AMPEL.t > AMPEL.gruenDauer + AMPEL.gelbDauer) { AMPEL.t = 0; AMPEL.phase = 1 - AMPEL.phase; }
+  if (!ampelX) return;
+  const farbe = (axis) => {
+    const z = ampelFuer(axis);
+    return z === 'gruen' ? 0x22c55e : z === 'gelb' ? 0xeab308 : 0xef4444;
+  };
+  ampelX.material.color.setHex(farbe('x'));
+  ampelZ.material.color.setHex(farbe('z'));
+}
+
+/* Nächste Kreuzung vor dem Fahrzeug (Abstand entlang der Fahrtrichtung). */
+function abstandZurKreuzung(car) {
+  let best = Infinity;
+  for (let i = 0; i <= BLOCKS; i++) {
+    const linie = ORIGIN + i * PITCH;
+    const d = (linie - car.s) * car.dir;
+    if (d > 0 && d < best) best = d;
+  }
+  return best;
+}
+
 function spawnCars() {
   const lines = [];
   for (let i = 0; i <= BLOCKS; i++) lines.push(ORIGIN + i * PITCH);
@@ -2953,12 +3256,16 @@ function spawnCars() {
     const laneSign = Math.random() < 0.5 ? 1 : -1;
     const lane = line + laneSign * 3;
     const isBridgeRoad = axis === 'x' && line === BRIDGE_Z;
+    const typ = waehleFahrzeug();
     const sMin = -186, sMax = isBridgeRoad ? SHORE_X1 - 10 : 186;
     cars.push({
       axis, lane, dir: laneSign, // Rechtsverkehr angenähert
       s: rand(sMin, sMax), sMin, sMax,
-      speed: rand(8, 13),
-      mesh: makeCarMesh(pick(CAR_COLORS)),
+      speed: rand(8, 13) * (typ.art === 'bus' || typ.art === 'lkw' ? 0.72 : 1),
+      tempoJetzt: 0, hupCd: 0,
+      typ,
+      mesh: makeFahrzeugMesh(typ, typ.art === 'bus' ? pick([0x2f6fc8, 0x3b7a3f, 0xc23b30])
+                                 : typ.art === 'lkw' ? pick([0x4a5058, 0x2f4f7a]) : pick(CAR_COLORS)),
       vx: 0, vz: 0,
       hitCd: 0,
     });
@@ -2968,14 +3275,43 @@ spawnCars();
 spawnHelis();
 
 function updateCars(dt) {
+  updateAmpeln(dt);
   for (const car of cars) {
-    // langsamer werden, wenn ein Auto in derselben Spur dicht voraus ist
-    let speed = car.speed;
+    let ziel = car.speed;
+    const eigenLaenge = (car.typ ? car.typ.laenge : 4.4);
+
+    /* Vordermann: Abstand hängt jetzt von der Fahrzeuglänge ab. */
     for (const o of cars) {
       if (o === car || o.axis !== car.axis || Math.abs(o.lane - car.lane) > 0.5) continue;
-      const gap = (o.s - car.s) * car.dir;
-      if (gap > 0 && gap < 7) { speed = Math.min(speed, o.speed * 0.8); }
+      const gap = (o.s - car.s) * car.dir - (eigenLaenge + (o.typ ? o.typ.laenge : 4.4)) / 2;
+      if (gap > 0 && gap < 9) ziel = Math.min(ziel, (o.tempoJetzt || 0) * 0.85);
+      if (gap <= 0 && gap > -3) ziel = 0;
     }
+
+    /* Ampel: vor der Haltelinie stehenbleiben, wenn nicht Grün. */
+    const zustand = ampelFuer(car.axis);
+    if (zustand !== 'gruen') {
+      const d = abstandZurKreuzung(car) - (ROAD_HALF + eigenLaenge / 2 + 0.6);
+      const bremsweg = (car.tempoJetzt * car.tempoJetzt) / 16 + 2;
+      if (d > -1.5 && d < bremsweg) ziel = Math.min(ziel, Math.max(0, d * 1.6));
+    }
+
+    /* Hält jemand auf der Fahrbahn? Bremsen und hupen. */
+    const px = car.axis === 'x' ? car.s : car.lane;
+    const pz = car.axis === 'x' ? car.lane : car.s;
+    const dx = player.pos.x - px, dz = player.pos.z - pz;
+    const vorne = car.axis === 'x' ? dx * car.dir : dz * car.dir;
+    const seitlich = Math.abs(car.axis === 'x' ? dz : dx);
+    if (player.pos.y < 2.2 && vorne > 0 && vorne < 14 && seitlich < 2.4) {
+      ziel = Math.min(ziel, Math.max(0, (vorne - 4) * 1.2));
+      car.hupCd -= dt;
+      if (car.hupCd <= 0) { SFX.hupe(); car.hupCd = rand(1.4, 3); }
+    } else if (car.hupCd > 0) car.hupCd -= dt;
+
+    /* Weich beschleunigen und bremsen statt sprunghaft. */
+    const rampe = ziel < car.tempoJetzt ? 14 : 4.5;
+    car.tempoJetzt = car.tempoJetzt + clamp(ziel - car.tempoJetzt, -rampe * dt, rampe * dt);
+    const speed = car.tempoJetzt;
     car.s += car.dir * speed * dt;
     if (car.s > car.sMax) car.s = car.sMin;
     if (car.s < car.sMin) car.s = car.sMax;
@@ -2990,14 +3326,25 @@ function updateCars(dt) {
       car.mesh.rotation.y = car.dir > 0 ? 0 : Math.PI;
       car.vx = 0; car.vz = car.dir * speed;
     }
+    const bl = car.mesh.userData && car.mesh.userData.blaulicht;
+    if (bl) {
+      const an = (elapsed * 6) % 2 < 1;
+      bl.children[0].visible = an;
+      bl.children[1].visible = !an;
+    }
   }
 }
 
 function carAABB(car) {
-  const hx = car.axis === 'x' ? 2.3 : 1.05;
-  const hz = car.axis === 'x' ? 1.05 : 2.3;
+  /* Box passt jetzt zum Fahrzeug – auf einen Bus konnte man vorher nicht
+     richtig steigen, weil die Box die eines PKW war. */
+  const t = car.typ || { laenge: 4.4, breite: 1.9, art: 'pkw' };
+  const halbL = t.laenge / 2 + 0.1, halbB = t.breite / 2 + 0.1;
+  const hx = car.axis === 'x' ? halbL : halbB;
+  const hz = car.axis === 'x' ? halbB : halbL;
   const cx = car.mesh.position.x, cz = car.mesh.position.z;
-  return { x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, top: 1.32 };
+  const dach = t.art === 'bus' ? 2.6 : t.art === 'lkw' ? 2.8 : 1.32;
+  return { x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, top: dach };
 }
 
 function collidePlayerCars(prevY) {
