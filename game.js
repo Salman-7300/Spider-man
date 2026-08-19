@@ -516,11 +516,9 @@ function buildCity() {
   ground.receiveShadow = true;
   cityGroup.add(ground);
 
-  // Fahrbahnmarkierungen
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0xd9c979 });
-  const lineGeoZ = new THREE.PlaneGeometry(0.35, 4);
-  const lineGeoX = new THREE.PlaneGeometry(4, 0.35);
-  // Striche nur zwischen den Kreuzungen zeichnen
+  /* Fahrbahnmarkierungen. Sie gehen ins gemeinsame Sammel-Mesh: einzeln
+     gezeichnet waren das über 500 Zeichenaufrufe allein für die Striche –
+     der mit Abstand größte Posten der ganzen Stadt. */
   const nearCrossing = (s) => {
     const u = ((s - ORIGIN) % PITCH + PITCH) % PITCH;
     return u < ROAD_HALF + 3 || u > PITCH - ROAD_HALF - 3;
@@ -529,12 +527,8 @@ function buildCity() {
     const L = ORIGIN + i * PITCH;
     for (let s = -186; s < 186; s += 10) {
       if (nearCrossing(s)) continue;
-      const m1 = new THREE.Mesh(lineGeoZ, lineMat);
-      m1.rotation.x = -Math.PI / 2; m1.position.set(L, 0.02, s);
-      cityGroup.add(m1);
-      const m2 = new THREE.Mesh(lineGeoX, lineMat);
-      m2.rotation.x = -Math.PI / 2; m2.position.set(s, 0.02, L);
-      cityGroup.add(m2);
+      deko(0.35, 0.04, 4, L, 0.02, s, 0xd9c979);
+      deko(4, 0.04, 0.35, s, 0.02, L, 0xd9c979);
     }
   }
 
@@ -688,12 +682,9 @@ function buildRiverAndBridge() {
   cityGroup.add(quay2);
 
   // Geländer am Ufer
-  const railMat = new THREE.MeshLambertMaterial({ color: 0x22343f });
   for (let z = -190; z < 190; z += 8) {
     if (Math.abs(z - BRIDGE_Z) < BRIDGE_HW + 3) continue;
-    const r = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1, 7), railMat);
-    r.position.set(RIVER_X0 - 0.3, 0.5, z + 3.5);
-    cityGroup.add(r);
+    deko(0.2, 1, 7, RIVER_X0 - 0.3, 0.5, z + 3.5, 0x22343f);
   }
 
   /* Brücke. Fahrbahn und Geländer beginnen erst dort, wo die Brücke
@@ -708,10 +699,7 @@ function buildRiverAndBridge() {
   cityGroup.add(deck);
   // Mittelstreifen, damit die Brücke als Straße lesbar bleibt
   for (let x = BR_X0 + 5; x < BR_X1 - 5; x += 9) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.35),
-      new THREE.MeshBasicMaterial({ color: 0xd9c979 }));
-    m.rotation.x = -Math.PI / 2; m.position.set(x, 0.32, BRIDGE_Z);
-    cityGroup.add(m);
+    deko(3.6, 0.04, 0.35, x, 0.32, BRIDGE_Z, 0xd9c979);
   }
   /* Sanfte Auffahrt an beiden Enden: die Fahrbahn liegt 30 cm höher als
      die Straße, ohne Rampe war dort eine harte Kante. */
@@ -722,20 +710,14 @@ function buildRiverAndBridge() {
     rampe.rotation.z = dir * 0.05;
     cityGroup.add(rampe);
   }
-  const railMatBr = new THREE.MeshLambertMaterial({ color: 0x9a3a3a });
-  const postMat = new THREE.MeshLambertMaterial({ color: 0x6f2b2b });
   for (const s of [-1, 1]) {
     const zr = BRIDGE_Z + s * (BRIDGE_HW - 0.25);
     // schlanker Handlauf statt massiver Wand
     for (const hy of [1.05, 0.62]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(BR_X1 - BR_X0, 0.14, 0.16), railMatBr);
-      rail.position.set((BR_X0 + BR_X1) / 2, hy, zr);
-      cityGroup.add(rail);
+      deko(BR_X1 - BR_X0, 0.14, 0.16, (BR_X0 + BR_X1) / 2, hy, zr, 0x9a3a3a);
     }
     for (let x = BR_X0 + 2; x < BR_X1; x += 4.5) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.15, 0.16), postMat);
-      p.position.set(x, 0.85, zr);
-      cityGroup.add(p);
+      deko(0.16, 1.15, 0.16, x, 0.85, zr, 0x6f2b2b);
     }
     /* Unsichtbare Brüstung: man fällt nicht mehr einfach seitlich von der
        Brücke ins Wasser, sondern stößt am Geländer an. */
@@ -782,23 +764,20 @@ function buildFarShore() {
   ground.receiveShadow = true;
   cityGroup.add(ground);
 
-  // Fahrbahnmarkierungen auf den Uferstraßen
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0xd9c979 });
+  /* Fahrbahnmarkierungen auf den Uferstraßen. Sie wandern ins gemeinsame
+     Sammel-Mesh, sonst kämen allein hier über 150 einzelne Zeichenaufrufe
+     zusammen und die Bildrate würde spürbar einbrechen. */
   for (let bi = 0; bi <= SHORE_NX; bi++) {
     const L = SHORE_OX + bi * SHORE_PITCH;
     for (let z = SHORE_OZ + 6; z < SHORE_OZ + SHORE_NZ * SHORE_PITCH - 6; z += 9) {
       if (Math.abs(z - BRIDGE_Z) < 10) continue;
-      const m1 = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 3.6), lineMat);
-      m1.rotation.x = -Math.PI / 2; m1.position.set(L, 0.02, z);
-      cityGroup.add(m1);
+      deko(0.35, 0.04, 3.6, L, 0.02, z, 0xd9c979);
     }
   }
   for (let bj = 0; bj <= SHORE_NZ; bj++) {
     const L = SHORE_OZ + bj * SHORE_PITCH;
     for (let x = SHORE_OX + 6; x < SHORE_OX + SHORE_NX * SHORE_PITCH - 6; x += 9) {
-      const m2 = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.35), lineMat);
-      m2.rotation.x = -Math.PI / 2; m2.position.set(x, 0.02, L);
-      cityGroup.add(m2);
+      deko(3.6, 0.04, 0.35, x, 0.02, L, 0xd9c979);
     }
   }
 
@@ -855,12 +834,9 @@ function buildFarShore() {
 
   /* Uferpromenade: Geländer entlang der Kaimauer, damit die Kante nicht
      einfach im Nichts endet. */
-  const railMat = new THREE.MeshLambertMaterial({ color: 0x22343f });
   for (let z = -190; z < 190; z += 8) {
     if (Math.abs(z - BRIDGE_Z) < BRIDGE_HW + 3) continue;
-    const r = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1, 7), railMat);
-    r.position.set(SHORE_X0 + 0.3, 0.5, z + 3.5);
-    cityGroup.add(r);
+    deko(0.2, 1, 7, SHORE_X0 + 0.3, 0.5, z + 3.5, 0x22343f);
   }
 }
 
@@ -3258,7 +3234,7 @@ function updatePlayer(dt) {
     /* Der Sprungangriff traf erst nach einem Drittel des langen Clips –
        da stand die Figur längst wieder am Boden. Er trifft jetzt sehr
        früh, die übrigen Schläge wie gehabt in der Mitte der Ausholphase. */
-    const treffPunkt = a.art === 'luftangriff' ? 0.16 : (a.type === 'kick' ? 0.3 : 0.33);
+    const treffPunkt = a.art === 'luftangriff' ? 0.3 : (a.type === 'kick' ? 0.3 : 0.33);
     if (!a.hitDone && a.t > treffPunkt) { a.hitDone = true; resolveAttackHit(); }
     if (a.t >= 1) player.attack = null;
   }
