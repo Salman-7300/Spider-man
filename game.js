@@ -125,7 +125,7 @@ window.addEventListener('resize', () => {
 });
 
 /* Licht */
-scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x51452e, 0.85));
+
 const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -134,6 +134,53 @@ sun.shadow.camera.left = -90; sun.shadow.camera.right = 90;
 sun.shadow.camera.top = 90; sun.shadow.camera.bottom = -90;
 sun.shadow.bias = -0.0004;
 scene.add(sun); scene.add(sun.target);
+const himmel = new THREE.HemisphereLight(0xcfe4ff, 0x51452e, 0.85);
+
+/* ======================= Tag und Nacht =======================
+   Ein voller Umlauf dauert acht Minuten: Morgen, Mittag, Abend, Nacht.
+   Sonnenstand, Farben, Nebel und Himmel wandern mit. Nachts leuchten die
+   Fenster, Ampeln und der Suchscheinwerfer erst richtig. */
+scene.add(himmel);
+const TAG = { dauer: 480, zeit: 0.42 };   // 0 = Mitternacht, 0.5 = Mittag
+const SONNE_RICHTUNG = new THREE.Vector3(0.5, 0.8, 0.3);
+const _mischFarbe = new THREE.Color();
+const _tagA = new THREE.Color(), _tagB = new THREE.Color();
+
+function mischen(ziel, farbeA, farbeB, t) {
+  _tagA.setHex(farbeA); _tagB.setHex(farbeB);
+  ziel.copy(_tagA).lerp(_tagB, t);
+  return ziel;
+}
+
+if (typeof window !== "undefined") window.__setzeZeit = (t) => { TAG.zeit = t; };
+function updateTagNacht(dt) {
+  TAG.zeit = (TAG.zeit + dt / TAG.dauer) % 1;
+  const w = TAG.zeit * Math.PI * 2;
+  /* Sonnenhöhe: -1 (tiefe Nacht) bis +1 (Mittag) */
+  const hoch = -Math.cos(w);
+  const tagAnteil = clamp((hoch + 0.25) / 1.1, 0, 1);
+  /* Dämmerung: kurz vor Sonnenauf- und -untergang am stärksten */
+  const daemmer = clamp(1 - Math.abs(hoch) * 3.2, 0, 1);
+
+  /* Nur die RICHTUNG merken – die Position setzt die Kamera, damit der
+     Schattenausschnitt dem Spieler folgt. */
+  SONNE_RICHTUNG.set(Math.sin(w) * 0.8, Math.max(0.12, hoch), Math.cos(w * 0.6) * 0.6 + 0.35).normalize();
+  sun.intensity = 0.22 + tagAnteil * 0.98;
+  mischen(sun.color, 0xff9a55, 0xfff2dd, 1 - daemmer);
+  /* Nachts nicht zu dunkel – man muss Gegner noch erkennen können. */
+  himmel.intensity = 0.34 + tagAnteil * 0.56;
+
+  const himmelFarbe = daemmer > 0.35
+    ? mischen(_mischFarbe, 0x121a2e, 0xe0794a, daemmer)
+    : mischen(_mischFarbe, 0x0d1426, 0x9fc4e8, tagAnteil);
+  scene.background.copy(himmelFarbe);
+  scene.fog.color.copy(himmelFarbe).lerp(_tagB.setHex(0xffffff), 0.12 * tagAnteil);
+
+  /* Nachts wird die Sicht kürzer – das gibt Tiefe und spart Rechenzeit. */
+  scene.fog.near = 110 + tagAnteil * 60;
+  scene.fog.far = 300 + tagAnteil * 240;
+  window.__nacht = tagAnteil < 0.35;
+}
 
 /* ======================= Canvas-Texturen ======================= */
 function canvasTex(w, h, draw) {
@@ -2117,7 +2164,7 @@ function updateCamera(dt) {
   camera.lookAt(target);
 
   // Sonne folgt dem Spieler (Schattenausschnitt)
-  sun.position.set(player.pos.x + 60, 120, player.pos.z + 40);
+  sun.position.copy(player.pos).addScaledVector(SONNE_RICHTUNG, 150);
   sun.target.position.copy(player.pos);
 }
 
@@ -2933,6 +2980,8 @@ function makeCarMesh(color) {
 
 /* ======================= Helikopter ======================= */
 const helis = [];
+const _hOben = new THREE.Vector3(0, 1, 0);
+const _hAchse = new THREE.Vector3();
 
 function makeHeliMesh() {
   const g = new THREE.Group();
@@ -3003,12 +3052,28 @@ function makeHeliMesh() {
   lampe.position.set(0, -0.7, -1.6);
   g.add(lampe);
 
+  /* Suchscheinwerfer: ein offener Kegel als Lichtstrahl. Er hängt nicht am
+     Rumpf, sondern in der Szene – so kann er unabhängig von der Kurvenlage
+     senkrecht nach unten auf die Straße zeigen. */
+  /* Breites Ende oben in der Geometrie – nach dem Ausrichten zeigt es
+     zum Boden, das schmale zum Hubschrauber. */
+  const strahlGeo = new THREE.CylinderGeometry(6.5, 0.5, 1, 14, 1, true);
+  const strahl = new THREE.Mesh(strahlGeo, new THREE.MeshBasicMaterial({
+    color: 0xfff0c0, transparent: true, opacity: 0.13,
+    side: THREE.DoubleSide, depthWrite: false }));
+  scene.add(strahl);
+  const fleck = new THREE.Mesh(new THREE.CircleGeometry(6.5, 20),
+    new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true,
+                                  opacity: 0.16, depthWrite: false }));
+  fleck.rotation.x = -Math.PI / 2;
+  scene.add(fleck);
+
   /* Ein echter Polizeihubschrauber ist rund 15 m lang. In dieser Größe
      passt der Held aufrecht zwischen Dach und Rotor. */
   g.scale.setScalar(1.9);
   g.userData.heli = true;
   scene.add(g);
-  return { mesh: g, rotor, heckRotor, lampe };
+  return { mesh: g, rotor, heckRotor, lampe, strahl, fleck };
 }
 
 /* Höchstes Haus entlang einer Flugrunde suchen.
@@ -3072,6 +3137,33 @@ function updateHelis(dt) {
     h.rotor.rotation.y += dt * 26;
     h.heckRotor.rotation.x += dt * 34;
     h.lampe.visible = (elapsed % 1.1) < 0.55;
+
+    /* Bei einem Überfall zieht ein Hubschrauber über den Tatort und kreist
+       enger – wie eine echte Polizeistaffel. */
+    if (h.zielMitte) {
+      h.mx = lerp(h.mx, h.zielMitte.x, Math.min(1, dt * 0.25));
+      h.mz = lerp(h.mz, h.zielMitte.z, Math.min(1, dt * 0.25));
+      h.radius = lerp(h.radius, 34, Math.min(1, dt * 0.25));
+    }
+
+    /* Suchscheinwerfer: wandert langsam über den Boden. */
+    const zx = h.sucheX !== undefined ? h.sucheX : x;
+    const zz = h.sucheZ !== undefined ? h.sucheZ : z;
+    h.sucheWinkel = (h.sucheWinkel || 0) + dt * 0.5;
+    const zielX = (h.zielMitte ? h.zielMitte.x : x) + Math.cos(h.sucheWinkel) * 14;
+    const zielZ = (h.zielMitte ? h.zielMitte.z : z) + Math.sin(h.sucheWinkel * 0.7) * 14;
+    h.sucheX = lerp(zx, zielX, Math.min(1, dt * 1.2));
+    h.sucheZ = lerp(zz, zielZ, Math.min(1, dt * 1.2));
+    const boden = groundY(h.sucheX, h.sucheZ);
+    const laenge = Math.max(4, y - boden);
+    h.strahl.position.set((x + h.sucheX) / 2, boden + laenge / 2, (z + h.sucheZ) / 2);
+    h.strahl.scale.set(1, laenge, 1);
+    /* Kegel entlang der Verbindung Hubschrauber -> Bodenpunkt drehen. */
+    const rx = h.sucheX - x, ry = boden - y, rz = h.sucheZ - z;
+    const len = Math.hypot(rx, ry, rz) || 1;
+    _hAchse.set(rx / len, ry / len, rz / len);
+    h.strahl.quaternion.setFromUnitVectors(_hOben, _hAchse);
+    h.fleck.position.set(h.sucheX, boden + 0.06, h.sucheZ);
     h.vx = dt > 0 ? dx / dt : 0;
     h.vz = dt > 0 ? dz / dt : 0;
   }
@@ -3683,6 +3775,7 @@ function checkGangCleared(gang) {
     addScore(200, 'Gang besiegt!', player.pos);
     if (crimeGang === gang) {
       crimeGang = null;
+      for (const h of helis) h.zielMitte = null;   // Hubschrauber zieht weiter
       addScore(150, 'Überfall gestoppt!', player.pos);
       hideObjective();
     }
@@ -3882,6 +3975,7 @@ function updateEnemies(dt) {
       for (const e of crimeGang.enemies) if (!e.dead) { e.state = 'chase'; e.target = 'player'; }
       showObjective('🚨 Überfall! Schalte die markierte Gang aus!');
       updateCrimeBeacon();
+      if (helis.length) helis[0].zielMitte = { x: crimeGang.home.x, z: crimeGang.home.z };
     }
     crimeTimer = 45;
   }
@@ -3994,6 +4088,7 @@ function animate() {
   elapsed += dt;
 
   updatePlayer(dt);
+  updateTagNacht(dt);
   updateCars(dt);
   updateHelis(dt);
   updateCivilians(dt);
