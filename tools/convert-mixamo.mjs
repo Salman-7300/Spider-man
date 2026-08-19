@@ -244,6 +244,18 @@ for (const modell of gefundeneModelle) {
   if (idx >= 0) freieSlots.splice(idx, 1);
 }
 
+/* Übergangs-Animationen ("Idle To Braced Hang") wechseln nur einmal von
+   einer Haltung in die andere und taugen nicht als Dauerbewegung. Gibt es
+   für dieselbe Bewegungsart auch eine durchgehende Datei, gewinnt die. */
+const istUebergang = (name) => /(^|[ ._-])to([ ._-]|$)/i.test(name);
+
+/* Sonst gewinnt die kleinste Datei – das ist der "Without Skin"-Download. */
+function besser(neu, alt) {
+  const u1 = istUebergang(neu.name), u2 = istUebergang(alt.name);
+  if (u1 !== u2) return u2;               // Übergang verliert gegen Dauerbewegung
+  return neu.groesse < alt.groesse;
+}
+
 /* ---------- 3. Beste Animation je Bewegungsart wählen ---------- */
 /* Bei mehreren Dateien derselben Bewegung gewinnt die kleinste
    (das ist der "Without Skin"-Download – die anderen enthalten
@@ -258,7 +270,7 @@ for (const anim of gefundeneAnims) {
   }
   const key = `${anim.slot || '*'}|${anim.typ}`;
   const vorhanden = besteAnims.get(key);
-  if (!vorhanden || anim.groesse < vorhanden.groesse) besteAnims.set(key, anim);
+  if (!vorhanden || besser(anim, vorhanden)) besteAnims.set(key, anim);
 }
 
 /* ---------- 4. Schreiben ---------- */
