@@ -42,16 +42,24 @@ jobs:
           node-version: 20
 
       - name: FBX-Dateien aus dem Release herunterladen
+        id: dl
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           mkdir -p tools/input
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --dir tools/input --pattern "*.fbx" --pattern "*.FBX"
+            --dir tools/input --pattern "*.fbx" --pattern "*.FBX" || true
           ls -la tools/input
+          if [ -z "$(ls -A tools/input 2>/dev/null)" ]; then
+            echo "Keine FBX-Dateien in diesem Release - nichts zu tun."
+            echo "leer=ja" >> "$GITHUB_OUTPUT"
+          else
+            echo "leer=nein" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Figur aus dem Release-Tag bestimmen
+        if: steps.dl.outputs.leer != 'ja'
         id: slot
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -77,9 +85,11 @@ jobs:
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
 
       - name: Abhängigkeiten installieren
+        if: steps.dl.outputs.leer != 'ja'
         run: npm install --prefix tools --no-audit --no-fund
 
       - name: FBX nach GLB umwandeln
+        if: steps.dl.outputs.leer != 'ja'
         env:
           SLOT: ${{ steps.slot.outputs.slot }}
         run: |
@@ -90,6 +100,7 @@ jobs:
           fi
 
       - name: Umgewandelte Modelle committen
+        if: steps.dl.outputs.leer != 'ja'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
