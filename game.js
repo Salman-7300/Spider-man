@@ -15,6 +15,10 @@ const CFG = {
   airAccel: 10,
   jumpVel: 11.5,
   climbSpeed: 4.5,
+  /* Abstand der Körpermitte zur Wand beim Klettern. Vorher wurde der volle
+     Kollisionsradius (0,45 m) benutzt – dadurch schwebte die Figur sichtbar
+     vor dem Haus, statt daran zu kleben. */
+  climbGap: 0.15,
   ropeMin: 7,
   playerHP: 100,
   enemyHP: 34,
@@ -565,9 +569,9 @@ function loadGlbAssets(done) {
       if (!glbModels[slot]) continue;
       for (const part of GLB_ANIM_PARTS) jobs.push([slot, part]);
     }
-    if (!jobs.length) { teileBewegungen(); done(); return; }
+    if (!jobs.length) { teileBewegungen(); ergaenzeSpiegelungen(); done(); return; }
     let pending2 = jobs.length;
-    const finish2 = () => { if (--pending2 === 0) { teileBewegungen(); done(); } };
+    const finish2 = () => { if (--pending2 === 0) { teileBewegungen(); ergaenzeSpiegelungen(); done(); } };
     for (const [slot, part] of jobs) {
       loader.load(`assets/${slot}@${part}.glb`, (gltf) => {
         try {
@@ -575,7 +579,7 @@ function loadGlbAssets(done) {
           if (clip) {
             clip.name = part; // Clip nach dem Dateinamens-Teil benennen
             passeRuheAn(clip, ruheKarte(gltf.scene), glbModels[slot].ruhe);
-            glbModels[slot].clips.push(entferneVersatz(clip));
+            glbModels[slot].clips.push(entferneFinger(entferneVersatz(clip)));
           }
         } catch (e) { /* ignorieren */ }
         finish2();
@@ -642,6 +646,46 @@ function entferneVersatz(clip) {
   return clip;
 }
 
+/* Eine Bewegung spiegeln: aus einem rechten Schlag wird ein linker.
+   Dazu werden die Links/Rechts-Knochen getauscht und jede Drehung an der
+   Körpermittelebene gespiegelt (y und z umkehren). Mixamo-Skelette sind
+   symmetrisch aufgebaut, deshalb passt das exakt.
+   So wechselt die Schlagkombo sichtbar den Arm, ohne zweite Datei. */
+function spiegeleClip(clip, name) {
+  const spuren = [];
+  for (const t of clip.tracks) {
+    const neu = t.clone();
+    neu.name = t.name.replace(/Left/g, '\u0000').replace(/Right/g, 'Left').replace(/\u0000/g, 'Right');
+    if (/\.quaternion$/.test(neu.name)) {
+      const v = neu.values;
+      for (let i = 0; i + 3 < v.length; i += 4) { v[i + 1] = -v[i + 1]; v[i + 2] = -v[i + 2]; }
+    }
+    spuren.push(neu);
+  }
+  return new THREE.AnimationClip(name, clip.duration, spuren);
+}
+
+/* Für jede Figur eine gespiegelte Schlagfassung ergänzen. */
+function ergaenzeSpiegelungen() {
+  for (const slot of Object.keys(glbModels)) {
+    const m = glbModels[slot];
+    if (!m || m.clips.some((c) => c.name === 'punch2')) continue;
+    const schlag = m.clips.find((c) => c.name === 'punch');
+    if (schlag) m.clips.push(spiegeleClip(schlag, 'punch2'));
+  }
+}
+
+/* Fingerknochen aus einer Bewegung entfernen.
+   Die Fingerhaltung der Bewegungsdateien passt bis zu 26° nicht zur
+   Ruhehaltung unseres Modells – die Hände sahen dadurch verkrampft und
+   klauenartig aus. Ohne diese Spuren behalten die Hände die schön
+   modellierte Grundhaltung des Anzugs. */
+function entferneFinger(clip) {
+  clip.tracks = clip.tracks.filter(
+    (t) => !/hand(thumb|index|middle|ring|pinky)\d/i.test(t.name));
+  return clip;
+}
+
 /* Manche Modelle bringen neben dem Skelett noch ein zweites Steuer-Rig mit
    (Ctrl_Head, Ctrl_Spine ...). Teile, die dort hängen – bei diesem Modell die
    Augenlinsen –, folgen den Bewegungen nicht und bleiben im Gesicht stehen
@@ -701,6 +745,7 @@ const GLB_CLIP_PATTERNS = {
   roll: [/roll/i, /dodge/i, /dive/i, /evade/i],
   hit: [/hit/i, /impact/i, /react/i, /stagger/i],
   punch: [/punch/i, /jab/i, /hook/i, /elbow/i, /boxing/i],
+  punch2: [/punch2/i],
   kick: [/kick/i],
   sit: [/sit/i, /hurt/i, /crouch/i, /dying/i, /death/i],
   webbed: [/idle/i],
@@ -711,7 +756,7 @@ const GLB_FALLBACK = {
   walk: ['run', 'idle'], run: ['walk', 'idle'],
   jump: ['air', 'run', 'idle'], air: ['jump', 'run', 'idle'],
   land: ['idle'], roll: ['run', 'idle'], hit: ['idle'],
-  punch: ['attack'], kick: ['attack'],
+  punch: ['attack'], punch2: ['punch', 'attack'], kick: ['attack'],
   swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
@@ -1382,14 +1427,23 @@ function makeGlbVisual(m) {
        greift automatisch die allgemeine Angriffsbewegung. */
     attackOneShot(tempo, art) {
       const a = actionFor(art || 'attack') || actionFor('attack');
-      if (!a) return;
+      if (!a) return 0;
       const v = tempo || 1.7;
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
-      if (current) current.fadeOut(0.1);
-      a.reset(); a.timeScale = v; a.fadeIn(0.1); a.play();
+      /* Beim Verketten weich überblenden. Nur wenn dieselbe Bewegung
+         direkt noch einmal kommt, muss sie zurückgesetzt werden – sonst
+         sprang die Figur bei jedem Klick zurück auf das erste Bild und der
+         Schlag sah abgehackt aus. */
+      const gleiche = angriff === a;
+      if (angriff && !gleiche) angriff.fadeOut(0.09);
+      else if (current && !angriff) current.fadeOut(0.09);
+      if (gleiche) a.reset();
+      else { a.reset(); a.fadeIn(0.09); }
+      a.timeScale = v; a.play();
       angriff = a;
       angriffT = a.getClip().duration / v;
+      return angriffT;
     },
   };
 }
@@ -2170,24 +2224,43 @@ function dodge() {
   SFX.swoosh();
 }
 
+/* Schlagkombo: jede Stufe sieht anders aus. Der gespiegelte Schlag
+   ("punch2") kommt aus derselben Datei, nur seitenverkehrt – dadurch
+   wechselt die Figur sichtbar den Arm. Die letzte Stufe ist der Abschluss. */
+const KOMBO = [
+  { art: 'punch',  tempo: 2.1, arm: 'R' },
+  { art: 'punch2', tempo: 2.1, arm: 'L' },
+  { art: 'punch',  tempo: 2.5, arm: 'R' },
+  { art: 'punch2', tempo: 2.5, arm: 'L' },
+  { art: 'kick',   tempo: 1.9, arm: 'R', finisher: true },
+];
+
 function tryAttack(type) {
   if (!heroVisual || player.dead || player.state === 'climb') return;
   if (player.rollT > 0) return;
   /* Zu früh gedrückt? Eingabe kurz merken und automatisch nachziehen –
      dadurch fühlt sich die Schlagfolge zusammenhängend an. */
   if (player.attackCd > 0) {
-    if (player.attackCd < 0.22) player.attackBuffer = { type, t: 0.22 };
+    /* Größeres Zeitfenster: Ein Klick während der laufenden Bewegung wird
+       gemerkt und direkt danach ausgeführt – so entsteht eine Kette,
+       statt dass man auf das Ende warten muss. */
+    if (player.attackCd < 0.4) player.attackBuffer = { type, t: 0.4 };
     return;
   }
   player.attackBuffer = null;
   player.combo = player.comboTimer > 0 ? player.combo : 0;
-  const arm = (player.combo % 2 === 0) ? 'R' : 'L';
-  const finisher = type === 'punch' && player.combo > 0 && (player.combo + 1) % 4 === 0;
-  player.attack = { type: finisher ? 'kick' : type, t: 0, arm, hitDone: false,
-                    finisher, stufe: player.combo };
-  const trittArt = (finisher || type === 'kick') ? 'kick' : 'punch';
-  heroVisual.attackOneShot(finisher ? 1.35 : (type === 'kick' ? 1.5 : 2.0), trittArt);
-  player.attackCd = finisher ? 0.46 : (type === 'kick' ? 0.38 : 0.27);
+  const k = type === 'kick'
+    ? { art: 'kick', tempo: 2.1, arm: 'R' }
+    : KOMBO[player.combo % KOMBO.length];
+  const finisher = !!k.finisher;
+  const arm = k.arm;
+  /* Die Dauer kommt aus der Bewegungsdatei selbst. Vorher war sie fest
+     verdrahtet und viel kürzer als der Clip – deshalb startete die
+     Animation bei schnellem Klicken immer wieder von vorn. */
+  const dauer = heroVisual.attackOneShot(k.tempo, k.art) || 0.34;
+  player.attack = { type: k.art === 'kick' ? 'kick' : 'punch', t: 0, arm,
+                    hitDone: false, finisher, stufe: player.combo, dauer };
+  player.attackCd = dauer * 0.55;
   // Magnetismus: zum nächsten Gegner ziehen
   const target = nearestEnemy(4.2, 0.2);
   if (target) {
@@ -2317,8 +2390,8 @@ function updatePlayer(dt) {
     const w = player.wallInfo;
     const c = w.col;
     // an der Wand halten
-    if (w.nx !== 0) player.pos.x = (w.nx > 0 ? c.x1 : c.x0) + w.nx * player.radius;
-    else player.pos.z = (w.nz > 0 ? c.z1 : c.z0) + w.nz * player.radius;
+    if (w.nx !== 0) player.pos.x = (w.nx > 0 ? c.x1 : c.x0) + w.nx * CFG.climbGap;
+    else player.pos.z = (w.nz > 0 ? c.z1 : c.z0) + w.nz * CFG.climbGap;
     // Bewegung an der Wand: W=hoch, S=runter, A/D=seitlich
     let up = 0, side = 0;
     if (keys['KeyW'] || keys['ArrowUp']) up += 1;
@@ -2561,7 +2634,7 @@ function updatePlayer(dt) {
   /* ---- Angriff auswerten ---- */
   if (player.attack) {
     const a = player.attack;
-    a.t += dt / (a.finisher ? 0.46 : (a.type === 'kick' ? 0.4 : 0.3));
+    a.t += dt / (a.dauer || 0.34);
     if (!a.hitDone && a.t > 0.33) { a.hitDone = true; resolveAttackHit(); }
     if (a.t >= 1) player.attack = null;
   }
