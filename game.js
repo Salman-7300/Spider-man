@@ -153,6 +153,69 @@ function mischen(ziel, farbeA, farbeB, t) {
 }
 
 if (typeof window !== "undefined") window.__setzeZeit = (t) => { TAG.zeit = t; };
+/* ======================= Wetter =======================
+   Regen zieht ab und zu über die Stadt. Die Tropfen sind ein einziges
+   Punktobjekt, das um die Kamera herum mitwandert – dadurch kostet der
+   ganze Regen nur einen Zeichenaufruf. */
+const REGEN = { an: false, staerke: 0, naechsterWechsel: 70 };
+let regenPunkte = null, regenGeschw = null;
+const REGEN_ANZAHL = 3200, REGEN_BOX = 55;
+
+function baueRegen() {
+  /* Jeder Tropfen ist ein kurzer Strich statt eines Punktes – erst dadurch
+     sieht es nach Regen aus und nicht nach Schneeflocken. */
+  const pos = new Float32Array(REGEN_ANZAHL * 6);
+  regenGeschw = new Float32Array(REGEN_ANZAHL);
+  for (let i = 0; i < REGEN_ANZAHL; i++) {
+    const x = rand(-REGEN_BOX, REGEN_BOX), y = rand(0, 48), z = rand(-REGEN_BOX, REGEN_BOX);
+    pos[i * 6] = x;     pos[i * 6 + 1] = y;        pos[i * 6 + 2] = z;
+    pos[i * 6 + 3] = x; pos[i * 6 + 4] = y - 0.7;  pos[i * 6 + 5] = z;
+    regenGeschw[i] = rand(30, 48);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  regenPunkte = new THREE.LineSegments(g, new THREE.LineBasicMaterial({
+    color: 0xc6d8ea, transparent: true, opacity: 0, depthWrite: false }));
+  regenPunkte.frustumCulled = false;
+  scene.add(regenPunkte);
+}
+
+function updateWetter(dt) {
+  if (!regenPunkte) baueRegen();
+  REGEN.naechsterWechsel -= dt;
+  if (REGEN.naechsterWechsel <= 0) {
+    REGEN.an = !REGEN.an;
+    REGEN.naechsterWechsel = REGEN.an ? rand(50, 110) : rand(120, 240);
+  }
+  const ziel = REGEN.an ? 1 : 0;
+  REGEN.staerke += clamp(ziel - REGEN.staerke, -dt * 0.25, dt * 0.25);
+  regenPunkte.material.opacity = REGEN.staerke * 0.42;
+  regenPunkte.visible = REGEN.staerke > 0.02;
+  if (!regenPunkte.visible) return;
+
+  /* Tropfen fallen; wer unten ankommt, wird oben neu eingesetzt.
+     Das ganze Feld folgt der Kamera, damit es nie ausgeht. */
+  const pos = regenPunkte.geometry.attributes.position;
+  const a = pos.array;
+  const cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;
+  for (let i = 0; i < REGEN_ANZAHL; i++) {
+    const o = i * 6;
+    let x = a[o] + 5 * dt;
+    let y = a[o + 1] - regenGeschw[i] * dt;
+    let z = a[o + 2];
+    if (y < cy - 28) { y = cy + 28; x = cx + rand(-REGEN_BOX, REGEN_BOX); z = cz + rand(-REGEN_BOX, REGEN_BOX); }
+    if (Math.abs(x - cx) > REGEN_BOX) x = cx - Math.sign(x - cx) * REGEN_BOX;
+    if (Math.abs(z - cz) > REGEN_BOX) z = cz - Math.sign(z - cz) * REGEN_BOX;
+    a[o] = x;     a[o + 1] = y;        a[o + 2] = z;
+    a[o + 3] = x - 0.09; a[o + 4] = y - 0.8; a[o + 5] = z;
+  }
+  pos.needsUpdate = true;
+}
+
+if (typeof window !== "undefined") {
+  window.__regenAn = () => { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; };
+  window.__regenInfo = () => ({ an: REGEN.an, staerke: +REGEN.staerke.toFixed(2), sichtbar: regenPunkte ? regenPunkte.visible : null });
+}
 function updateTagNacht(dt) {
   TAG.zeit = (TAG.zeit + dt / TAG.dauer) % 1;
   const w = TAG.zeit * Math.PI * 2;
@@ -179,6 +242,13 @@ function updateTagNacht(dt) {
   /* Nachts wird die Sicht kürzer – das gibt Tiefe und spart Rechenzeit. */
   scene.fog.near = 110 + tagAnteil * 60;
   scene.fog.far = 300 + tagAnteil * 240;
+  if (REGEN.staerke > 0.02) {
+    /* Bei Regen wird alles grauer und die Sicht kürzer. */
+    scene.background.lerp(_tagB.setHex(0x5a6472), REGEN.staerke * 0.55);
+    scene.fog.color.lerp(_tagB.setHex(0x5a6472), REGEN.staerke * 0.55);
+    scene.fog.far *= 1 - REGEN.staerke * 0.35;
+    sun.intensity *= 1 - REGEN.staerke * 0.45;
+  }
   window.__nacht = tagAnteil < 0.35;
 }
 
@@ -4208,6 +4278,7 @@ function animate() {
   elapsed += dt;
 
   updatePlayer(dt);
+  updateWetter(dt);
   updateTagNacht(dt);
   updateCars(dt);
   updateHelis(dt);
