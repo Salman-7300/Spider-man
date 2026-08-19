@@ -24,7 +24,7 @@ const CFG = {
   enemyHP: 34,
   civCount: 22,
   carCount: 26,
-  heliCount: 4,
+  heliCount: 2,
   maxEnemies: 14,
   rollDauer: 0.45,
 };
@@ -579,7 +579,6 @@ function loadGlbAssets(done) {
           const clip = (gltf.animations || [])[0];
           if (clip) {
             clip.name = part; // Clip nach dem Dateinamens-Teil benennen
-            passeRuheAn(clip, ruheKarte(gltf.scene), glbModels[slot].ruhe);
             glbModels[slot].clips.push(entferneFinger(entferneVersatz(clip)));
           }
         } catch (e) { /* ignorieren */ }
@@ -606,37 +605,6 @@ function ruheKarte(scene) {
   return karte;
 }
 
-/* Bewegungsdateien speichern für jeden Knochen eine absolute Drehung – aber
-   bezogen auf die Ruhehaltung IHRER Figur. Weicht die Ruhehaltung unseres
-   Modells davon ab (andere Schulter-, Arm- oder Kniewinkel), verrenkt die
-   Figur: Arme fliegen weg, Knie knicken ein, die Haltung kippt.
-   Deshalb wird hier aus der Bewegung erst die reine Abweichung von ihrer
-   eigenen Ruhehaltung berechnet und diese dann auf unsere Ruhehaltung
-   gesetzt. Stimmen beide überein, ändert sich nichts. */
-const _qA = new THREE.Quaternion(), _qB = new THREE.Quaternion();
-const _qUm = new THREE.Quaternion(), _qW = new THREE.Quaternion();
-function passeRuheAn(clip, ruheQuelle, ruheZiel) {
-  if (!ruheQuelle || !ruheZiel) return clip;
-  for (const track of clip.tracks) {
-    const treffer = /^(.*)\.quaternion$/.exec(track.name);
-    if (!treffer) continue;
-    const qQuelle = ruheQuelle.get(treffer[1]);
-    const qZiel = ruheZiel.get(treffer[1]);
-    if (!qQuelle || !qZiel) continue;
-    _qUm.copy(qZiel).multiply(_qA.copy(qQuelle).invert());
-    if (_qUm.angleTo(EINHEITSDREHUNG) < 0.01) continue;   // passt schon
-    const v = track.values;
-    for (let i = 0; i + 3 < v.length; i += 4) {
-      _qW.set(v[i], v[i + 1], v[i + 2], v[i + 3]);
-      /* Abweichung von der fremden Ruhehaltung, auf unsere gesetzt:
-         neu = ZielRuhe * QuellRuhe⁻¹ * alt */
-      _qW.premultiply(_qUm);
-      v[i] = _qW.x; v[i + 1] = _qW.y; v[i + 2] = _qW.z; v[i + 3] = _qW.w;
-    }
-  }
-  return clip;
-}
-const EINHEITSDREHUNG = new THREE.Quaternion();
 
 /* Mixamo-Bewegungen stammen oft von einem anderen Charakter als das Modell.
    Ihre Hüft-Positionsspur ist dann in fremden Maßen und würde die Figur in
@@ -1281,6 +1249,17 @@ function makeGlbVisual(m) {
       const wiegen = Math.sin((t || 0) * 1.6) * 0.1;
       drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5);
       drehe(knochen[andereK], -0.5, 0, 0, 0.5);
+      /* Die geladene Hänge-Bewegung steht fast still – am Netz sah das aus
+         wie eine eingefrorene Puppe. Ein ruhiger Beintakt im Rhythmus des
+         Pendels bringt Leben hinein, ohne der Bewegung ins Handwerk zu
+         pfuschen (halbes Gewicht, kleine Ausschläge). */
+      const takt = Math.sin((t || 0) * 2.3);
+      const k = 0.55;
+      drehe(knochen.leftupleg, -0.30 + takt * 0.42, 0, 0.07, k);
+      drehe(knochen.rightupleg, -0.30 - takt * 0.42, 0, -0.07, k);
+      drehe(knochen.leftleg, 0.60 - takt * 0.30, 0, 0, k);
+      drehe(knochen.rightleg, 0.60 + takt * 0.30, 0, 0, k);
+      drehe(knochen.spine1, 0.10 + takt * 0.05, 0, 0, 0.4);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -1415,6 +1394,11 @@ function makeGlbVisual(m) {
       const a = actionFor(want) || actionFor('idle');
       if (a && a !== current) {
         if (current) current.fadeOut(0.22);
+        /* Umfallen und Liegenbleiben laufen genau einmal und bleiben im
+           letzten Bild stehen – sonst fällt die Figur endlos immer wieder. */
+        const einmal = want === 'downed' || want === 'sit';
+        a.setLoop(einmal ? THREE.LoopOnce : THREE.LoopRepeat, einmal ? 1 : Infinity);
+        a.clampWhenFinished = einmal;
         a.reset().fadeIn(0.22).play();
         current = a;
       }
@@ -2065,6 +2049,10 @@ function findAnchor() {
     if (dot < 0.3) continue;
     const anchorY = Math.min(c.h - 0.5, py + 16 + dist * 0.55);
     if (anchorY < py + 6) continue;                  // zu flach -> kein Bogen
+    /* Der tiefste Punkt des Pendels muss über der Straße bleiben. Sonst
+       hängt man am Seil und schleift sofort über den Boden. */
+    const seil = Math.max(CFG.ropeMin, Math.hypot(dist, anchorY - py));
+    if (anchorY - seil < groundY(px, pz) + 2.5) continue;
     const hoehe = anchorY - py;
     const score = dot * 3
                 - Math.abs(dist - wunschWeite) / 18   // Wunschweite bevorzugen
@@ -2072,8 +2060,12 @@ function findAnchor() {
     if (score > bestScore) { bestScore = score; best = V3(cx, anchorY, cz); }
   }
   if (best) return best;
-  // Himmelsanker: hält auch über dem Fluss einen sauberen Bogen
-  return V3(px + rx * wunschWeite * 0.55, py + 22, pz + rz * wunschWeite * 0.55);
+  /* Himmelsanker als Rückfall (z. B. über dem Fluss). Je näher man am
+     Boden ist, desto steiler wird er angesetzt – sonst hängt das Seil so
+     schräg, dass der erste Bogen sofort auf der Straße endet. */
+  const ueberBoden = py - groundY(px, pz);
+  const seitlich = Math.min(wunschWeite * 0.55, Math.max(2, (ueberBoden - 3) * 1.2));
+  return V3(px + rx * seitlich, py + 22, pz + rz * seitlich);
 }
 
 function startSwing() {
@@ -2381,7 +2373,25 @@ let onWallTimer = 0;
 
 function updatePlayer(dt) {
   if (!heroVisual) return;
-  if (player.dead) { heroVisual.play('downed', { t: elapsed }, dt); return; }
+  if (player.dead) {
+    /* Auch im K.o. wirkt Schwerkraft – vorher blieb die Figur dort in der
+       Luft stehen, wo sie getroffen wurde. */
+    const boden = groundY(player.pos.x, player.pos.z);
+    if (player.pos.y > boden) {
+      player.vel.y -= CFG.gravity * dt;
+      player.pos.y += player.vel.y * dt;
+      if (player.pos.y <= boden) { player.pos.y = boden; player.vel.y = 0; }
+    }
+    player.vel.x *= Math.max(0, 1 - dt * 3);
+    player.vel.z *= Math.max(0, 1 - dt * 3);
+    player.pos.x += player.vel.x * dt;
+    player.pos.z += player.vel.z * dt;
+    /* Nur EIN Aufruf pro Bild – vorher schaltete der zweite Aufruf sofort
+       wieder auf Stehen zurück, dadurch fing das Umfallen endlos neu an. */
+    player.anim = 'downed';
+    updateHeroVisual(dt);
+    return;
+  }
 
   const dir = inputDir();
   const wantSwing = (keys['Space'] || swingHeld);
@@ -2851,6 +2861,24 @@ function makeHeliMesh() {
   return { mesh: g, rotor, heckRotor, lampe };
 }
 
+/* Höchstes Haus entlang einer Flugrunde suchen.
+   Der Hubschrauber muss darüber bleiben, sonst fliegt er durch die Häuser. */
+function hoechstesHausAufRunde(mx, mz, radius) {
+  let hoch = 0;
+  for (let i = 0; i < 72; i++) {
+    const w = (i / 72) * Math.PI * 2;
+    const x = mx + Math.cos(w) * radius;
+    const z = mz + Math.sin(w) * radius;
+    for (const c of colliders) {
+      /* Etwas Puffer um das Haus herum – der Rotor ist breiter als der Rumpf. */
+      if (x > c.x0 - 9 && x < c.x1 + 9 && z > c.z0 - 9 && z < c.z1 + 9) {
+        if (c.h > hoch) hoch = c.h;
+      }
+    }
+  }
+  return hoch;
+}
+
 function spawnHelis() {
   for (let i = 0; i < CFG.heliCount; i++) {
     const teile = makeHeliMesh();
@@ -2861,9 +2889,12 @@ function spawnHelis() {
       radius: rand(60, 130),
       winkel: rand(0, Math.PI * 2),
       tempo: rand(0.045, 0.085) * (Math.random() < 0.5 ? 1 : -1),
-      hoehe: rand(52, 96),
+      hoehe: 0,      // wird gleich aus den Hausdächern bestimmt
       wanken: rand(0, Math.PI * 2),
     });
+    const h = helis[helis.length - 1];
+    /* Reiseflughöhe: sicher über dem höchsten Dach der eigenen Runde. */
+    h.hoehe = hoechstesHausAufRunde(h.mx, h.mz, h.radius) + rand(16, 26);
   }
 }
 
@@ -3070,8 +3101,16 @@ function updateCivilians(dt) {
       const wpT = c.loop[c.wp];
       const dx = wpT.x - c.pos.x, dz = wpT.z - c.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < 1.2) c.wp = (c.wp + 1) % 4;
+      if (d < 1.2) { c.wp = (c.wp + 1) % 4; c.festT = 0; c.letzteDist = null; }
       else { dirX = dx / d; dirZ = dz / d; }
+      /* Steckt jemand an einer Hauskante fest, kommt er dem Ziel nicht mehr
+         näher und läuft auf der Stelle. Dann einfach das nächste Ziel
+         ansteuern statt ewig gegen die Wand zu rennen. */
+      if (c.letzteDist !== null && c.letzteDist !== undefined && d > c.letzteDist - 0.25 * dt * 10) {
+        c.festT = (c.festT || 0) + dt;
+        if (c.festT > 1.5) { c.wp = (c.wp + 1) % 4; c.festT = 0; }
+      } else c.festT = 0;
+      c.letzteDist = d;
       if (Math.random() < dt * 0.02) speed = 0; // kurz stehenbleiben
     }
 
