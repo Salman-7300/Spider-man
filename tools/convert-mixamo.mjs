@@ -40,21 +40,28 @@ const HELD_NAMEN = /hero|spider|spinne|held/i;
 
 /* Mixamo-Animationsnamen -> Bezeichnung im Spiel */
 const ANIM_KEYWORDS = [
-  /* Reihenfolge zählt: Die erste passende Regel gewinnt.
-     "Falling To Landing" soll z. B. als Landung zählen, nicht als Fall. */
+  /* Reihenfolge zählt: Die erste passende Regel gewinnt. Mixamo-Namen
+     enthalten oft mehrere Stichwörter, deshalb steht das jeweils
+     genauere Wort weiter oben:
+       "Falling To Landing"          -> Landung, nicht Fall
+       "Falling Back Death"          -> K.o., nicht Fall
+       "Falling Idle"                -> Fall, nicht Stehen
+       "Standing React Small"        -> Treffer, nicht Stehen
+       "Hanging Idle"                -> Netzschwung, nicht Stehen  */
   [/land/i, 'land'],
   [/climb|ladder/i, 'climb'],
   [/swing|hang|brachiat|fly/i, 'swing'],
-  [/roll|dodge|dive|evade/i, 'roll'],
+  [/roll|dodge|evade/i, 'roll'],
+  [/dying|death|knock/i, 'sit'],
+  [/react|stagger|impact|hit/i, 'hit'],
+  [/kick/i, 'kick'],
+  [/punch|jab|hook|boxing|elbow/i, 'punch'],
+  [/jump|leap/i, 'jump'],
+  [/fall|air/i, 'fall'],
   [/idle|breathing|standing/i, 'idle'],
   [/walk/i, 'walk'],
   [/run|jog|sprint/i, 'run'],
-  [/jump|leap/i, 'jump'],
-  [/fall|air/i, 'fall'],
-  [/kick/i, 'kick'],
-  [/punch|jab|hook|boxing|elbow/i, 'punch'],
-  [/hit|impact|react|stagger/i, 'hit'],
-  [/sit|crouch|dying|death|knock/i, 'sit'],
+  [/sit|crouch/i, 'sit'],
 ];
 
 const args = process.argv.slice(2);
@@ -255,8 +262,13 @@ for (const anim of gefundeneAnims) {
 }
 
 /* ---------- 4. Schreiben ---------- */
+const ausAnims = [...new Set(gefundeneAnims.map((a) => a.slot).filter(Boolean))];
 const zielSlots = belegt.size ? [...belegt.keys()]
-  : (slotArg ? [slotArg] : [...new Set(gefundeneAnims.map((a) => a.slot).filter(Boolean))]);
+  : (slotArg ? [slotArg]
+  /* Sonst gelten die Bewegungen für alle Figuren, die es schon gibt –
+     alle Mixamo-Figuren teilen sich dasselbe Skelett. */
+  : (ausAnims.length ? ausAnims
+  : SLOTS.filter((sl) => fs.existsSync(path.join(outputDir, sl + '.glb')))));
 
 let geschriebeneModelle = 0, geschriebeneAnims = 0;
 

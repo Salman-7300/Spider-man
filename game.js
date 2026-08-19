@@ -548,6 +548,7 @@ function loadGlbAssets(done) {
         const h = mass.maxY - mass.minY;
         glbModels[slot] = {
           scene: gltf.scene,
+          ruhe: ruheKarte(gltf.scene),
           clips: (gltf.animations || []).slice(),
           scale: h > 0.01 ? 1.76 / h : 1,
           yOffset: -mass.minY,
@@ -573,6 +574,7 @@ function loadGlbAssets(done) {
           const clip = (gltf.animations || [])[0];
           if (clip) {
             clip.name = part; // Clip nach dem Dateinamens-Teil benennen
+            passeRuheAn(clip, ruheKarte(gltf.scene), glbModels[slot].ruhe);
             glbModels[slot].clips.push(entferneVersatz(clip));
           }
         } catch (e) { /* ignorieren */ }
@@ -581,6 +583,55 @@ function loadGlbAssets(done) {
     }
   }
 }
+
+/* Name eines Knotens so schreiben, wie ihn die Animationsspuren ansprechen. */
+function spurName(name) {
+  return THREE.PropertyBinding && THREE.PropertyBinding.sanitizeNodeName
+    ? THREE.PropertyBinding.sanitizeNodeName(name) : name;
+}
+
+/* Ruhehaltung (Rest-Pose) eines Modells oder einer Bewegungsdatei einsammeln:
+   die Grunddrehung jedes Knochens, bevor irgendeine Bewegung läuft. */
+function ruheKarte(scene) {
+  const karte = new Map();
+  scene.traverse((o) => {
+    const n = spurName(o.name || '');
+    if (n && !karte.has(n)) karte.set(n, o.quaternion.clone());
+  });
+  return karte;
+}
+
+/* Bewegungsdateien speichern für jeden Knochen eine absolute Drehung – aber
+   bezogen auf die Ruhehaltung IHRER Figur. Weicht die Ruhehaltung unseres
+   Modells davon ab (andere Schulter-, Arm- oder Kniewinkel), verrenkt die
+   Figur: Arme fliegen weg, Knie knicken ein, die Haltung kippt.
+   Deshalb wird hier aus der Bewegung erst die reine Abweichung von ihrer
+   eigenen Ruhehaltung berechnet und diese dann auf unsere Ruhehaltung
+   gesetzt. Stimmen beide überein, ändert sich nichts. */
+const _qA = new THREE.Quaternion(), _qB = new THREE.Quaternion();
+const _qUm = new THREE.Quaternion(), _qW = new THREE.Quaternion();
+function passeRuheAn(clip, ruheQuelle, ruheZiel) {
+  if (!ruheQuelle || !ruheZiel) return clip;
+  for (const track of clip.tracks) {
+    const treffer = /^(.*)\.quaternion$/.exec(track.name);
+    if (!treffer) continue;
+    const qQuelle = ruheQuelle.get(treffer[1]);
+    const qZiel = ruheZiel.get(treffer[1]);
+    if (!qQuelle || !qZiel) continue;
+    _qUm.copy(qZiel).multiply(_qA.copy(qQuelle).invert());
+    if (_qUm.angleTo(EINHEITSDREHUNG) < 0.01) continue;   // passt schon
+    const v = track.values;
+    for (let i = 0; i + 3 < v.length; i += 4) {
+      _qW.set(v[i], v[i + 1], v[i + 2], v[i + 3]);
+      /* Abweichung von der fremden Ruhehaltung, auf unsere gesetzt:
+         neu = ZielRuhe * QuellRuhe⁻¹ * alt */
+      _qW.premultiply(_qUm);
+      v[i] = _qW.x; v[i + 1] = _qW.y; v[i + 2] = _qW.z; v[i + 3] = _qW.w;
+    }
+  }
+  return clip;
+}
+const EINHEITSDREHUNG = new THREE.Quaternion();
 
 /* Mixamo-Bewegungen stammen oft von einem anderen Charakter als das Modell.
    Ihre Hüft-Positionsspur ist dann in fremden Maßen und würde die Figur in
@@ -1094,6 +1145,18 @@ function makeGlbVisual(m) {
   });
   const basisY = inner.position.y;
   let fussRuhe = null, bodenKorrektur = 0;
+  /* Ruhehöhe der Füße JETZT aus der Bindehaltung messen – noch bevor
+     irgendeine Bewegung läuft. Früher wurde sie beim ersten Bildaufbau
+     genommen; fiel die Figur da gerade (angezogene Beine), merkte sich der
+     Ausgleich eine viel zu hohe Ruhelage und hob die Figur dauerhaft
+     mehrere Handbreit über den Boden. */
+  if (fuesse.length) {
+    inner.updateMatrixWorld(true);
+    let tiefster = Infinity;
+    const _mess = new THREE.Vector3();
+    for (const f of fuesse) { f.getWorldPosition(_mess); tiefster = Math.min(tiefster, _mess.y); }
+    if (isFinite(tiefster)) fussRuhe = tiefster - root.position.y;
+  }
 
   /* Handknochen merken – daran hängt später der Netzfaden */
   const haende = { L: null, R: null };
@@ -1270,6 +1333,9 @@ function makeGlbVisual(m) {
         : lerp(bodenKorrektur, ziel, k === undefined ? 0.4 : k);
       inner.position.y = basisY + bodenKorrektur;
     },
+    /* Gibt es für diesen Zustand eine echte geladene Bewegung?
+       Wenn ja, hat sie Vorrang vor allen selbstgebauten Posen. */
+    hatClip(key) { return !!findClip(m.clips, key); },
     play(key, p, dt) {
       /* Detailstufe nach Entfernung: Skelett-Animation ist teuer, deshalb
          weit entfernte Figuren ausblenden bzw. seltener animieren. */
@@ -1718,7 +1784,7 @@ const player = {
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0,
   attackCd: 0,
-  dodgeT: 0, iFrames: 0, rollT: 0,
+  dodgeT: 0, iFrames: 0, rollT: 0, landT: 0,
   schussT: 0, schussZiel: V3(0, 0, 0),
   hurtCd: 0, regenCd: 0,
   platform: null,
@@ -2085,7 +2151,7 @@ function dodge() {
   const tempo = player.onGround ? 19 : 15;
   player.vel.x = dir.x * tempo;
   player.vel.z = dir.z * tempo;
-  if (player.onGround) player.vel.y = 3.2;      // kleiner Hüpfer, wirkt sprungiger
+  if (player.onGround) player.vel.y = 1.8;      // nur ein Antippen – die Rolle kommt aus der Animation
   player.facing = Math.atan2(dir.x, dir.z);
   player.dodgeT = CFG.rollDauer;
   player.rollT = CFG.rollDauer;
@@ -2419,6 +2485,7 @@ function updatePlayer(dt) {
 
   /* ---- Kollisionen ---- */
   const wasOnGround = player.onGround;
+  const fallTempo = -player.vel.y;          // für die Landeanimation
   player.onGround = false;
   player.platform = null;
   collideBody(player, prevY);
@@ -2427,6 +2494,8 @@ function updatePlayer(dt) {
   if (player.onGround) {
     if (player.state === 'swing') stopSwing(false);
     if (!wasOnGround && player.vel.length() < 4) SFX.swoosh();
+    /* Aus größerer Höhe aufkommen: kurz die Landeanimation zeigen. */
+    if (!wasOnGround && fallTempo > 6) player.landT = clamp(fallTempo / 26, 0.18, 0.42);
     player.state = 'ground';
     player.jumps = 0;
     player.swingLock = keys['Space'] || swingHeld; // Space am Boden gedrückt → erst loslassen
@@ -2488,9 +2557,14 @@ function updatePlayer(dt) {
 
   /* ---- Animation wählen ---- */
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
-  if (player.state === 'swing') player.anim = 'swing';
+  if (player.landT > 0) player.landT -= dt;
+  if (player.rollT > 0) player.anim = 'roll';
+  else if (player.state === 'swing') player.anim = 'swing';
   else if (player.state === 'zip') player.anim = 'air';
-  else if (!player.onGround) player.anim = 'air';
+  /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
+     oben geht, läuft der Absprung, danach erst der freie Fall. */
+  else if (!player.onGround) player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
+  else if (player.landT > 0) player.anim = 'land';
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
        sonst „läuft" die Figur beim Ausrollen weiter, obwohl man steht. */
@@ -2521,9 +2595,9 @@ function updateHeroVisual(dt) {
      Figur im Boden und tauchte anschließend von oben wieder auf. */
   if (player.rollT > 0) {
     player.rollT -= dt;
-    const fortschritt = 1 - clamp(player.rollT / CFG.rollDauer, 0, 1);
-    const bogen = Math.sin(fortschritt * Math.PI);
-    r.rotation.x = lerp(r.rotation.x, 0.55 * bogen, Math.min(1, dt * 18));
+    /* Die Ausweichrolle kommt jetzt aus der Animation. Eine zusätzliche
+       Drehung der ganzen Figur hat sie früher unter den Boden gezogen. */
+    r.rotation.x = lerp(r.rotation.x, 0, Math.min(1, dt * 18));
   } else {
     // Körperneigung beim Schwingen/Fallen
     let tilt = 0;
@@ -2551,13 +2625,15 @@ function updateHeroVisual(dt) {
     } else if (player.state === 'swing' && player.swing) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed);
     } else if (player.state === 'climb') {
-      heroVisual.poseKlettern(player.phase);
+      /* Die geladene Kletteranimation führt allein – die frühere Handpose
+         hat sie komplett überschrieben, dadurch sah es aus wie Hochlaufen. */
+      if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
       heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
     } else if (player.schussT > 0) {
       player.schussT -= dt;
       heroVisual.poseSchuss(player.schussZiel, netzHand, 1);
-    } else if (player.onGround) {
+    } else if (player.onGround && player.rollT <= 0) {
       heroVisual.bodenAusgleich(Math.min(1, dt * 12));   // Füße bleiben oben
     }
   }
