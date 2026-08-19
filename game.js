@@ -24,6 +24,7 @@ const CFG = {
   enemyHP: 34,
   civCount: 22,
   carCount: 26,
+  heliCount: 4,
   maxEnemies: 14,
   rollDauer: 0.45,
 };
@@ -2574,6 +2575,7 @@ function updatePlayer(dt) {
   player.platform = null;
   collideBody(player, prevY);
   collidePlayerCars(prevY);
+  collidePlayerHelis(prevY);
 
   if (player.onGround) {
     if (player.state === 'swing') stopSwing(false);
@@ -2769,6 +2771,148 @@ function makeCarMesh(color) {
   return g;
 }
 
+/* ======================= Helikopter ======================= */
+const helis = [];
+
+function makeHeliMesh() {
+  const g = new THREE.Group();
+  const lack = new THREE.MeshLambertMaterial({ color: 0x2b3550 });
+  const dunkel = new THREE.MeshLambertMaterial({ color: 0x14161c });
+  const glas = new THREE.MeshLambertMaterial({ color: 0x9fd2e8 });
+
+  const rumpf = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.5, 4.2), lack);
+  rumpf.position.y = 0.2; rumpf.castShadow = true;
+  g.add(rumpf);
+  const kanzel = new THREE.Mesh(new THREE.SphereGeometry(1.0, 12, 10), glas);
+  kanzel.scale.set(0.95, 0.8, 1.1);
+  kanzel.position.set(0, 0.25, 2.1);
+  g.add(kanzel);
+  const heck = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 3.6), lack);
+  heck.position.set(0, 0.55, -3.4); heck.castShadow = true;
+  g.add(heck);
+  const finne = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.1, 0.8), lack);
+  finne.position.set(0, 1.1, -4.9);
+  g.add(finne);
+
+  // Kufen
+  for (const sx of [-1, 1]) {
+    const kufe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 3.4), dunkel);
+    kufe.position.set(sx * 0.85, -0.85, 0.2);
+    g.add(kufe);
+    for (const sz of [1.1, -1.1]) {
+      const strebe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.8, 0.12), dunkel);
+      strebe.position.set(sx * 0.85, -0.45, sz);
+      g.add(strebe);
+    }
+  }
+
+  /* Rotor: vier Blätter plus eine fast durchsichtige Scheibe – im Flug
+     verschmilzt beides zum typischen Rotorkreis. */
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.9, 8), dunkel);
+  mast.position.y = 1.35;
+  g.add(mast);
+  const rotor = new THREE.Group();
+  /* Rotor deutlich über dem Rumpf – sonst steht man beim Landen mitten
+     zwischen den Blättern. */
+  rotor.position.y = 1.95;
+  const blattGeo = new THREE.BoxGeometry(0.26, 0.06, 7.2);
+  /* Zwei Balken ergeben vier Blätter (jeder Balken reicht nach beiden Seiten). */
+  for (let i = 0; i < 2; i++) {
+    const blatt = new THREE.Mesh(blattGeo, dunkel);
+    blatt.rotation.y = i * Math.PI / 2;
+    rotor.add(blatt);
+  }
+  const scheibe = new THREE.Mesh(new THREE.CircleGeometry(3.6, 24),
+    new THREE.MeshBasicMaterial({ color: 0x9aa3b5, transparent: true, opacity: 0.16,
+                                 side: THREE.DoubleSide, depthWrite: false }));
+  scheibe.rotation.x = -Math.PI / 2;
+  rotor.add(scheibe);
+  g.add(rotor);
+
+  const heckRotor = new THREE.Group();
+  heckRotor.position.set(0.28, 1.1, -4.9);
+  for (let i = 0; i < 3; i++) {
+    const blatt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.06), dunkel);
+    blatt.rotation.z = i * Math.PI / 3;
+    heckRotor.add(blatt);
+  }
+  g.add(heckRotor);
+
+  const lampe = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff3020 }));
+  lampe.position.set(0, -0.7, -1.6);
+  g.add(lampe);
+
+  /* Ein echter Polizeihubschrauber ist rund 15 m lang. In dieser Größe
+     passt der Held aufrecht zwischen Dach und Rotor. */
+  g.scale.setScalar(1.9);
+  g.userData.heli = true;
+  scene.add(g);
+  return { mesh: g, rotor, heckRotor, lampe };
+}
+
+function spawnHelis() {
+  for (let i = 0; i < CFG.heliCount; i++) {
+    const teile = makeHeliMesh();
+    helis.push({
+      ...teile,
+      /* Jeder Hubschrauber zieht seine eigene weite Runde über der Stadt. */
+      mx: rand(-70, 70), mz: rand(-70, 70),
+      radius: rand(60, 130),
+      winkel: rand(0, Math.PI * 2),
+      tempo: rand(0.045, 0.085) * (Math.random() < 0.5 ? 1 : -1),
+      hoehe: rand(52, 96),
+      wanken: rand(0, Math.PI * 2),
+    });
+  }
+}
+
+/* Deckfläche eines Hubschraubers – darauf kann man landen und mitfliegen. */
+function heliAABB(h) {
+  const p = h.mesh.position;
+  return { x0: p.x - 2.9, x1: p.x + 2.9, z0: p.z - 4.2, z1: p.z + 4.2, top: p.y + 1.9 };
+}
+
+function updateHelis(dt) {
+  for (const h of helis) {
+    const vorherX = h.mesh.position.x, vorherZ = h.mesh.position.z;
+    h.winkel += h.tempo * dt;
+    h.wanken += dt * 0.7;
+    const x = h.mx + Math.cos(h.winkel) * h.radius;
+    const z = h.mz + Math.sin(h.winkel) * h.radius;
+    const y = h.hoehe + Math.sin(h.wanken) * 1.4;
+    h.mesh.position.set(x, y, z);
+    /* Nase in Flugrichtung, dazu leichte Kurvenlage – ohne das wirkt der
+       Flug wie ein Modell an der Schnur. */
+    const dx = x - vorherX, dz = z - vorherZ;
+    if (dx * dx + dz * dz > 1e-6) h.mesh.rotation.y = Math.atan2(dx, dz);
+    h.mesh.rotation.z = lerp(h.mesh.rotation.z, h.tempo > 0 ? -0.18 : 0.18, Math.min(1, dt * 2));
+    h.mesh.rotation.x = -0.06;
+    h.rotor.rotation.y += dt * 26;
+    h.heckRotor.rotation.x += dt * 34;
+    h.lampe.visible = (elapsed % 1.1) < 0.55;
+    h.vx = dt > 0 ? dx / dt : 0;
+    h.vz = dt > 0 ? dz / dt : 0;
+  }
+}
+
+function collidePlayerHelis(prevY) {
+  const p = player.pos, r = player.radius;
+  for (const h of helis) {
+    const b = heliAABB(h);
+    if (p.x > b.x0 - r && p.x < b.x1 + r && p.z > b.z0 - r && p.z < b.z1 + r &&
+        p.y < b.top && prevY >= b.top - 0.4 && player.vel.y <= 0.01) {
+      p.y = b.top;
+      player.vel.y = 0;
+      player.onGround = true;
+      player.platform = h;
+      // mit dem Hubschrauber mitfliegen
+      p.x += (h.vx || 0) * 0.016;
+      p.z += (h.vz || 0) * 0.016;
+    }
+  }
+}
+
 function spawnCars() {
   const lines = [];
   for (let i = 0; i <= BLOCKS; i++) lines.push(ORIGIN + i * PITCH);
@@ -2790,6 +2934,7 @@ function spawnCars() {
   }
 }
 spawnCars();
+spawnHelis();
 
 function updateCars(dt) {
   for (const car of cars) {
@@ -3464,6 +3609,7 @@ function animate() {
 
   updatePlayer(dt);
   updateCars(dt);
+  updateHelis(dt);
   updateCivilians(dt);
   updateEnemies(dt);
   updateCamera(dt);
