@@ -754,7 +754,8 @@ const GLB_YAW = {};
 /* Zusätzliche Animations-Dateien pro Modell: assets/<slot>@<teil>.glb
    (entstehen automatisch aus Mixamo-Downloads „Without Skin“, siehe tools/) */
 const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
-  'attack', 'kick', 'hit', 'roll', 'sit', 'swing', 'climb'];
+  'attack', 'kick', 'hit', 'roll', 'sit', 'swing', 'climb',
+  'hook', 'punch3', 'luftangriff', 'knie', 'block', 'taunt', 'jubel'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -887,11 +888,17 @@ function spiegeleClip(clip, name) {
 
 /* Für jede Figur eine gespiegelte Schlagfassung ergänzen. */
 function ergaenzeSpiegelungen() {
+  /* Aus jedem Schlag entsteht zusätzlich die seitenverkehrte Fassung.
+     Damit ergeben zwei Dateien vier sichtbar verschiedene Schläge. */
+  const paare = [['punch', 'punch2'], ['hook', 'hook2']];
   for (const slot of Object.keys(glbModels)) {
     const m = glbModels[slot];
-    if (!m || m.clips.some((c) => c.name === 'punch2')) continue;
-    const schlag = m.clips.find((c) => c.name === 'punch');
-    if (schlag) m.clips.push(spiegeleClip(schlag, 'punch2'));
+    if (!m) continue;
+    for (const [quelle, ziel] of paare) {
+      if (m.clips.some((c) => c.name === ziel)) continue;
+      const c = m.clips.find((x) => x.name === quelle);
+      if (c) m.clips.push(spiegeleClip(c, ziel));
+    }
   }
 }
 
@@ -966,6 +973,14 @@ const GLB_CLIP_PATTERNS = {
   hit: [/hit/i, /impact/i, /react/i, /stagger/i],
   punch: [/punch/i, /jab/i, /hook/i, /elbow/i, /boxing/i],
   punch2: [/punch2/i],
+  punch3: [/punch3/i],
+  hook: [/^hook$/i],
+  hook2: [/hook2/i],
+  luftangriff: [/luftangriff/i],
+  knie: [/knie/i],
+  block: [/block/i],
+  taunt: [/taunt/i],
+  jubel: [/jubel/i],
   kick: [/kick/i],
   sit: [/sit/i, /hurt/i, /crouch/i, /dying/i, /death/i],
   webbed: [/idle/i],
@@ -976,7 +991,11 @@ const GLB_FALLBACK = {
   walk: ['run', 'idle'], run: ['walk', 'idle'],
   jump: ['air', 'run', 'idle'], air: ['jump', 'run', 'idle'],
   land: ['idle'], roll: ['run', 'idle'], hit: ['idle'],
-  punch: ['attack'], punch2: ['punch', 'attack'], kick: ['attack'],
+  punch: ['attack'], punch2: ['punch', 'attack'], punch3: ['punch', 'attack'],
+  hook: ['punch', 'attack'], hook2: ['hook', 'punch', 'attack'],
+  luftangriff: ['kick', 'attack'], knie: ['kick', 'attack'],
+  block: ['idle'], taunt: ['idle'], jubel: ['idle'],
+  kick: ['attack'],
   swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
@@ -1505,12 +1524,15 @@ function makeGlbVisual(m) {
          Pendels bringt Leben hinein, ohne der Bewegung ins Handwerk zu
          pfuschen (halbes Gewicht, kleine Ausschläge). */
       const takt = Math.sin((t || 0) * 2.3);
-      const k = 0.55;
-      drehe(knochen.leftupleg, -0.30 + takt * 0.42, 0, 0.07, k);
-      drehe(knochen.rightupleg, -0.30 - takt * 0.42, 0, -0.07, k);
-      drehe(knochen.leftleg, 0.60 - takt * 0.30, 0, 0, k);
-      drehe(knochen.rightleg, 0.60 + takt * 0.30, 0, 0, k);
-      drehe(knochen.spine1, 0.10 + takt * 0.05, 0, 0, 0.4);
+      const k = 0.42;
+      /* Kleiner Ausschlag und beide Beine dicht beieinander – vorher stand
+         die Figur am Netz im Spagat. Die Beine schwingen jetzt nur leicht
+         gegeneinander, seitliches Spreizen gibt es gar nicht mehr. */
+      drehe(knochen.leftupleg, -0.16 + takt * 0.17, 0, 0, k);
+      drehe(knochen.rightupleg, -0.16 - takt * 0.17, 0, 0, k);
+      drehe(knochen.leftleg, 0.40 - takt * 0.13, 0, 0, k);
+      drehe(knochen.rightleg, 0.40 + takt * 0.13, 0, 0, k);
+      drehe(knochen.spine1, 0.08 + takt * 0.04, 0, 0, 0.35);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -1647,7 +1669,7 @@ function makeGlbVisual(m) {
         if (current) current.fadeOut(0.22);
         /* Umfallen und Liegenbleiben laufen genau einmal und bleiben im
            letzten Bild stehen – sonst fällt die Figur endlos immer wieder. */
-        const einmal = want === 'downed' || want === 'sit';
+        const einmal = want === 'downed' || want === 'sit' || want === 'taunt';
         a.setLoop(einmal ? THREE.LoopOnce : THREE.LoopRepeat, einmal ? 1 : Infinity);
         a.clampWhenFinished = einmal;
         a.reset().fadeIn(0.22).play();
@@ -2472,10 +2494,11 @@ function dodge() {
    ("punch2") kommt aus derselben Datei, nur seitenverkehrt – dadurch
    wechselt die Figur sichtbar den Arm. Die letzte Stufe ist der Abschluss. */
 const KOMBO = [
-  { art: 'punch',  tempo: 2.1, arm: 'R' },
-  { art: 'punch2', tempo: 2.1, arm: 'L' },
-  { art: 'punch',  tempo: 2.5, arm: 'R' },
-  { art: 'punch2', tempo: 2.5, arm: 'L' },
+  { art: 'punch',  tempo: 2.1, arm: 'R' },   // gerader Stoß
+  { art: 'hook',   tempo: 2.1, arm: 'L' },   // Haken
+  { art: 'punch2', tempo: 2.3, arm: 'L' },   // gespiegelter Stoß
+  { art: 'punch3', tempo: 2.2, arm: 'R' },   // Kombischlag
+  { art: 'hook2',  tempo: 2.4, arm: 'R' },   // gespiegelter Haken
   { art: 'kick',   tempo: 1.9, arm: 'R', finisher: true },
 ];
 
@@ -2493,16 +2516,20 @@ function tryAttack(type) {
   }
   player.attackBuffer = null;
   player.combo = player.comboTimer > 0 ? player.combo : 0;
-  const k = type === 'kick'
-    ? { art: 'kick', tempo: 2.1, arm: 'R' }
-    : KOMBO[player.combo % KOMBO.length];
+  /* In der Luft gibt es einen eigenen Sprungangriff – am Boden die Kombo. */
+  const k = !player.onGround
+    ? { art: 'luftangriff', tempo: 1.9, arm: 'R' }
+    : type === 'kick'
+      ? { art: 'kick', tempo: 2.1, arm: 'R' }
+      : KOMBO[player.combo % KOMBO.length];
   const finisher = !!k.finisher;
   const arm = k.arm;
   /* Die Dauer kommt aus der Bewegungsdatei selbst. Vorher war sie fest
      verdrahtet und viel kürzer als der Clip – deshalb startete die
      Animation bei schnellem Klicken immer wieder von vorn. */
   const dauer = heroVisual.attackOneShot(k.tempo, k.art) || 0.34;
-  player.attack = { type: k.art === 'kick' ? 'kick' : 'punch', t: 0, arm,
+  const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie';
+  player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm,
                     hitDone: false, finisher, stufe: player.combo, dauer };
   player.attackCd = dauer * 0.55;
   // Magnetismus: zum nächsten Gegner ziehen
@@ -2922,7 +2949,8 @@ function updatePlayer(dt) {
   if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
   else if (player.state === 'swing') player.anim = 'swing';
-  else if (player.state === 'zip') player.anim = 'air';
+  /* Beim Netz-Zip auf einen Gegner fliegt der Held mit dem Knie voran. */
+  else if (player.state === 'zip') player.anim = (player.zip && player.zip.enemy) ? 'knie' : 'air';
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
      oben geht, läuft der Absprung, danach erst der freie Fall. */
   else if (!player.onGround) player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
@@ -3697,7 +3725,8 @@ function updateCivilians(dt) {
 
     c.visual.root.position.copy(c.pos);
     c.visual.root.rotation.y = c.facing;
-    c.visual.play(speed > 0.1 ? 'run' : 'idle',
+    c.visual.play(c.gafft && !c.filmt && c.visual.hatClip && c.visual.hatClip('jubel')
+                    ? 'jubel' : (speed > 0.1 ? 'run' : 'idle'),
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
     if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
   }
@@ -4112,7 +4141,8 @@ function updateEnemies(dt) {
         e.blockT = rand(0.8, 1.6);
       }
     }
-    if (e.blockZ) e.blockZ.visible = e.blockT > 0;
+    if (e.blockZ) e.blockZ.visible = e.blockT > 0 &&
+      !(e.visual.hatClip && e.visual.hatClip('block'));
 
     /* Abstand zu ALLEN Ganoven halten – vorher galt das nur innerhalb
        der eigenen Gang, deshalb liefen zwei Gangs ineinander. */
@@ -4140,7 +4170,12 @@ function updateEnemies(dt) {
     e.visual.root.position.copy(e.pos);
     e.visual.root.rotation.x = lerp(e.visual.root.rotation.x, 0, dt * 8);
     e.visual.root.rotation.y = e.facing;
-    e.visual.play(anim === 'run' ? 'run' : 'idle',
+    /* Deckung und Ausholen sind eigene Bewegungen, sobald die Dateien da
+       sind – sonst bleibt es bei Stehen plus Symbol über dem Kopf. */
+    let ganovAnim = anim === 'run' ? 'run' : 'idle';
+    if (e.blockT > 0 && e.visual.hatClip && e.visual.hatClip('block')) ganovAnim = 'block';
+    else if (e.warnT > 0 && e.visual.hatClip && e.visual.hatClip('taunt')) ganovAnim = 'taunt';
+    e.visual.play(ganovAnim,
       { phase: e.phase, speed01: clamp(speed / 5, 0, 1), t: elapsed + e.phase }, dt);
     if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
     else if (e.visual.bodenAusgleich) e.visual.bodenAusgleich(Math.min(1, dt * 12));

@@ -48,6 +48,17 @@ const ANIM_KEYWORDS = [
        "Falling Idle"                -> Fall, nicht Stehen
        "Standing React Small"        -> Treffer, nicht Stehen
        "Hanging Idle"                -> Netzschwung, nicht Stehen  */
+  /* Neue Sonderbewegungen zuerst – ihre Dateinamen enthalten sonst
+     Wörter, die schon von allgemeineren Regeln gefangen würden
+     ("Jump Attack" enthält "jump", "Hook Punch" enthält "punch"). */
+  [/cheer|applaud|jubel/i, 'jubel'],
+  [/block|guard|deckung/i, 'block'],
+  [/taunt|battlecry|provoke/i, 'taunt'],
+  [/knee/i, 'knie'],
+  [/(jump|air)[ ._-]?attack/i, 'luftangriff'],
+  [/hook/i, 'hook'],
+  [/combo[ ._-]?punch/i, 'punch3'],
+
   [/land/i, 'land'],
   [/climb|ladder/i, 'climb'],
   [/swing|hang|brachiat|fly/i, 'swing'],
