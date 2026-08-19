@@ -40,16 +40,21 @@ const HELD_NAMEN = /hero|spider|spinne|held/i;
 
 /* Mixamo-Animationsnamen -> Bezeichnung im Spiel */
 const ANIM_KEYWORDS = [
+  /* Reihenfolge zählt: Die erste passende Regel gewinnt.
+     "Falling To Landing" soll z. B. als Landung zählen, nicht als Fall. */
+  [/land/i, 'land'],
+  [/climb|ladder/i, 'climb'],
+  [/swing|hang|brachiat|fly/i, 'swing'],
+  [/roll|dodge|dive|evade/i, 'roll'],
   [/idle|breathing|standing/i, 'idle'],
   [/walk/i, 'walk'],
   [/run|jog|sprint/i, 'run'],
-  [/jump|fall/i, 'jump'],
-  [/punch|jab|hook/i, 'punch'],
+  [/jump|leap/i, 'jump'],
+  [/fall|air/i, 'fall'],
   [/kick/i, 'kick'],
-  [/hit|impact|react/i, 'hit'],
-  [/sit|crouch|dying|death/i, 'sit'],
-  [/climb/i, 'climb'],
-  [/swing|hang|fly/i, 'swing'],
+  [/punch|jab|hook|boxing|elbow/i, 'punch'],
+  [/hit|impact|react|stagger/i, 'hit'],
+  [/sit|crouch|dying|death|knock/i, 'sit'],
 ];
 
 const args = process.argv.slice(2);

@@ -46,20 +46,59 @@ dieses Releases zu genau dieser Figur.
   Animation.
 - **Welche Animation?** Über Schlüsselwörter im Dateinamen:
 
-| Im Dateinamen | wird zu |
-|---|---|
-| `Idle`, `Breathing`, `Standing` | Stehen |
-| `Walking` | Gehen |
-| `Running`, `Jog`, `Sprint` | Rennen |
-| `Jump`, `Fall` | Springen |
-| `Punching`, `Jab`, `Hook` | Schlag |
-| `Kick` | Tritt |
-| `Sit`, `Crouch`, `Dying` | Verletzt am Boden |
-| `Climb` | Klettern |
-| `Swing`, `Hang`, `Fly` | Netzschwung |
+| Im Dateinamen | wird zu | wofür im Spiel |
+|---|---|---|
+| `Idle`, `Breathing`, `Standing` | `idle` | Stehen |
+| `Walking` | `walk` | Gehen |
+| `Running`, `Jog`, `Sprint` | `run` | Rennen |
+| `Jump`, `Leap` | `jump` | Absprung |
+| `Fall`, `Air` | `fall` | freier Fall |
+| `Land`, `Landing` | `land` | Aufkommen |
+| `Swing`, `Hang`, `Brachiat` | `swing` | 🕸️ Netzschwung |
+| `Climb`, `Ladder` | `climb` | Klettern an der Wand |
+| `Roll`, `Dodge`, `Dive`, `Evade` | `roll` | Ausweichrolle |
+| `Punch`, `Jab`, `Hook`, `Boxing` | `punch` | Schlag-Kombo |
+| `Kick` | `kick` | Tritt |
+| `Hit`, `Impact`, `React`, `Stagger` | `hit` | Treffer einstecken |
+| `Sit`, `Crouch`, `Dying`, `Knock` | `sit` | am Boden liegen |
 
-Fehlende Animationen werden automatisch durch passende ersetzt.
-`Idle` + `Walking` oder `Running` reichen schon für ein gutes Ergebnis.
+Die Reihenfolge in der Tabelle ist auch die Prüfreihenfolge – „Falling To
+Landing" zählt also als Landung, nicht als Fall.
+
+Fehlende Bewegungen werden durch passende ersetzt. Mit nur `idle` + `walk` +
+`run` läuft das Spiel zwar, aber Springen, Schwingen und Klettern sehen dann
+falsch aus, weil dafür die Laufbewegung herhalten muss.
+
+## 🛒 Einkaufsliste: die 13 Bewegungen für den Helden
+
+Auf <https://www.mixamo.com> anmelden (kostenlos, Adobe-Konto), links oben auf
+**„Animations"** und der Reihe nach diese Begriffe suchen. Bei jedem Treffer
+rechts **Download** → **FBX Binary**, **Without Skin**, **30 FPS**.
+
+| Suchbegriff bei Mixamo | Was du nehmen willst |
+|---|---|
+| `Breathing Idle` | ruhiges Stehen |
+| `Walking` | ✅ **„In Place" ankreuzen** |
+| `Running` | ✅ **„In Place" ankreuzen** |
+| `Jumping Up` | Absprung nach oben |
+| `Falling Idle` | Fallen mit ausgebreiteten Armen |
+| `Falling To Landing` | weiche Landung |
+| `Hanging Idle` | Körperhaltung am Netz (**wichtigste Datei fürs Schwingen**) |
+| `Climbing` | Wandklettern, ✅ „In Place" |
+| `Stand To Roll` oder `Sprint Forward Roll` | Ausweichrolle |
+| `Punching` | Schlag |
+| `Roundhouse Kick` | Tritt |
+| `Standing React` | Treffer einstecken |
+| `Falling Back Death` | K.-o. am Boden |
+
+Alle 13 Dateien zusammen in **ein** Release hängen (Tag `mixamo-2`) – der Rest
+läuft automatisch. Reihenfolge, Dateinamen und Sortierung sind egal.
+
+**Warum Mixamo?** Unser Heldenmodell hat ein echtes Mixamo-Skelett
+(`mixamorig:Hips`, `mixamorig:Spine`, … – 66 Knochen). Jede Mixamo-Animation
+passt deshalb ohne Nacharbeit auf jede unserer Figuren. Andere Quellen
+(Sketchfab, ActorCore, Adobe Stock) bringen fremde Skelette mit, die erst
+umgerechnet werden müssten – genau dabei entstehen die verbogenen Beine.
 
 ## Slots (Figuren)
 

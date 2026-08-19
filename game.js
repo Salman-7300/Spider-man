@@ -497,7 +497,8 @@ const GLB_YAW = {};
 
 /* Zusätzliche Animations-Dateien pro Modell: assets/<slot>@<teil>.glb
    (entstehen automatisch aus Mixamo-Downloads „Without Skin“, siehe tools/) */
-const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'punch', 'attack', 'kick', 'sit', 'swing', 'climb'];
+const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
+  'attack', 'kick', 'hit', 'roll', 'sit', 'swing', 'climb'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -639,18 +640,26 @@ const GLB_CLIP_PATTERNS = {
   idle: [/idle/i, /stand/i, /breath/i],
   walk: [/walk/i],
   run: [/run/i, /jog/i, /sprint/i],
-  air: [/jump/i, /fall/i, /air/i],
-  swing: [/swing/i, /fly/i, /hang/i],
-  climb: [/climb/i, /crawl/i],
-  sit: [/sit/i, /hurt/i, /crouch/i],
+  /* Steigen und Fallen sind zwei verschiedene Bewegungen – erst die
+     passende suchen, sonst rudert die Figur beim Fallen mit den Beinen. */
+  jump: [/jump/i, /leap/i],
+  air: [/fall/i, /air/i, /jump/i],
+  land: [/land/i, /landing/i],
+  swing: [/swing/i, /hang/i, /fly/i, /brachiat/i],
+  climb: [/climb/i, /crawl/i, /ladder/i],
+  roll: [/roll/i, /dodge/i, /dive/i, /evade/i],
+  hit: [/hit/i, /impact/i, /react/i, /stagger/i],
+  sit: [/sit/i, /hurt/i, /crouch/i, /dying/i, /death/i],
   webbed: [/idle/i],
-  downed: [/idle/i],
-  attack: [/punch/i, /attack/i, /hit/i, /kick/i, /melee/i],
+  downed: [/dying/i, /death/i, /sit/i, /idle/i],
+  attack: [/punch/i, /attack/i, /kick/i, /melee/i, /combat/i],
 };
 const GLB_FALLBACK = {
-  walk: ['run', 'idle'], run: ['walk', 'idle'], air: ['run', 'idle'],
+  walk: ['run', 'idle'], run: ['walk', 'idle'],
+  jump: ['air', 'run', 'idle'], air: ['jump', 'run', 'idle'],
+  land: ['idle'], roll: ['run', 'idle'], hit: ['idle'],
   swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
-  sit: ['idle'], webbed: ['idle'], downed: ['idle'], attack: [],
+  sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
 
 function findClip(clips, key) {
