@@ -2476,12 +2476,25 @@ function resolveAttackHit() {
   if (e.webT > 0) dmg *= 2;           // eingewickelte Gegner sind wehrlos
   dmg *= 1 + Math.min(player.combo, 6) * 0.06;   // Kombo steigert den Schaden
 
+  /* Deckung: Schläge prallen weitgehend ab, ein Tritt bricht sie auf.
+     Dadurch lohnt es sich, zwischen Schlag und Tritt zu wechseln. */
+  let geblockt = false;
+  if (e.blockT > 0) {
+    if (a.type === 'kick' || a.finisher) {
+      e.blockT = 0; e.blockCd = rand(2.5, 5); e.staggerT = Math.max(e.staggerT, 0.5);
+      popupWorld('Deckung gebrochen!', e.pos, '#8fd4ff');
+    } else {
+      dmg *= 0.2; geblockt = true;
+      player.combo = Math.max(0, player.combo - 1);
+    }
+  }
+
   const treffer = _v1.set(
     (player.pos.x + e.pos.x) / 2,
     Math.max(player.pos.y, e.pos.y) + 1.15,
     (player.pos.z + e.pos.z) / 2
   );
-  treffEffekt(treffer, wucht, a.finisher ? 0xffd23c : 0xffffff);
+  treffEffekt(treffer, geblockt ? wucht * 0.5 : wucht, geblockt ? 0x4da3ff : (a.finisher ? 0xffd23c : 0xffffff));
 
   damageEnemy(e, dmg, a.type);
   player.combo++;
@@ -3288,8 +3301,11 @@ function baueAmpeln() {
         const px = x + sx * (ROAD_HALF + 1.2), pz = z + sz * (ROAD_HALF + 1.2);
         stellen.push([px, pz]);
         deko(0.22, 5.2, 0.22, px, SLAB_H + 2.6, pz, 0x2c3037);          // Mast
-        deko(0.5, 1.3, 0.5, px, SLAB_H + 5.4, pz, 0x23262b);            // Gehäuse quer
-        deko(0.5, 1.3, 0.5, px, SLAB_H + 5.4, pz, 0x23262b);
+        /* Zwei getrennte Signalköpfe: einer für die Ost-West-Richtung,
+           einer für Nord-Süd. Vorher saßen beide an derselben Stelle und
+           es sah aus, als leuchte eine Ampel gleichzeitig rot und grün. */
+        deko(0.46, 1.2, 0.46, px + 0.45, SLAB_H + 5.6, pz, 0x23262b);
+        deko(0.46, 1.2, 0.46, px, SLAB_H + 4.2, pz + 0.45, 0x23262b);
       }
     }
   }
@@ -3298,9 +3314,9 @@ function baueAmpeln() {
   ampelZ = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xef4444 }), stellen.length);
   const m = new THREE.Matrix4();
   stellen.forEach(([px, pz], i) => {
-    m.makeTranslation(px + 0.3, SLAB_H + 5.6, pz);
+    m.makeTranslation(px + 0.45, SLAB_H + 5.6, pz + 0.26);
     ampelX.setMatrixAt(i, m);
-    m.makeTranslation(px, SLAB_H + 5.6, pz + 0.3);
+    m.makeTranslation(px + 0.26, SLAB_H + 4.2, pz + 0.45);
     ampelZ.setMatrixAt(i, m);
   });
   ampelX.instanceMatrix.needsUpdate = true;
@@ -3506,6 +3522,20 @@ function nearestThreatTo(pos, maxDist) {
   return best;
 }
 
+/* Kleines Handy in der Hand – wird nur eingeblendet, wenn jemand filmt. */
+function makeHandy() {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.16, 0.02),
+    new THREE.MeshBasicMaterial({ color: 0x2a2e36 }));
+  const glas = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.01),
+    new THREE.MeshBasicMaterial({ color: 0x9fd2e8 }));
+  glas.position.z = 0.015; m.add(glas);
+  m.position.set(0.28, 1.35, 0.3);
+  m.visible = false;
+  return m;
+}
+
+const RUFE = ['Spider-Man!', 'Da ist er!', 'Danke!', 'Wahnsinn!', '📸'];
+
 function updateCivilians(dt) {
   for (const c of civilians) {
     if (c.savedCd > 0) c.savedCd -= dt;
@@ -3518,6 +3548,24 @@ function updateCivilians(dt) {
     }
     const threat = nearestThreatTo(c.pos, 13);
     if (threat && c.state !== 'flee') { c.state = 'flee'; c.fleeT = 3.5; }
+
+    /* Reaktion auf den Helden: stehenbleiben, hinschauen, filmen, rufen.
+       Nur wenn gerade keine Gefahr in der Nähe ist. */
+    if (!c.handy) { c.handy = makeHandy(); c.visual.root.add(c.handy); }
+    const dHeld = Math.hypot(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
+    const sichtbar = dHeld < 9 && Math.abs(player.pos.y - c.pos.y) < 6;
+    if (!threat && c.state !== 'flee' && c.state !== 'hurt' && sichtbar) {
+      if (c.staunT === undefined || c.staunT <= 0) {
+        c.staunT = rand(1.6, 3.4);
+        c.filmt = Math.random() < 0.45;
+        if (Math.random() < 0.25) popupWorld(pick(RUFE), c.pos, '#ffe9a8');
+      }
+      c.staunT -= dt;
+      c.gafft = true;
+    } else {
+      c.gafft = false; c.filmt = false; c.staunT = 0;
+    }
+    c.handy.visible = !!(c.gafft && c.filmt);
 
     let dirX = 0, dirZ = 0, speed = c.speed;
     if (c.state === 'flee') {
@@ -3553,6 +3601,10 @@ function updateCivilians(dt) {
       if (Math.random() < dt * 0.02) speed = 0; // kurz stehenbleiben
     }
 
+    if (c.gafft) {
+      speed = 0; dirX = 0; dirZ = 0;
+      c.facing = dampAngle(c.facing, Math.atan2(player.pos.x - c.pos.x, player.pos.z - c.pos.z), dt * 6);
+    }
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
     c.pos.x += c.vel.x * dt; c.pos.z += c.vel.z * dt;
     collideBody(c);
@@ -3674,6 +3726,41 @@ function makeHPBar() {
   return { g, fg };
 }
 
+/* Gegnertypen – ohne neue Modelle, allein über Größe, Farbton und Werte.
+   Damit fühlt sich nicht mehr jeder Gegner gleich an. */
+const GANOVEN = [
+  { art: 'schlaeger', groesse: 1.00, hp: 34, schaden: 8,  tempo: 5.0, blockChance: 0.18, farbe: 0x000000, gewicht: 55 },
+  { art: 'brecher',   groesse: 1.22, hp: 62, schaden: 14, tempo: 3.9, blockChance: 0.34, farbe: 0x2a1410, gewicht: 22 },
+  { art: 'flink',     groesse: 0.88, hp: 22, schaden: 6,  tempo: 6.6, blockChance: 0.08, farbe: 0x101c28, gewicht: 23 },
+];
+function waehleGanov() {
+  const summe = GANOVEN.reduce((a, g) => a + g.gewicht, 0);
+  let r = Math.random() * summe;
+  for (const g of GANOVEN) { r -= g.gewicht; if (r <= 0) return g; }
+  return GANOVEN[0];
+}
+
+/* Warnzeichen über dem Kopf: Ausrufezeichen vor einem Schlag,
+   Schild beim Blocken. Beides nur zwei kleine Kisten. */
+function makeWarnzeichen() {
+  const g = new THREE.Group();
+  const rot = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+  const balken = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.42, 0.14), rot);
+  balken.position.y = 0.3; g.add(balken);
+  const punkt = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), rot);
+  punkt.position.y = 0.02; g.add(punkt);
+  g.position.y = 2.15;
+  g.visible = false;
+  return g;
+}
+function makeBlockzeichen() {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.1),
+    new THREE.MeshBasicMaterial({ color: 0x4da3ff, transparent: true, opacity: 0.75 }));
+  m.position.y = 1.25;
+  m.visible = false;
+  return m;
+}
+
 function spawnGang(cx, cz, n) {
   const gang = { enemies: [], home: V3(cx, 0, cz), cleared: false };
   for (let i = 0; i < n; i++) {
@@ -3682,8 +3769,12 @@ function spawnGang(cx, cz, n) {
       shirt: pick(['#3a3f4a', '#54303a', '#2e4038', '#463a2e']),
       pants: pick(['#26262e', '#3a3630', '#2e3440']),
     });
+    const typ = waehleGanov();
+    visual.root.scale.setScalar(typ.groesse);
     const hpBar = makeHPBar();
     visual.root.add(hpBar.g);
+    const warn = makeWarnzeichen(); visual.root.add(warn);
+    const blockZ = makeBlockzeichen(); visual.root.add(blockZ);
     const cocoon = makeCocoon();
     cocoon.position.y = 0.95;
     cocoon.visible = false;
@@ -3692,10 +3783,12 @@ function spawnGang(cx, cz, n) {
       visual, hpBar, cocoon,
       pos: V3(cx + rand(-4, 4), 0, cz + rand(-4, 4)),
       vel: V3(0, 0, 0),
-      radius: 0.4,
+      radius: 0.4 * typ.groesse,
       facing: rand(0, TAU),
       phase: rand(0, TAU),
-      hp: CFG.enemyHP,
+      typ, warn, blockZ,
+      hp: typ.hp, hpMax: typ.hp,
+      blockT: 0, blockCd: rand(1, 4), warnT: 0,
       state: 'patrol',
       target: null,        // 'player' | Zivilist
       waypoint: null, waitT: rand(0, 2),
@@ -3763,7 +3856,7 @@ function damageEnemy(e, dmg, kind) {
     checkGangCleared(e.gang);
     checkCivilianSaved(e);
   } else {
-    e.hpBar.fg.scale.x = 1.1 * clamp(e.hp / CFG.enemyHP, 0, 1);
+    e.hpBar.fg.scale.x = 1.1 * clamp(e.hp / (e.hpMax || CFG.enemyHP), 0, 1);
     e.hpBar.g.visible = true;
   }
 }
@@ -3881,13 +3974,13 @@ function updateEnemies(dt) {
           const zz = tp.z + Math.cos(e.ringWinkel) * 1.9 - e.pos.z;
           const zd = Math.hypot(zx, zz) || 1;
           moveX = zx / zd; moveZ = zz / zd;
-          speed = e.target === 'player' ? 5 : 4.2;
+          speed = (e.target === 'player' ? 1 : 0.85) * (e.typ ? e.typ.tempo : 5);
           anim = 'run';
           if (e.target === 'player' && dy > 3 && d < 4) { anim = 'idle'; speed = 0; } // kommt nicht hoch
-        } else if (e.attackCd <= 0 && !e.attack) {
-          e.attack = { type: 'thugSwing', t: 0, hitDone: false };
-          e.attackCd = rand(1.1, 1.8);
-          e.visual.attackOneShot();
+        } else if (e.attackCd <= 0 && !e.attack && e.warnT <= 0) {
+          /* Erst ausholen und warnen, dann schlagen. Vorher kam der Treffer
+             ohne Vorankündigung – ausweichen war reine Glückssache. */
+          e.warnT = 0.55;
         }
       }
     } else {
@@ -3915,7 +4008,7 @@ function updateEnemies(dt) {
       if (!a.hitDone && a.t > 0.45) {
         a.hitDone = true;
         if (e.target === 'player') {
-          if (dp < 2.3 && dpy < 2) damagePlayer(8, e.pos);
+          if (dp < 2.3 && dpy < 2) damagePlayer(e.typ ? e.typ.schaden : 8, e.pos);
         } else if (e.target && Math.hypot(e.target.pos.x - e.pos.x, e.target.pos.z - e.pos.z) < 2.3) {
           hurtCivilian(e.target, e);
         }
@@ -3923,6 +4016,33 @@ function updateEnemies(dt) {
       if (a.t >= 1) e.attack = null;
     }
     if (e.attackCd > 0) e.attackCd -= dt;
+
+    /* Vorwarnung: Ausrufezeichen blinkt, danach folgt der Schlag. */
+    if (e.warnT > 0) {
+      e.warnT -= dt;
+      e.warn.visible = ((elapsed * 9) % 2) < 1;
+      if (e.warnT <= 0) {
+        e.warn.visible = false;
+        e.attack = { type: 'thugSwing', t: 0, hitDone: false };
+        e.attackCd = rand(1.1, 1.9);
+        e.visual.attackOneShot();
+      }
+    } else if (e.warn) e.warn.visible = false;
+
+    /* Blocken: Gegner geht kurz in Deckung. Treffer richten dann wenig aus –
+       ein Tritt bricht die Deckung trotzdem. */
+    if (e.blockT > 0) {
+      e.blockT -= dt;
+      if (e.blockT <= 0) e.blockCd = rand(1.6, 4.5);
+    } else {
+      e.blockCd -= dt;
+      const nah = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < 3.4;
+      if (e.blockCd <= 0 && nah && !e.attack && e.warnT <= 0 && e.webT <= 0 &&
+          Math.random() < e.typ.blockChance) {
+        e.blockT = rand(0.8, 1.6);
+      }
+    }
+    if (e.blockZ) e.blockZ.visible = e.blockT > 0;
 
     /* Abstand zu ALLEN Ganoven halten – vorher galt das nur innerhalb
        der eigenen Gang, deshalb liefen zwei Gangs ineinander. */
@@ -3955,7 +4075,7 @@ function updateEnemies(dt) {
     if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
     else if (e.visual.bodenAusgleich) e.visual.bodenAusgleich(Math.min(1, dt * 12));
     // HP-Balken zur Kamera & ausblenden wenn voll
-    e.hpBar.g.visible = e.hp < CFG.enemyHP;
+    e.hpBar.g.visible = e.hp < (e.hpMax || CFG.enemyHP);
   }
 
   /* Nachschub */
