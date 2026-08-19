@@ -499,6 +499,33 @@ const GLB_YAW = {};
    (entstehen automatisch aus Mixamo-Downloads „Without Skin“, siehe tools/) */
 const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'punch', 'attack', 'kick', 'sit', 'swing', 'climb'];
 
+/* Höhe eines Modells bestimmen.
+   Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
+   (z. B. aus Sketchfab) hängen das Netz unter Knoten mit winziger Skalierung,
+   die beim Skinning gar nicht wirkt – die Box wird dann fast null groß.
+   Deshalb in so einem Fall über die Knochen messen. */
+function messeModell(scene) {
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  let h = box.max.y - box.min.y;
+  if (h > 0.05) return { minY: box.min.y, maxY: box.max.y, quelle: 'netz' };
+
+  const p = new THREE.Vector3();
+  let lo = Infinity, hi = -Infinity;
+  scene.traverse((o) => {
+    if (!o.isBone) return;
+    o.getWorldPosition(p);
+    if (p.y < lo) lo = p.y;
+    if (p.y > hi) hi = p.y;
+  });
+  h = hi - lo;
+  if (!isFinite(h) || h <= 0.05) return { minY: 0, maxY: 0, quelle: 'unbrauchbar' };
+  /* Knochen enden im Fuß bzw. im Scheitelknochen – Sohle und Kopfoberkante
+     liegen etwas außerhalb. Ein kleiner Zuschlag gleicht das aus. */
+  const rand = h * 0.03;
+  return { minY: lo - rand, maxY: hi + rand, quelle: 'knochen' };
+}
+
 function loadGlbAssets(done) {
   if (typeof THREE.GLTFLoader !== 'function' || location.protocol === 'file:') { done(); return; }
   const loader = new THREE.GLTFLoader();
@@ -516,13 +543,13 @@ function loadGlbAssets(done) {
           if (o.isBone && /_\d+$/.test(o.name)) o.name = o.name.replace(/_\d+$/, '');
         });
         bindeSteuerteileAnSkelett(gltf.scene);
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const h = box.max.y - box.min.y;
+        const mass = messeModell(gltf.scene);
+        const h = mass.maxY - mass.minY;
         glbModels[slot] = {
           scene: gltf.scene,
           clips: (gltf.animations || []).slice(),
           scale: h > 0.01 ? 1.76 / h : 1,
-          yOffset: -box.min.y,
+          yOffset: -mass.minY,
           yaw: GLB_YAW[slot] || 0,
           aufhellen: slot === 'hero',
         };
