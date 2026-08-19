@@ -700,6 +700,8 @@ const GLB_CLIP_PATTERNS = {
   climb: [/climb/i, /crawl/i, /ladder/i],
   roll: [/roll/i, /dodge/i, /dive/i, /evade/i],
   hit: [/hit/i, /impact/i, /react/i, /stagger/i],
+  punch: [/punch/i, /jab/i, /hook/i, /elbow/i, /boxing/i],
+  kick: [/kick/i],
   sit: [/sit/i, /hurt/i, /crouch/i, /dying/i, /death/i],
   webbed: [/idle/i],
   downed: [/dying/i, /death/i, /sit/i, /idle/i],
@@ -709,6 +711,7 @@ const GLB_FALLBACK = {
   walk: ['run', 'idle'], run: ['walk', 'idle'],
   jump: ['air', 'run', 'idle'], air: ['jump', 'run', 'idle'],
   land: ['idle'], roll: ['run', 'idle'], hit: ['idle'],
+  punch: ['attack'], kick: ['attack'],
   swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
@@ -1356,10 +1359,12 @@ function makeGlbVisual(m) {
         if (++lodFrame % 3) return;      // nur jedes dritte Bild animieren
         dt = lodAcc; lodAcc = 0;
       }
-      // Beim Schwingen und Klettern übernimmt die Pose die Führung – als
-      // Grundlage dient dann die ruhige Steh-Animation statt des Laufzyklus.
+      /* Solange es für Schwingen und Klettern keine eigene Bewegungsdatei
+         gab, diente die ruhige Steh-Animation als Grundlage für die
+         selbstgebauten Posen. Liegt eine echte Bewegung vor, führt die –
+         sonst sah Klettern aus wie Die-Wand-hoch-Laufen. */
       let want = key;
-      if (key === 'swing' || key === 'climb') want = 'idle';
+      if ((key === 'swing' || key === 'climb') && !findClip(m.clips, key)) want = 'idle';
       if (key === 'run' && (p.speed01 || 0) < 0.5 && findClip(m.clips, 'walk')) want = 'walk';
       const a = actionFor(want) || actionFor('idle');
       if (a && a !== current) {
@@ -1372,8 +1377,11 @@ function makeGlbVisual(m) {
       }
       mixer.update(dt);
     },
-    attackOneShot(tempo) {
-      const a = actionFor('attack');
+    /* art: 'punch' oder 'kick' – damit ein Tritt auch wie ein Tritt
+       aussieht und nicht wie derselbe Schlag. Fehlt die passende Datei,
+       greift automatisch die allgemeine Angriffsbewegung. */
+    attackOneShot(tempo, art) {
+      const a = actionFor(art || 'attack') || actionFor('attack');
       if (!a) return;
       const v = tempo || 1.7;
       a.setLoop(THREE.LoopOnce, 1);
@@ -1784,7 +1792,7 @@ const player = {
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0,
   attackCd: 0,
-  dodgeT: 0, iFrames: 0, rollT: 0, landT: 0,
+  dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
   schussT: 0, schussZiel: V3(0, 0, 0),
   hurtCd: 0, regenCd: 0,
   platform: null,
@@ -2177,7 +2185,8 @@ function tryAttack(type) {
   const finisher = type === 'punch' && player.combo > 0 && (player.combo + 1) % 4 === 0;
   player.attack = { type: finisher ? 'kick' : type, t: 0, arm, hitDone: false,
                     finisher, stufe: player.combo };
-  heroVisual.attackOneShot(finisher ? 1.35 : (type === 'kick' ? 1.5 : 2.0));
+  const trittArt = (finisher || type === 'kick') ? 'kick' : 'punch';
+  heroVisual.attackOneShot(finisher ? 1.35 : (type === 'kick' ? 1.5 : 2.0), trittArt);
   player.attackCd = finisher ? 0.46 : (type === 'kick' ? 0.38 : 0.27);
   // Magnetismus: zum nächsten Gegner ziehen
   const target = nearestEnemy(4.2, 0.2);
@@ -2252,6 +2261,8 @@ function damagePlayer(dmg, srcPos) {
   if (player.iFrames > 0 || player.dead) return;
   player.hp -= dmg;
   player.hurtCd = 0.4; player.regenCd = 5;
+  /* Treffer sichtbar machen – vorher steckte die Figur alles regungslos ein. */
+  if (player.onGround) player.hitT = 0.32;
   camShake = Math.max(camShake, 0.09);
   SFX.hurt();
   vignette(0.7);
@@ -2558,7 +2569,9 @@ function updatePlayer(dt) {
   /* ---- Animation wählen ---- */
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   if (player.landT > 0) player.landT -= dt;
+  if (player.hitT > 0) player.hitT -= dt;
   if (player.rollT > 0) player.anim = 'roll';
+  else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
   else if (player.state === 'swing') player.anim = 'swing';
   else if (player.state === 'zip') player.anim = 'air';
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
@@ -3163,7 +3176,14 @@ function updateEnemies(dt) {
         const dy = Math.abs(tp.y - e.pos.y);
         e.facing = dampAngle(e.facing, Math.atan2(dx, dz), dt * 8);
         if (d > 1.7 || dy > 1.6) {
-          moveX = dx / (d || 1); moveZ = dz / (d || 1);
+          /* Nicht alle auf denselben Punkt zulaufen – sonst stapeln sich
+             die Ganoven zu einem einzigen Klumpen. Jeder steuert seinen
+             eigenen Platz auf einem Ring um das Ziel an. */
+          if (e.ringWinkel === undefined) e.ringWinkel = Math.random() * Math.PI * 2;
+          const zx = tp.x + Math.sin(e.ringWinkel) * 1.9 - e.pos.x;
+          const zz = tp.z + Math.cos(e.ringWinkel) * 1.9 - e.pos.z;
+          const zd = Math.hypot(zx, zz) || 1;
+          moveX = zx / zd; moveZ = zz / zd;
           speed = e.target === 'player' ? 5 : 4.2;
           anim = 'run';
           if (e.target === 'player' && dy > 3 && d < 4) { anim = 'idle'; speed = 0; } // kommt nicht hoch
@@ -3207,14 +3227,16 @@ function updateEnemies(dt) {
     }
     if (e.attackCd > 0) e.attackCd -= dt;
 
-    /* Abstand zu anderen Ganoven */
-    for (const o of e.gang.enemies) {
+    /* Abstand zu ALLEN Ganoven halten – vorher galt das nur innerhalb
+       der eigenen Gang, deshalb liefen zwei Gangs ineinander. */
+    for (const o of enemies) {
       if (o === e || o.dead) continue;
       const dx = e.pos.x - o.pos.x, dz = e.pos.z - o.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < 1.1 && d > 0.01) {
-        e.pos.x += (dx / d) * (1.1 - d) * 0.5;
-        e.pos.z += (dz / d) * (1.1 - d) * 0.5;
+      if (d < 1.5 && d > 0.01) {
+        const schub = (1.5 - d) * 0.5;
+        e.pos.x += (dx / d) * schub;
+        e.pos.z += (dz / d) * schub;
       }
     }
 
