@@ -10,8 +10,8 @@ if (typeof THREE === 'undefined') return;
 const CFG = {
   gravity: 30,
   swingGravity: 24,
-  runSpeed: 8,
-  sprintSpeed: 13,
+  runSpeed: 7,
+  sprintSpeed: 11,
   airAccel: 10,
   jumpVel: 11.5,
   climbSpeed: 4.5,
@@ -37,6 +37,16 @@ const SLAB_H = 0.25;        // Gehweg-/Blocksockelhöhe
 const RIVER_X0 = 186, RIVER_X1 = 330;   // Fluss
 const SHORE_X0 = 330, SHORE_X1 = 400;   // gegenüberliegendes Ufer
 const BRIDGE_Z = -25, BRIDGE_HW = 7.5;  // Brücke entlang der Straße z=-25
+/* Eigenes, etwas engeres Raster für den Stadtteil am anderen Ufer.
+   Vorher standen dort nur 16 nackte Quader auf einer leeren Platte –
+   deshalb wirkte die andere Seite leer und unfertig. */
+const SHORE_PITCH = 32, SHORE_ROAD = 5;
+const SHORE_OX = 336, SHORE_OZ = -192;
+const SHORE_NX = 2, SHORE_NZ = 12;
+/* Die Brücke mündet bei z = BRIDGE_Z – dieser Streifen bleibt Straße. */
+function uferBlockFrei(cx, cz) {
+  return !(Math.abs(cz - BRIDGE_Z) < SHORE_PITCH * 0.7 && cx < SHORE_OX + SHORE_PITCH);
+}
 const WATER_Y = -2.6;
 
 /* ======================= Hilfsfunktionen ======================= */
@@ -141,7 +151,9 @@ const himmel = new THREE.HemisphereLight(0xcfe4ff, 0x51452e, 0.85);
    Sonnenstand, Farben, Nebel und Himmel wandern mit. Nachts leuchten die
    Fenster, Ampeln und der Suchscheinwerfer erst richtig. */
 scene.add(himmel);
-const TAG = { dauer: 480, zeit: 0.42 };   // 0 = Mitternacht, 0.5 = Mittag
+const TAG = { dauer: 900, zeit: 0.42 };   // 0 = Mitternacht, 0.5 = Mittag
+/* Ein voller Tag dauert jetzt 15 statt 8 Minuten – vorher stand man
+   gefühlt ständig im Dunkeln. */
 const SONNE_RICHTUNG = new THREE.Vector3(0.5, 0.8, 0.3);
 const _mischFarbe = new THREE.Color();
 const _tagA = new THREE.Color(), _tagB = new THREE.Color();
@@ -228,14 +240,17 @@ function updateTagNacht(dt) {
   /* Nur die RICHTUNG merken – die Position setzt die Kamera, damit der
      Schattenausschnitt dem Spieler folgt. */
   SONNE_RICHTUNG.set(Math.sin(w) * 0.8, Math.max(0.12, hoch), Math.cos(w * 0.6) * 0.6 + 0.35).normalize();
-  sun.intensity = 0.22 + tagAnteil * 0.98;
+  sun.intensity = 0.4 + tagAnteil * 0.85;
   mischen(sun.color, 0xff9a55, 0xfff2dd, 1 - daemmer);
-  /* Nachts nicht zu dunkel – man muss Gegner noch erkennen können. */
-  himmel.intensity = 0.34 + tagAnteil * 0.56;
+  /* Nachts deutlich heller als vorher: bei Nacht UND Regen war das Bild
+     fast schwarz, man konnte weder Gegner noch die eigene Figur erkennen.
+     Eine Großstadt bei Nacht ist durch Straßen- und Fensterlicht ohnehin
+     nie wirklich dunkel. */
+  himmel.intensity = 0.72 + tagAnteil * 0.36;
 
   const himmelFarbe = daemmer > 0.35
     ? mischen(_mischFarbe, 0x121a2e, 0xe0794a, daemmer)
-    : mischen(_mischFarbe, 0x0d1426, 0x9fc4e8, tagAnteil);
+    : mischen(_mischFarbe, 0x1b2740, 0x9fc4e8, tagAnteil);
   scene.background.copy(himmelFarbe);
   scene.fog.color.copy(himmelFarbe).lerp(_tagB.setHex(0xffffff), 0.12 * tagAnteil);
 
@@ -246,8 +261,10 @@ function updateTagNacht(dt) {
     /* Bei Regen wird alles grauer und die Sicht kürzer. */
     scene.background.lerp(_tagB.setHex(0x5a6472), REGEN.staerke * 0.55);
     scene.fog.color.lerp(_tagB.setHex(0x5a6472), REGEN.staerke * 0.55);
-    scene.fog.far *= 1 - REGEN.staerke * 0.35;
-    sun.intensity *= 1 - REGEN.staerke * 0.45;
+    scene.fog.far *= 1 - REGEN.staerke * 0.3;
+    /* Regen dämpft nur noch leicht – zusammen mit der Nacht war es sonst
+       zappenduster. */
+    sun.intensity *= 1 - REGEN.staerke * 0.25;
   }
   window.__nacht = tagAnteil < 0.35;
 }
@@ -342,7 +359,7 @@ function collidersNear(x, z) {
 }
 
 function onBridge(x, z) {
-  return Math.abs(z - BRIDGE_Z) < BRIDGE_HW && x > 175 && x < RIVER_X1 + 4;
+  return Math.abs(z - BRIDGE_Z) < BRIDGE_HW && x > 178 && x < RIVER_X1 + 4;
 }
 function inWater(x, z) {
   return x > RIVER_X0 && x < RIVER_X1 && !onBridge(x, z);
@@ -350,7 +367,20 @@ function inWater(x, z) {
 function groundY(x, z) {
   if (x >= SHORE_X1 || x <= -195 || Math.abs(z) >= 195) return 0;
   if (onBridge(x, z)) return 0.3;
-  if (x > RIVER_X0) return x >= SHORE_X0 ? 0 : WATER_Y;
+  if (x > RIVER_X0) {
+    if (x < SHORE_X0) return WATER_Y;
+    /* Auch drüben gibt es Gehwege – sonst steckten die Füße im Sockel. */
+    const bi = Math.floor((x - SHORE_OX) / SHORE_PITCH);
+    const bj = Math.floor((z - SHORE_OZ) / SHORE_PITCH);
+    if (bi < 0 || bi >= SHORE_NX || bj < 0 || bj >= SHORE_NZ) return 0;
+    const cx = SHORE_OX + bi * SHORE_PITCH + SHORE_PITCH / 2;
+    const cz = SHORE_OZ + bj * SHORE_PITCH + SHORE_PITCH / 2;
+    if (!uferBlockFrei(cx, cz)) return 0;
+    const u = x - (cx - SHORE_PITCH / 2), v = z - (cz - SHORE_PITCH / 2);
+    if (u > SHORE_ROAD && u < SHORE_PITCH - SHORE_ROAD &&
+        v > SHORE_ROAD && v < SHORE_PITCH - SHORE_ROAD) return SLAB_H;
+    return 0;
+  }
   const GRID_END = ORIGIN + BLOCKS * PITCH;
   if (x < ORIGIN || x > GRID_END || z < ORIGIN || z > GRID_END) return 0;
   // Stadtraster: Gehweg-/Blocksockel
@@ -666,17 +696,50 @@ function buildRiverAndBridge() {
     cityGroup.add(r);
   }
 
-  // Brücke
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(RIVER_X1 - 172, 0.6, BRIDGE_HW * 2),
-    new THREE.MeshLambertMaterial({ color: 0x555a61 }));
-  deck.position.set((172 + RIVER_X1) / 2 + 2, 0, BRIDGE_Z);
+  /* Brücke. Fahrbahn und Geländer beginnen erst dort, wo die Brücke
+     wirklich anfängt (x = BR_X0). Vorher ragten die knallroten Geländer
+     bis weit in die Stadtstraße hinein und standen als große rote Keile
+     mitten auf der Fahrbahn – genau das war der Fehler vor der Brücke. */
+  const BR_X0 = 178, BR_X1 = RIVER_X1 + 4;
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(BR_X1 - BR_X0, 0.6, BRIDGE_HW * 2),
+    new THREE.MeshLambertMaterial({ map: asphaltTex }));
+  deck.position.set((BR_X0 + BR_X1) / 2, 0, BRIDGE_Z);
   deck.receiveShadow = true; deck.castShadow = true;
   cityGroup.add(deck);
+  // Mittelstreifen, damit die Brücke als Straße lesbar bleibt
+  for (let x = BR_X0 + 5; x < BR_X1 - 5; x += 9) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.35),
+      new THREE.MeshBasicMaterial({ color: 0xd9c979 }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, 0.32, BRIDGE_Z);
+    cityGroup.add(m);
+  }
+  /* Sanfte Auffahrt an beiden Enden: die Fahrbahn liegt 30 cm höher als
+     die Straße, ohne Rampe war dort eine harte Kante. */
+  for (const [rx, dir] of [[BR_X0, -1], [BR_X1, 1]]) {
+    const rampe = new THREE.Mesh(new THREE.BoxGeometry(6, 0.6, BRIDGE_HW * 2),
+      new THREE.MeshLambertMaterial({ map: asphaltTex }));
+    rampe.position.set(rx + dir * 3, -0.16, BRIDGE_Z);
+    rampe.rotation.z = dir * 0.05;
+    cityGroup.add(rampe);
+  }
+  const railMatBr = new THREE.MeshLambertMaterial({ color: 0x9a3a3a });
+  const postMat = new THREE.MeshLambertMaterial({ color: 0x6f2b2b });
   for (const s of [-1, 1]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(RIVER_X1 - 172, 1.1, 0.3),
-      new THREE.MeshLambertMaterial({ color: 0x8e2f2f }));
-    rail.position.set((172 + RIVER_X1) / 2 + 2, 0.85, BRIDGE_Z + s * (BRIDGE_HW - 0.3));
-    cityGroup.add(rail);
+    const zr = BRIDGE_Z + s * (BRIDGE_HW - 0.25);
+    // schlanker Handlauf statt massiver Wand
+    for (const hy of [1.05, 0.62]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(BR_X1 - BR_X0, 0.14, 0.16), railMatBr);
+      rail.position.set((BR_X0 + BR_X1) / 2, hy, zr);
+      cityGroup.add(rail);
+    }
+    for (let x = BR_X0 + 2; x < BR_X1; x += 4.5) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.15, 0.16), postMat);
+      p.position.set(x, 0.85, zr);
+      cityGroup.add(p);
+    }
+    /* Unsichtbare Brüstung: man fällt nicht mehr einfach seitlich von der
+       Brücke ins Wasser, sondern stößt am Geländer an. */
+    addCollider({ x0: BR_X0, x1: BR_X1, z0: zr - 0.25, z1: zr + 0.25, h: 1.4 });
   }
   // Pylonen + Tragseile
   const pylMat = new THREE.MeshLambertMaterial({ color: 0x8e3b3b });
@@ -709,23 +772,95 @@ function buildRiverAndBridge() {
 }
 
 function buildFarShore() {
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(SHORE_X1 - SHORE_X0 + 40, 400),
-    new THREE.MeshLambertMaterial({ color: 0x565c63 }));
+  /* Asphalt statt einer nackten grauen Platte – das andere Ufer ist jetzt
+     ein eigener Stadtteil mit Straßenraster, Gehwegen, Häusern, Laternen
+     und einer Uferpromenade. */
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(SHORE_X1 - SHORE_X0 + 60, 420),
+    new THREE.MeshLambertMaterial({ map: asphaltTex }));
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set((SHORE_X0 + SHORE_X1) / 2 + 20, 0, 0);
+  ground.position.set((SHORE_X0 + SHORE_X1) / 2 + 14, 0, 0);
   ground.receiveShadow = true;
   cityGroup.add(ground);
-  for (let i = 0; i < 16; i++) {
-    const w = rand(10, 20), d = rand(10, 20), h = rand(25, 90);
-    const x = rand(SHORE_X0 + 12, SHORE_X1 - 12), z = rand(-180, 180);
-    if (Math.abs(z - BRIDGE_Z) < 16 && x < SHORE_X0 + 30) continue;
-    const tex = pick(facadeTexes).clone(); tex.needsUpdate = true;
-    tex.repeat.set(Math.round(w / 8), Math.round(h / 12));
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshLambertMaterial({ map: tex }));
-    m.position.set(x, h / 2, z);
-    cityGroup.add(m);
-    addCollider({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h: h });
+
+  // Fahrbahnmarkierungen auf den Uferstraßen
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0xd9c979 });
+  for (let bi = 0; bi <= SHORE_NX; bi++) {
+    const L = SHORE_OX + bi * SHORE_PITCH;
+    for (let z = SHORE_OZ + 6; z < SHORE_OZ + SHORE_NZ * SHORE_PITCH - 6; z += 9) {
+      if (Math.abs(z - BRIDGE_Z) < 10) continue;
+      const m1 = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 3.6), lineMat);
+      m1.rotation.x = -Math.PI / 2; m1.position.set(L, 0.02, z);
+      cityGroup.add(m1);
+    }
+  }
+  for (let bj = 0; bj <= SHORE_NZ; bj++) {
+    const L = SHORE_OZ + bj * SHORE_PITCH;
+    for (let x = SHORE_OX + 6; x < SHORE_OX + SHORE_NX * SHORE_PITCH - 6; x += 9) {
+      const m2 = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.35), lineMat);
+      m2.rotation.x = -Math.PI / 2; m2.position.set(x, 0.02, L);
+      cityGroup.add(m2);
+    }
+  }
+
+  // Blöcke: Gehwegsockel + Häuser (dieselben Bausteine wie in der Stadt)
+  const slabGeo = new THREE.BoxGeometry(1, SLAB_H * 2, 1);
+  const slabMat = new THREE.MeshLambertMaterial({ map: sidewalkTex });
+  const innen = SHORE_PITCH - SHORE_ROAD * 2;          // bebaubare Fläche (22)
+  for (let bi = 0; bi < SHORE_NX; bi++) {
+    for (let bj = 0; bj < SHORE_NZ; bj++) {
+      const cx = SHORE_OX + bi * SHORE_PITCH + SHORE_PITCH / 2;
+      const cz = SHORE_OZ + bj * SHORE_PITCH + SHORE_PITCH / 2;
+      if (!uferBlockFrei(cx, cz)) continue;
+      const slab = new THREE.Mesh(slabGeo, slabMat);
+      slab.scale.set(innen, 1, innen);
+      slab.position.set(cx, 0, cz);
+      slab.receiveShadow = true;
+      cityGroup.add(slab);
+
+      /* Am Wasser stehen niedrigere Häuser, dahinter wächst die Skyline –
+         so bekommt die andere Seite Tiefe statt einer flachen Reihe. */
+      const hoch = bi === 0 ? rand(0.55, 0.85) : rand(0.9, 1.35);
+      const stil = Math.random();
+      if (stil < 0.18) {
+        // Kleiner Park mit Bäumen statt eines Hauses
+        for (let i = 0; i < 5; i++) {
+          const bx = cx + rand(-innen / 2 + 2, innen / 2 - 2);
+          const bz = cz + rand(-innen / 2 + 2, innen / 2 - 2);
+          const stamm = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.6, 6),
+            new THREE.MeshLambertMaterial({ color: 0x5a4530 }));
+          stamm.position.set(bx, SLAB_H + 1.3, bz);
+          cityGroup.add(stamm);
+          const krone = new THREE.Mesh(new THREE.SphereGeometry(rand(1.5, 2.3), 7, 6),
+            new THREE.MeshLambertMaterial({ color: 0x2f6b38 }));
+          krone.position.set(bx, SLAB_H + rand(3.4, 4.2), bz);
+          krone.castShadow = true;
+          cityGroup.add(krone);
+        }
+      } else if (stil < 0.55) {
+        // Ein Turm auf dem ganzen Block
+        const w = rand(innen * 0.55, innen * 0.85), d = rand(innen * 0.55, innen * 0.85);
+        const h = rand(26, 52) * hoch;
+        makeBuildingMesh(w, h, d, cx + rand(-1.5, 1.5), cz + rand(-1.5, 1.5));
+      } else {
+        const off = innen / 4 + 1;
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+          if (Math.random() < 0.2) continue;
+          makeBuildingMesh(rand(7, 10), rand(14, 34) * hoch, rand(7, 10),
+            cx + sx * off + rand(-0.8, 0.8), cz + sz * off + rand(-0.8, 0.8));
+        }
+      }
+      if ((bi + bj) % 2 === 0) addLamp(cx - innen / 2 + 1, cz - innen / 2 + 1);
+    }
+  }
+
+  /* Uferpromenade: Geländer entlang der Kaimauer, damit die Kante nicht
+     einfach im Nichts endet. */
+  const railMat = new THREE.MeshLambertMaterial({ color: 0x22343f });
+  for (let z = -190; z < 190; z += 8) {
+    if (Math.abs(z - BRIDGE_Z) < BRIDGE_HW + 3) continue;
+    const r = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1, 7), railMat);
+    r.position.set(SHORE_X0 + 0.3, 0.5, z + 3.5);
+    cityGroup.add(r);
   }
 }
 
@@ -1430,6 +1565,10 @@ function makeGlbVisual(m) {
   inner.traverse((o) => {
     if (o.isBone && /(left|right) ?foot$/i.test(o.name.replace(/mixamorig:?/i, ''))) fuesse.push(o);
   });
+  /* Alle Knochen merken – beim Umfallen wird daran der tiefste Punkt
+     gesucht, denn die Füße sind dann nicht mehr das Unterste. */
+  const alleKnochen = [];
+  inner.traverse((o) => { if (o.isBone) alleKnochen.push(o); });
   const basisY = inner.position.y;
   let fussRuhe = null, bodenKorrektur = 0;
   /* Ruhehöhe der Füße JETZT aus der Bindehaltung messen – noch bevor
@@ -1475,6 +1614,26 @@ function makeGlbVisual(m) {
   });
   const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
   const _va = new THREE.Vector3(), _vb = new THREE.Vector3();
+  /* Ruhelage jedes Knochens JETZT sichern – vor der ersten Bewegung.
+     Beim Mixamo-Skelett liegt die Ruhedrehung der Oberschenkel bei rund
+     ±π um Z. Wer diese Winkel als Eulerwerte gegen 0 zieht, dreht das Bein
+     um 180° – und die Figur steht im Spagat. Genau das war der Grund für
+     die gespreizten Beine am Netz. Mit der gesicherten Ruhelage lässt sich
+     stattdessen sauber dorthin zurückblenden. */
+  const ruheDrehung = new Map();
+  inner.traverse((o) => { if (o.isBone) ruheDrehung.set(o, o.quaternion.clone()); });
+  const _qd = new THREE.Quaternion(), _ed = new THREE.Euler();
+  const _vw1 = new THREE.Vector3(), _vw2 = new THREE.Vector3();
+  const _vw3 = new THREE.Vector3(), _vw4 = new THREE.Vector3();
+  /* Knochen zur Ruhelage ziehen und von dort um kleine Winkel auslenken. */
+  function drehZuRuhe(bone, ax, ay, az, k) {
+    if (!bone) return;
+    const ruhe = ruheDrehung.get(bone);
+    if (!ruhe) return;
+    bone.quaternion.slerp(ruhe, clamp(k, 0, 1));
+    _ed.set(ax || 0, ay || 0, az || 0);
+    bone.quaternion.multiply(_qd.setFromEuler(_ed));
+  }
 
   /* Einen Knochen auf einen Weltpunkt ausrichten (einfache Ziel-Kinematik).
      Die Knochenachse ergibt sich aus der Lage des Kindknochens. */
@@ -1524,14 +1683,14 @@ function makeGlbVisual(m) {
          Pendels bringt Leben hinein, ohne der Bewegung ins Handwerk zu
          pfuschen (halbes Gewicht, kleine Ausschläge). */
       const takt = Math.sin((t || 0) * 2.3);
-      const k = 0.42;
-      /* Kleiner Ausschlag und beide Beine dicht beieinander – vorher stand
-         die Figur am Netz im Spagat. Die Beine schwingen jetzt nur leicht
-         gegeneinander, seitliches Spreizen gibt es gar nicht mehr. */
-      drehe(knochen.leftupleg, -0.16 + takt * 0.17, 0, 0, k);
-      drehe(knochen.rightupleg, -0.16 - takt * 0.17, 0, 0, k);
-      drehe(knochen.leftleg, 0.40 - takt * 0.13, 0, 0, k);
-      drehe(knochen.rightleg, 0.40 + takt * 0.13, 0, 0, k);
+      const k = 0.9;
+      /* Die Beine werden aus der RUHELAGE heraus ausgelenkt. Dadurch
+         stehen sie so dicht beieinander wie im Stand und schwingen nur
+         leicht mit dem Pendel mit. */
+      drehZuRuhe(knochen.leftupleg, -0.18 + takt * 0.16, 0, 0, k);
+      drehZuRuhe(knochen.rightupleg, -0.14 - takt * 0.16, 0, 0, k);
+      drehZuRuhe(knochen.leftleg, 0.42 - takt * 0.12, 0, 0, k);
+      drehZuRuhe(knochen.rightleg, 0.34 + takt * 0.12, 0, 0, k);
       drehe(knochen.spine1, 0.08 + takt * 0.04, 0, 0, 0.35);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
@@ -1598,6 +1757,67 @@ function makeGlbVisual(m) {
       drehe(knochen.leftfoot, 0.5, 0, 0, 1);
       drehe(knochen.rightfoot, 0.5, 0, 0, 1);
     },
+    /* Wandkriechen: Die geladene Kletter-Bewegung stammt von einer Leiter –
+       die Figur greift dort vor der Brust und steht aufrecht. An einer
+       Hauswand sieht das falsch aus. Hier werden Hände und Füße deshalb
+       auf echte Punkte AN DER WAND gezielt: Arme weit oben und außen,
+       Knie seitlich abgespreizt. Das ergibt die typische Spinnenhaltung,
+       ohne dass eine neue Bewegungsdatei nötig wäre. */
+    poseWandkriechen(nx, nz, phase, k) {
+      root.updateMatrixWorld(true);
+      const rechts = _vw1.set(nz, 0, -nx);        // seitlich an der Wand
+      const rein = _vw2.set(-nx, 0, -nz);         // Richtung Wand
+      /* Die Leiter-Bewegung schiebt das Becken fast einen Meter nach
+         hinten – deshalb schwebte die Figur sichtbar VOR dem Haus, statt
+         daran zu kleben. Dieser Versatz wird hier weggerechnet: das Becken
+         steht wieder senkrecht über dem Anfasspunkt an der Wand.
+         Achsen von root: lokal +Z zeigt zur Wand, lokal +X nach links. */
+      if (knochen.hips) {
+        knochen.hips.getWorldPosition(_vw3);
+        const dx = _vw3.x - root.position.x, dz = _vw3.z - root.position.z;
+        const tiefe = dx * rein.x + dz * rein.z;
+        const quer = dx * rechts.x + dz * rechts.z;
+        inner.position.z = lerp(inner.position.z, -tiefe + 0.06, 0.3);
+        inner.position.x = lerp(inner.position.x, quer, 0.3);
+        root.updateMatrixWorld(true);
+      }
+      const m = root.position;
+      const g = Math.sin(phase);
+      const punkt = (out, seite, hoehe, tiefe) => out
+        .copy(m).addScaledVector(rechts, seite).addScaledVector(rein, tiefe)
+        .setY(m.y + hoehe);
+
+      /* Erst der Ellbogen, dann die Hand: so bleibt der Arm gebeugt und
+         die Ellbogen zeigen wie bei einer Spinne nach außen. */
+      // linker Arm
+      punkt(_vw3, -0.66, 1.48 + g * 0.10, 0.02);          // Ellbogen außen
+      zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
+      punkt(_vw3, -0.34, 2.15 + g * 0.22, 0.16);          // Hand oben an der Wand
+      zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
+      // rechter Arm
+      punkt(_vw4, 0.66, 1.48 - g * 0.10, 0.02);
+      zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
+      punkt(_vw4, 0.34, 2.15 - g * 0.22, 0.16);
+      zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
+
+      // Knie seitlich nach außen, Füße darunter an der Wand
+      punkt(_vw3, -0.68, 0.78 - g * 0.10, -0.05);
+      zieleKnochen(knochen.leftupleg, knochen.leftleg, _vw3, k);
+      punkt(_vw3, -0.44, 0.22 - g * 0.16, 0.15);
+      zieleKnochen(knochen.leftleg, knochen.leftfoot, _vw3, k);
+      punkt(_vw4, 0.68, 0.78 + g * 0.10, -0.05);
+      zieleKnochen(knochen.rightupleg, knochen.rightleg, _vw4, k);
+      punkt(_vw4, 0.44, 0.22 + g * 0.16, 0.15);
+      zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
+      // Kopf hebt sich, der Blick geht nach oben
+      drehZuRuhe(knochen.head, -0.35, 0, 0, k * 0.8);
+    },
+    /* Nach dem Klettern den Wandversatz wieder abbauen. */
+    versatzAus(k) {
+      if (Math.abs(inner.position.x) < 0.001 && Math.abs(inner.position.z) < 0.001) return;
+      inner.position.x = lerp(inner.position.x, 0, k);
+      inner.position.z = lerp(inner.position.z, 0, k);
+    },
     /* Netzschuss-Pose: Arm nach vorn strecken */
     poseSchuss(zielWelt, seite, k) {
       const gross = seite === 'L' ? 'leftarm' : 'rightarm';
@@ -1626,12 +1846,26 @@ function makeGlbVisual(m) {
       /* relativ enthält bereits die bisherige Korrektur – der Fehler wird
          deshalb auf sie aufaddiert, sonst pendelt sich der Fuß zu tief ein. */
       const fehler = (fussRuhe - 0.07) - relativ;
-      const ziel = Math.max(0, bodenKorrektur + fehler);
-      /* Nach oben sofort ausgleichen (sonst sinkt die Figur kurz ein),
-         nach unten weich zurückgleiten. */
-      bodenKorrektur = ziel > bodenKorrektur
-        ? ziel
-        : lerp(bodenKorrektur, ziel, k === undefined ? 0.4 : k);
+      const ziel = clamp(bodenKorrektur + fehler, 0, 0.35);
+      /* Der Ausgleich wird in BEIDE Richtungen gleich weich nachgeführt.
+         Früher sprang er nach oben sofort – beim Laufen wandert der tiefste
+         Fuß aber in jedem Schritt auf und ab, dadurch hüpfte der ganze
+         Körper im Schritttakt. Genau das hat das Laufen unruhig gemacht. */
+      bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.35));
+      inner.position.y = basisY + bodenKorrektur;
+    },
+    /* Hinlegen: Die Umfall-Bewegung dreht den Körper zwar waagerecht, lässt
+       die Hüfte dabei aber auf Stehhöhe – die Figur lag deshalb rund einen
+       Meter über dem Boden in der Luft. Hier wird der ganze Körper so weit
+       abgesenkt, dass der tiefste Knochen wirklich aufliegt. */
+    legeHin(k) {
+      root.updateMatrixWorld(true);
+      let tiefster = Infinity;
+      for (const bn of alleKnochen) { bn.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
+      if (!isFinite(tiefster)) return;
+      const ueber = tiefster - root.position.y - 0.11;      // so hoch schwebt er noch
+      const ziel = clamp(bodenKorrektur - ueber, -1.6, 0.35);
+      bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.25 : k, 0, 1));
       inner.position.y = basisY + bodenKorrektur;
     },
     /* Gibt es für diesen Zustand eine echte geladene Bewegung?
@@ -1663,7 +1897,11 @@ function makeGlbVisual(m) {
          sonst sah Klettern aus wie Die-Wand-hoch-Laufen. */
       let want = key;
       if ((key === 'swing' || key === 'climb') && !findClip(m.clips, key)) want = 'idle';
-      if (key === 'run' && (p.speed01 || 0) < 0.5 && findClip(m.clips, 'walk')) want = 'walk';
+      /* Umschalten nach echtem Tempo, nicht nach einem Anteil der
+         Höchstgeschwindigkeit: sonst wurde beim Anlaufen ein stark
+         beschleunigter Gehschritt gezeigt. */
+      const vBoden = p.speed === undefined ? (p.speed01 || 0) * CFG.sprintSpeed : p.speed;
+      if (key === 'run' && vBoden < 2.9 && findClip(m.clips, 'walk')) want = 'walk';
       const a = actionFor(want) || actionFor('idle');
       if (a && a !== current) {
         if (current) current.fadeOut(0.22);
@@ -1675,18 +1913,37 @@ function makeGlbVisual(m) {
         a.reset().fadeIn(0.22).play();
         current = a;
       }
+      /* Schrittlänge an das echte Tempo koppeln: die Mixamo-Läufe legen bei
+         Geschwindigkeit 1 rund 1,45 m/s (Gehen) bzw. 4,2 m/s (Rennen)
+         zurück. Wird die Abspielgeschwindigkeit daraus berechnet, bleiben
+         die Füße am Boden stehen, statt zu rutschen – genau das hat das
+         Laufen bisher unruhig wirken lassen. */
       if (current && (want === 'run' || want === 'walk')) {
-        current.timeScale = 0.6 + (p.speed01 || 0) * 0.8;
+        const v = p.speed === undefined ? (p.speed01 || 0) * CFG.sprintSpeed : p.speed;
+        const ref = want === 'walk' ? 1.45 : 4.2;
+        current.timeScale = clamp(v / ref, 0.7, 2.6);
+      } else if (current && want === 'climb') {
+        /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
+           kraxelte die Figur auf der Stelle weiter. */
+        current.timeScale = p.tempo === undefined ? 1 : p.tempo;
+      } else if (current) {
+        current.timeScale = 1;
       }
       mixer.update(dt);
     },
     /* art: 'punch' oder 'kick' – damit ein Tritt auch wie ein Tritt
        aussieht und nicht wie derselbe Schlag. Fehlt die passende Datei,
        greift automatisch die allgemeine Angriffsbewegung. */
-    attackOneShot(tempo, art) {
+    /* zielDauer: wie lange der Schlag im Spiel dauern SOLL. Die Mixamo-
+       Dateien sind zwischen 1,7 s und 3,8 s lang – ungekürzt abgespielt
+       hing die Figur nach jedem Schlag sekundenlang im Nachschwingen und
+       eine Kombo war nicht mehr möglich. Die Bewegung wird deshalb
+       beschleunigt und der ausklingende Rest weggeblendet. */
+    attackOneShot(tempo, art, zielDauer) {
       const a = actionFor(art || 'attack') || actionFor('attack');
       if (!a) return 0;
-      const v = tempo || 1.7;
+      const d = a.getClip().duration;
+      const v = zielDauer ? clamp(d / zielDauer, 1.3, 3.4) : (tempo || 1.7);
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
       /* Beim Verketten weich überblenden. Nur wenn dieselbe Bewegung
@@ -1700,8 +1957,31 @@ function makeGlbVisual(m) {
       else { a.reset(); a.fadeIn(0.09); }
       a.timeScale = v; a.play();
       angriff = a;
-      angriffT = a.getClip().duration / v;
+      angriffT = zielDauer ? Math.min(zielDauer, d / v) : d / v;
       return angriffT;
+    },
+    /* Ausweichrolle: die Datei ist 2,4 s lang, im Spiel darf das Ausweichen
+       aber nur einen knappen Satz dauern. Sie wird deshalb beschleunigt
+       abgespielt, damit die Rolle wirklich zu Ende geht, statt mittendrin
+       in den Stand zu springen. */
+    rolleOneShot(zielDauer) {
+      const a = actionFor('roll');
+      if (!a) return 0;
+      const d = a.getClip().duration;
+      const v = clamp(d / zielDauer, 1, 3.2);
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = true;
+      if (current) current.fadeOut(0.08);
+      a.reset(); a.fadeIn(0.08); a.timeScale = v; a.play();
+      angriff = a;
+      angriffT = Math.min(zielDauer, d / v);
+      return angriffT;
+    },
+    /* Wie lange dauert eine geladene Bewegung? Damit lässt sich die
+       Spielmechanik auf die Bewegungsdatei abstimmen, statt umgekehrt. */
+    clipDauer(key) {
+      const c = findClip(m.clips, key);
+      return c ? c.duration : 0;
     },
   };
 }
@@ -1712,6 +1992,9 @@ function makeProceduralVisual(cfg) {
     root: human.root, procedural: true, human,
     play(key, p, dt) { poseHuman(human, key, p, dt); },
     attackOneShot() {},
+    rolleOneShot() { return 0; },
+    clipDauer() { return 0; },
+    legeHin() {},
   };
 }
 
@@ -2102,7 +2385,7 @@ const player = {
   attack: null,           // {type, t, arm, hitDone}
   attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
-  combo: 0, comboTimer: 0,
+  combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
   schussT: 0, schussZiel: V3(0, 0, 0),
@@ -2474,16 +2757,22 @@ function tryJump() {
 function dodge() {
   if (player.dead || player.dodgeT > 0 || player.state === 'climb') return;
   const dir = inputDir() || { x: -Math.sin(player.facing), z: -Math.cos(player.facing) };
-  /* Kurzer, kräftiger Satz in Bewegungsrichtung; der Körper rollt sich dabei
-     einmal ab und ist währenddessen unverwundbar. */
-  const tempo = player.onGround ? 19 : 15;
+  /* Die Dauer kommt aus der Rollen-Bewegung selbst. Vorher war sie mit
+     0,45 s fest verdrahtet, die Bewegungsdatei ist aber gut doppelt so
+     lang – die Rolle wurde deshalb mitten im Abrollen abgeschnitten und
+     ging in den Stand über. Genau das sah kaputt aus. */
+  const dauer = (heroVisual.rolleOneShot ? heroVisual.rolleOneShot(0.72) : 0) || CFG.rollDauer;
+  /* Tempo so wählen, dass die Strecke zur Bewegung passt: rund vier Meter
+     in einem Satz. 19 m/s haben die Figur früher neun Meter weit aus dem
+     Bild geschossen, die Kamera kam nicht hinterher. */
+  const tempo = player.onGround ? 10.5 : 9;
   player.vel.x = dir.x * tempo;
   player.vel.z = dir.z * tempo;
-  if (player.onGround) player.vel.y = 1.8;      // nur ein Antippen – die Rolle kommt aus der Animation
   player.facing = Math.atan2(dir.x, dir.z);
-  player.dodgeT = CFG.rollDauer;
-  player.rollT = CFG.rollDauer;
-  player.iFrames = CFG.rollDauer + 0.12;
+  player.dodgeT = dauer;
+  player.rollT = dauer;
+  player.rollGesamt = dauer;
+  player.iFrames = dauer * 0.8;
   player.attack = null;                          // Angriff sauber abbrechen
   player.attackCd = Math.min(player.attackCd, 0.12);
   camShake = Math.max(camShake, 0.03);
@@ -2494,12 +2783,12 @@ function dodge() {
    ("punch2") kommt aus derselben Datei, nur seitenverkehrt – dadurch
    wechselt die Figur sichtbar den Arm. Die letzte Stufe ist der Abschluss. */
 const KOMBO = [
-  { art: 'punch',  tempo: 2.1, arm: 'R' },   // gerader Stoß
-  { art: 'hook',   tempo: 2.1, arm: 'L' },   // Haken
-  { art: 'punch2', tempo: 2.3, arm: 'L' },   // gespiegelter Stoß
-  { art: 'punch3', tempo: 2.2, arm: 'R' },   // Kombischlag
-  { art: 'hook2',  tempo: 2.4, arm: 'R' },   // gespiegelter Haken
-  { art: 'kick',   tempo: 1.9, arm: 'R', finisher: true },
+  { art: 'punch',  ziel: 0.42, arm: 'R' },   // gerader Stoß
+  { art: 'hook',   ziel: 0.46, arm: 'L' },   // Haken
+  { art: 'punch2', ziel: 0.44, arm: 'L' },   // gespiegelter Stoß
+  { art: 'punch3', ziel: 0.52, arm: 'R' },   // Kombischlag
+  { art: 'hook2',  ziel: 0.48, arm: 'R' },   // gespiegelter Haken
+  { art: 'kick',   ziel: 0.62, arm: 'R', finisher: true },
 ];
 
 function tryAttack(type) {
@@ -2508,30 +2797,43 @@ function tryAttack(type) {
   /* Zu früh gedrückt? Eingabe kurz merken und automatisch nachziehen –
      dadurch fühlt sich die Schlagfolge zusammenhängend an. */
   if (player.attackCd > 0) {
-    /* Größeres Zeitfenster: Ein Klick während der laufenden Bewegung wird
-       gemerkt und direkt danach ausgeführt – so entsteht eine Kette,
-       statt dass man auf das Ende warten muss. */
-    if (player.attackCd < 0.4) player.attackBuffer = { type, t: 0.4 };
+    /* JEDER Klick während der laufenden Bewegung wird gemerkt und direkt
+       danach ausgeführt. Vorher zählte er nur in den letzten 0,4 s – bei
+       einer 0,9-s-Bewegung lag die Sperre aber bei ~0,5 s, also verfiel
+       schnelles Klicken komplett. Deshalb war von der Kombo nichts zu
+       sehen: Stufe 2 wurde nie erreicht. */
+    player.attackBuffer = { type, t: Math.max(0.5, player.attackCd + 0.25) };
     return;
   }
   player.attackBuffer = null;
-  player.combo = player.comboTimer > 0 ? player.combo : 0;
+  if (player.comboTimer <= 0) { player.combo = 0; player.stufe = 0; }
+  /* Die Schlagfolge richtet sich nach der Zahl der AUSGEFÜHRTEN Schläge,
+     nicht nach den Treffern. Vorher zählte nur ein Treffer weiter – wer
+     ins Leere schlug oder danebenstand, sah immer wieder denselben
+     ersten Schlag. Genau deshalb war die Kombo nicht zu erkennen. */
+  const stufe = player.stufe || 0;
   /* In der Luft gibt es einen eigenen Sprungangriff – am Boden die Kombo. */
   const k = !player.onGround
-    ? { art: 'luftangriff', tempo: 1.9, arm: 'R' }
+    ? { art: 'luftangriff', ziel: 0.5, arm: 'R' }
     : type === 'kick'
-      ? { art: 'kick', tempo: 2.1, arm: 'R' }
-      : KOMBO[player.combo % KOMBO.length];
+      ? { art: 'kick', ziel: 0.55, arm: 'R' }
+      : KOMBO[stufe % KOMBO.length];
   const finisher = !!k.finisher;
   const arm = k.arm;
   /* Die Dauer kommt aus der Bewegungsdatei selbst. Vorher war sie fest
      verdrahtet und viel kürzer als der Clip – deshalb startete die
      Animation bei schnellem Klicken immer wieder von vorn. */
-  const dauer = heroVisual.attackOneShot(k.tempo, k.art) || 0.34;
+  const dauer = heroVisual.attackOneShot(0, k.art, k.ziel) || k.ziel || 0.42;
   const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie';
-  player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm,
-                    hitDone: false, finisher, stufe: player.combo, dauer };
-  player.attackCd = dauer * 0.55;
+  player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm, art: k.art,
+                    hitDone: false, finisher, stufe, dauer };
+  if (player.onGround && type !== 'kick') {
+    player.stufe = (stufe + 1) % KOMBO.length;
+    player.comboTimer = Math.max(player.comboTimer, 1.6);
+  }
+  /* Der nächste Schlag darf schon starten, während der aktuelle noch
+     ausklingt – so entsteht überhaupt erst eine flüssige Kette. */
+  player.attackCd = dauer * 0.72;
   // Magnetismus: zum nächsten Gegner ziehen
   const target = nearestEnemy(4.2, 0.2);
   if (target) {
@@ -2565,7 +2867,12 @@ function resolveAttackHit() {
   const range = a.type === 'kick' ? 3.0 : 2.6;
   const e = nearestEnemy(range, 0.05);
   if (!e) {
-    player.combo = 0;                 // Luftschlag bricht die Kombo
+    /* Ein Schlag ins Leere setzt die Kette nicht mehr auf null zurück –
+       sonst kam man ohne Gegner nie über Stufe 1 hinaus und die Kombo
+       war praktisch unsichtbar. Sie läuft jetzt nur schneller ab. */
+    player.combo = Math.max(0, player.combo - 1);
+    player.comboTimer = Math.min(player.comboTimer, 1.2);
+    updateHUD();
     return;
   }
   const wucht = a.finisher ? 1.9 : (a.type === 'kick' ? 1.5 : 1);
@@ -2700,14 +3007,21 @@ function updatePlayer(dt) {
     if (keys['KeyS'] || keys['ArrowDown']) up -= 1;
     if (keys['KeyD'] || keys['ArrowRight']) side += 1;
     if (keys['KeyA'] || keys['ArrowLeft']) side -= 1;
-    // Tangente: rechts entlang der Wand
-    const tx = -w.nz, tz = w.nx;
+    /* Tangente „nach rechts" aus Sicht der Figur. Die Figur schaut in
+       Richtung (-nx, -nz); rechts davon liegt (-f.z, f.x) = (nz, -nx).
+       Vorher stand hier genau das Gegenteil – deshalb liefen A und D
+       an der Wand verkehrt herum. */
+    const tx = w.nz, tz = -w.nx;
     player.vel.set(tx * side * CFG.climbSpeed, up * CFG.climbSpeed, tz * side * CFG.climbSpeed);
     player.pos.addScaledVector(player.vel, dt);
     // seitlich begrenzen
     if (w.nx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.2, c.z1 - 0.2);
     else player.pos.x = clamp(player.pos.x, c.x0 + 0.2, c.x1 - 0.2);
     player.phase += dt * (1 + (Math.abs(up) + Math.abs(side)) * 6);
+    /* Klettertempo für die Animation: hoch = vorwärts, runter = rückwärts,
+       ohne Eingabe hängt die Figur still an der Wand. */
+    const bewegt = Math.abs(up) + Math.abs(side);
+    player.klettertempo = bewegt === 0 ? 0 : (up < 0 ? -0.9 : 1);
     // Oben angekommen → aufs Dach ziehen
     if (player.pos.y + 1.3 > c.h && up > 0) {
       player.pos.y = c.h;
@@ -2790,6 +3104,9 @@ function updatePlayer(dt) {
     const speed = sprint ? CFG.sprintSpeed : CFG.runSpeed;
     if (player.dodgeT > 0) {
       player.dodgeT -= dt;
+      /* Die Rolle läuft aus, statt mit vollem Tempo abzubrechen. */
+      const b = Math.max(0, 1 - dt * 2.6);
+      player.vel.x *= b; player.vel.z *= b;
     } else if (dir) {
       player.vel.x = lerp(player.vel.x, dir.x * speed, Math.min(1, dt * 10));
       player.vel.z = lerp(player.vel.z, dir.z * speed, Math.min(1, dt * 10));
@@ -2929,7 +3246,7 @@ function updatePlayer(dt) {
   if (player.hurtCd > 0) player.hurtCd -= dt;
   if (player.comboTimer > 0) {
     player.comboTimer -= dt;
-    if (player.comboTimer <= 0) { player.combo = 0; updateHUD(); }
+    if (player.comboTimer <= 0) { player.combo = 0; player.stufe = 0; updateHUD(); }
   }
   if (player.regenCd > 0) player.regenCd -= dt;
   else if (player.hp < CFG.playerHP) { player.hp = Math.min(CFG.playerHP, player.hp + dt * 4); updateHUD(); }
@@ -2938,7 +3255,11 @@ function updatePlayer(dt) {
   if (player.attack) {
     const a = player.attack;
     a.t += dt / (a.dauer || 0.34);
-    if (!a.hitDone && a.t > 0.33) { a.hitDone = true; resolveAttackHit(); }
+    /* Der Sprungangriff traf erst nach einem Drittel des langen Clips –
+       da stand die Figur längst wieder am Boden. Er trifft jetzt sehr
+       früh, die übrigen Schläge wie gehabt in der Mitte der Ausholphase. */
+    const treffPunkt = a.art === 'luftangriff' ? 0.16 : (a.type === 'kick' ? 0.3 : 0.33);
+    if (!a.hitDone && a.t > treffPunkt) { a.hitDone = true; resolveAttackHit(); }
     if (a.t >= 1) player.attack = null;
   }
 
@@ -2978,7 +3299,7 @@ function updateHeroVisual(dt) {
   /* Beim Klettern lehnt der Körper leicht zur Wand – das liest sich sofort
      als Kleben statt als Hochlaufen. */
   if (player.state === 'climb') {
-    r.rotation.x = lerp(r.rotation.x, 0.28, Math.min(1, dt * 10));
+    r.rotation.x = lerp(r.rotation.x, 0.13, Math.min(1, dt * 10));
   } else
   /* Ausweichen: schneller Satz mit Vorlage – bewusst OHNE Überschlag.
      Die frühere Rolle drehte den Körper um die Füße, dadurch verschwand die
@@ -2996,10 +3317,15 @@ function updateHeroVisual(dt) {
     r.rotation.x = lerp(r.rotation.x, tilt, Math.min(1, dt * 8));
   }
 
+  if (player.state !== 'climb' && heroVisual.versatzAus) {
+    heroVisual.versatzAus(Math.min(1, dt * 8));
+  }
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   heroVisual.play(player.anim, {
     phase: player.phase,
     speed01: clamp(hSpeed / CFG.sprintSpeed, 0, 1),
+    speed: hSpeed,
+    tempo: player.klettertempo,
     t: elapsed,
     hand: player.swing ? player.swing.hand : netzHand,
   }, dt);
@@ -3015,16 +3341,23 @@ function updateHeroVisual(dt) {
     } else if (player.state === 'swing' && player.swing) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed);
     } else if (player.state === 'climb') {
-      /* Die geladene Kletteranimation führt allein – die frühere Handpose
-         hat sie komplett überschrieben, dadurch sah es aus wie Hochlaufen. */
-      if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
+      /* Die geladene Bewegung liefert den Rhythmus, die Wandpose setzt
+         Hände und Füße wirklich an die Wand. */
+      const w = player.wallInfo;
+      if (w && heroVisual.poseWandkriechen) heroVisual.poseWandkriechen(w.nx, w.nz, player.phase, 0.85);
+      else if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
       heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
     } else if (player.schussT > 0) {
       player.schussT -= dt;
       heroVisual.poseSchuss(player.schussZiel, netzHand, 1);
+    } else if (player.dead) {
+      heroVisual.legeHin(Math.min(1, dt * 6));
     } else if (player.onGround && player.rollT <= 0) {
-      heroVisual.bodenAusgleich(Math.min(1, dt * 12));   // Füße bleiben oben
+      /* Beim Laufen darf der Ausgleich nur ganz sacht nachziehen, sonst
+         hüpft der Körper im Schritttakt mit. Im Stand darf er zügiger sein. */
+      const zaeh = (player.anim === 'run' || player.anim === 'walk') ? 0.6 : 5;
+      heroVisual.bodenAusgleich(Math.min(0.3, dt * zaeh));
     }
   }
 
@@ -4245,6 +4578,11 @@ function updateHUD() {
   if (player.combo >= 2) {
     comboEl.style.opacity = 1;
     comboNEl.textContent = `${player.combo}×`;
+  } else if (player.stufe > 0 && player.comboTimer > 0) {
+    /* Auch die laufende Schlagfolge anzeigen, wenn noch kein Treffer
+       gezählt wurde – sonst merkt man von der Kombo überhaupt nichts. */
+    comboEl.style.opacity = 0.75;
+    comboNEl.textContent = `${player.stufe}/${KOMBO.length}`;
   } else comboEl.style.opacity = 0;
 }
 updateHUD();
@@ -4309,6 +4647,15 @@ function animate() {
   requestAnimationFrame(animate);
   let dt = Math.min(clock.getDelta(), 0.05);
   if (!isActive() || !actorsReady) { renderer.render(scene, camera); return; }
+  simuliere(dt);
+  renderer.render(scene, camera);
+}
+
+/* Ein Simulationsschritt ohne Bild. So lässt sich das Spiel in Tests mit
+   festen kleinen Zeitschritten durchrechnen – im Testbrowser läuft die
+   Darstellung sonst mit wenigen Bildern pro Sekunde und jede Messung, die
+   von der Zeit abhängt, wird unbrauchbar. */
+function simuliere(dt) {
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
   elapsed += dt;
 
@@ -4334,7 +4681,6 @@ function animate() {
   if (player.state !== 'swing' && player.state !== 'zip') swingStrand.visible = false;
 
   updateHUD();
-  renderer.render(scene, camera);
 }
 animate();
 
@@ -4347,6 +4693,8 @@ if (window.__WEBHERO_TEST__ === true) {
     colliders,
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
+    schritt(dt, n) { for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60); },
+    get kamPos() { return camera.position.clone(); },
   };
 }
 
