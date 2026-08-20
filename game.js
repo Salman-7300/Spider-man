@@ -4300,7 +4300,8 @@ function rufFaktor() { return 0.6 + (ruf / 100) * 0.65; }
 
 function addScore(n, label, worldPos) {
   if (n > 0) n = Math.round(n * rufFaktor());
-  player.score += n;
+  /* Der Punktestand kann durch Abzüge sinken, aber nicht ins Minus. */
+  player.score = Math.max(0, player.score + n);
   const neu = stufeFuer(player.score);
   if (neu !== stufe) wendeStufeAn(neu, true);
   if (label) popupWorld(`${label} ${n >= 0 ? '+' : ''}${n}`, worldPos || player.pos,
@@ -6696,6 +6697,8 @@ function missionEnde(erfolg, text, punkte) {
   setzeBeacon(null);
   hideObjective();
   popupScreen(text);
+  /* Ein erledigter Auftrag hebt das Ansehen, ein liegengebliebener senkt es. */
+  setzeRuf(erfolg ? +4 : -7);
   if (erfolg && punkte) addScore(punkte, '', player.pos);
   missionCd = erfolg ? 14 : 22;
 }
@@ -6712,7 +6715,9 @@ function starteMission() {
     const g = pick(gangKandidaten);
     for (const e of g.enemies) if (!e.dead) { e.state = 'chase'; e.target = 'player'; }
     crimeGang = g;
-    MISSION.art = 'gang'; MISSION.zeit = 0; MISSION.daten = { gang: g };
+    /* Auch der Ueberfall hat eine Frist – sonst bleibt ein Auftrag, den
+       man nicht annimmt, für immer offen und es kommt nie ein neuer. */
+    MISSION.art = 'gang'; MISSION.zeit = 90; MISSION.daten = { gang: g };
     MISSION.text = '🚨 Überfall! Schalte die markierte Gang aus';
     if (helis.length) helis[0].zielMitte = { x: g.home.x, z: g.home.z };
 
