@@ -6004,6 +6004,36 @@ const GANOVEN_SCHLAEGE = [
   { art: 'punch3', dauer: 0.66, treff: 0.44, reichweite: 2.0, wucht: 1.1 },
 ];
 
+/* ---- Klingenhieb ----
+   Die Ganoven tragen ihre Klinge am Gürtel, benutzt hat sie bisher keiner.
+   Der Hieb holt lange aus, geht weit und tut weh – dafür ist er deutlich
+   angekündigt und damit die beste Gelegenheit für einen Konter (Strg). */
+const KLINGENHIEB = { art: 'hook', dauer: 0.95, treff: 0.6, reichweite: 3.0,
+                      wucht: 2.1, klinge: true };
+
+/* Ein leuchtender Bogen zeichnet die Bahn der Klinge nach. */
+let klingenBogen = null;
+function zeigeKlingenBogen(e, t01) {
+  if (!klingenBogen) {
+    const g = new THREE.RingGeometry(1.6, 3.0, 22, 1, 0, Math.PI * 0.85);
+    g.rotateX(-Math.PI / 2);
+    /* Schräg gestellt: der Hieb geht von oben rechts nach unten links
+       durch die Luft und liegt nicht flach auf der Straße. */
+    g.rotateZ(0.75);
+    klingenBogen = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+      color: 0xfff2ec, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending }));
+    klingenBogen.renderOrder = 12;
+    scene.add(klingenBogen);
+  }
+  klingenBogen.visible = true;
+  klingenBogen.position.set(e.pos.x, e.pos.y + 1.15, e.pos.z);
+  /* Der Bogen wandert von rechts nach links vor dem Gegner durch die Luft.
+     Die Mitte des Kreisausschnitts zeigt bei facing+PI nach vorn. */
+  klingenBogen.rotation.y = e.facing + Math.PI - 1.2 + clamp(t01, 0, 1) * 2.4;
+  klingenBogen.material.opacity = Math.sin(clamp(t01, 0, 1) * Math.PI) * 0.6;
+}
+
 /* Warnzeichen über dem Kopf: Ausrufezeichen vor einem Schlag,
    Schild beim Blocken. Beides nur zwei kleine Kisten. */
 function makeWarnzeichen() {
@@ -6228,6 +6258,8 @@ function checkCivilianSaved(deadEnemy) {
 }
 
 function updateEnemies(dt) {
+  /* Der Klingenbogen gehört immer nur zum gerade laufenden Hieb. */
+  if (klingenBogen) klingenBogen.visible = false;
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.dead) {
@@ -6404,7 +6436,10 @@ function updateEnemies(dt) {
           /* Wer in Deckung steht, holt nicht gleichzeitig aus. */
           /* Erst ausholen und warnen, dann schlagen. Vorher kam der Treffer
              ohne Vorankündigung – ausweichen war reine Glückssache. */
-          e.warnT = 0.55;
+          /* Jeder vierte Angriff ist ein Klingenhieb – mit doppelt so
+             langer Vorwarnung, damit man ihn kontern kann. */
+          e.klingeGeplant = Math.random() < 0.26;
+          e.warnT = e.klingeGeplant ? 0.95 : 0.55;
         }
       }
     } else if (e.bewacht) {
@@ -6453,6 +6488,7 @@ function updateEnemies(dt) {
         e.pos.x += zx * Math.min(2.6, (dp - 0.95)) * dt * 3.2;
         e.pos.z += zz * Math.min(2.6, (dp - 0.95)) * dt * 3.2;
       }
+      if (a.klinge) zeigeKlingenBogen(e, (a.t - a.treff + 0.22) / 0.42);
       if (!a.hitDone && a.t > a.treff) {
         a.hitDone = true;
         const reich = a.reichweite;
@@ -6472,9 +6508,12 @@ function updateEnemies(dt) {
       e.warn.visible = ((elapsed * 9) % 2) < 1;
       if (e.warnT <= 0) {
         e.warn.visible = false;
-        const m = pick(GANOVEN_SCHLAEGE);
-        e.attack = { type: 'thugSwing', t: 0, hitDone: false,
+        /* Nach längerer Vorwarnung folgt der Klingenhieb. */
+        const m = e.klingeGeplant ? KLINGENHIEB : pick(GANOVEN_SCHLAEGE);
+        e.klingeGeplant = false;
+        e.attack = { type: 'thugSwing', t: 0, hitDone: false, klinge: !!m.klinge,
                      dauer: m.dauer, treff: m.treff, reichweite: m.reichweite, wucht: m.wucht };
+        if (m.klinge) SFX.swoosh();
         /* Enger Abstand heißt auch: es trifft öfter. Die Pause zwischen
            zwei Schlägen wird dafür wieder etwas länger, sonst nimmt ein
            einzelner Ganove in zehn Sekunden fast die ganze Lebensleiste. */
