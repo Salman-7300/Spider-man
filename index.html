@@ -31,8 +31,13 @@
     padding:8px 22px; border-radius:20px; font-weight:700; font-size:16px;
     text-shadow:0 1px 4px #000; display:none; }
 
-  #crosshair { position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px;
-    border-radius:50%; background:rgba(255,255,255,.85); box-shadow:0 0 5px #000; }
+  /* Ring statt gefülltem Punkt: Der weiße Punkt sah im Bild aus wie eine
+     kleine Kugel, die in der Luft schwebt. */
+  #crosshair { position:absolute; left:50%; top:50%; width:14px; height:14px; margin:-7px;
+    border-radius:50%; border:1.5px solid rgba(255,255,255,.7);
+    box-shadow:0 0 4px rgba(0,0,0,.9), inset 0 0 4px rgba(0,0,0,.6); }
+  #crosshair::after { content:''; position:absolute; left:50%; top:50%; width:2px; height:2px;
+    margin:-1px; border-radius:50%; background:rgba(255,255,255,.9); }
 
   #hint { position:absolute; bottom:14px; right:18px; font-size:13px; opacity:.7;
     text-shadow:0 1px 4px #000; }
