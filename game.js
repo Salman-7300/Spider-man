@@ -282,29 +282,75 @@ function canvasTex(w, h, draw) {
   return t;
 }
 
-/* Fensterfassaden (3 Varianten) */
+/* Fensterfassaden (3 Varianten).
+   Statt flacher Rechtecke gibt es jetzt richtige Fenster: Rahmen mit
+   Sprosse, ein Raum dahinter mit Boden, Möbelschatten und in manchen
+   erleuchteten Fenstern eine Person am Fenster. Beim Klettern klebt man
+   direkt davor – dort fällt das am meisten auf. */
 const facadeTexes = [
-  ['#3d4657', '#28303f'], ['#5d5348', '#3d372f'], ['#6b7683', '#49525c'],
-].map(([wall, dark]) => canvasTex(128, 256, (g) => {
-  g.fillStyle = wall; g.fillRect(0, 0, 128, 256);
-  /* Fassaden waren flache Rechtecke auf einer Fläche. Mit Geschossband,
-     Fensterlaibung und Sims bekommt die Wand Tiefe, ohne dass zusätzliche
-     Geometrie nötig wird – beim Klettern klebt man direkt davor. */
-  for (let y = 8; y < 250; y += 16) {
-    // Geschossband: schmaler heller Streifen unter jeder Fensterreihe
-    g.fillStyle = 'rgba(255,255,255,0.07)'; g.fillRect(0, y + 12, 128, 2);
-    g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(0, y + 14, 128, 1);
-    for (let x = 6; x < 122; x += 14) {
-      const lit = Math.random() < 0.06;
-      // Laibung: oben/links dunkel, unten/rechts hell -> Fenster liegt zurück
-      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x - 1, y - 1, 11, 12);
-      g.fillStyle = lit ? '#ffe9a8' : dark;
-      g.fillRect(x, y, 9, 10);
-      if (!lit) {
-        g.fillStyle = 'rgba(170,205,240,0.45)'; g.fillRect(x, y, 9, 4);
-        g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x, y, 9, 1);
+  ['#3d4657', '#20262f', '#ffe6a6'],
+  ['#5d5348', '#332e28', '#ffd98a'],
+  ['#6b7683', '#3b434c', '#fff0c4'],
+].map(([wand, raumDunkel, licht]) => canvasTex(256, 512, (g) => {
+  g.fillStyle = wand; g.fillRect(0, 0, 256, 512);
+  /* Feiner Putz: leichte Körnung, damit die Wand nicht wie Papier wirkt */
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.045)';
+    g.fillRect(Math.random() * 256, Math.random() * 512, 2, 2);
+  }
+  const SP_X = 32, SP_Y = 32;          // Fensterraster
+  const FW = 21, FH = 20;              // Fenstergröße
+  for (let y = 6; y < 500; y += SP_Y) {
+    // Geschossband
+    g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(0, y + FH + 3, 256, 3);
+    g.fillStyle = 'rgba(0,0,0,0.20)'; g.fillRect(0, y + FH + 6, 256, 2);
+    for (let x = 6; x < 246; x += SP_X) {
+      const hell = Math.random() < 0.17;
+      // Laibung: Fenster liegt in der Wand zurück
+      g.fillStyle = 'rgba(0,0,0,0.42)'; g.fillRect(x - 2, y - 2, FW + 4, FH + 4);
+      // Raum dahinter
+      if (hell) {
+        const gr = g.createLinearGradient(x, y, x, y + FH);
+        gr.addColorStop(0, licht);
+        gr.addColorStop(1, 'rgba(120,80,30,1)');
+        g.fillStyle = gr;
+      } else {
+        g.fillStyle = raumDunkel;
       }
-      g.fillStyle = 'rgba(255,255,255,0.16)'; g.fillRect(x - 1, y + 10, 11, 2);   // Sims
+      g.fillRect(x, y, FW, FH);
+      if (hell) {
+        // Zimmerboden und ein Möbelstück als Schatten
+        g.fillStyle = 'rgba(60,35,10,0.55)'; g.fillRect(x, y + FH - 5, FW, 5);
+        if (Math.random() < 0.6) {
+          const mw = 4 + Math.random() * 7;
+          g.fillStyle = 'rgba(40,24,8,0.6)';
+          g.fillRect(x + Math.random() * (FW - mw), y + FH - 10, mw, 6);
+        }
+        // Person am Fenster
+        if (Math.random() < 0.3) {
+          const px = x + 3 + Math.random() * (FW - 9);
+          g.fillStyle = 'rgba(28,18,10,0.82)';
+          g.fillRect(px + 1, y + FH - 13, 4, 9);          // Rumpf
+          g.beginPath();
+          g.arc(px + 3, y + FH - 15, 2.2, 0, Math.PI * 2);
+          g.fill();                                        // Kopf
+        }
+      } else {
+        // Spiegelung des Himmels im dunklen Glas
+        const gr = g.createLinearGradient(x, y, x, y + FH);
+        gr.addColorStop(0, 'rgba(175,205,238,0.5)');
+        gr.addColorStop(0.55, 'rgba(120,150,185,0.16)');
+        gr.addColorStop(1, 'rgba(20,26,34,0.25)');
+        g.fillStyle = gr; g.fillRect(x, y, FW, FH);
+      }
+      // Rahmen und Sprosse
+      g.strokeStyle = 'rgba(232,238,245,0.55)'; g.lineWidth = 1.4;
+      g.strokeRect(x + 0.7, y + 0.7, FW - 1.4, FH - 1.4);
+      g.fillStyle = 'rgba(232,238,245,0.4)';
+      g.fillRect(x + FW / 2 - 0.7, y, 1.4, FH);
+      // Sims unter dem Fenster
+      g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(x - 2, y + FH + 1, FW + 4, 2);
+      g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x - 2, y + FH + 3, FW + 4, 1);
     }
   }
 }));
@@ -652,28 +698,49 @@ function buildBlockBuildings(cx, cz) {
   const centerBias = 1 - Math.min(1, (Math.abs(cx) + Math.abs(cz)) / 300);
   const style = Math.random();
   const inner = PITCH - ROAD_HALF * 2 - 8; // bebaubare Fläche (30)
+
+  /* Häuser standen teils fast aneinander – zwischen Erdgeschoss-Sockel und
+     Vordach (beide über die Fassade hinaus) blieb dann gar kein Spalt mehr.
+     Jeder Bauplatz wird deshalb gegen die schon gesetzten geprüft und nur
+     mit genug Luft bebaut. */
+  const gesetzt = [];
+  const passt = (w, d, x, z) => {
+    const luft = 2.6;
+    for (const r of gesetzt) {
+      if (Math.abs(x - r.x) < (w + r.w) / 2 + luft &&
+          Math.abs(z - r.z) < (d + r.d) / 2 + luft) return false;
+    }
+    return true;
+  };
+  const setze = (w, h, d, x, z) => {
+    if (!passt(w, d, x, z)) return false;
+    gesetzt.push({ w, d, x, z });
+    makeBuildingMesh(w, h, d, x, z);
+    return true;
+  };
+
   if (style < 0.3) {
     // Ein großer Turm
-    const w = rand(inner * 0.6, inner * 0.9), d = rand(inner * 0.6, inner * 0.9);
+    const w = rand(inner * 0.6, inner * 0.88), d = rand(inner * 0.6, inner * 0.88);
     const h = rand(35, 60) + centerBias * rand(20, 55);
-    makeBuildingMesh(w, h, d, cx + rand(-2, 2), cz + rand(-2, 2));
+    setze(w, h, d, cx + rand(-2, 2), cz + rand(-2, 2));
   } else if (style < 0.75) {
     // 2x2 Gebäude
-    const off = inner / 4 + 1.5;
+    const off = inner / 4 + 2.6;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       if (Math.random() < 0.12) continue; // kleine Plaza
-      const w = rand(9, 13), d = rand(9, 13);
+      const w = rand(8, 11), d = rand(8, 11);
       const h = rand(16, 40) + centerBias * rand(5, 45);
-      makeBuildingMesh(w, h, d, cx + sx * off + rand(-1, 1), cz + sz * off + rand(-1, 1));
+      setze(w, h, d, cx + sx * off + rand(-0.8, 0.8), cz + sz * off + rand(-0.8, 0.8));
     }
   } else {
     // Zeile aus 3 Gebäuden
     const vert = Math.random() < 0.5;
     for (let k = -1; k <= 1; k++) {
-      const w = vert ? rand(10, 14) : rand(7, 9.5);
-      const d = vert ? rand(7, 9.5) : rand(10, 14);
+      const w = vert ? rand(9, 12) : rand(6.5, 8.5);
+      const d = vert ? rand(6.5, 8.5) : rand(9, 12);
       const h = rand(14, 34) + centerBias * rand(0, 30);
-      makeBuildingMesh(w, h, d, cx + (vert ? rand(-3, 3) : k * 10), cz + (vert ? k * 10 : rand(-3, 3)));
+      setze(w, h, d, cx + (vert ? rand(-2, 2) : k * 11.5), cz + (vert ? k * 11.5 : rand(-2, 2)));
     }
   }
 }
@@ -1935,13 +2002,15 @@ function makeGlbVisual(m) {
       zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
 
       // Knie seitlich nach außen, Füße darunter an der Wand
-      punkt(_vw3, -0.68, 0.78 - g * 0.10, -0.02);
+      /* Knie und Füße dichter am Körper – vorher stand die Figur im
+         Spagat an der Wand statt zu kriechen. */
+      punkt(_vw3, -0.42, 0.72 - g * 0.14, -0.02);
       zieleKnochen(knochen.leftupleg, knochen.leftleg, _vw3, k);
-      punkt(_vw3, -0.44, 0.22 - g * 0.16, 0.13);
+      punkt(_vw3, -0.26, 0.18 - g * 0.20, 0.13);
       zieleKnochen(knochen.leftleg, knochen.leftfoot, _vw3, k);
-      punkt(_vw4, 0.68, 0.78 + g * 0.10, -0.02);
+      punkt(_vw4, 0.42, 0.72 + g * 0.14, -0.02);
       zieleKnochen(knochen.rightupleg, knochen.rightleg, _vw4, k);
-      punkt(_vw4, 0.44, 0.22 + g * 0.16, 0.13);
+      punkt(_vw4, 0.26, 0.18 + g * 0.20, 0.13);
       zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
       /* Handflächen flach auf die Fassade, Finger nach oben-außen. */
       _vw3.copy(rein);
@@ -3470,6 +3539,40 @@ function updatePlayer(dt) {
     const tx = w.nz, tz = -w.nx;
     player.vel.set(tx * side * CFG.climbSpeed, up * CFG.climbSpeed, tz * side * CFG.climbSpeed);
     player.pos.addScaledVector(player.vel, dt);
+    /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
+       der Fassade heraus. Vorher steckte die Figur mit dem Oberkörper darin
+       fest. Ist der Vorsprung in Griffhöhe und man klettert aufwärts, zieht
+       sie sich darüber; sonst wird sie davor geschoben. */
+    for (const lc of collidersNear(player.pos.x, player.pos.z)) {
+      if (!lc.klein || lc.y0 === undefined) continue;
+      const kopf = player.pos.y + 1.85;
+      if (lc.h < player.pos.y + 0.1 || lc.y0 > kopf) continue;
+      if (player.pos.x < lc.x0 - player.radius || player.pos.x > lc.x1 + player.radius) continue;
+      if (player.pos.z < lc.z0 - player.radius || player.pos.z > lc.z1 + player.radius) continue;
+      if (up > 0 && lc.h - player.pos.y < 2.6) {
+        const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
+        const ziel = V3(
+          player.pos.x - w.nx * (player.radius + 0.75),
+          lc.h,
+          player.pos.z - w.nz * (player.radius + 0.75),
+        );
+        if (dauer > 0.2) {
+          player.state = 'kante';
+          player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: lc.h };
+        } else {
+          player.pos.copy(ziel); player.state = 'air'; player.vel.set(0, 4, 0);
+        }
+        player.wallInfo = null;
+        player.vel.set(0, 0, 0);
+        updateHeroVisual(dt);
+        return;
+      }
+      // Vor den Vorsprung schieben, statt darin zu stecken
+      if (w.nx !== 0) player.pos.x = (w.nx > 0 ? lc.x1 : lc.x0) + w.nx * CFG.climbGap;
+      else player.pos.z = (w.nz > 0 ? lc.z1 : lc.z0) + w.nz * CFG.climbGap;
+      break;
+    }
+
     /* Am Rand der Wand um die Ecke wechseln. Vorher wurde die Figur dort
        einfach festgehalten – an jeder Hauskante war Schluss. */
     if (side !== 0) {
@@ -4760,15 +4863,18 @@ function wickelGeo(windungen, phase, hoch, weite) {
                             - 0.3 * Math.max(0, -tt - 0.35));
     punkte.push(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r * 0.72));
   }
-  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(punkte), 64, 0.017, 4, false);
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(punkte), 90, 0.0055, 3, false);
 }
+/* Viele feine Windungen statt weniger dicker Schläuche – bei 1,7 cm
+   Fadenstärke sahen die Wicklungen aus wie Schwimmnudeln. */
 const bandGeos = [
-  wickelGeo(4.5, 0, 0.82, 0.30),
-  wickelGeo(6.5, 2.1, 0.78, 0.28),
-  wickelGeo(3.5, 4.0, 0.70, 0.31),
+  wickelGeo(9, 0, 0.80, 0.235),
+  wickelGeo(13, 2.1, 0.76, 0.225),
+  wickelGeo(6.5, 4.0, 0.70, 0.245),
+  wickelGeo(11, 1.0, 0.62, 0.215),
 ];
-const fadenGeo = new THREE.CylinderGeometry(0.009, 0.009, 0.55, 4);
-const fleckGeo = new THREE.PlaneGeometry(0.46, 0.46);
+const fadenGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.34, 3);
+const fleckGeo = new THREE.PlaneGeometry(0.55, 0.55);
 
 /* Der Kokon wächst mit der Anzahl der Treffer:
    Stufe 1 = ein paar Fäden quer über den Körper,
@@ -4816,13 +4922,19 @@ function makeCocoon() {
     g.add(b); baender.push(b);
   }
 
-  /* Lose Fäden, die quer über den Körper laufen und abstehen. */
+  /* Fäden, die AM Körper anliegen. Vorher standen sie in zufälligen
+     Richtungen ab und sahen aus wie weiße Nadeln, die durch die Figur
+     gestochen sind. Jetzt liegen sie tangential auf der Körperoberfläche
+     und laufen schräg darüber. */
   const faeden = [];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 22; i++) {
     const f = new THREE.Mesh(fadenGeo, bandMat);
-    f.position.set(rand(-0.26, 0.26), rand(-0.75, 0.85), rand(-0.20, 0.20));
-    f.rotation.set(rand(0, 3.2), rand(0, 3.2), rand(0, 3.2));
-    f.scale.set(1, rand(0.6, 1.5), 1);
+    const a = rand(0, Math.PI * 2);
+    const y = rand(-0.7, 0.8);
+    f.position.set(Math.cos(a) * 0.22, y, Math.sin(a) * 0.17);
+    f.rotation.y = -a;                       // Achse tangential zur Hülle
+    f.rotation.z = Math.PI / 2 + rand(-0.65, 0.65);
+    f.scale.set(1, rand(0.7, 1.5), 1);
     f.visible = false;
     g.add(f); faeden.push(f);
   }
@@ -4849,8 +4961,8 @@ function makeCocoon() {
     /* Bei Stufe 3 trägt der Kokon selbst das Wickelmuster. Alle neun Ringe
        zusätzlich anzuzeigen sah aus, als schwebten Reifen um das Bündel –
        es bleiben ein paar wenige, die stramm anliegen. */
-    baender.forEach((b, i) => { b.visible = stufe >= 3 || (stufe === 2 && i < 1); });
-    const fAnzahl = stufe >= 3 ? 12 : (stufe === 2 ? 8 : 4);
+    baender.forEach((b, i) => { b.visible = stufe >= 3 || (stufe === 2 && i < 2); });
+    const fAnzahl = stufe >= 3 ? 18 : (stufe === 2 ? 11 : 5);
     faeden.forEach((f, i) => { f.visible = i < fAnzahl; });
     /* Der komplette Kokon ist nur noch das Ergebnis, wenn jemand an eine
        Wand geheftet wird. Mitten auf der Straße wird ein Gegner kräftig
@@ -4862,7 +4974,7 @@ function makeCocoon() {
   g.userData.setzeKokon = (an) => {
     koerper.visible = an;
     huelle.visible = an;
-    if (an) { baender.forEach((b, i) => { b.visible = i < 2; b.scale.setScalar(1.02); }); }
+    if (an) { baender.forEach((b, i) => { b.visible = true; b.scale.setScalar(1.06); }); }
   };
   return g;
 }
