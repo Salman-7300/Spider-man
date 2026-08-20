@@ -866,6 +866,9 @@ const GLB_YAW = {};
    (entstehen automatisch aus Mixamo-Downloads „Without Skin“, siehe tools/) */
 const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'attack', 'kick', 'hit', 'roll', 'sit', 'swing', 'climb',
+  /* mixamo-5: freies Klettern, seitliches Hangeln, Ausweichschritt
+     nach links und rechts. */
+  'klettern_frei', 'klettern_seit', 'ausweichenL', 'ausweichenR',
   'hook', 'punch3', 'luftangriff', 'knie', 'block', 'taunt', 'jubel'];
 
 /* Höhe eines Modells bestimmen.
@@ -1079,7 +1082,11 @@ const GLB_CLIP_PATTERNS = {
   air: [/fall/i, /air/i, /jump/i],
   land: [/land/i, /landing/i],
   swing: [/swing/i, /hang/i, /fly/i, /brachiat/i],
-  climb: [/climb/i, /crawl/i, /ladder/i],
+  climb: [/^climb$/i, /climb/i, /crawl/i, /ladder/i],
+  klettern_frei: [/klettern_frei/i],
+  klettern_seit: [/klettern_seit/i],
+  ausweichenL: [/ausweichenL/],
+  ausweichenR: [/ausweichenR/],
   roll: [/roll/i, /dodge/i, /dive/i, /evade/i],
   hit: [/hit/i, /impact/i, /react/i, /stagger/i],
   punch: [/punch/i, /jab/i, /hook/i, /elbow/i, /boxing/i],
@@ -1108,6 +1115,8 @@ const GLB_FALLBACK = {
   block: ['idle'], taunt: ['idle'], jubel: ['idle'],
   kick: ['attack'],
   swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
+  klettern_frei: ['climb'], klettern_seit: ['climb'],
+  ausweichenL: ['roll'], ausweichenR: ['roll'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
 
@@ -1872,7 +1881,11 @@ function makeGlbVisual(m) {
          selbstgebauten Posen. Liegt eine echte Bewegung vor, führt die –
          sonst sah Klettern aus wie Die-Wand-hoch-Laufen. */
       let want = key;
-      if ((key === 'swing' || key === 'climb') && !findClip(m.clips, key)) want = 'idle';
+      if ((key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
+           key === 'klettern_seit') && !findClip(m.clips, key)) {
+        want = findClip(m.clips, 'climb') ? 'climb' : 'idle';
+        if (key === 'swing') want = 'idle';
+      }
       /* Umschalten nach echtem Tempo, nicht nach einem Anteil der
          Höchstgeschwindigkeit: sonst wurde beim Anlaufen ein stark
          beschleunigter Gehschritt gezeigt. */
@@ -1898,7 +1911,7 @@ function makeGlbVisual(m) {
         const v = p.speed === undefined ? (p.speed01 || 0) * CFG.sprintSpeed : p.speed;
         const ref = want === 'walk' ? 1.45 : 4.2;
         current.timeScale = clamp(v / ref, 0.7, 2.6);
-      } else if (current && want === 'climb') {
+      } else if (current && (want === 'climb' || want === 'klettern_frei' || want === 'klettern_seit')) {
         /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
            kraxelte die Figur auf der Stelle weiter. */
         current.timeScale = p.tempo === undefined ? 1 : p.tempo;
@@ -1940,8 +1953,8 @@ function makeGlbVisual(m) {
        aber nur einen knappen Satz dauern. Sie wird deshalb beschleunigt
        abgespielt, damit die Rolle wirklich zu Ende geht, statt mittendrin
        in den Stand zu springen. */
-    rolleOneShot(zielDauer) {
-      const a = actionFor('roll');
+    rolleOneShot(zielDauer, welche) {
+      const a = actionFor(welche || 'roll') || actionFor('roll');
       if (!a) return 0;
       const d = a.getClip().duration;
       const v = clamp(d / zielDauer, 1, 3.2);
@@ -2731,20 +2744,30 @@ function tryJump() {
 }
 
 function dodge() {
-  if (player.dead || player.dodgeT > 0 || player.state === 'climb') return;
+  if (!heroVisual || player.dead || player.dodgeT > 0 || player.state === 'climb') return;
   const dir = inputDir() || { x: -Math.sin(player.facing), z: -Math.cos(player.facing) };
   /* Die Dauer kommt aus der Rollen-Bewegung selbst. Vorher war sie mit
      0,45 s fest verdrahtet, die Bewegungsdatei ist aber gut doppelt so
      lang – die Rolle wurde deshalb mitten im Abrollen abgeschnitten und
      ging in den Stand über. Genau das sah kaputt aus. */
-  const dauer = (heroVisual.rolleOneShot ? heroVisual.rolleOneShot(0.72) : 0) || CFG.rollDauer;
+  /* Vorwärts/rückwärts wird gerollt, zur Seite gibt es seit mixamo-5 einen
+     echten Ausweichschritt. Beim Schritt zur Seite bleibt die Blickrichtung
+     erhalten – man weicht aus, ohne den Gegner aus den Augen zu verlieren. */
+  const fx = Math.sin(player.facing), fz = Math.cos(player.facing);
+  const vor = dir.x * fx + dir.z * fz;
+  const seit = dir.x * -fz + dir.z * fx;
+  const zurSeite = Math.abs(seit) > Math.abs(vor)
+    && heroVisual.hatClip && heroVisual.hatClip(seit > 0 ? 'ausweichenR' : 'ausweichenL');
+  const welche = zurSeite ? (seit > 0 ? 'ausweichenR' : 'ausweichenL') : 'roll';
+  const dauer = (heroVisual.rolleOneShot
+    ? heroVisual.rolleOneShot(zurSeite ? 0.5 : 0.72, welche) : 0) || CFG.rollDauer;
   /* Tempo so wählen, dass die Strecke zur Bewegung passt: rund vier Meter
      in einem Satz. 19 m/s haben die Figur früher neun Meter weit aus dem
      Bild geschossen, die Kamera kam nicht hinterher. */
-  const tempo = player.onGround ? 10.5 : 9;
+  const tempo = zurSeite ? 8.5 : (player.onGround ? 10.5 : 9);
   player.vel.x = dir.x * tempo;
   player.vel.z = dir.z * tempo;
-  player.facing = Math.atan2(dir.x, dir.z);
+  if (!zurSeite) player.facing = Math.atan2(dir.x, dir.z);
   player.dodgeT = dauer;
   player.rollT = dauer;
   player.rollGesamt = dauer;
@@ -3015,7 +3038,13 @@ function updatePlayer(dt) {
       player.wallInfo = null;
     }
     player.facing = dampAngle(player.facing, Math.atan2(-w.nx, -w.nz), dt * 14);
-    player.anim = 'climb';
+    /* Seitliches Hangeln hat seit mixamo-5 eine eigene Bewegung; senkrecht
+       geht es mit dem freien Klettern nach oben. Die Wandpose legt sich in
+       beiden Fällen darüber. */
+    const seitlich = Math.abs(side) > Math.abs(up);
+    player.anim = bewegt === 0 ? 'klettern_frei'      // ruhig an der Wand hängen
+                : seitlich ? 'klettern_seit'          // seitlich hangeln
+                : 'climb';                            // senkrecht hoch/runter
     updateHeroVisual(dt);
     return;
   }
@@ -4301,10 +4330,18 @@ function updateEnemies(dt) {
     const e = enemies[i];
     if (e.dead) {
       e.deadT -= dt;
+      /* Die Umfall-Bewegung legt die Figur selbst waagerecht hin. Die
+         zusätzliche Vierteldrehung der ganzen Figur hat sie zusätzlich
+         gekippt – die Füße steckten dadurch bis zu 30 cm im Asphalt.
+         Stattdessen wird der Körper wie beim Helden so weit abgesenkt,
+         dass der tiefste Knochen wirklich aufliegt. */
       e.visual.root.position.copy(e.pos);
-      e.visual.root.rotation.x = lerp(e.visual.root.rotation.x, -Math.PI / 2 * 0.94, dt * 6);
-      e.visual.root.position.y = e.pos.y + 0.15;
+      e.visual.root.rotation.x = lerp(e.visual.root.rotation.x, 0, Math.min(1, dt * 8));
+      /* Warn- und Deckungszeichen gehören zu einem Gegner, der noch kämpft. */
+      if (e.warn) e.warn.visible = false;
+      if (e.blockZ) e.blockZ.visible = false;
       e.visual.play('downed', { t: elapsed }, dt);
+      if (e.visual.legeHin) e.visual.legeHin(Math.min(1, dt * 6));
       if (e.deadT <= 0) {
         scene.remove(e.visual.root);
         enemies.splice(i, 1);
