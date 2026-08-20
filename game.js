@@ -28,6 +28,10 @@ const CFG = {
   maxEnemies: 14,
   rollDauer: 0.45,
 };
+/* Abstand, auf den der Held im Nahkampf herangeht: halber Körper (0,45) +
+   halber Gegner (0,4) + ein Stück Arm. So berühren sich die Figuren beim
+   Schlag wirklich. */
+const NAHKAMPF = 1.05;
 
 const BLOCKS = 7;           // 7x7 Häuserblöcke
 const PITCH = 50;           // Rasterabstand (Block + Straße)
@@ -2602,6 +2606,11 @@ document.addEventListener('mousedown', (e) => {
   if (e.button === 2) swingHeld = true;
 });
 document.addEventListener('mouseup', (e) => { if (e.button === 2) swingHeld = false; });
+/* Verlässt das Fenster den Fokus oder springt die Mauszeigersperre auf,
+   kommt kein mouseup mehr an – die rechte Taste bliebe sonst "gedrückt"
+   und der Netzschwung ließe sich nicht mehr beenden. */
+window.addEventListener('blur', () => { swingHeld = false; });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement) swingHeld = false; });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('keydown', (e) => {
@@ -2730,6 +2739,23 @@ function collideBody(body, prevY) {
 }
 
 /* ======================= Netzschwung & Netz-Aktionen ======================= */
+/* Läuft der Faden frei zum Anker, oder steckt ein Haus dazwischen?
+   Ohne diese Prüfung schoss das Netz gern durch die Nachbarfassade. */
+function freieSicht(ax, ay, az, bx, by, bz, ziel) {
+  const dx = bx - ax, dy = by - ay, dz = bz - az;
+  const len = Math.hypot(dx, dy, dz);
+  const schritte = Math.min(26, Math.max(4, Math.round(len / 2.5)));
+  for (let i = 1; i < schritte; i++) {
+    const t = i / schritte;
+    const x = ax + dx * t, y = ay + dy * t, z = az + dz * t;
+    for (const c of collidersNear(x, z)) {
+      if (c === ziel || c.klein) continue;
+      if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1 && y < c.h) return false;
+    }
+  }
+  return true;
+}
+
 function findAnchor() {
   /* Guter Ankerpunkt: möglichst weit VOR dem Spieler und deutlich über ihm –
      dann entsteht ein weiter Bogen statt eines abrupten Rucks.
@@ -2757,14 +2783,28 @@ function findAnchor() {
     for (const c of colliders) {
       if (c.klein) continue;                      // Feuerleitern taugen nicht
       if (c.h < py + hoheKante) continue;
-      const cx = clamp(px + rx * wunschWeite, c.x0, c.x1);
-      const cz = clamp(pz + rz * wunschWeite, c.z0, c.z1);
+      let cx = px + rx * wunschWeite, cz = pz + rz * wunschWeite;
+      if (cx > c.x0 && cx < c.x1 && cz > c.z0 && cz < c.z1) {
+        /* Der Wunschpunkt liegt MITTEN im Haus. Dann wird bis zur dem
+           Spieler zugewandten Dachkante zurückgegangen – sonst hing der
+           Anker im Inneren und das Netz verlief durch die Fassade. */
+        const sx = rx > 1e-6 ? (cx - c.x0) / rx : (rx < -1e-6 ? (cx - c.x1) / rx : Infinity);
+        const sz = rz > 1e-6 ? (cz - c.z0) / rz : (rz < -1e-6 ? (cz - c.z1) / rz : Infinity);
+        const sm = Math.min(sx, sz);
+        if (isFinite(sm)) { cx -= rx * sm; cz -= rz * sm; }
+      } else {
+        cx = clamp(cx, c.x0, c.x1);
+        cz = clamp(cz, c.z0, c.z1);
+      }
       const dx = cx - px, dz = cz - pz;
       const dist = Math.hypot(dx, dz);
       if (dist > maxDist || dist < 3) continue;
       const dot = (dx * rx + dz * rz) / (dist || 1);
       if (dot < minDot) continue;
-      const anchorY = Math.min(c.h - 0.5, py + 16 + dist * 0.55);
+      /* Nur noch DACHKANTEN. Vorher durfte der Anker mitten auf einer
+         Fassade liegen – dann verlief das Netz sichtbar durch die Wand
+         und das Seil zog die Figur in das Haus hinein. */
+      const anchorY = c.h - 0.35;
       if (anchorY < py + minHoehe) continue;
       /* Der tiefste Punkt des Pendels muss über der Straße bleiben. Sonst
          hängt man am Seil und schleift sofort über den Boden. */
@@ -2776,7 +2816,9 @@ function findAnchor() {
       const score = dot * 3
                   - Math.abs(dist - wunschWeite) / 18   // Wunschweite bevorzugen
                   + clamp(hoehe / 26, 0, 1.4);
-      if (score > bestScore) { bestScore = score; best = V3(cx, anchorY, cz); }
+      if (score > bestScore && freieSicht(px, py + 1.3, pz, cx, anchorY, cz, c)) {
+        bestScore = score; best = V3(cx, anchorY, cz);
+      }
     }
     return best;
   }
@@ -2812,10 +2854,9 @@ function stopSwing(boost) {
     /* Am tiefsten Punkt loslassen gibt den größten Schub – wie beim
        echten Pendel wird die Drehbewegung in Weite umgesetzt. */
     const vh = Math.hypot(player.vel.x, player.vel.z);
-    player.vel.multiplyScalar(1.05);
-    if (player.vel.y > -2) player.vel.y += 2.6;
-    else player.vel.y += 1.2;
-    if (vh > 6) { player.vel.x *= 1.04; player.vel.z *= 1.04; }
+    if (player.vel.y > -2) player.vel.y += 1.7;
+    else player.vel.y += 0.8;
+    if (vh > 6) { player.vel.x *= 1.03; player.vel.z *= 1.03; }
   }
   swingStrand.visible = false;
   SFX.swoosh();
@@ -3063,8 +3104,12 @@ function tryAttack(type) {
     /* Genau so weit heranziehen, dass der Schlag sitzt – nicht weiter.
        Der frühere Stoß mit bis zu 9 m/s hat die Figur am Gegner
        vorbeigeschoben, das war das Rutschen. */
-    if (d > 1.7) {
-      const noetig = Math.min(7, (d - 1.5) / Math.max(0.2, dauer * 0.5));
+    /* Schlagabstand: Arm plus zwei halbe Körper sind rund 1,1 m. Vorher
+       wurde nur bis 1,7 m herangezogen – auf die Entfernung berührt man
+       sich beim Schlagen überhaupt nicht, der Treffer war reine Zahlen-
+       sache. Jetzt geht die Figur so weit ran, dass die Faust ankommt. */
+    if (d > NAHKAMPF) {
+      const noetig = Math.min(8, (d - NAHKAMPF * 0.9) / Math.max(0.2, dauer * 0.5));
       player.vel.x = (dx / d) * noetig;
       player.vel.z = (dz / d) * noetig;
     } else {
@@ -3091,7 +3136,8 @@ function nearestEnemy(maxDist, minDot) {
 
 function resolveAttackHit() {
   const a = player.attack;
-  const range = a.type === 'kick' ? 3.0 : 2.6;
+  /* Reichweite passend zum neuen, engen Schlagabstand. */
+  const range = a.type === 'kick' ? 2.1 : 1.85;
   /* Zuerst das gebundene Ziel prüfen – sonst zählt mitten in der Kombo
      plötzlich ein anderer Gegner als Treffer. */
   let e = null;
@@ -4472,13 +4518,13 @@ const cocoonKoerperGeo = (() => {
                - 0.22 * Math.exp(-Math.pow((t - 0.95) / 0.16, 2))         // Hals
                - 0.30 * Math.max(0, t + 0.72);                            // Beine
     breite *= 1 + Math.sin(y * 26) * 0.045 + Math.sin(x * 19 + z * 15) * 0.035;
-    pos.setXYZ(i, x * breite * 1.02, y * 2.1, z * breite * 0.80);
+    pos.setXYZ(i, x * breite * 1.02, y * 2.3, z * breite * 0.80);
   }
   g.computeVertexNormals();
   return g;
 })();
 /* Dünner Ring statt dickem Reifen – gewickelter Faden, kein Schlauch. */
-const bandGeo = new THREE.TorusGeometry(0.29, 0.016, 4, 13);
+const bandGeo = new THREE.TorusGeometry(0.25, 0.015, 4, 13);
 const fadenGeo = new THREE.CylinderGeometry(0.009, 0.009, 0.55, 4);
 const fleckGeo = new THREE.PlaneGeometry(0.46, 0.46);
 
@@ -4538,14 +4584,33 @@ function makeCocoon() {
     g.add(f); faeden.push(f);
   }
 
+  /* Wird der Gegner an eine Wand geheftet, spannen ein paar Fäden vom
+     Kokon nach hinten zur Fassade. */
+  const wandFaeden = [];
+  for (let i = 0; i < 6; i++) {
+    const f = new THREE.Mesh(fadenGeo, bandMat);
+    const y = rand(-0.55, 0.7), sx = rand(-0.24, 0.24);
+    f.position.set(sx * 0.6, y, -0.32);
+    f.rotation.x = Math.PI / 2 + rand(-0.25, 0.25);
+    f.rotation.z = rand(-0.4, 0.4);
+    f.scale.set(1, rand(0.7, 1.1), 1);
+    f.visible = false;
+    g.add(f); wandFaeden.push(f);
+  }
+  g.userData.setzeWand = (an) => { wandFaeden.forEach((f) => { f.visible = an; }); };
   g.userData.setzeStufe = (stufe) => {
     /* Stufe 1: ein Netzfleck und ein paar Fäden – der Gegner kann noch
        laufen. Stufe 2: erste Wicklungen. Stufe 3: komplett eingesponnen. */
-    const fl = stufe >= 3 ? flecken.length : (stufe === 2 ? 3 : 2);
+    const fl = stufe === 2 ? 3 : 2;
     flecken.forEach((f, i) => { f.visible = i < fl && stufe < 3; });
-    const bAnzahl = stufe >= 3 ? baender.length : (stufe === 2 ? 4 : 0);
-    baender.forEach((b, i) => { b.visible = i < bAnzahl; });
-    const fAnzahl = stufe >= 3 ? faeden.length : (stufe === 2 ? 8 : 4);
+    /* Bei Stufe 3 trägt der Kokon selbst das Wickelmuster. Alle neun Ringe
+       zusätzlich anzuzeigen sah aus, als schwebten Reifen um das Bündel –
+       es bleiben ein paar wenige, die stramm anliegen. */
+    baender.forEach((b, i) => {
+      b.visible = stufe >= 3 ? (i % 3 === 1) : (stufe === 2 && i < 4);
+      if (stufe >= 3) b.scale.setScalar(0.94);
+    });
+    const fAnzahl = stufe >= 3 ? 5 : (stufe === 2 ? 8 : 4);
     faeden.forEach((f, i) => { f.visible = i < fAnzahl; });
     koerper.visible = stufe >= 3;
   };
@@ -4616,7 +4681,7 @@ function spawnGang(cx, cz, n) {
     const warn = makeWarnzeichen(); visual.root.add(warn);
     const blockZ = makeBlockzeichen(); visual.root.add(blockZ);
     const cocoon = makeCocoon();
-    cocoon.position.y = 1.0;
+    cocoon.position.y = 0.98;
     cocoon.visible = false;
     visual.root.add(cocoon);
     const e = {
@@ -4666,6 +4731,27 @@ function spawnGangAwayFromPlayer() {
 }
 
 
+/* Nächste Hauswand in Reichweite finden: Fläche, Normale und Abstand. */
+function naheWand(pos, maxAbstand) {
+  let best = null, bestD = maxAbstand;
+  for (const c of collidersNear(pos.x, pos.z)) {
+    if (c.klein || c.h < pos.y + 1.4) continue;
+    // Nur außerhalb stehende Gegner ankleben
+    const innen = pos.x > c.x0 && pos.x < c.x1 && pos.z > c.z0 && pos.z < c.z1;
+    if (innen) continue;
+    const kx = clamp(pos.x, c.x0, c.x1), kz = clamp(pos.z, c.z0, c.z1);
+    const dx = pos.x - kx, dz = pos.z - kz;
+    const d = Math.hypot(dx, dz);
+    if (d > bestD || d < 0.01) continue;
+    // Normale = Richtung von der Wand weg
+    let nx = 0, nz = 0;
+    if (Math.abs(dx) >= Math.abs(dz)) nx = Math.sign(dx); else nz = Math.sign(dz);
+    bestD = d;
+    best = { x: kx, z: kz, nx, nz, col: c };
+  }
+  return best;
+}
+
 function applyWeb(e) {
   if (e.dead) return;
   /* Jeder weitere Treffer wickelt fester ein. Erst ab Stufe 3 ist der
@@ -4673,7 +4759,22 @@ function applyWeb(e) {
   e.webStufe = Math.min(3, (e.webStufe || 0) + 1);
   e.webT = Math.max(e.webT, 1.6 + e.webStufe * 1.6);
   if (e.cocoon && e.cocoon.userData.setzeStufe) e.cocoon.userData.setzeStufe(e.webStufe);
-  if (e.webStufe >= 3) { e.vel.set(0, 0, 0); e.attack = null; }
+  if (e.webStufe >= 3) {
+    e.vel.set(0, 0, 0); e.attack = null;
+    /* Steht der Gegner dicht an einer Hauswand, klebt das dritte Netz ihn
+       dort fest – er hängt anschließend an der Fassade statt auf der
+       Straße zu liegen. */
+    const w = naheWand(e.pos, 1.7);
+    if (w && e.cocoon && e.cocoon.userData.setzeWand) e.cocoon.userData.setzeWand(!!w);
+    if (w) {
+      e.pos.x = w.x + w.nx * 0.42;
+      e.pos.z = w.z + w.nz * 0.42;
+      e.pos.y = groundY(e.pos.x, e.pos.z) + rand(0.6, 1.1);
+      e.facing = Math.atan2(w.nx, w.nz);       // Rücken zur Wand
+      e.anWand = true;
+      popupWorld('An die Wand geheftet!', e.pos, '#bfe8ff');
+    }
+  }
   else { e.vel.multiplyScalar(0.3); e.staggerT = Math.max(e.staggerT, 0.35); }
 }
 
@@ -4760,8 +4861,15 @@ function updateEnemies(dt) {
          zappeln weiter und können sich langsam bewegen. */
       if (e.webStufe >= 3) {
         e.visual.root.position.copy(e.pos);
+        e.visual.root.rotation.y = e.facing;
         e.visual.play('webbed', { t: elapsed }, dt);
         continue;
+      }
+      /* Löst sich das Netz wieder, fällt ein angeklebter Gegner herunter. */
+      if (e.anWand) {
+        e.anWand = false;
+        e.vel.set(0, 0, 0);
+        if (e.cocoon.userData.setzeWand) e.cocoon.userData.setzeWand(false);
       }
     }
 
@@ -4826,13 +4934,13 @@ function updateEnemies(dt) {
            der Gegner dauerhaft knapp außerhalb seiner eigenen Reichweite
            und rannte nur noch auf der Stelle, ohne je zuzuschlagen.
            Die Freigabe liegt jetzt sicher außerhalb des Rings. */
-        if (d > 2.4 || dy > 1.6) {
+        if (d > 1.75 || dy > 1.6) {
           /* Nicht alle auf denselben Punkt zulaufen – sonst stapeln sich
              die Ganoven zu einem einzigen Klumpen. Jeder steuert seinen
              eigenen Platz auf einem Ring um das Ziel an. */
           if (e.ringWinkel === undefined) e.ringWinkel = Math.random() * Math.PI * 2;
-          const zx = tp.x + Math.sin(e.ringWinkel) * 1.9 - e.pos.x;
-          const zz = tp.z + Math.cos(e.ringWinkel) * 1.9 - e.pos.z;
+          const zx = tp.x + Math.sin(e.ringWinkel) * 1.35 - e.pos.x;
+          const zz = tp.z + Math.cos(e.ringWinkel) * 1.35 - e.pos.z;
           const zd = Math.hypot(zx, zz) || 1;
           moveX = zx / zd; moveZ = zz / zd;
           speed = (e.target === 'player' ? 1 : 0.85) * (e.typ ? e.typ.tempo : 5);
@@ -4873,8 +4981,8 @@ function updateEnemies(dt) {
           /* Trefferreichweite etwas größer als der Abstand, auf dem der
              Gegner stehen bleibt – sonst schlägt er zwar zu, kommt aber
              rechnerisch nie an. */
-          if (dp < 2.9 && dpy < 2) damagePlayer(e.typ ? e.typ.schaden : 8, e.pos);
-        } else if (e.target && Math.hypot(e.target.pos.x - e.pos.x, e.target.pos.z - e.pos.z) < 2.6) {
+          if (dp < 2.1 && dpy < 2) damagePlayer(e.typ ? e.typ.schaden : 8, e.pos);
+        } else if (e.target && Math.hypot(e.target.pos.x - e.pos.x, e.target.pos.z - e.pos.z) < 2.1) {
           hurtCivilian(e.target, e);
         }
       }
@@ -4922,10 +5030,22 @@ function updateEnemies(dt) {
       if (o === e || o.dead) continue;
       const dx = e.pos.x - o.pos.x, dz = e.pos.z - o.pos.z;
       const d = Math.hypot(dx, dz);
-      if (d < 1.5 && d > 0.01) {
-        const schub = (1.5 - d) * 0.5;
+      if (d < 1.05 && d > 0.01) {
+        const schub = (1.05 - d) * 0.5;
         e.pos.x += (dx / d) * schub;
         e.pos.z += (dz / d) * schub;
+      }
+    }
+
+    /* Auch zum Helden Abstand halten – aber nur so viel, dass man sich
+       beim Schlag noch berührt. */
+    {
+      const dxp = e.pos.x - player.pos.x, dzp = e.pos.z - player.pos.z;
+      const dpp = Math.hypot(dxp, dzp);
+      if (dpp < 0.78 && dpp > 0.01 && Math.abs(e.pos.y - player.pos.y) < 1.8) {
+        const schub = (0.78 - dpp) * 0.55;
+        e.pos.x += (dxp / dpp) * schub;
+        e.pos.z += (dzp / dpp) * schub;
       }
     }
 
