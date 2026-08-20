@@ -2635,6 +2635,15 @@ function makeGlbVisual(m) {
       if (drehung) obj.rotation.set(drehung.x, drehung.y, drehung.z);
       return true;
     },
+    /* Ein gehaltenes Objekt senkrecht stellen. Der Schirm hängt am
+       Handknochen und würde sonst waagerecht am Unterarm liegen. */
+    haltAufrecht(obj, neigung) {
+      if (!obj.parent) return;
+      obj.parent.updateWorldMatrix(true, false);
+      _q2.setFromRotationMatrix(_mA.extractRotation(obj.parent.matrixWorld));
+      obj.quaternion.copy(_q2.invert());
+      if (neigung) obj.rotateX(neigung);
+    },
     /* Weltposition einer Hand – für den Netzfaden */
     handPos(seite, out) {
       const bone = haende[seite] || haende.R || haende.L;
@@ -5750,7 +5759,73 @@ function makeHandy() {
   return m;
 }
 
+/* Regenschirm – bei Regen hält ihn jeder zweite Passant hoch. Er hängt
+   wie das Handy am Handknochen. */
+const SCHIRM_FARBEN = [0x2a2e36, 0x2c5a8c, 0x9c2a2a, 0x3f7a44, 0x6b4a9c, 0xb8912a, 0xc4c8cc];
+function makeSchirm(farbe) {
+  const g = new THREE.Group();
+  const dach = new THREE.Mesh(
+    new THREE.ConeGeometry(0.78, 0.36, 10, 1, true),
+    new THREE.MeshLambertMaterial({ color: farbe, side: THREE.DoubleSide }));
+  dach.position.y = 0.52;
+  g.add(dach);
+  const stock = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.78, 5),
+    new THREE.MeshLambertMaterial({ color: 0x6b5335 }));
+  stock.position.y = 0.24;
+  g.add(stock);
+  g.visible = false;
+  return g;
+}
+
 const RUFE = ['Spider-Man!', 'Da ist er!', 'Danke!', 'Wahnsinn!', '📸'];
+
+/* ======================= Vögel =======================
+   Ein Schwarm zieht seine Runden über der Stadt. Alle Vögel stecken in
+   einem InstancedMesh und kosten zusammen einen Zeichenaufruf. */
+const VOEGEL_ANZ = 34;
+let voegel = null;
+const voegelDaten = [];
+function baueVoegel() {
+  /* Ein Vogel = zwei schmale Dreiecke als Flügel. */
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0,  -0.42, 0.10, -0.16,  -0.34, 0.0, 0.20,
+    0, 0, 0,   0.34, 0.0, 0.20,     0.42, 0.10, -0.16,
+  ], 3));
+  geo.computeVertexNormals();
+  voegel = new THREE.InstancedMesh(geo,
+    new THREE.MeshLambertMaterial({ color: 0x2b2f36, side: THREE.DoubleSide }),
+    VOEGEL_ANZ);
+  voegel.frustumCulled = false;
+  scene.add(voegel);
+  for (let i = 0; i < VOEGEL_ANZ; i++) {
+    voegelDaten.push({
+      mx: rand(-140, 140), mz: rand(-140, 140),      // Mittelpunkt der Runde
+      r: rand(14, 46), h: rand(38, 96),
+      w: rand(0, TAU), tempo: rand(0.12, 0.3) * (Math.random() < 0.5 ? -1 : 1),
+      schlag: rand(0, TAU), schlagTempo: rand(7, 12),
+    });
+  }
+}
+function updateVoegel(dt) {
+  if (!voegel) { baueVoegel(); return; }
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+  const p = new THREE.Vector3(), sk = new THREE.Vector3(), e = new THREE.Euler();
+  for (let i = 0; i < VOEGEL_ANZ; i++) {
+    const v = voegelDaten[i];
+    v.w += v.tempo * dt;
+    v.schlag += v.schlagTempo * dt;
+    const x = v.mx + Math.cos(v.w) * v.r;
+    const z = v.mz + Math.sin(v.w) * v.r;
+    const y = v.h + Math.sin(v.w * 2.3) * 2.5;
+    /* Flügelschlag als Auf-/Abstauchen – aus der Entfernung genügt das. */
+    const s = 1 + Math.sin(v.schlag) * 0.35;
+    e.set(Math.sin(v.schlag) * 0.5, v.w + Math.PI / 2 * (v.tempo > 0 ? 1 : -1), 0, 'YXZ');
+    m.compose(p.set(x, y, z), q.setFromEuler(e), sk.set(1, s, 1));
+    voegel.setMatrixAt(i, m);
+  }
+  voegel.instanceMatrix.needsUpdate = true;
+}
 
 function updateCivilians(dt) {
   if (rufMeldungCd > 0) rufMeldungCd -= dt;
@@ -5789,6 +5864,16 @@ function updateCivilians(dt) {
     if (!c.handyInHand && c.visual.inDieHand) {
       c.handyInHand = c.visual.inDieHand('R', c.handy,
         _v3.set(0.02, 0.11, 0.015), { x: -0.5, y: 0, z: 1.5 });
+    }
+    /* Bei Regen spannt jeder zweite Passant einen Schirm auf. */
+    if (c.schirmTyp === undefined) c.schirmTyp = Math.random() < 0.55 ? pick(SCHIRM_FARBEN) : null;
+    if (c.schirmTyp !== null) {
+      if (!c.schirm) { c.schirm = makeSchirm(c.schirmTyp); c.visual.root.add(c.schirm); }
+      if (!c.schirmInHand && c.visual.inDieHand) {
+        c.schirmInHand = c.visual.inDieHand('L', c.schirm,
+          _v3.set(0, 0.06, 0), { x: 0, y: 0, z: 0 });
+      }
+      c.schirm.visible = REGEN.staerke > 0.25 && !c.handy.visible;
     }
     const dHeld = Math.hypot(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
     const sichtbar = dHeld < 9 && Math.abs(player.pos.y - c.pos.y) < 6;
@@ -5895,6 +5980,13 @@ function updateCivilians(dt) {
     if (c.handy.visible && c.visual.poseSchuss) {
       _v3.set(player.pos.x, player.pos.y + 1.2, player.pos.z);
       c.visual.poseSchuss(_v3, 'R', 0.85);
+    }
+    /* Der Schirm wird über den Kopf gehalten, nicht am Bein baumeln lassen.
+       Der Stock bleibt dabei senkrecht, egal wie die Hand steht. */
+    if (c.schirm && c.schirm.visible && c.visual.poseSchuss) {
+      _v3.set(c.pos.x, c.pos.y + 3.4, c.pos.z);
+      c.visual.poseSchuss(_v3, 'L', 0.9);
+      if (c.visual.haltAufrecht) c.visual.haltAufrecht(c.schirm, 0.12);
     }
     if (haltenImGebiet(c.pos)) c.waypoint = null;
     if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
@@ -7569,6 +7661,7 @@ function simuliere(dt) {
   updateKlang(dt);
   updateDampf(dt);
   updateSpritzer(dt);
+  updateVoegel(dt);
 
   // Wasser-Animation
   if (waterMesh) waterTex.offset.x = elapsed * 0.015;
@@ -7619,6 +7712,7 @@ if (window.__WEBHERO_TEST__ === true) {
     get touchAktiv() { return touchAktiv; },
     stick,
     DAMPF_STELLEN,
+    voegelDa() { return voegel ? voegel.count : 0; },
     dampfDa() { return dampfPunkte; },
     regenAn() { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; },
     tippeSprung() { tryJump(); },
