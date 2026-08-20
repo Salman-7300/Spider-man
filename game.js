@@ -1524,6 +1524,12 @@ function setzeAugen(inner) {
 
 function makeGlbVisual(m) {
   const root = new THREE.Group();
+  /* Drehreihenfolge Y-X-Z: Erst die Blickrichtung, dann die Vorlage um die
+     KÖRPEREIGENE Querachse, dann die Kurvenlage um die Flugachse. In der
+     Standardreihenfolge X-Y-Z kippt rotation.x um die WELT-X-Achse – beim
+     Schwingen nach Osten legte sich die Figur dadurch seitlich, statt sich
+     nach vorn zu neigen. */
+  root.rotation.order = 'YXZ';
   const inner = THREE.SkeletonUtils.clone(m.scene);
   inner.scale.setScalar(m.scale);
   inner.position.y = m.yOffset * m.scale;
@@ -1722,7 +1728,7 @@ function makeGlbVisual(m) {
     /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen.
        Die Beine werden vollständig gesetzt (nicht angenähert) – sonst kämpft
        die laufende Geh-Animation dagegen an und die Beine zappeln. */
-    poseSchwung(zielWelt, seite, t, bogen) {
+    poseSchwung(zielWelt, seite, t, bogen, neigung) {
       const gross = seite === 'L' ? 'leftarm' : 'rightarm';
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
       const andere = seite === 'L' ? 'rightarm' : 'leftarm';
@@ -1752,8 +1758,12 @@ function makeGlbVisual(m) {
          eine Puppe. Jetzt sind die Beine deutlich angewinkelt und laufen
          nach hinten aus, die Knie schwingen gegenläufig mit dem Pendel und
          der Rumpf legt sich nach vorn in den Bogen. */
-      const hueft = 0.10 - anziehen * 0.55 - strecken * 0.35;
-      const knie = 0.55 + anziehen * 0.95 - strecken * 0.30;
+      /* Der Körper liegt jetzt flach in Flugrichtung. Die Beine sollen
+         dabei hinterherziehen, nicht nach vorn geklappt werden – also
+         kaum Hüftbeugung, dafür angewinkelte Knie. Am Tiefpunkt zieht er
+         sie an, im Aufstieg streckt er sie aus. */
+      const hueft = 0.04 + anziehen * 0.18 - strecken * 0.16;
+      const knie = 0.45 + anziehen * 0.75 - strecken * 0.32;
       drehZuRuhe(knochen.leftupleg, hueft + takt * 0.34, 0, 0, k);
       drehZuRuhe(knochen.rightupleg, hueft + 0.06 - takt * 0.34, 0, 0, k);
       drehZuRuhe(knochen.leftleg, knie - takt * 0.30, 0, 0, k);
@@ -1767,6 +1777,10 @@ function makeGlbVisual(m) {
       drehe(knochen[andere], -0.55 + wiegen * 2.2 - strecken * 0.5, 0,
             seite === 'L' ? -0.95 : 0.95, 0.7);
       drehe(knochen[andereK], -0.35 - anziehen * 0.5, 0, 0, 0.7);
+      /* Der Kopf hält gegen die Vorlage, damit der Blick nach vorn geht
+         und nicht auf den Asphalt. */
+      drehZuRuhe(knochen.head, -(neigung || 0) * 0.65, 0, 0, 0.75);
+      drehZuRuhe(knochen.neck, -(neigung || 0) * 0.2, 0, 0, 0.6);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -2151,6 +2165,7 @@ function limb(mat, r0, r1, len) {
 function makeHuman(cfg) {
   cfg = cfg || {};
   const root = new THREE.Group();
+  root.rotation.order = 'YXZ';
   let suitMat = null, blueMat = null, skinMat, shirtMat, pantsMat, shoeMat, headMat;
 
   if (cfg.hero) {
@@ -3503,9 +3518,14 @@ function updatePlayer(dt) {
        Höhe oder im Fallen greift das Netz. Startet man tief, gibt es einen
        kräftigen Satz nach oben, damit der Schwung Platz hat. */
     const hoehe = player.pos.y - groundY(player.pos.x, player.pos.z);
-    if (hoehe > 2.0 || player.vel.y < 0) {
+    /* Kein künstlicher Satz nach oben mehr. Vorher wurde die Figur beim
+       Anschwingen dicht über dem Boden schlagartig auf 5,5 m/s nach oben
+       geschossen – das sah aus, als würde sie aus dem Nichts fünf Meter
+       hochspringen. Stattdessen holt das Netz selbst ein, bis der Bogen
+       über der Straße bleibt (siehe startSwing). Dadurch fängt der Schwung
+       tief an und steigt mit jedem Bogen weiter. */
+    if (hoehe > 0.8 || player.vel.y < 0) {
       const vy = player.vel.y;
-      if (hoehe < 7 && player.vel.y < 4) player.vel.y = Math.max(player.vel.y, 5.5);
       if (!startSwing()) {
         /* Kein Haus in Reichweite (z. B. über dem Fluss oder hoch über
            allen Dächern): kein Netz ins Leere schießen. Die Taste bleibt
@@ -3749,19 +3769,23 @@ function updateHeroVisual(dt) {
   } else {
     // Körperneigung beim Schwingen/Fallen
     let tilt = 0;
-    if (player.state === 'swing') tilt = clamp(player.vel.y * 0.02, -0.45, 0.35) - 0.35;
-    /* Beim Schwingen legt sich der Körper in die Kurve – seitwärts zum
-       Anker hin. Ohne das hing die Figur immer senkrecht unter dem Netz
-       und der Schwung sah leblos aus. */
     if (player.state === 'swing' && player.swing) {
+      /* Beim Schwingen hing die Figur senkrecht unter dem Netz und lehnte
+         sich sogar leicht nach HINTEN – die Beine liefen also voraus. Im
+         Vorbild fliegt der Kopf voran und die Beine hängen hinterher, je
+         schneller desto flacher. Genau das ist der Unterschied zwischen
+         "hängt an einem Faden" und "schwingt". */
+      const hs = Math.hypot(player.vel.x, player.vel.z);
+      tilt = clamp(0.3 + hs * 0.05, 0.3, 1.15);
+      // Kurvenlage: seitlich in den Bogen legen
       const a = player.swing.anchor;
       const rx = Math.cos(player.facing), rz = -Math.sin(player.facing);
       const seit = (a.x - player.pos.x) * rx + (a.z - player.pos.z) * rz;
-      r.rotation.z = lerp(r.rotation.z, clamp(-seit * 0.055, -0.42, 0.42), Math.min(1, dt * 5));
-    } else if (r.rotation.z !== 0) {
-      r.rotation.z = lerp(r.rotation.z, 0, Math.min(1, dt * 8));
+      r.rotation.z = lerp(r.rotation.z, clamp(-seit * 0.07, -0.5, 0.5), Math.min(1, dt * 5));
+    } else {
+      if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
+      if (r.rotation.z !== 0) r.rotation.z = lerp(r.rotation.z, 0, Math.min(1, dt * 8));
     }
-    else if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
     r.rotation.x = lerp(r.rotation.x, tilt, Math.min(1, dt * 8));
   }
 
@@ -3788,7 +3812,7 @@ function updateHeroVisual(dt) {
       heroVisual.bodenAusgleich(1);
     } else if (player.state === 'swing' && player.swing) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
-                             clamp(player.vel.y * 0.09, -1, 1));
+                             clamp(player.vel.y * 0.09, -1, 1), r.rotation.x);
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
@@ -3804,13 +3828,13 @@ function updateHeroVisual(dt) {
       heroVisual.poseSchuss(player.schussZiel, netzHand, 1);
     } else if (player.dead) {
       heroVisual.legeHin(Math.min(1, dt * 6));
-    } else if (player.onGround && player.rollT <= 0) {
+    } else if (player.onGround) {
       /* Beim Laufen darf der Ausgleich nur ganz sacht nachziehen, sonst
          hüpft der Körper im Schritttakt mit. Im Stand darf er zügiger sein. */
       /* Beim Laufen ganz sacht (sonst hüpft der Körper im Schritttakt),
          beim Landen zügig, damit die Füße sofort aufsetzen. */
       const zaeh = (player.anim === 'run' || player.anim === 'walk') ? 0.6
-                 : (player.anim === 'land' ? 12 : 5);
+                 : (player.anim === 'land' || player.anim === 'roll') ? 12 : 5;
       heroVisual.bodenAusgleich(Math.min(0.35, dt * zaeh));
     }
   }
@@ -4590,8 +4614,33 @@ const fleckTex = canvasTex(128, 128, (g, w, h) => {
     g.stroke();
   }
 });
+/* Äußere Fadenlage: durchsichtiger Überzug mit kreuz und quer laufenden
+   Strängen. Erst dadurch liest sich der Kokon als GEWICKELT – eine glatte
+   weiße Hülle allein sieht aus wie Kunststoff. */
+const huelleTex = canvasTex(128, 128, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  g.lineCap = 'round';
+  for (let i = 0; i < 34; i++) {
+    const schraeg = i % 2 ? 1 : -1;
+    g.strokeStyle = i % 4 === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(236,243,250,0.7)';
+    g.lineWidth = i % 4 === 0 ? 2.2 : 1.2;
+    const y0 = rand(-20, h + 20);
+    g.beginPath();
+    for (let x = -6; x <= w + 6; x += 12) {
+      g.lineTo(x, y0 + x * 0.42 * schraeg + Math.sin(x * 0.11 + i) * 3);
+    }
+    g.stroke();
+  }
+});
+huelleTex.wrapS = huelleTex.wrapT = THREE.RepeatWrapping;
+huelleTex.repeat.set(2, 3);
+const huelleMat = new THREE.MeshBasicMaterial({
+  map: huelleTex, transparent: true, alphaTest: 0.06, depthWrite: false,
+  side: THREE.DoubleSide, opacity: 0.85,
+});
 const cocoonMat = new THREE.MeshLambertMaterial({
-  map: wickelTex, transparent: true, opacity: 0.95, flatShading: true,
+  map: wickelTex, transparent: true, opacity: 0.88, flatShading: true,
+  color: 0xdfe6ee,
 });
 const bandMat = new THREE.MeshLambertMaterial({ color: 0xf4f8fc });
 const fleckMat = new THREE.MeshBasicMaterial({
@@ -4609,8 +4658,12 @@ const cocoonKoerperGeo = (() => {
        Hüfte, oben der eingewickelte Kopf, unten die Füße. */
     let breite = 0.86 + 0.30 * Math.exp(-Math.pow((t - 0.45) / 0.30, 2))  // Schultern
                - 0.22 * Math.exp(-Math.pow((t - 0.95) / 0.16, 2))         // Hals
-               - 0.30 * Math.max(0, t + 0.72);                            // Beine
-    breite *= 1 + Math.sin(y * 26) * 0.045 + Math.sin(x * 19 + z * 15) * 0.035;
+               - 0.34 * Math.max(0, -t - 0.30);                           // Beine unten
+    /* Der Beinterm hat vorher ALLES oberhalb von t = -0,72 verschmälert –
+       auch den Kopf. Der Kokon lief deshalb oben spitz zu wie ein Zipfel. */
+    /* Deutlichere Beulen: ein von Hand gewickeltes Bündel ist nie glatt. */
+    breite *= 1 + Math.sin(y * 26) * 0.075 + Math.sin(x * 19 + z * 15) * 0.06
+            + Math.sin(y * 41 + x * 9) * 0.035;
     pos.setXYZ(i, x * breite * 1.02, y * 2.3, z * breite * 0.80);
   }
   g.computeVertexNormals();
@@ -4632,6 +4685,13 @@ function makeCocoon() {
   koerper.castShadow = true;
   koerper.visible = false;                // erst ab Stufe 3
   g.add(koerper);
+  // Zweite, leicht größere Schale mit den sichtbaren Fäden darüber
+  const huelle = new THREE.Mesh(cocoonKoerperGeo, huelleMat);
+  huelle.scale.set(1.05, 1.02, 1.06);
+  huelle.rotation.y = rand(0, Math.PI);
+  huelle.visible = false;
+  huelle.renderOrder = 2;
+  g.add(huelle);
 
   /* Netzflecken: dort, wo das Netz auftrifft, klebt ein Stück Spinnennetz
      am Körper. Das ist der erste sichtbare Treffer – vorher schwebten
@@ -4706,6 +4766,7 @@ function makeCocoon() {
     const fAnzahl = stufe >= 3 ? 5 : (stufe === 2 ? 8 : 4);
     faeden.forEach((f, i) => { f.visible = i < fAnzahl; });
     koerper.visible = stufe >= 3;
+    huelle.visible = stufe >= 3;
   };
   return g;
 }
