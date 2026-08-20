@@ -790,20 +790,122 @@ function buildCity() {
   buildRiverAndBridge();
   buildFarShore();
   baueAmpeln();
+  baueHausMeshes();
+  baueWassertuerme();
   baueDekoMesh();
 }
 
+/* ---- Häuser als Sammel-Mesh ----
+   Vorher bekam jedes Haus eine eigene Kopie der Fassadentextur und zwei
+   eigene Materialien. Bei rund 200 Häusern waren das über 200 Texturen im
+   Grafikspeicher und ebenso viele Zeichenaufrufe. Jetzt wird die Kachelung
+   direkt in die UV-Koordinaten gerechnet; dadurch reichen drei Texturen und
+   alle Wände einer Textur landen in einem einzigen Mesh. */
+/* Zusätzlich nach Kacheln von 110 m sortiert: so bleibt die Sichtprüfung
+   der Grafikkarte wirksam und es wird nie die ganze Stadt gezeichnet. */
+const HAUS_KACHEL = 200;
+const hausWaende = new Map();   // "texIdx|kx|kz" -> Geometrien
+const hausDaecher = new Map();  // "kx|kz"        -> Geometrien
+function kachelSchluessel(x, z) {
+  return Math.floor(x / HAUS_KACHEL) + '|' + Math.floor(z / HAUS_KACHEL);
+}
+function inEimer(map, schluessel, geo) {
+  let l = map.get(schluessel);
+  if (!l) { l = []; map.set(schluessel, l); }
+  l.push(geo);
+}
+
+function sammleHausBox(w, h, d, x, y, z, texIdx) {
+  const g = new THREE.BoxGeometry(w, h, d).toNonIndexed();
+  const uv = g.attributes.uv;
+  /* Kachelung pro Seite: waagerecht nach der tatsächlichen Breite der
+     Seite, senkrecht nach der Höhe. So werden schmale Seiten nicht mehr
+     gestreckt wie früher. */
+  const kx = Math.max(1, Math.round(w / 8)), kz = Math.max(1, Math.round(d / 8));
+  const ky = Math.max(1, Math.round(h / 12));
+  const proGruppe = 6;
+  const skal = [
+    [kz, ky], [kz, ky],   // +x / -x  (Breite = Tiefe)
+    [1, 1], [1, 1],       // Dach / Boden
+    [kx, ky], [kx, ky],   // +z / -z
+  ];
+  for (let f = 0; f < 6; f++) {
+    const [sx, sy] = skal[f];
+    for (let i = f * proGruppe; i < (f + 1) * proGruppe; i++) {
+      uv.setXY(i, uv.getX(i) * sx, uv.getY(i) * sy);
+    }
+  }
+  g.translate(x, y, z);
+  /* Wände (Seiten) und Dachflächen trennen. */
+  const wand = new THREE.BufferGeometry();
+  const dach = new THREE.BufferGeometry();
+  const teile = (indizes) => {
+    const p = [], n = [], u = [];
+    const gp = g.attributes.position, gn = g.attributes.normal;
+    for (const f of indizes) {
+      for (let i = f * proGruppe; i < (f + 1) * proGruppe; i++) {
+        p.push(gp.getX(i), gp.getY(i), gp.getZ(i));
+        n.push(gn.getX(i), gn.getY(i), gn.getZ(i));
+        u.push(uv.getX(i), uv.getY(i));
+      }
+    }
+    return { p, n, u };
+  };
+  const tw = teile([0, 1, 4, 5]), td = teile([2, 3]);
+  wand.setAttribute('position', new THREE.Float32BufferAttribute(tw.p, 3));
+  wand.setAttribute('normal', new THREE.Float32BufferAttribute(tw.n, 3));
+  wand.setAttribute('uv', new THREE.Float32BufferAttribute(tw.u, 2));
+  dach.setAttribute('position', new THREE.Float32BufferAttribute(td.p, 3));
+  dach.setAttribute('normal', new THREE.Float32BufferAttribute(td.n, 3));
+  dach.setAttribute('uv', new THREE.Float32BufferAttribute(td.u, 2));
+  const k = kachelSchluessel(x, z);
+  inEimer(hausWaende, texIdx + '|' + k, wand);
+  inEimer(hausDaecher, k, dach);
+  g.dispose();
+}
+
+function fasseGeometrien(liste) {
+  let n = 0;
+  for (const g of liste) n += g.attributes.position.count;
+  const p = new Float32Array(n * 3), nn = new Float32Array(n * 3), u = new Float32Array(n * 2);
+  let o = 0;
+  for (const g of liste) {
+    p.set(g.attributes.position.array, o * 3);
+    nn.set(g.attributes.normal.array, o * 3);
+    u.set(g.attributes.uv.array, o * 2);
+    o += g.attributes.position.count;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nn, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(u, 2));
+  out.computeBoundingSphere();
+  return out;
+}
+
+function baueHausMeshes() {
+  /* Ein Material je Fassadentextur – alle Kacheln teilen es sich. */
+  const wandMats = facadeTexes.map((t) => new THREE.MeshLambertMaterial({ map: t }));
+  const dachMat = new THREE.MeshLambertMaterial({ map: roofTex });
+  for (const [schluessel, liste] of hausWaende) {
+    if (!liste.length) continue;
+    const m = new THREE.Mesh(fasseGeometrien(liste), wandMats[+schluessel.split('|')[0]]);
+    m.castShadow = true; m.receiveShadow = true;
+    cityGroup.add(m);
+  }
+  for (const [, liste] of hausDaecher) {
+    if (!liste.length) continue;
+    const m = new THREE.Mesh(fasseGeometrien(liste), dachMat);
+    m.castShadow = true; m.receiveShadow = true;
+    cityGroup.add(m);
+  }
+  hausWaende.clear(); hausDaecher.clear();
+}
+
 function makeBuildingMesh(w, h, d, x, z) {
-  const tex = pick(facadeTexes).clone();
-  tex.needsUpdate = true;
-  tex.repeat.set(Math.max(1, Math.round(w / 8)), Math.max(1, Math.round(h / 12)));
-  const wallMat = new THREE.MeshLambertMaterial({ map: tex });
-  const roofMat = new THREE.MeshLambertMaterial({ map: roofTex });
-  const mats = [wallMat, wallMat, roofMat, roofMat, wallMat, wallMat];
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
-  m.position.set(x, SLAB_H + h / 2, z);
-  m.castShadow = true; m.receiveShadow = true;
-  cityGroup.add(m);
+  const texIdx = randi(0, facadeTexes.length - 1);
+  sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx);
   addCollider({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h: SLAB_H + h });
   schmueckeHaus(w, h, d, x, z);
   /* Hohe Häuser bekommen Staffelgeschosse: Der Turm wird nach oben
@@ -815,43 +917,71 @@ function makeBuildingMesh(w, h, d, x, z) {
     for (let i = 0; i < stufen; i++) {
       sw *= rand(0.62, 0.78); sd *= rand(0.62, 0.78);
       const sh = rand(6, 14);
-      const st = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), mats);
-      st.position.set(x, sy + sh / 2, z);
-      st.castShadow = true; st.receiveShadow = true;
-      cityGroup.add(st);
+      sammleHausBox(sw, sh, sd, x, sy + sh / 2, z, texIdx);
       addCollider({ x0: x - sw / 2, x1: x + sw / 2, z0: z - sd / 2, z1: z + sd / 2, h: sy + sh });
       deko(sw + 0.7, 0.45, sd + 0.7, x, sy + sh - 0.22, z, 0x8b9099);
       sy += sh;
     }
   }
-  // Dachaufbauten
+  // Dachaufbauten – gehen ins gemeinsame Deko-Mesh
   if (Math.random() < 0.6) {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(rand(1.5, 3), rand(1, 2), rand(1.5, 3)),
-      new THREE.MeshLambertMaterial({ color: 0x777d84 }));
-    b.position.set(x + rand(-w / 4, w / 4), SLAB_H + h + b.geometry.parameters.height / 2, z + rand(-d / 4, d / 4));
-    b.castShadow = true;
-    cityGroup.add(b);
+    const bh = rand(1, 2);
+    deko(rand(1.5, 3), bh, rand(1.5, 3),
+      x + rand(-w / 4, w / 4), SLAB_H + h + bh / 2, z + rand(-d / 4, d / 4), 0x777d84);
   }
   if (h > 55 && Math.random() < 0.5) {
-    // Wasserturm
-    const wt = new THREE.Group();
-    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 2.6, 10),
-      new THREE.MeshLambertMaterial({ color: 0x7a5a3a }));
-    tank.position.y = 2.6; tank.castShadow = true;
-    wt.add(tank);
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(1.7, 1, 10),
-      new THREE.MeshLambertMaterial({ color: 0x5d452f }));
-    cone.position.y = 4.4; wt.add(cone);
-    for (let i = 0; i < 4; i++) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.6, 5),
-        new THREE.MeshLambertMaterial({ color: 0x3a3a3a }));
-      leg.position.set(Math.cos(i * Math.PI / 2 + 0.8) * 1.1, 0.8, Math.sin(i * Math.PI / 2 + 0.8) * 1.1);
-      wt.add(leg);
-    }
-    wt.position.set(x + rand(-w / 5, w / 5), SLAB_H + h, z + rand(-d / 5, d / 5));
-    cityGroup.add(wt);
+    /* Wasserturm: alle Türme teilen sich eine Geometrie und werden als
+       Instanzen gezeichnet – das kostet zusammen einen Zeichenaufruf. */
+    wassertuerme.push({ x: x + rand(-w / 5, w / 5), y: SLAB_H + h, z: z + rand(-d / 5, d / 5) });
   }
-  return m;
+}
+
+/* ---- Wassertürme als Instanzen ---- */
+const wassertuerme = [];
+function baueWassertuerme() {
+  if (!wassertuerme.length) return;
+  const teile = [];
+  const nimm = (geo, farbe, dy, dx, dz) => {
+    const g = geo.toNonIndexed();
+    g.translate(dx || 0, dy, dz || 0);
+    const n = g.attributes.position.count;
+    const f = new Float32Array(n * 3);
+    const c = new THREE.Color(farbe);
+    for (let i = 0; i < n; i++) { f[i * 3] = c.r; f[i * 3 + 1] = c.g; f[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(f, 3));
+    teile.push(g);
+    geo.dispose();
+  };
+  nimm(new THREE.CylinderGeometry(1.4, 1.6, 2.6, 10), 0x7a5a3a, 2.6);
+  nimm(new THREE.ConeGeometry(1.7, 1, 10), 0x5d452f, 4.4);
+  for (let i = 0; i < 4; i++) {
+    nimm(new THREE.CylinderGeometry(0.09, 0.09, 1.6, 5), 0x3a3a3a, 0.8,
+      Math.cos(i * Math.PI / 2 + 0.8) * 1.1, Math.sin(i * Math.PI / 2 + 0.8) * 1.1);
+  }
+  let n = 0;
+  for (const g of teile) n += g.attributes.position.count;
+  const p = new Float32Array(n * 3), nn = new Float32Array(n * 3), cc = new Float32Array(n * 3);
+  let o = 0;
+  for (const g of teile) {
+    p.set(g.attributes.position.array, o * 3);
+    nn.set(g.attributes.normal.array, o * 3);
+    cc.set(g.attributes.color.array, o * 3);
+    o += g.attributes.position.count;
+    g.dispose();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nn, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+  geo.computeBoundingSphere();
+  const mesh = new THREE.InstancedMesh(geo,
+    new THREE.MeshLambertMaterial({ vertexColors: true }), wassertuerme.length);
+  const m = new THREE.Matrix4();
+  wassertuerme.forEach((t, i) => { m.makeTranslation(t.x, t.y, t.z); mesh.setMatrixAt(i, m); });
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  cityGroup.add(mesh);
 }
 
 function buildBlockBuildings(cx, cz) {
@@ -6824,6 +6954,10 @@ if (window.__WEBHERO_TEST__ === true) {
     get istTouch() { return istTouch; },
     get touchAktiv() { return touchAktiv; },
     stick,
+    renderInfo() { return { calls: renderer.info.render.calls,
+      dreiecke: renderer.info.render.triangles,
+      programme: renderer.info.programs ? renderer.info.programs.length : -1,
+      texturen: renderer.info.memory.textures, geometrien: renderer.info.memory.geometries }; },
     musikStatus() { return MUSIK.status(); },
     get kamPos() { return camera.position.clone(); },
     starteMission,
