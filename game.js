@@ -1770,17 +1770,23 @@ function makeGlbVisual(m) {
       drehZuRuhe(knochen.rightleg, knie - 0.14 + takt * 0.30, 0, 0, k);
       /* Rumpf: am Tiefpunkt eingerollt, im Aufstieg aufgerichtet, dazu
          eine leichte Drehung zum Netzarm hin. */
-      drehe(knochen.spine1, 0.10 + anziehen * 0.22 - strecken * 0.16,
+      drehe(knochen.spine1, -0.06 + anziehen * 0.16 - strecken * 0.12,
             (seite === 'L' ? 0.12 : -0.12) + takt * 0.05, 0, 0.5);
-      drehe(knochen.spine, 0.06 + anziehen * 0.12, seite === 'L' ? 0.08 : -0.08, 0, 0.4);
+      drehe(knochen.spine, -0.04 + anziehen * 0.08, seite === 'L' ? 0.08 : -0.08, 0, 0.4);
       /* Der freie Arm schwingt weit aus – nicht angelegt wie im Stillstand. */
       drehe(knochen[andere], -0.55 + wiegen * 2.2 - strecken * 0.5, 0,
             seite === 'L' ? -0.95 : 0.95, 0.7);
       drehe(knochen[andereK], -0.35 - anziehen * 0.5, 0, 0, 0.7);
       /* Der Kopf hält gegen die Vorlage, damit der Blick nach vorn geht
          und nicht auf den Asphalt. */
-      drehZuRuhe(knochen.head, -(neigung || 0) * 0.65, 0, 0, 0.75);
-      drehZuRuhe(knochen.neck, -(neigung || 0) * 0.2, 0, 0, 0.6);
+      /* Bei 66° Vorlage muss der Blick um denselben Betrag zurückgenommen
+         werden, sonst schaut die Figur senkrecht auf die Straße. Die
+         Gegendrehung verteilt sich auf Kopf, Hals und obere Wirbelsäule –
+         auf einen Knochen allein sähe sie verrenkt aus. */
+      const gegen = -(neigung || 0);
+      drehZuRuhe(knochen.head, gegen * 0.55, 0, 0, 0.85);
+      drehZuRuhe(knochen.neck, gegen * 0.3, 0, 0, 0.8);
+      drehe(knochen.spine2, gegen * 0.22, 0, 0, 0.55);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -2898,9 +2904,13 @@ function findAnchor() {
         if (anchorY - seil < boden + 2.5) continue;
       }
       const hoehe = anchorY - py;
+      /* Nicht mehr "je höher desto besser": ein Anker 60 m über einem
+         ergibt ein schlaffes, langes Seil und der erste Bogen passiert
+         fast nichts – das ist das Unflüssige beim Anschwingen vom Boden.
+         Bevorzugt wird eine Kante rund 20 m über dem Spieler. */
       const score = dot * 3
                   - Math.abs(dist - wunschWeite) / 18   // Wunschweite bevorzugen
-                  + clamp(hoehe / 26, 0, 1.4);
+                  - Math.abs(hoehe - 20) / 26;
       if (score > bestScore && freieSicht(px, py + 1.3, pz, cx, anchorY, cz, c)) {
         bestScore = score; best = V3(cx, anchorY, cz);
       }
@@ -2923,9 +2933,16 @@ function startSwing() {
      genau wie im Vorbild. */
   const boden = groundY(player.pos.x, player.pos.z);
   const maxLen = Math.max(CFG.ropeMin, anchor.y - boden - 2.2);
-  const len = clamp(abstand, CFG.ropeMin, Math.max(maxLen, abstand * 0.55));
+  /* Zusätzliche Obergrenze: ein 40-m-Seil schwingt kaum, es fällt nur.
+     Mit höchstens 32 m bleiben die Bögen zügig und man merkt den Zug. */
+  const grenze = Math.min(Math.max(maxLen, abstand * 0.55), 32);
+  const zielLen = clamp(abstand, CFG.ropeMin, grenze);
   const hand = wechsleNetzHand();             // Hände wechseln sich ab
-  player.swing = { anchor, hand, len, zielLen: len, t: 0 };
+  /* Das Seil beginnt genau so lang, wie die Figur gerade entfernt ist, und
+     wird dann eingeholt. Wurde es sofort auf die Wunschlänge gesetzt, hat
+     die harte Seilbedingung die Figur im selben Bild an den Anker
+     herangerissen – das war der Sprung nach oben beim Anschwingen. */
+  player.swing = { anchor, hand, len: Math.max(abstand, zielLen), zielLen, t: 0 };
   player.state = 'swing';
   SFX.thwip();
   return true;
@@ -3194,7 +3211,7 @@ function tryAttack(type) {
        sich beim Schlagen überhaupt nicht, der Treffer war reine Zahlen-
        sache. Jetzt geht die Figur so weit ran, dass die Faust ankommt. */
     if (d > NAHKAMPF) {
-      const noetig = Math.min(8, (d - NAHKAMPF * 0.9) / Math.max(0.2, dauer * 0.5));
+      const noetig = Math.min(14, (d - NAHKAMPF * 0.9) / Math.max(0.12, dauer * 0.28));
       player.vel.x = (dx / d) * noetig;
       player.vel.z = (dz / d) * noetig;
     } else {
@@ -3222,7 +3239,7 @@ function nearestEnemy(maxDist, minDot) {
 function resolveAttackHit() {
   const a = player.attack;
   /* Reichweite passend zum neuen, engen Schlagabstand. */
-  const range = a.type === 'kick' ? 2.1 : 1.85;
+  const range = a.type === 'kick' ? 2.7 : 2.4;
   /* Zuerst das gebundene Ziel prüfen – sonst zählt mitten in der Kombo
      plötzlich ein anderer Gegner als Treffer. */
   let e = null;
@@ -3239,6 +3256,20 @@ function resolveAttackHit() {
     player.comboTimer = Math.min(player.comboTimer, 1.2);
     updateHUD();
     return;
+  }
+  /* Zum Treffer wird der Rest der Lücke geschlossen. Der Heranzug über die
+     Geschwindigkeit allein war zu langsam: gemessen standen die Figuren im
+     Moment des Treffers noch 1,70 m auseinander, da berührt sich nichts.
+     Der Nachzug ist auf 0,8 m begrenzt und sieht wie ein Ausfallschritt aus. */
+  {
+    const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > NAHKAMPF + 0.12) {
+      const zieh = Math.min(0.8, d - NAHKAMPF);
+      player.pos.x += (dx / d) * zieh;
+      player.pos.z += (dz / d) * zieh;
+      player.facing = Math.atan2(dx, dz);
+    }
   }
   const wucht = a.finisher ? 1.9 : (a.type === 'kick' ? 1.5 : 1);
   let dmg = (a.type === 'kick' ? 16 : 11) * (a.finisher ? 1.5 : 1);
@@ -3554,10 +3585,10 @@ function updatePlayer(dt) {
       const b = Math.max(0, 1 - dt * 2.6);
       player.vel.x *= b; player.vel.z *= b;
     } else if (player.attack && player.attack.type !== 'web') {
-      /* Während eines Schlags wird kräftig gebremst. Sonst trägt einen die
-         Laufeingabe mitten im Schlag weiter und man rutscht am Gegner
-         vorbei, statt ihn zu treffen. */
-      const b = Math.max(0, 1 - dt * 7);
+      /* Gebremst wird erst NACH dem Treffer. Vorher hat die Bremse schon
+         den Ausfallschritt zum Gegner abgewürgt – die Figur kam gar nicht
+         in Reichweite und schlug ins Leere. */
+      const b = Math.max(0, 1 - dt * (player.attack.hitDone ? 9 : 1.2));
       player.vel.x *= b; player.vel.z *= b;
       if (dir) player.facing = dampAngle(player.facing, Math.atan2(dir.x, dir.z), Math.min(1, dt * 3));
     } else if (dir) {
@@ -3608,7 +3639,13 @@ function updatePlayer(dt) {
       s.zielLen -= 0.8 * dt;
     }
     s.zielLen = clamp(s.zielLen, CFG.ropeMin, 46);
-    s.len = lerp(s.len, s.zielLen, Math.min(1, dt * 3.5));
+    /* Das Seil wird mit begrenztem Tempo eingeholt. Ein Anteilsschritt hat
+       bei großem Unterschied über 30 m/s Zugkraft ergeben – die Figur
+       schoss dabei nach oben. Acht Meter je Sekunde fühlt sich nach Zug an,
+       ohne zu katapultieren. */
+    const spann = 8 * dt;
+    s.len = s.len > s.zielLen ? Math.max(s.zielLen, s.len - spann)
+                              : Math.min(s.zielLen, s.len + spann);
 
     const schritte = 4;
     const hdt = dt / schritte;
@@ -4754,19 +4791,25 @@ function makeCocoon() {
   g.userData.setzeStufe = (stufe) => {
     /* Stufe 1: ein Netzfleck und ein paar Fäden – der Gegner kann noch
        laufen. Stufe 2: erste Wicklungen. Stufe 3: komplett eingesponnen. */
-    const fl = stufe === 2 ? 3 : 2;
-    flecken.forEach((f, i) => { f.visible = i < fl && stufe < 3; });
+    const fl = stufe >= 3 ? 4 : (stufe === 2 ? 3 : 2);
+    flecken.forEach((f, i) => { f.visible = i < fl; });
     /* Bei Stufe 3 trägt der Kokon selbst das Wickelmuster. Alle neun Ringe
        zusätzlich anzuzeigen sah aus, als schwebten Reifen um das Bündel –
        es bleiben ein paar wenige, die stramm anliegen. */
-    baender.forEach((b, i) => {
-      b.visible = stufe >= 3 ? (i % 3 === 1) : (stufe === 2 && i < 4);
-      if (stufe >= 3) b.scale.setScalar(0.94);
-    });
-    const fAnzahl = stufe >= 3 ? 5 : (stufe === 2 ? 8 : 4);
+    baender.forEach((b, i) => { b.visible = stufe >= 3 || (stufe === 2 && i < 4); });
+    const fAnzahl = stufe >= 3 ? 12 : (stufe === 2 ? 8 : 4);
     faeden.forEach((f, i) => { f.visible = i < fAnzahl; });
-    koerper.visible = stufe >= 3;
-    huelle.visible = stufe >= 3;
+    /* Der komplette Kokon ist nur noch das Ergebnis, wenn jemand an eine
+       Wand geheftet wird. Mitten auf der Straße wird ein Gegner kräftig
+       eingewickelt und ist bewegungsunfähig – aber kein Bündel. So kämpft
+       das Vorbild auch. */
+    koerper.visible = false;
+    huelle.visible = false;
+  };
+  g.userData.setzeKokon = (an) => {
+    koerper.visible = an;
+    huelle.visible = an;
+    if (an) { baender.forEach((b, i) => { b.visible = i % 3 === 1; b.scale.setScalar(0.94); }); }
   };
   return g;
 }
@@ -4818,6 +4861,23 @@ function makeBlockzeichen() {
   m.position.y = 1.25;
   m.visible = false;
   return m;
+}
+
+/* Liegt der Punkt in einem Gebäude? Wegpunkte dort drin lassen die
+   Ganoven dauerhaft gegen die Fassade laufen. */
+function inGebaeude(x, z) {
+  for (const c of collidersNear(x, z)) {
+    if (c.klein) continue;
+    if (x > c.x0 - 0.6 && x < c.x1 + 0.6 && z > c.z0 - 0.6 && z < c.z1 + 0.6) return true;
+  }
+  return false;
+}
+function freierPunkt(cx, cz, r) {
+  for (let i = 0; i < 12; i++) {
+    const x = cx + rand(-r, r), z = cz + rand(-r, r);
+    if (!inGebaeude(x, z)) return V3(x, 0, z);
+  }
+  return null;
 }
 
 function spawnGang(cx, cz, n) {
@@ -4919,8 +4979,9 @@ function applyWeb(e) {
     /* Steht der Gegner dicht an einer Hauswand, klebt das dritte Netz ihn
        dort fest – er hängt anschließend an der Fassade statt auf der
        Straße zu liegen. */
-    const w = naheWand(e.pos, 1.7);
-    if (w && e.cocoon && e.cocoon.userData.setzeWand) e.cocoon.userData.setzeWand(!!w);
+    const w = naheWand(e.pos, 2.6);   // etwas großzügiger: der Gegner bewegt sich ja
+    if (e.cocoon && e.cocoon.userData.setzeWand) e.cocoon.userData.setzeWand(!!w);
+    if (e.cocoon && e.cocoon.userData.setzeKokon) e.cocoon.userData.setzeKokon(!!w);
     if (w) {
       e.pos.x = w.x + w.nx * 0.42;
       e.pos.z = w.z + w.nz * 0.42;
@@ -5025,6 +5086,7 @@ function updateEnemies(dt) {
         e.anWand = false;
         e.vel.set(0, 0, 0);
         if (e.cocoon.userData.setzeWand) e.cocoon.userData.setzeWand(false);
+        if (e.cocoon.userData.setzeKokon) e.cocoon.userData.setzeKokon(false);
       }
     }
 
@@ -5052,13 +5114,18 @@ function updateEnemies(dt) {
     if (e.state === 'patrol') {
       if (dp < 11 && dpy < 3 && !player.dead) { e.state = 'chase'; e.target = 'player'; }
       else {
-        let civ = null, civD = 14;
+        /* Weiter Umkreis: bei 22 Zivilisten auf der ganzen Karte kam sonst
+           nie einer nah genug vorbei, und die Gang stand nur herum. */
+        let civ = null, civD = 55;
         for (const c of civilians) {
           if (c.state === 'hurt') continue;
           const d = Math.hypot(c.pos.x - e.pos.x, c.pos.z - e.pos.z);
           if (d < civD) { civ = c; civD = d; }
         }
-        if (civ && Math.random() < dt * 0.7) { e.state = 'chase'; e.target = civ; }
+        /* Deutlich häufiger auf Zivilisten losgehen – dadurch gibt es
+           überhaupt etwas zu retten, statt dass die Gang nur herumsteht
+           oder gegen Häuser läuft. */
+        if (civ && Math.random() < dt * 3) { e.state = 'chase'; e.target = civ; }
       }
     }
     if (e.target === 'player' && (player.dead || (dp > 40 || dpy > 12))) {
@@ -5070,7 +5137,18 @@ function updateEnemies(dt) {
        ohne Fortschritt gibt er auf und patrouilliert weiter. */
     if (e.target === 'player' && dpy > 3.5) {
       e.vergeblichT = (e.vergeblichT || 0) + dt;
-      if (e.vergeblichT > 3) { e.state = 'patrol'; e.target = null; e.vergeblichT = 0; }
+      if (e.vergeblichT > 3) {
+        e.state = 'patrol'; e.target = null; e.vergeblichT = 0;
+        /* Statt weiter gegen das Haus zu laufen: nächsten Zivilisten
+           suchen und den angreifen. */
+        let civ = null, civD = 26;
+        for (const c of civilians) {
+          if (c.state === 'hurt') continue;
+          const dd = Math.hypot(c.pos.x - e.pos.x, c.pos.z - e.pos.z);
+          if (dd < civD) { civ = c; civD = dd; }
+        }
+        if (civ) { e.state = 'chase'; e.target = civ; }
+      }
     } else e.vergeblichT = 0;
 
     let moveX = 0, moveZ = 0, speed = 0, anim = 'idle';
@@ -5089,7 +5167,7 @@ function updateEnemies(dt) {
            der Gegner dauerhaft knapp außerhalb seiner eigenen Reichweite
            und rannte nur noch auf der Stelle, ohne je zuzuschlagen.
            Die Freigabe liegt jetzt sicher außerhalb des Rings. */
-        if (d > 1.75 || dy > 1.6) {
+        if (d > 1.4 || dy > 1.6) {
           /* Nicht alle auf denselben Punkt zulaufen – sonst stapeln sich
              die Ganoven zu einem einzigen Klumpen. Jeder steuert seinen
              eigenen Platz auf einem Ring um das Ziel an. */
@@ -5113,7 +5191,12 @@ function updateEnemies(dt) {
       if (!e.waypoint || Math.hypot(e.waypoint.x - e.pos.x, e.waypoint.z - e.pos.z) < 1) {
         e.waitT -= dt;
         if (e.waitT <= 0) {
-          e.waypoint = V3(e.gang.home.x + rand(-12, 12), 0, e.gang.home.z + rand(-12, 12));
+          /* Nur Wegpunkte im Freien. Vorher konnte der Punkt mitten in
+             einem Haus liegen – der Ganove rannte dann bis zum nächsten
+             Wechsel gegen die Wand, und von außen sah es aus, als liefe er
+             ins Haus hinein. */
+          e.waypoint = freierPunkt(e.gang.home.x, e.gang.home.z, 12)
+                    || freierPunkt(e.pos.x, e.pos.z, 8);
           e.waitT = rand(1, 3.5);
         }
       } else {
