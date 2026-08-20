@@ -2778,7 +2778,7 @@ const player = {
   attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
-  hartLandung: 0, luftKombo: 0,
+  hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
   schussT: 0, schussZiel: V3(0, 0, 0),
@@ -3249,8 +3249,38 @@ function tryJump() {
   }
 }
 
+/* ---- Spinnensinn-Konter: Weicht man genau dann aus, wenn ein Gegner
+   ausholt, geht die Zeit in Zeitlupe und der nächste Schlag auf ihn ist
+   ein Konter mit doppeltem Schaden. ---- */
+function konterVersuch() {
+  let ziel = null, bestD = 3.6;
+  for (const e of enemies) {
+    if (e.dead || e.warnT <= 0 || e.warnT > 0.42) continue;
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    if (d < bestD) { bestD = d; ziel = e; }
+  }
+  if (!ziel) return false;
+  ziel.warnT = 0;
+  if (ziel.warn) ziel.warn.visible = false;
+  ziel.attack = null;
+  ziel.attackCd = rand(1.8, 2.6);
+  /* Nicht zurückstoßen – sonst taumelt der Gegner aus der Reichweite und
+     man kommt gar nicht zum Gegenschlag. Er ist nur kurz aus dem Tritt. */
+  ziel.betaeubtT = 1.0;
+  zeitlupe = 0.85;
+  player.konterZiel = ziel;
+  player.konterT = 2.2;
+  player.iFrames = Math.max(player.iFrames, 0.7);
+  camShake = Math.max(camShake, 0.08);
+  popupScreen('⚡ Spinnensinn – Konter frei!');
+  addScore(30, '', player.pos);
+  SFX.swoosh();
+  return true;
+}
+
 function dodge() {
   if (!heroVisual || player.dead || player.dodgeT > 0 || player.state === 'climb') return;
+  const konter = konterVersuch();
   const dir = inputDir() || { x: -Math.sin(player.facing), z: -Math.cos(player.facing) };
   /* Die Dauer kommt aus der Rollen-Bewegung selbst. Vorher war sie mit
      0,45 s fest verdrahtet, die Bewegungsdatei ist aber gut doppelt so
@@ -3276,10 +3306,18 @@ function dodge() {
   /* Tempo so wählen, dass die Strecke zur Bewegung passt: rund vier Meter
      in einem Satz. 19 m/s haben die Figur früher neun Meter weit aus dem
      Bild geschossen, die Kamera kam nicht hinterher. */
-  const tempo = zurSeite ? 8.5 : (player.onGround ? 10.5 : 9);
+  /* Beim Konter nur ein kurzer Schritt zur Seite – mit dem vollen Satz war
+     man anschließend vier Meter weg und kam gar nicht zum Gegenschlag. */
+  const tempo = konter ? 4.2 : (zurSeite ? 8.5 : (player.onGround ? 10.5 : 9));
   player.vel.x = dir.x * tempo;
   player.vel.z = dir.z * tempo;
   if (!zurSeite) player.facing = Math.atan2(dir.x, dir.z);
+  /* Beim Konter bleibt der Blick auf dem Gegner. Ohne das drehte sich die
+     Figur beim Ausweichen weg und der Gegenschlag fand kein Ziel mehr. */
+  if (konter && player.konterZiel) {
+    player.facing = Math.atan2(player.konterZiel.pos.x - player.pos.x,
+                               player.konterZiel.pos.z - player.pos.z);
+  }
   player.dodgeT = dauer;
   player.rollT = player.onGround ? dauer : 0;
   player.rollGesamt = dauer;
@@ -3347,7 +3385,12 @@ function packenUndWerfen() {
 
 function tryAttack(type) {
   if (!heroVisual || player.dead || player.state === 'climb') return;
-  if (player.rollT > 0) return;
+  /* Während der Ausweichrolle wird der Klick gemerkt statt verworfen –
+     sonst geht direkt nach einem Konter der Gegenschlag verloren. */
+  if (player.rollT > 0) {
+    player.attackBuffer = { type, t: Math.max(0.5, player.rollT + 0.25) };
+    return;
+  }
   /* Zu früh gedrückt? Eingabe kurz merken und automatisch nachziehen –
      dadurch fühlt sich die Schlagfolge zusammenhängend an. */
   if (player.attackCd > 0) {
@@ -3474,8 +3517,19 @@ function resolveAttackHit() {
       player.facing = Math.atan2(dx, dz);
     }
   }
-  const wucht = a.finisher ? 1.9 : (a.type === 'kick' ? 1.5 : 1);
+  const konter = player.konterT > 0 && player.konterZiel === e;
+  const wucht = konter ? 2.4 : (a.finisher ? 1.9 : (a.type === 'kick' ? 1.5 : 1));
   let dmg = (a.type === 'kick' ? 16 : 11) * (a.finisher ? 1.5 : 1);
+  if (konter) {
+    dmg *= 2.2;
+    player.konterT = 0; player.konterZiel = null;
+    zeitlupe = 0;
+    e.staggerT = Math.max(e.staggerT, 0.7);
+    e.vel.x += (e.pos.x - player.pos.x) * 3; e.vel.z += (e.pos.z - player.pos.z) * 3; e.vel.y += 4;
+    popupWorld('KONTER!', e.pos, '#ffd23c');
+    addScore(60, '', e.pos);
+    hitstop(0.1);
+  }
   if (e.webT > 0) dmg *= 2;           // eingewickelte Gegner sind wehrlos
   dmg *= 1 + Math.min(player.combo, 6) * 0.06;   // Kombo steigert den Schaden
 
@@ -4003,10 +4057,21 @@ function updatePlayer(dt) {
   /* ---- Timer ---- */
   if (player.keinHaltCd > 0) player.keinHaltCd -= dt;
   if (player.luftKombo > 0) player.luftKombo -= dt;
+  if (player.konterT > 0) {
+    player.konterT -= dt;
+    if (player.konterZiel && !player.konterZiel.dead && player.rollT <= 0) {
+      player.facing = dampAngle(player.facing,
+        Math.atan2(player.konterZiel.pos.x - player.pos.x,
+                   player.konterZiel.pos.z - player.pos.z), Math.min(1, dt * 10));
+    }
+    if (player.konterT <= 0) player.konterZiel = null;
+  }
   if (player.attackCd > 0) player.attackCd -= dt;
   if (player.attackBuffer) {
     player.attackBuffer.t -= dt;
-    if (player.attackCd <= 0) { const b = player.attackBuffer; player.attackBuffer = null; tryAttack(b.type); }
+    if (player.attackCd <= 0 && player.rollT <= 0) {
+      const b = player.attackBuffer; player.attackBuffer = null; tryAttack(b.type);
+    }
     else if (player.attackBuffer.t <= 0) player.attackBuffer = null;
   }
   if (player.iFrames > 0) player.iFrames -= dt;
@@ -4618,21 +4683,24 @@ function updateCars(dt) {
   for (const car of cars) {
     let ziel = car.speed;
     const eigenLaenge = (car.typ ? car.typ.laenge : 4.4);
+    /* Ein Fluchtauto hält weder an Ampeln noch hinter Vordermännern –
+       sonst steht es beim ersten Rot und die Verfolgung ist vorbei. */
+    if (!car.flucht) {
+      /* Vordermann: Abstand hängt jetzt von der Fahrzeuglänge ab. */
+      for (const o of cars) {
+        if (o === car || o.axis !== car.axis || Math.abs(o.lane - car.lane) > 0.5) continue;
+        const gap = (o.s - car.s) * car.dir - (eigenLaenge + (o.typ ? o.typ.laenge : 4.4)) / 2;
+        if (gap > 0 && gap < 9) ziel = Math.min(ziel, (o.tempoJetzt || 0) * 0.85);
+        if (gap <= 0 && gap > -3) ziel = 0;
+      }
 
-    /* Vordermann: Abstand hängt jetzt von der Fahrzeuglänge ab. */
-    for (const o of cars) {
-      if (o === car || o.axis !== car.axis || Math.abs(o.lane - car.lane) > 0.5) continue;
-      const gap = (o.s - car.s) * car.dir - (eigenLaenge + (o.typ ? o.typ.laenge : 4.4)) / 2;
-      if (gap > 0 && gap < 9) ziel = Math.min(ziel, (o.tempoJetzt || 0) * 0.85);
-      if (gap <= 0 && gap > -3) ziel = 0;
-    }
-
-    /* Ampel: vor der Haltelinie stehenbleiben, wenn nicht Grün. */
-    const zustand = ampelFuer(car.axis);
-    if (zustand !== 'gruen') {
-      const d = abstandZurKreuzung(car) - (ROAD_HALF + eigenLaenge / 2 + 0.6);
-      const bremsweg = (car.tempoJetzt * car.tempoJetzt) / 16 + 2;
-      if (d > -1.5 && d < bremsweg) ziel = Math.min(ziel, Math.max(0, d * 1.6));
+      /* Ampel: vor der Haltelinie stehenbleiben, wenn nicht Grün. */
+      const zustand = ampelFuer(car.axis);
+      if (zustand !== 'gruen') {
+        const d = abstandZurKreuzung(car) - (ROAD_HALF + eigenLaenge / 2 + 0.6);
+        const bremsweg = (car.tempoJetzt * car.tempoJetzt) / 16 + 2;
+        if (d > -1.5 && d < bremsweg) ziel = Math.min(ziel, Math.max(0, d * 1.6));
+      }
     }
 
     /* Hält jemand auf der Fahrbahn? Bremsen und hupen. */
@@ -4641,7 +4709,7 @@ function updateCars(dt) {
     const dx = player.pos.x - px, dz = player.pos.z - pz;
     const vorne = car.axis === 'x' ? dx * car.dir : dz * car.dir;
     const seitlich = Math.abs(car.axis === 'x' ? dz : dx);
-    if (player.pos.y < 2.2 && vorne > 0 && vorne < 14 && seitlich < 2.4) {
+    if (!car.flucht && player.pos.y < 2.2 && vorne > 0 && vorne < 14 && seitlich < 2.4) {
       ziel = Math.min(ziel, Math.max(0, (vorne - 4) * 1.2));
       car.hupCd -= dt;
       if (car.hupCd <= 0) { SFX.hupe(); car.hupCd = rand(1.4, 3); }
@@ -4830,6 +4898,13 @@ function updateCivilians(dt) {
       } else c.festT = 0;
       c.letzteDist = d;
       if (Math.random() < dt * 0.02) speed = 0; // kurz stehenbleiben
+    }
+
+    /* Als Geisel festgehalten: kein Weglaufen, nur ängstliches Warten. */
+    if (c.geisel) {
+      speed = 0; dirX = 0; dirZ = 0;
+      c.waypoint = null;
+      c.ruhePose = 'warten';
     }
 
     /* Beim Stehenbleiben ab und zu die Beschäftigung wechseln. */
@@ -5258,7 +5333,7 @@ function spawnGang(cx, cz, n) {
       phase: rand(0, TAU),
       typ, warn, blockZ,
       umwegT: 0, umwegSeite: 1, blockiertT: 0,
-      inDerLuft: 0, geworfen: 0,
+      inDerLuft: 0, geworfen: 0, betaeubtT: 0, dieb: false, bewacht: null,
       hp: typ.hp, hpMax: typ.hp,
       blockT: 0, blockCd: rand(1, 4), warnT: 0,
       state: 'patrol',
@@ -5376,10 +5451,9 @@ function checkGangCleared(gang) {
     gang.cleared = true;
     addScore(200, 'Gang besiegt!', player.pos);
     if (crimeGang === gang) {
-      crimeGang = null;
       for (const h of helis) h.zielMitte = null;   // Hubschrauber zieht weiter
-      addScore(150, 'Überfall gestoppt!', player.pos);
-      hideObjective();
+      /* Den Auftrag beendet der Auftragsverwalter – hier nur die Gang
+         abhaken, sonst verschwindet die Anzeige zu früh. */
     }
   }
 }
@@ -5532,8 +5606,19 @@ function updateEnemies(dt) {
     } else e.vergeblichT = 0;
 
     let moveX = 0, moveZ = 0, speed = 0, anim = 'idle';
+    /* Kurz benommen nach einem Konter: steht still und wehrt sich nicht. */
+    if (e.betaeubtT > 0) e.betaeubtT -= dt;
 
-    if (e.state === 'chase') {
+    /* Der Dieb rennt vom Helden weg statt auf ihn zu. */
+    if (e.dieb) {
+      const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
+      const dd = Math.hypot(dx, dz) || 1;
+      moveX = dx / dd; moveZ = dz / dd;
+      speed = (e.typ ? e.typ.tempo : 5) * 1.5;
+      anim = 'run';
+      e.facing = dampAngle(e.facing, Math.atan2(moveX, moveZ), dt * 8);
+      e.state = 'patrol'; e.target = null;
+    } else if (e.state === 'chase') {
       const tp = e.target === 'player' ? player.pos : (e.target ? e.target.pos : null);
       if (!tp || (e.target !== 'player' && e.target.state === 'hurt')) {
         e.state = 'patrol'; e.target = null;
@@ -5559,13 +5644,23 @@ function updateEnemies(dt) {
           speed = (e.target === 'player' ? 1 : 0.85) * (e.typ ? e.typ.tempo : 5);
           anim = 'run';
           if (e.target === 'player' && dy > 3 && d < 4) { anim = 'idle'; speed = 0; } // kommt nicht hoch
-        } else if (e.attackCd <= 0 && !e.attack && e.warnT <= 0 && e.blockT <= 0) {
+        } else if (e.attackCd <= 0 && !e.attack && e.warnT <= 0 && e.blockT <= 0 && e.betaeubtT <= 0) {
           /* Wer in Deckung steht, holt nicht gleichzeitig aus. */
           /* Erst ausholen und warnen, dann schlagen. Vorher kam der Treffer
              ohne Vorankündigung – ausweichen war reine Glückssache. */
           e.warnT = 0.55;
         }
       }
+    } else if (e.bewacht) {
+      /* Bewacher bleiben dicht bei der Geisel und gehen nur auf den
+         Helden los, wenn er nah genug kommt. */
+      const g = e.bewacht;
+      const dx = g.pos.x - e.pos.x + Math.sin(e.ringWinkel || 0) * 1.6;
+      const dz = g.pos.z - e.pos.z + Math.cos(e.ringWinkel || 0) * 1.6;
+      const dd = Math.hypot(dx, dz);
+      if (dd > 1.2) { moveX = dx / dd; moveZ = dz / dd; speed = 3.4; anim = 'run'; }
+      if (dp < 9) { e.state = 'chase'; e.target = 'player'; }
+      e.facing = dampAngle(e.facing, Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), dt * 5);
     } else {
       // Patrouille rund ums Revier
       if (!e.waypoint || Math.hypot(e.waypoint.x - e.pos.x, e.waypoint.z - e.pos.z) < 1) {
@@ -5739,20 +5834,7 @@ function updateEnemies(dt) {
     gangRespawnT = 12;
   }
 
-  /* Verbrechens-Event */
-  crimeTimer -= dt;
-  if (!crimeGang && crimeTimer <= 0) {
-    const candidates = gangs.filter((g) => !g.cleared && g.enemies.some((e) => !e.dead));
-    if (candidates.length) {
-      crimeGang = pick(candidates);
-      for (const e of crimeGang.enemies) if (!e.dead) { e.state = 'chase'; e.target = 'player'; }
-      showObjective('🚨 Überfall! Schalte die markierte Gang aus!');
-      updateCrimeBeacon();
-      if (helis.length) helis[0].zielMitte = { x: crimeGang.home.x, z: crimeGang.home.z };
-    }
-    crimeTimer = 45;
-  }
-  if (crimeGang) updateCrimeBeacon();
+  updateMission(dt);
 }
 
 let gangRespawnT = 8;
@@ -5765,13 +5847,226 @@ const beacon = new THREE.Mesh(
 beacon.visible = false;
 scene.add(beacon);
 
+function setzeBeacon(pos, farbe) {
+  if (!pos) { beacon.visible = false; return; }
+  beacon.visible = true;
+  beacon.position.set(pos.x, pos.y + 30, pos.z);
+  beacon.material.color.setHex(farbe === undefined ? 0xff2233 : farbe);
+  beacon.material.opacity = 0.22 + Math.sin(elapsed * 5) * 0.08;
+}
 function updateCrimeBeacon() {
   const alive = crimeGang ? crimeGang.enemies.filter((e) => !e.dead) : [];
-  if (!alive.length) { beacon.visible = false; return; }
-  const c = alive[0];
-  beacon.visible = true;
-  beacon.position.set(c.pos.x, c.pos.y + 30, c.pos.z);
-  beacon.material.opacity = 0.22 + Math.sin(elapsed * 5) * 0.08;
+  setzeBeacon(alive.length ? alive[0].pos : null);
+}
+
+/* ======================= Aufträge =======================
+   Vorher gab es genau eine Aufgabe ("Schalte die Gang aus"), alle 45
+   Sekunden dieselbe. Jetzt wechseln fünf Arten mit eigener Uhr, eigenem
+   Ziel und eigener Belohnung. */
+const ringGeoM = new THREE.TorusGeometry(3.4, 0.26, 8, 22);
+const ringMatM = new THREE.MeshBasicMaterial({ color: 0x4fd2ff, transparent: true, opacity: 0.85 });
+const rennRinge = [];
+for (let i = 0; i < 8; i++) {
+  const m = new THREE.Mesh(ringGeoM, ringMatM.clone());
+  m.visible = false; scene.add(m); rennRinge.push(m);
+}
+
+const MISSION = { art: null, zeit: 0, daten: null, text: '' };
+let missionCd = 18;
+
+function missionZiel() {
+  const d = MISSION.daten;
+  if (!d) return null;
+  switch (MISSION.art) {
+    case 'gang': { const a = d.gang.enemies.filter((e) => !e.dead); return a.length ? a[0].pos : null; }
+    case 'flucht': return d.car ? d.car.mesh.position : null;
+    case 'geisel': return d.civ ? d.civ.pos : null;
+    case 'dieb': return d.dieb && !d.dieb.dead ? d.dieb.pos : null;
+    case 'rennen': return d.rest.length ? d.rest[0].pos : null;
+    default: return null;
+  }
+}
+
+function missionEnde(erfolg, text, punkte) {
+  const d = MISSION.daten;
+  if (d) {
+    if (d.civ) d.civ.geisel = false;
+    if (d.car) { d.car.flucht = false; d.car.speed = d.car.altSpeed; }
+    if (d.dieb) d.dieb.dieb = false;
+    if (d.wachen) for (const e of d.wachen) e.bewacht = null;
+  }
+  for (const r of rennRinge) r.visible = false;
+  MISSION.art = null; MISSION.daten = null;
+  crimeGang = null;
+  setzeBeacon(null);
+  hideObjective();
+  popupScreen(text);
+  if (erfolg && punkte) addScore(punkte, '', player.pos);
+  missionCd = erfolg ? 14 : 22;
+}
+
+function starteMission() {
+  const moeglich = [];
+  const gangKandidaten = gangs.filter((g) => !g.cleared && g.enemies.some((e) => !e.dead));
+  if (gangKandidaten.length) { moeglich.push('gang', 'geisel', 'dieb'); }
+  if (cars.length) moeglich.push('flucht');
+  moeglich.push('rennen');
+  const art = pick(moeglich);
+
+  if (art === 'gang') {
+    const g = pick(gangKandidaten);
+    for (const e of g.enemies) if (!e.dead) { e.state = 'chase'; e.target = 'player'; }
+    crimeGang = g;
+    MISSION.art = 'gang'; MISSION.zeit = 0; MISSION.daten = { gang: g };
+    MISSION.text = '🚨 Überfall! Schalte die markierte Gang aus';
+    if (helis.length) helis[0].zielMitte = { x: g.home.x, z: g.home.z };
+
+  } else if (art === 'flucht') {
+    const car = pick(cars);
+    car.altSpeed = car.speed;
+    car.speed = 22;
+    car.flucht = true;
+    MISSION.art = 'flucht'; MISSION.zeit = 55;
+    MISSION.daten = { car, treffer: 0, noetig: 3 };
+    MISSION.text = '🚗 Fluchtauto! Stoppe es mit drei Treffern';
+
+  } else if (art === 'geisel') {
+    const g = pick(gangKandidaten);
+    const lebende = g.enemies.filter((e) => !e.dead);
+    let civ = null, best = 1e9;
+    for (const c of civilians) {
+      if (c.state === 'hurt' || c.geisel) continue;
+      const dd = Math.hypot(c.pos.x - g.home.x, c.pos.z - g.home.z);
+      if (dd < best) { best = dd; civ = c; }
+    }
+    if (!civ) { missionCd = 8; return; }
+    civ.geisel = true;
+    civ.pos.x = g.home.x + rand(-3, 3);
+    civ.pos.z = g.home.z + rand(-3, 3);
+    const wachen = lebende.slice(0, 2);
+    for (const e of wachen) { e.bewacht = civ; e.state = 'chase'; e.target = 'player'; }
+    MISSION.art = 'geisel'; MISSION.zeit = 70;
+    MISSION.daten = { civ, wachen };
+    MISSION.text = '🆘 Geisel! Schalte die Bewacher aus';
+
+  } else if (art === 'dieb') {
+    const g = pick(gangKandidaten);
+    const dieb = pick(g.enemies.filter((e) => !e.dead));
+    dieb.dieb = true;
+    dieb.state = 'patrol'; dieb.target = null;
+    MISSION.art = 'dieb'; MISSION.zeit = 50;
+    MISSION.daten = { dieb };
+    MISSION.text = '💰 Dieb auf der Flucht! Schnapp ihn dir';
+
+  } else {
+    /* Zeitrennen: eine Kette Ringe durch die Häuserschluchten. */
+    const rest = [];
+    let x = player.pos.x, z = player.pos.z;
+    for (let i = 0; i < 6; i++) {
+      let px, pz, tries = 0;
+      do {
+        const a = rand(0, Math.PI * 2), r = rand(38, 62);
+        px = clamp(x + Math.cos(a) * r, -160, 160);
+        pz = clamp(z + Math.sin(a) * r, -160, 160);
+      } while (inGebaeude(px, pz) && ++tries < 14);
+      const p = V3(px, rand(22, 46), pz);
+      rest.push({ pos: p });
+      x = px; z = pz;
+    }
+    rest.forEach((r, i) => {
+      const m = rennRinge[i];
+      m.visible = true;
+      m.position.copy(r.pos);
+      m.rotation.set(0, rand(0, Math.PI), Math.PI / 2);
+      r.mesh = m;
+    });
+    MISSION.art = 'rennen'; MISSION.zeit = 65;
+    MISSION.daten = { rest, gesamt: rest.length };
+    MISSION.text = '🏁 Zeitrennen! Flieg durch alle Ringe';
+  }
+  showObjective(MISSION.text);
+  SFX.score();
+}
+
+function updateMission(dt) {
+  if (!MISSION.art) {
+    missionCd -= dt;
+    if (missionCd <= 0) starteMission();
+    return;
+  }
+  const d = MISSION.daten;
+  if (MISSION.zeit > 0) {
+    MISSION.zeit -= dt;
+    if (MISSION.zeit <= 0) { missionEnde(false, '⏱️ Zeit abgelaufen'); return; }
+  }
+
+  switch (MISSION.art) {
+    case 'gang':
+      if (!d.gang.enemies.some((e) => !e.dead)) missionEnde(true, '✅ Gang ausgeschaltet!', 200);
+      break;
+
+    case 'flucht': {
+      const c = d.car;
+      const p = c.mesh.position;
+      const dist = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+      /* Treffer zählt, wenn man das Auto im Angriff erwischt oder darauf
+         landet. */
+      if (d.cd > 0) d.cd -= dt;
+      const trifft = dist < 3.4 && Math.abs(player.pos.y - p.y) < 3.2 &&
+                     ((player.attack && !player.attack.hitDone) || player.platform === c);
+      if (trifft && !(d.cd > 0)) {
+        d.treffer++; d.cd = 1.0;
+        treffEffekt(_v1.set(p.x, p.y + 1.2, p.z), 1.6, 0xffd23c);
+        hitstop(0.07); camShake = Math.max(camShake, 0.14);
+        c.speed = Math.max(6, c.speed - 6);
+        popupWorld(`Treffer ${d.treffer}/${d.noetig}`, p, '#ffd23c');
+        showObjective(`${MISSION.text}  (${d.treffer}/${d.noetig})`);
+        if (d.treffer >= d.noetig) { missionEnde(true, '✅ Fluchtauto gestoppt!', 250); return; }
+      }
+      break;
+    }
+
+    case 'geisel': {
+      if (!d.civ || d.civ.state === 'hurt') { missionEnde(false, '❌ Die Geisel wurde verletzt'); return; }
+      if (!d.wachen.some((e) => !e.dead)) missionEnde(true, '✅ Geisel befreit!', 260);
+      break;
+    }
+
+    case 'dieb':
+      if (!d.dieb || d.dieb.dead) missionEnde(true, '✅ Dieb geschnappt!', 220);
+      break;
+
+    case 'rennen': {
+      const r = d.rest[0];
+      if (r) {
+        const dx = player.pos.x - r.pos.x, dy = player.pos.y - r.pos.y, dz = player.pos.z - r.pos.z;
+        if (Math.hypot(dx, dy, dz) < 4.0) {
+          r.mesh.visible = false;
+          d.rest.shift();
+          treffEffekt(r.pos, 2.2, 0x4fd2ff);
+          SFX.score();
+          addScore(40, '', r.pos);
+          MISSION.zeit += 6;                    // Zeitbonus pro Ring
+          showObjective(`${MISSION.text}  (${d.gesamt - d.rest.length}/${d.gesamt})`);
+        }
+      }
+      /* Der nächste Ring leuchtet, die folgenden bleiben blass. */
+      d.rest.forEach((x, i) => {
+        if (!x.mesh) return;
+        x.mesh.material.opacity = i === 0 ? 0.9 : 0.32;
+        x.mesh.material.color.setHex(i === 0 ? 0x4fd2ff : 0x9fb6c4);
+        x.mesh.rotation.y += dt * (i === 0 ? 0.8 : 0.2);
+      });
+      if (!d.rest.length) { missionEnde(true, '🏁 Rennen geschafft!', 300); return; }
+      break;
+    }
+  }
+
+  setzeBeacon(missionZiel(), MISSION.art === 'rennen' ? 0x4fd2ff : 0xff2233);
+  if (MISSION.zeit > 0) {
+    objectiveEl.textContent = `${MISSION.text}${MISSION.art === 'flucht' && d.treffer !== undefined
+      ? `  (${d.treffer}/${d.noetig})` : ''}   ⏱ ${Math.ceil(MISSION.zeit)}s`;
+  }
 }
 
 /* ======================= HUD & Popups ======================= */
@@ -5871,8 +6166,12 @@ function animate() {
    festen kleinen Zeitschritten durchrechnen – im Testbrowser läuft die
    Darstellung sonst mit wenigen Bildern pro Sekunde und jede Messung, die
    von der Zeit abhängt, wird unbrauchbar. */
+let zeitlupe = 0;
 function simuliere(dt) {
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
+  /* Zeitlupe nach einem geglückten Konter – der Moment soll sich groß
+     anfühlen und man bekommt Zeit für den Gegenschlag. */
+  if (zeitlupe > 0) { zeitlupe -= dt; dt *= 0.34; }
   elapsed += dt;
 
   updatePlayer(dt);
@@ -5926,7 +6225,9 @@ if (window.__WEBHERO_TEST__ === true) {
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
     schritt(dt, n) { for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60); },
+    get mission() { return MISSION; },
     get kamPos() { return camera.position.clone(); },
+    starteMission,
   };
 }
 
