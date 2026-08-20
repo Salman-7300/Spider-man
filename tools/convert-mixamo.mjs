@@ -51,6 +51,18 @@ const ANIM_KEYWORDS = [
   /* Neue Sonderbewegungen zuerst – ihre Dateinamen enthalten sonst
      Wörter, die schon von allgemeineren Regeln gefangen würden
      ("Jump Attack" enthält "jump", "Hook Punch" enthält "punch"). */
+  /* mixamo-7: Wandlauf, Aufwärtshaken, Wurf, Landerolle und ruhige
+     Bewegungen für Zivilisten. Alle Namen enthalten Wörter, die weiter
+     unten schon gefangen würden ("Falling To Roll" -> roll, "Wall Run" ->
+     run, "Standing Idle Looking" -> idle). */
+  [/falling[ ._-]?to[ ._-]?roll/i, 'fallrolle'],
+  [/wall[ ._-]?run/i, 'wandlauf'],
+  [/uppercut/i, 'uppercut'],
+  [/torch/i, 'wurf'],
+  [/talking[ ._-]?on[ ._-]?phone|phone/i, 'telefon'],
+  [/standing[ ._-]?idle[ ._-]?looking/i, 'warten'],
+  [/looking[ ._-]?behind/i, 'umschauen'],
+
   /* mixamo-6: Kante und Festhalten. Beide Namen enthalten Wörter, die
      weiter unten schon gefangen würden ("Climbing Ledge" -> climb,
      "Hanging Idle" -> swing), deshalb stehen sie ganz oben. */

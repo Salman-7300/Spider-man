@@ -36,6 +36,16 @@
   #crosshair { position:absolute; left:50%; top:50%; width:14px; height:14px; margin:-7px;
     border-radius:50%; border:1.5px solid rgba(255,255,255,.7);
     box-shadow:0 0 4px rgba(0,0,0,.9), inset 0 0 4px rgba(0,0,0,.6); }
+  /* Tempolinien: legen sich bei hohem Tempo über das Bild und geben dem
+     Netzschwung Wucht, ohne die Bildrate zu kosten. */
+  #speed { position:absolute; inset:0; pointer-events:none; opacity:0;
+    transition:opacity .12s linear; mix-blend-mode:screen;
+    background:
+      repeating-conic-gradient(from 0deg at 50% 50%,
+        rgba(255,255,255,0) 0deg, rgba(255,255,255,.5) .5deg, rgba(255,255,255,0) 2.4deg),
+      radial-gradient(circle at 50% 50%, rgba(0,0,0,1) 22%, rgba(0,0,0,0) 62%);
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 24%, black 68%);
+    mask-image: radial-gradient(circle at 50% 50%, transparent 24%, black 68%); }
   #crosshair::after { content:''; position:absolute; left:50%; top:50%; width:2px; height:2px;
     margin:-1px; border-radius:50%; background:rgba(255,255,255,.9); }
 
@@ -110,6 +120,7 @@
   <div id="combo"><span id="comboN">0</span><small>KOMBO</small></div>
   <div id="objective"></div>
   <div id="crosshair"></div>
+  <div id="speed"></div>
   <div id="hint">H – Hilfe · M – Ton · Esc – Pause</div>
   <div id="help">
     <b>W A S D</b> Laufen / Klettern<br>

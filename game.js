@@ -949,7 +949,7 @@ const GLB_SLOTS = {
   hero: 'assets/hero.glb',
   civilian: 'assets/civilian.glb',
   civilian2: 'assets/civilian2.glb',
-  civilian3: 'assets/civilian3.glb',
+
   thug: 'assets/thug.glb',
 };
 const glbModels = {}; // Slot -> {scene, clips, scale, yOffset, yaw}
@@ -967,6 +967,8 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'klettern_frei', 'klettern_seit', 'ausweichenL', 'ausweichenR',
   /* mixamo-6: über eine Kante ziehen, am Sims hängen. */
   'kante', 'haengen',
+  /* mixamo-7: Wandlauf, Aufwärtshaken, Wurf, Landerolle, Zivilisten-Posen. */
+  'fallrolle', 'wandlauf', 'uppercut', 'wurf', 'telefon', 'warten', 'umschauen',
   'hook', 'punch3', 'luftangriff', 'knie', 'block', 'taunt', 'jubel'];
 
 /* Höhe eines Modells bestimmen.
@@ -1183,6 +1185,13 @@ const GLB_CLIP_PATTERNS = {
   climb: [/^climb$/i, /climb/i, /crawl/i, /ladder/i],
   kante: [/kante/i],
   haengen: [/haengen/i],
+  fallrolle: [/fallrolle/i],
+  wandlauf: [/wandlauf/i],
+  uppercut: [/uppercut/i],
+  wurf: [/wurf/i],
+  telefon: [/telefon/i],
+  warten: [/warten/i],
+  umschauen: [/umschauen/i],
   klettern_frei: [/klettern_frei/i],
   klettern_seit: [/klettern_seit/i],
   ausweichenL: [/ausweichenL/],
@@ -1217,6 +1226,8 @@ const GLB_FALLBACK = {
   swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
   klettern_frei: ['climb'], klettern_seit: ['climb'],
   kante: ['climb', 'jump'], haengen: ['climb', 'idle'],
+  fallrolle: ['roll', 'land'], wandlauf: ['run'], uppercut: ['punch', 'attack'],
+  wurf: ['punch', 'attack'], telefon: ['idle'], warten: ['idle'], umschauen: ['idle'],
   ausweichenL: ['roll'], ausweichenR: ['roll'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
@@ -2237,6 +2248,8 @@ function makeCharacterVisual(kind, cfg) {
   let m = null;
   if (kind === 'civilian') {
     const variants = ['civilian', 'civilian2', 'civilian3'].filter((s) => glbModels[s]);
+    /* civilian3.glb gibt es nicht – der Slot bleibt vorbereitet, wird aber
+       nicht mehr angefragt, sonst gibt es bei jedem Start einen 404. */
     if (variants.length) m = glbModels[pick(variants)];
   } else if (glbModels[kind]) {
     m = glbModels[kind];
@@ -2685,7 +2698,46 @@ function treffEffekt(pos, staerke, farbe) {
   }
 }
 
+/* ---- Staubwolke: flacher Ring am Boden plus ein paar Krümel.
+   Gibt harten Landungen Gewicht. ---- */
+const staubRinge = [];
+const staubGeo = new THREE.RingGeometry(0.3, 1.0, 18);
+for (let i = 0; i < 4; i++) {
+  const m = new THREE.Mesh(staubGeo, new THREE.MeshBasicMaterial({
+    color: 0xbfc3c8, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+  }));
+  m.rotation.x = -Math.PI / 2;
+  m.visible = false; scene.add(m);
+  staubRinge.push({ mesh: m, t: 0, dauer: 0.5 });
+}
+function staubWolke(pos, groesse) {
+  const r = staubRinge.find((x) => x.t <= 0) || staubRinge[0];
+  r.t = r.dauer;
+  r.mesh.visible = true;
+  r.mesh.position.set(pos.x, groundY(pos.x, pos.z) + 0.06, pos.z);
+  r.mesh.scale.setScalar(0.4 * (groesse || 1));
+  r.mesh.material.opacity = 0.55;
+  let n = 0;
+  for (const f of effektFunken) {
+    if (f.t > 0) continue;
+    f.t = rand(0.3, 0.55);
+    f.mesh.visible = true;
+    f.mesh.position.set(pos.x, groundY(pos.x, pos.z) + 0.12, pos.z);
+    f.mesh.material.color.setHex(0xc9ced4);
+    f.vel.set(rand(-1, 1), rand(0.1, 0.5), rand(-1, 1)).normalize().multiplyScalar(rand(2.5, 5) * (groesse || 1));
+    if (++n >= 8) break;
+  }
+}
+
 function updateEffekte(dt) {
+  for (const r of staubRinge) {
+    if (r.t <= 0) continue;
+    r.t -= dt;
+    const f = 1 - r.t / r.dauer;
+    r.mesh.scale.setScalar(0.4 * (1 + f * 3.4));
+    r.mesh.material.opacity = 0.55 * (1 - f);
+    if (r.t <= 0) r.mesh.visible = false;
+  }
   for (const r of effektRinge) {
     if (r.t <= 0) continue;
     r.t -= dt;
@@ -2726,6 +2778,7 @@ const player = {
   attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
+  hartLandung: 0, luftKombo: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
   schussT: 0, schussZiel: V3(0, 0, 0),
@@ -2814,7 +2867,9 @@ document.addEventListener('keydown', (e) => {
     case 'ControlLeft': case 'ControlRight': dodge(); e.preventDefault(); break;
     case 'KeyH': helpBox.style.display = helpBox.style.display === 'block' ? 'none' : 'block'; break;
     case 'KeyM': { const m = SFX.toggleMute(); popupScreen(m ? '🔇 Ton aus' : '🔊 Ton an'); break; }
-    case 'KeyR': respawn(); break;
+    case 'KeyR': uppercut(); break;
+    case 'KeyG': packenUndWerfen(); break;
+    case 'Enter': if (player.dead) respawn(); break;
   }
   if (e.code === 'Space') e.preventDefault();
 });
@@ -3247,6 +3302,49 @@ const KOMBO = [
   { art: 'kick',   ziel: 0.62, arm: 'R', finisher: true },
 ];
 
+/* ---- Aufwärtshaken: schleudert den Gegner in die Luft und eröffnet die
+   Luftkombo. Danach bleibt der Gegner oben, solange man weiter trifft. ---- */
+function uppercut() {
+  if (!heroVisual || player.dead || player.state === 'climb' || player.rollT > 0) return;
+  if (player.attackCd > 0.05) return;
+  const ziel = nearestEnemy(2.8, 0.0);
+  const dauer = heroVisual.attackOneShot(0, 'uppercut', 0.6) || 0.6;
+  player.attack = { type: 'punch', t: 0, arm: 'R', art: 'uppercut',
+                    hitDone: false, finisher: false, stufe: 0, dauer, hebt: true };
+  player.attackCd = dauer * 0.8;
+  if (ziel) {
+    const dx = ziel.pos.x - player.pos.x, dz = ziel.pos.z - player.pos.z;
+    player.facing = Math.atan2(dx, dz);
+    player.ziel = ziel;
+  }
+  SFX.swoosh();
+}
+
+/* ---- Packen und werfen: einen nahen Gegner greifen und in Blickrichtung
+   schleudern. Trifft er dabei eine Wand oder ein Auto, tut das extra weh. ---- */
+function packenUndWerfen() {
+  if (!heroVisual || player.dead || player.state === 'climb') return;
+  if (player.attackCd > 0.05) return;
+  const e = nearestEnemy(2.6, -0.2);
+  if (!e) { popupScreen('Niemand zum Packen in Reichweite'); return; }
+  const dauer = heroVisual.attackOneShot(0, 'wurf', 0.75) || 0.75;
+  player.attackCd = dauer * 0.8;
+  player.attack = { type: 'punch', t: 0, arm: 'R', art: 'wurf',
+                    hitDone: true, finisher: false, stufe: 0, dauer };
+  const f = camForward();
+  player.facing = Math.atan2(f.x, f.z);
+  /* Der Gegner fliegt in Blickrichtung davon und ist dabei ein Geschoss. */
+  e.vel.set(f.x * 26, 7.5, f.z * 26);
+  e.staggerT = Math.max(e.staggerT, 1.1);
+  e.geworfen = 1.2;
+  damageEnemy(e, 10, 'kick');
+  hitstop(0.08);
+  camShake = Math.max(camShake, 0.12);
+  treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.1, e.pos.z), 1.3, 0xffd23c);
+  SFX.kick();
+  popupWorld('Geworfen!', e.pos, '#ffd23c');
+}
+
 function tryAttack(type) {
   if (!heroVisual || player.dead || player.state === 'climb') return;
   if (player.rollT > 0) return;
@@ -3401,6 +3499,26 @@ function resolveAttackHit() {
   );
   treffEffekt(treffer, geblockt ? wucht * 0.5 : wucht, geblockt ? 0x4da3ff : (a.finisher ? 0xffd23c : 0xffffff));
 
+  /* Aufwärtshaken: Gegner geht in die Luft, der Held springt hinterher.
+     Danach halten weitere Treffer ihn oben – das ist die Luftkombo. */
+  if (a.hebt) {
+    e.vel.set(e.vel.x * 0.3, 11.5, e.vel.z * 0.3);
+    e.staggerT = Math.max(e.staggerT, 1.7);
+    e.inDerLuft = 1.7;
+    if (player.onGround) { player.vel.y = 9.5; player.onGround = false; player.state = 'air'; }
+    player.luftKombo = 2.2;
+    treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.4, e.pos.z), 1.6, 0xfff0b0);
+    popupWorld('Aufwärtshaken!', e.pos, '#ffe9a8');
+  } else if (!player.onGround && e.inDerLuft > 0) {
+    /* Luftkombo: jeder Treffer hält den Gegner oben. */
+    e.vel.y = Math.max(e.vel.y, 3.4);
+    e.staggerT = Math.max(e.staggerT, 0.8);
+    e.inDerLuft = Math.max(e.inDerLuft, 0.9);
+    player.vel.y = Math.max(player.vel.y, 1.6);
+    player.luftKombo = 1.6;
+    dmg *= 1.35;
+  }
+
   damageEnemy(e, dmg, a.type);
   player.combo++;
   player.comboTimer = 3;
@@ -3537,7 +3655,12 @@ function updatePlayer(dt) {
        Vorher stand hier genau das Gegenteil – deshalb liefen A und D
        an der Wand verkehrt herum. */
     const tx = w.nz, tz = -w.nx;
-    player.vel.set(tx * side * CFG.climbSpeed, up * CFG.climbSpeed, tz * side * CFG.climbSpeed);
+    /* Wandlauf: mit Shift geht es die Fassade richtig hinauf statt zu
+       kriechen – dafür gibt es seit mixamo-7 eine eigene Bewegung. */
+    const sprintWand = (keys['ShiftLeft'] || keys['ShiftRight']) && up > 0;
+    const kTempo = CFG.climbSpeed * (sprintWand ? 2.7 : 1);
+    player.wandlauf = sprintWand;
+    player.vel.set(tx * side * kTempo, up * kTempo, tz * side * kTempo);
     player.pos.addScaledVector(player.vel, dt);
     /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
        der Fassade heraus. Vorher steckte die Figur mit dem Oberkörper darin
@@ -3638,6 +3761,7 @@ function updatePlayer(dt) {
        beiden Fällen darüber. */
     const seitlich = Math.abs(side) > Math.abs(up);
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
+                : sprintWand ? 'wandlauf'             // die Wand hochlaufen
                 : seitlich ? 'klettern_seit'          // seitlich hangeln
                 : 'climb';                            // senkrecht hoch/runter
     updateHeroVisual(dt);
@@ -3828,7 +3952,19 @@ function updatePlayer(dt) {
     if (player.state === 'swing') stopSwing(false);
     if (!wasOnGround && player.vel.length() < 4) SFX.swoosh();
     /* Aus größerer Höhe aufkommen: kurz die Landeanimation zeigen. */
-    if (!wasOnGround && fallTempo > 6) player.landT = clamp(fallTempo / 26, 0.18, 0.42);
+    if (!wasOnGround && fallTempo > 6) {
+      player.landT = clamp(fallTempo / 26, 0.18, 0.42);
+      /* Aus großer Höhe wird abgerollt statt in die Knie zu federn. */
+      if (fallTempo > 17 && heroVisual.attackOneShot) {
+        player.landT = heroVisual.attackOneShot(0, 'fallrolle', 0.85) || 0.85;
+        player.hartLandung = player.landT;
+        const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+        player.vel.x = f.x * 7; player.vel.z = f.z * 7;
+        camShake = Math.max(camShake, 0.16);
+        staubWolke(player.pos, 1.4);
+        SFX.swoosh();
+      }
+    }
     player.state = 'ground';
     player.jumps = 0;
     player.swingLock = keys['Space'] || swingHeld; // Space am Boden gedrückt → erst loslassen
@@ -3866,6 +4002,7 @@ function updatePlayer(dt) {
 
   /* ---- Timer ---- */
   if (player.keinHaltCd > 0) player.keinHaltCd -= dt;
+  if (player.luftKombo > 0) player.luftKombo -= dt;
   if (player.attackCd > 0) player.attackCd -= dt;
   if (player.attackBuffer) {
     player.attackBuffer.t -= dt;
@@ -3896,6 +4033,7 @@ function updatePlayer(dt) {
   /* ---- Animation wählen ---- */
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   if (player.landT > 0) player.landT -= dt;
+  if (player.hartLandung > 0) player.hartLandung -= dt;
   if (player.hitT > 0) player.hitT -= dt;
   /* Verliert man mitten in der Rolle den Boden (Bordstein, Kante), wird
      sie abgebrochen – sonst rollt die Figur im Fallen weiter. */
@@ -3908,6 +4046,7 @@ function updatePlayer(dt) {
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
      oben geht, läuft der Absprung, danach erst der freie Fall. */
   else if (!player.onGround) player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
+  else if (player.hartLandung > 0) player.anim = 'fallrolle';
   else if (player.landT > 0) player.anim = 'land';
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
@@ -3995,7 +4134,11 @@ function updateHeroVisual(dt) {
       /* Die geladene Bewegung liefert den Rhythmus, die Wandpose setzt
          Hände und Füße wirklich an die Wand. */
       const w = player.wallInfo;
-      if (w && heroVisual.poseWandkriechen) heroVisual.poseWandkriechen(w.nx, w.nz, player.phase, 0.85);
+      /* Beim Wandlauf führt die Bewegung allein – die Spinnenpose würde
+         die laufenden Beine überschreiben. */
+      if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
+        heroVisual.poseWandkriechen(w.nx, w.nz, player.phase, 0.85);
+      }
       else if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
       heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
@@ -4689,6 +4832,15 @@ function updateCivilians(dt) {
       if (Math.random() < dt * 0.02) speed = 0; // kurz stehenbleiben
     }
 
+    /* Beim Stehenbleiben ab und zu die Beschäftigung wechseln. */
+    if (speed <= 0.1) {
+      c.poseT = (c.poseT || 0) - dt;
+      if (c.poseT <= 0) {
+        c.poseT = rand(4, 11);
+        c.ruhePose = pick(['idle', 'telefon', 'warten', 'umschauen', 'idle']);
+      }
+    } else c.poseT = 0;
+
     if (c.gafft) {
       speed = 0; dirX = 0; dirZ = 0;
       c.facing = dampAngle(c.facing, Math.atan2(player.pos.x - c.pos.x, player.pos.z - c.pos.z), dt * 6);
@@ -4715,8 +4867,13 @@ function updateCivilians(dt) {
 
     c.visual.root.position.copy(c.pos);
     c.visual.root.rotation.y = c.facing;
-    c.visual.play(c.gafft && !c.filmt && c.visual.hatClip && c.visual.hatClip('jubel')
-                    ? 'jubel' : (speed > 0.1 ? 'run' : 'idle'),
+    /* Im Stand hat jeder Zivilist seine eigene Beschäftigung – telefonieren,
+       warten, sich umsehen. Vorher standen 22 Figuren in derselben Pose. */
+    let zAnim;
+    if (c.gafft && !c.filmt && c.visual.hatClip && c.visual.hatClip('jubel')) zAnim = 'jubel';
+    else if (speed > 0.1) zAnim = 'run';
+    else zAnim = c.ruhePose || 'idle';
+    c.visual.play(zAnim,
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
     if (haltenImGebiet(c.pos)) c.waypoint = null;
     if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
@@ -5101,6 +5258,7 @@ function spawnGang(cx, cz, n) {
       phase: rand(0, TAU),
       typ, warn, blockZ,
       umwegT: 0, umwegSeite: 1, blockiertT: 0,
+      inDerLuft: 0, geworfen: 0,
       hp: typ.hp, hpMax: typ.hp,
       blockT: 0, blockCd: rand(1, 4), warnT: 0,
       state: 'patrol',
@@ -5284,16 +5442,44 @@ function updateEnemies(dt) {
       }
     }
 
+    if (e.inDerLuft > 0) e.inDerLuft -= dt;
+    if (e.geworfen > 0) e.geworfen -= dt;
     if (e.staggerT > 0) {
       e.staggerT -= dt;
-      // Rückstoß ausklingen lassen
-      e.vel.x = lerp(e.vel.x, 0, dt * 6);
-      e.vel.z = lerp(e.vel.z, 0, dt * 6);
+      /* Rückstoß ausklingen lassen. Ein Wurf soll dagegen weit tragen –
+         mit der normalen Dämpfung kam der Gegner keine drei Meter weit. */
+      const bremse = e.geworfen > 0 ? 1.1 : 6;
+      e.vel.x = lerp(e.vel.x, 0, dt * bremse);
+      e.vel.z = lerp(e.vel.z, 0, dt * bremse);
       e.vel.y -= CFG.gravity * dt;
       e.pos.addScaledVector(e.vel, dt);
       const gy = groundY(e.pos.x, e.pos.z);
       if (e.pos.y < gy) { e.pos.y = gy; e.vel.y = 0; }
       collideBody(e);
+      /* Wer geworfen wurde und dabei gegen eine Wand knallt, kassiert
+         zusätzlich – die Umgebung ist eine Waffe. */
+      /* Der Aufprall zählt erst, wenn der Wurf wirklich unterwegs war –
+         sonst löst schon der Startpunkt am Boden den Treffer aus und der
+         Gegner fliegt gar nicht erst los. */
+      const gelandet = e.pos.y <= gy + 0.02 && e.geworfen < 0.95;
+      if (e.geworfen > 0 && (e.wall || gelandet)) {
+        e.geworfen = 0;
+        const wucht = Math.hypot(e.vel.x, e.vel.z);
+        if (wucht > 6 || e.wall) {
+          damageEnemy(e, e.wall ? 26 : 14, 'kick');
+          treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.0, e.pos.z), 1.8, 0xffd23c);
+          staubWolke(e.pos, 1.1);
+          camShake = Math.max(camShake, 0.14);
+          hitstop(0.07);
+          if (e.wall) {
+            popupWorld('Gegen die Wand!', e.pos, '#ffd23c');
+            addScore(40, '', e.pos);
+            e.vel.multiplyScalar(0.15);
+          } else {
+            e.vel.x *= 0.45; e.vel.z *= 0.45;   // rutscht noch ein Stück
+          }
+        }
+      }
       e.visual.root.position.copy(e.pos);
       e.visual.play('air', { t: elapsed }, dt);
       // Pose erst nach der Animation setzen, sonst überschreibt der Mixer sie
@@ -5592,6 +5778,7 @@ function updateCrimeBeacon() {
 const hpbarEl = document.getElementById('hpbar');
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
+const speedEl = document.getElementById('speed');
 const comboEl = document.getElementById('combo');
 const comboNEl = document.getElementById('comboN');
 const objectiveEl = document.getElementById('objective');
@@ -5715,8 +5902,18 @@ function simuliere(dt) {
   }
   if (player.state !== 'swing' && player.state !== 'zip') swingStrand.visible = false;
 
+  /* Tempogefühl: Linien, Sichtfeld und ein Windgeräusch wachsen mit der
+     Geschwindigkeit. Vorher fühlten sich 30 m/s genauso an wie 5. */
+  const tempo = player.vel.length();
+  const linien = clamp((tempo - 15) / 22, 0, 1);
+  if (speedEl) speedEl.style.opacity = (linien * 0.5).toFixed(2);
+  if (tempo > 20 && !player.dead) {
+    windCd -= dt;
+    if (windCd <= 0) { SFX.swoosh(); windCd = rand(0.5, 0.9); }
+  }
   updateHUD();
 }
+let windCd = 0;
 animate();
 
 // Nur für automatisierte Tests sichtbar
