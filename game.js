@@ -287,12 +287,24 @@ const facadeTexes = [
   ['#3d4657', '#28303f'], ['#5d5348', '#3d372f'], ['#6b7683', '#49525c'],
 ].map(([wall, dark]) => canvasTex(128, 256, (g) => {
   g.fillStyle = wall; g.fillRect(0, 0, 128, 256);
+  /* Fassaden waren flache Rechtecke auf einer Fläche. Mit Geschossband,
+     Fensterlaibung und Sims bekommt die Wand Tiefe, ohne dass zusätzliche
+     Geometrie nötig wird – beim Klettern klebt man direkt davor. */
   for (let y = 8; y < 250; y += 16) {
+    // Geschossband: schmaler heller Streifen unter jeder Fensterreihe
+    g.fillStyle = 'rgba(255,255,255,0.07)'; g.fillRect(0, y + 12, 128, 2);
+    g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(0, y + 14, 128, 1);
     for (let x = 6; x < 122; x += 14) {
       const lit = Math.random() < 0.06;
+      // Laibung: oben/links dunkel, unten/rechts hell -> Fenster liegt zurück
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x - 1, y - 1, 11, 12);
       g.fillStyle = lit ? '#ffe9a8' : dark;
       g.fillRect(x, y, 9, 10);
-      if (!lit) { g.fillStyle = 'rgba(170,205,240,0.45)'; g.fillRect(x, y, 9, 4); }
+      if (!lit) {
+        g.fillStyle = 'rgba(170,205,240,0.45)'; g.fillRect(x, y, 9, 4);
+        g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x, y, 9, 1);
+      }
+      g.fillStyle = 'rgba(255,255,255,0.16)'; g.fillRect(x - 1, y + 10, 11, 2);   // Sims
     }
   }
 }));
@@ -1669,6 +1681,20 @@ function makeGlbVisual(m) {
     }
   })();
 
+  /* Finger leicht einkrallen – die Bewegungsdateien enthalten keine
+     Fingerspuren, deshalb standen die Hände beim Klettern mit gespreizten,
+     kerzengeraden Fingern an der Wand wie ein Seestern. */
+  function krallen(seite, staerke) {
+    for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
+      for (let g = 1; g <= 3; g++) {
+        const b = knochen[seite + 'hand' + f + g];
+        if (!b) continue;
+        const s = staerke * (f === 'thumb' ? 0.45 : 1) * (g === 1 ? 0.65 : 1);
+        drehZuRuhe(b, s, 0, 0, 0.85);
+      }
+    }
+  }
+
   /* Hand so drehen, dass die Finger in fingerWelt zeigen und die
      Handfläche in flaecheWelt (also flach auf der Wand liegt). */
   function setzeHand(seite, fingerWelt, flaecheWelt, k) {
@@ -1901,11 +1927,11 @@ function makeGlbVisual(m) {
          bei einer Spinne und die Hände liegen wirklich an der Wand. */
       punkt(_vw3, -0.66, 1.48 + g * 0.10, 0.06);          // linker Ellbogen
       zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
-      punkt(_vw3, -0.34, 2.15 + g * 0.22, 0.13);          // linke Hand
+      punkt(_vw3, -0.30, 2.12 + g * 0.34, 0.13);          // linke Hand
       zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
       punkt(_vw4, 0.66, 1.48 - g * 0.10, 0.06);
       zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
-      punkt(_vw4, 0.34, 2.15 - g * 0.22, 0.13);
+      punkt(_vw4, 0.30, 2.12 - g * 0.34, 0.13);
       zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
 
       // Knie seitlich nach außen, Füße darunter an der Wand
@@ -1919,8 +1945,10 @@ function makeGlbVisual(m) {
       zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
       /* Handflächen flach auf die Fassade, Finger nach oben-außen. */
       _vw3.copy(rein);
-      setzeHand('left', _fh.set(0, 1, 0).addScaledVector(rechts, -0.3), _vw3, 0.9);
-      setzeHand('right', _fh.set(0, 1, 0).addScaledVector(rechts, 0.3), _vw3, 0.9);
+      setzeHand('left', _fh.set(0, 1, 0).addScaledVector(rechts, -0.26), _vw3, 0.9);
+      setzeHand('right', _fh.set(0, 1, 0).addScaledVector(rechts, 0.26), _vw3, 0.9);
+      krallen('left', 0.34);
+      krallen('right', 0.34);
       // Kopf hebt sich, der Blick geht nach oben
       drehZuRuhe(knochen.head, -0.35, 0, 0, k * 0.8);
     },
@@ -2750,7 +2778,7 @@ function updateCamera(dt) {
   mouseDX = 0; mouseDY = 0;
 
   const speed = player.vel.length();
-  const targetDist = player.state === 'swing' ? 7.2 : lerp(5.2, 6.6, clamp(speed / 25, 0, 1));
+  const targetDist = player.state === 'swing' ? 8.4 : lerp(6.3, 7.8, clamp(speed / 25, 0, 1));
   camDist = lerp(camDist, targetDist, dt * 3);
   const targetFov = lerp(70, 84, clamp(speed / 30, 0, 1));
   camera.fov = lerp(camera.fov, targetFov, dt * 4);
@@ -2768,9 +2796,17 @@ function updateCamera(dt) {
     const t = (camDist * i) / 10;
     const px = target.x + dir.x * t, py = target.y + dir.y * t, pz = target.z + dir.z * t;
     let blocked = py < groundY(px, pz) + 0.3;
+    /* Steht die Figur auf einem Dach und man schaut nach unten, rutschte
+       die Kamera an der Dachkante vorbei unter das Dach – man sah dann von
+       unten in das Gesims hinein. Solange man festen Boden unter den Füßen
+       hat, darf die Kamera nicht nennenswert darunter. */
+    if (!blocked && player.onGround && py < player.pos.y + 0.35) blocked = true;
     if (!blocked) {
       const cols = collidersNear(px, pz);
       for (const c of cols) {
+        /* Auch Vorsprünge (Gesimse, Feuerleitern) blockieren – aber nur in
+           ihrer eigenen Höhe. */
+        if (c.y0 !== undefined && py < c.y0 - 0.3) continue;
         if (px > c.x0 - 0.3 && px < c.x1 + 0.3 && pz > c.z0 - 0.3 && pz < c.z1 + 0.3 && py < c.h + 0.2) { blocked = true; break; }
       }
     }
@@ -4579,6 +4615,7 @@ function updateCivilians(dt) {
     c.visual.play(c.gafft && !c.filmt && c.visual.hatClip && c.visual.hatClip('jubel')
                     ? 'jubel' : (speed > 0.1 ? 'run' : 'idle'),
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
+    if (haltenImGebiet(c.pos)) c.waypoint = null;
     if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
   }
 }
@@ -4706,8 +4743,30 @@ const cocoonKoerperGeo = (() => {
   g.computeVertexNormals();
   return g;
 })();
-/* Dünner Ring statt dickem Reifen – gewickelter Faden, kein Schlauch. */
-const bandGeo = new THREE.TorusGeometry(0.25, 0.015, 4, 13);
+/* Statt Ringen echte WICKLUNGEN: ein dünner Faden, der spiralig um den
+   Körper läuft. Ringe schweben immer wie Reifen um die Figur – eine
+   Spirale liest sich sofort als umwickelt. */
+function wickelGeo(windungen, phase, hoch, weite) {
+  const punkte = [];
+  const n = 60;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const y = -hoch + t * hoch * 2;
+    const a = phase + t * Math.PI * 2 * windungen;
+    /* Der Radius folgt grob der Körperform: an den Schultern weiter,
+       an Hüfte und Beinen enger. */
+    const tt = y / hoch;
+    const r = weite * (0.78 + 0.26 * Math.exp(-Math.pow((tt - 0.4) / 0.45, 2))
+                            - 0.3 * Math.max(0, -tt - 0.35));
+    punkte.push(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r * 0.72));
+  }
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(punkte), 64, 0.017, 4, false);
+}
+const bandGeos = [
+  wickelGeo(4.5, 0, 0.82, 0.30),
+  wickelGeo(6.5, 2.1, 0.78, 0.28),
+  wickelGeo(3.5, 4.0, 0.70, 0.31),
+];
 const fadenGeo = new THREE.CylinderGeometry(0.009, 0.009, 0.55, 4);
 const fleckGeo = new THREE.PlaneGeometry(0.46, 0.46);
 
@@ -4746,19 +4805,13 @@ function makeCocoon() {
     g.add(f); flecken.push(f);
   }
 
-  /* Wicklungen: viele dünne Fäden, schräg um den Körper gelegt. */
+  /* Wicklungen: spiralig um den Körper laufende Fäden. */
   const baender = [];
-  for (let i = 0; i < 9; i++) {
-    const b = new THREE.Mesh(bandGeo, bandMat);
-    const t = -0.82 + i * 0.21;
-    b.position.set(rand(-0.03, 0.03), t, rand(-0.03, 0.03));
-    b.rotation.x = Math.PI / 2 + rand(-0.34, 0.34);
-    b.rotation.z = rand(-0.3, 0.3);
-    /* Der Querschnitt eines Menschen ist keine Scheibe: breiter als tief,
-       an den Schultern weiter als an Hüfte und Beinen. */
-    const schulter = 1 + 0.22 * Math.exp(-Math.pow((t - 0.42) / 0.3, 2));
-    const w = (1 - Math.max(0, -t - 0.3) * 0.45) * schulter * rand(0.9, 1.04);
-    b.scale.set(w, w * 0.7, rand(0.85, 1.15));
+  for (let i = 0; i < bandGeos.length; i++) {
+    const b = new THREE.Mesh(bandGeos[i], bandMat);
+    b.position.y = rand(-0.04, 0.04);
+    b.rotation.y = rand(0, Math.PI * 2);
+    b.rotation.z = rand(-0.09, 0.09);
     b.visible = false;
     g.add(b); baender.push(b);
   }
@@ -4796,7 +4849,7 @@ function makeCocoon() {
     /* Bei Stufe 3 trägt der Kokon selbst das Wickelmuster. Alle neun Ringe
        zusätzlich anzuzeigen sah aus, als schwebten Reifen um das Bündel –
        es bleiben ein paar wenige, die stramm anliegen. */
-    baender.forEach((b, i) => { b.visible = stufe >= 3 || (stufe === 2 && i < 4); });
+    baender.forEach((b, i) => { b.visible = stufe >= 3 || (stufe === 2 && i < 1); });
     const fAnzahl = stufe >= 3 ? 12 : (stufe === 2 ? 8 : 4);
     faeden.forEach((f, i) => { f.visible = i < fAnzahl; });
     /* Der komplette Kokon ist nur noch das Ergebnis, wenn jemand an eine
@@ -4809,7 +4862,7 @@ function makeCocoon() {
   g.userData.setzeKokon = (an) => {
     koerper.visible = an;
     huelle.visible = an;
-    if (an) { baender.forEach((b, i) => { b.visible = i % 3 === 1; b.scale.setScalar(0.94); }); }
+    if (an) { baender.forEach((b, i) => { b.visible = i < 2; b.scale.setScalar(1.02); }); }
   };
   return g;
 }
@@ -4842,6 +4895,16 @@ function waehleGanov() {
   return GANOVEN[0];
 }
 
+/* Die Schläge der Ganoven. Vorher hatten alle genau eine Bewegung mit
+   fester Dauer – das wirkte, als könnten sie nichts. */
+const GANOVEN_SCHLAEGE = [
+  { art: 'punch',  dauer: 0.55, treff: 0.42, reichweite: 1.9, wucht: 1.0 },
+  { art: 'hook',   dauer: 0.62, treff: 0.46, reichweite: 1.9, wucht: 1.2 },
+  { art: 'kick',   dauer: 0.72, treff: 0.48, reichweite: 2.3, wucht: 1.4 },
+  { art: 'knie',   dauer: 0.6,  treff: 0.45, reichweite: 1.6, wucht: 1.3 },
+  { art: 'punch3', dauer: 0.66, treff: 0.44, reichweite: 2.0, wucht: 1.1 },
+];
+
 /* Warnzeichen über dem Kopf: Ausrufezeichen vor einem Schlag,
    Schild beim Blocken. Beides nur zwei kleine Kisten. */
 function makeWarnzeichen() {
@@ -4863,6 +4926,25 @@ function makeBlockzeichen() {
   return m;
 }
 
+/* Grenzen des bespielbaren Gebiets: Stadtraster diesseits des Flusses und
+   der Stadtteil am anderen Ufer. Alles andere ist nackte Grundfläche –
+   dort hat weder eine Gang noch ein Zivilist etwas verloren. */
+const STADT_RAND = ORIGIN + BLOCKS * PITCH;      // 175
+function imGebiet(x, z) {
+  if (Math.abs(z) > STADT_RAND + 6) return false;
+  if (x >= -STADT_RAND - 6 && x <= RIVER_X0 - 3) return true;
+  if (x >= SHORE_X0 + 3 && x <= SHORE_X1 - 3) return true;
+  return false;
+}
+function haltenImGebiet(pos) {
+  if (imGebiet(pos.x, pos.z)) return false;
+  pos.z = clamp(pos.z, -STADT_RAND - 6, STADT_RAND + 6);
+  /* Zur nächstgelegenen erlaubten Zone zurückschieben. */
+  if (pos.x > (RIVER_X0 + SHORE_X0) / 2) pos.x = clamp(pos.x, SHORE_X0 + 3, SHORE_X1 - 3);
+  else pos.x = clamp(pos.x, -STADT_RAND - 6, RIVER_X0 - 3);
+  return true;
+}
+
 /* Liegt der Punkt in einem Gebäude? Wegpunkte dort drin lassen die
    Ganoven dauerhaft gegen die Fassade laufen. */
 function inGebaeude(x, z) {
@@ -4875,7 +4957,7 @@ function inGebaeude(x, z) {
 function freierPunkt(cx, cz, r) {
   for (let i = 0; i < 12; i++) {
     const x = cx + rand(-r, r), z = cz + rand(-r, r);
-    if (!inGebaeude(x, z)) return V3(x, 0, z);
+    if (!inGebaeude(x, z) && imGebiet(x, z)) return V3(x, 0, z);
   }
   return null;
 }
@@ -5116,7 +5198,7 @@ function updateEnemies(dt) {
       else {
         /* Weiter Umkreis: bei 22 Zivilisten auf der ganzen Karte kam sonst
            nie einer nah genug vorbei, und die Gang stand nur herum. */
-        let civ = null, civD = 55;
+        let civ = null, civD = 38;
         for (const c of civilians) {
           if (c.state === 'hurt') continue;
           const d = Math.hypot(c.pos.x - e.pos.x, c.pos.z - e.pos.z);
@@ -5167,13 +5249,13 @@ function updateEnemies(dt) {
            der Gegner dauerhaft knapp außerhalb seiner eigenen Reichweite
            und rannte nur noch auf der Stelle, ohne je zuzuschlagen.
            Die Freigabe liegt jetzt sicher außerhalb des Rings. */
-        if (d > 1.4 || dy > 1.6) {
+        if (d > 1.25 || dy > 1.6) {
           /* Nicht alle auf denselben Punkt zulaufen – sonst stapeln sich
              die Ganoven zu einem einzigen Klumpen. Jeder steuert seinen
              eigenen Platz auf einem Ring um das Ziel an. */
           if (e.ringWinkel === undefined) e.ringWinkel = Math.random() * Math.PI * 2;
-          const zx = tp.x + Math.sin(e.ringWinkel) * 1.35 - e.pos.x;
-          const zz = tp.z + Math.cos(e.ringWinkel) * 1.35 - e.pos.z;
+          const zx = tp.x + Math.sin(e.ringWinkel) * 1.15 - e.pos.x;
+          const zz = tp.z + Math.cos(e.ringWinkel) * 1.15 - e.pos.z;
           const zd = Math.hypot(zx, zz) || 1;
           moveX = zx / zd; moveZ = zz / zd;
           speed = (e.target === 'player' ? 1 : 0.85) * (e.typ ? e.typ.tempo : 5);
@@ -5208,19 +5290,26 @@ function updateEnemies(dt) {
       }
     }
 
-    /* Angriff ausführen */
+    /* Angriff ausführen. Jeder Ganove hat mehrere Schläge statt immer
+       desselben: gerader Stoß, Haken, Tritt, Knie. Sie unterscheiden sich
+       in Dauer, Reichweite und Wucht. */
     if (e.attack) {
       const a = e.attack;
-      a.t += dt / 0.6;
+      a.t += dt / a.dauer;
       anim = 'idle'; speed = 0;
-      if (!a.hitDone && a.t > 0.45) {
+      /* Ausfallschritt: der Gegner geht in den Schlag hinein, statt aus der
+         Distanz in die Luft zu hauen. */
+      if (a.t < 0.6 && e.target === 'player' && dp > 1.0) {
+        const zx = (player.pos.x - e.pos.x) / (dp || 1), zz = (player.pos.z - e.pos.z) / (dp || 1);
+        e.pos.x += zx * Math.min(2.6, (dp - 0.95)) * dt * 3.2;
+        e.pos.z += zz * Math.min(2.6, (dp - 0.95)) * dt * 3.2;
+      }
+      if (!a.hitDone && a.t > a.treff) {
         a.hitDone = true;
+        const reich = a.reichweite;
         if (e.target === 'player') {
-          /* Trefferreichweite etwas größer als der Abstand, auf dem der
-             Gegner stehen bleibt – sonst schlägt er zwar zu, kommt aber
-             rechnerisch nie an. */
-          if (dp < 2.1 && dpy < 2) damagePlayer(e.typ ? e.typ.schaden : 8, e.pos);
-        } else if (e.target && Math.hypot(e.target.pos.x - e.pos.x, e.target.pos.z - e.pos.z) < 2.1) {
+          if (dp < reich && dpy < 2) damagePlayer((e.typ ? e.typ.schaden : 8) * a.wucht, e.pos);
+        } else if (e.target && Math.hypot(e.target.pos.x - e.pos.x, e.target.pos.z - e.pos.z) < reich) {
           hurtCivilian(e.target, e);
         }
       }
@@ -5234,12 +5323,14 @@ function updateEnemies(dt) {
       e.warn.visible = ((elapsed * 9) % 2) < 1;
       if (e.warnT <= 0) {
         e.warn.visible = false;
-        e.attack = { type: 'thugSwing', t: 0, hitDone: false };
+        const m = pick(GANOVEN_SCHLAEGE);
+        e.attack = { type: 'thugSwing', t: 0, hitDone: false,
+                     dauer: m.dauer, treff: m.treff, reichweite: m.reichweite, wucht: m.wucht };
         /* Enger Abstand heißt auch: es trifft öfter. Die Pause zwischen
            zwei Schlägen wird dafür wieder etwas länger, sonst nimmt ein
            einzelner Ganove in zehn Sekunden fast die ganze Lebensleiste. */
         e.attackCd = rand(1.3, 2.1);
-        e.visual.attackOneShot();
+        if (e.visual.attackOneShot) e.visual.attackOneShot(0, m.art, m.dauer * 0.85);
       }
     } else if (e.warn) e.warn.visible = false;
 
@@ -5318,6 +5409,10 @@ function updateEnemies(dt) {
     }
     /* Höhe weich nachführen: bei Bordsteinkanten sonst sichtbares Springen,
        und niemals unter den Boden. */
+    /* Nicht aus der Stadt hinauslaufen. Durch den weiten Zivilisten-Radius
+       konnten Gangs sonst bis auf die nackte Grundfläche außerhalb des
+       Rasters ziehen. */
+    if (haltenImGebiet(e.pos)) { e.waypoint = null; e.target = null; e.state = 'patrol'; }
     e.pos.y = lerp(e.pos.y, groundY(e.pos.x, e.pos.z), Math.min(1, dt * 12));
     e.pos.y = Math.max(e.pos.y, groundY(e.pos.x, e.pos.z) - 0.02);
     if (speed > 0.1) e.phase += dt * (4 + speed * 1.7);
