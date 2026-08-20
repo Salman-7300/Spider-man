@@ -13,6 +13,29 @@
   /* ---------- HUD ---------- */
   #hud { position:fixed; inset:0; pointer-events:none; z-index:10; display:none; }
 
+  /* ---- Touch-Steuerung ---- */
+  #touch { position:fixed; inset:0; z-index:12; display:none; touch-action:none;
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  #tstick { position:absolute; left:16px; bottom:22px; width:118px; height:118px;
+    border-radius:50%; background:rgba(255,255,255,.10); border:2px solid rgba(255,255,255,.28); }
+  #tstickKnopf { position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px 0 0 -25px;
+    border-radius:50%; background:rgba(255,255,255,.42); box-shadow:0 2px 10px rgba(0,0,0,.4); }
+  #tknoepfe { position:absolute; right:12px; bottom:16px; display:flex; flex-direction:column;
+    align-items:flex-end; gap:6px; }
+  #tknoepfe .treihe { display:flex; gap:6px; }
+  #tknoepfe .tgross { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  #touch button { font:inherit; color:#fff; background:rgba(20,24,34,.55);
+    border:2px solid rgba(255,255,255,.3); border-radius:12px; padding:9px 10px;
+    font-size:12px; font-weight:700; min-width:60px; backdrop-filter:blur(3px); }
+  #touch button:active { background:rgba(227,33,45,.75); }
+  #touch button.tklein { width:46px; height:46px; min-width:0; padding:0; font-size:14px;
+    border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  #tknoepfe > .tklein { align-self:flex-end; }
+  body.touch #hint, body.touch #help { display:none; }
+  @media (max-width:760px) {
+    #topleft { transform:scale(.85); transform-origin:top left; }
+  }
+
   #topleft { position:absolute; top:18px; left:18px; }
   #hpwrap { width:260px; height:16px; background:rgba(0,0,0,.55); border:2px solid rgba(255,255,255,.35);
     border-radius:9px; overflow:hidden; }
@@ -138,7 +161,9 @@
     <b>Strg im richtigen Moment</b> Spinnensinn-Konter &nbsp;·&nbsp; <b>Shift an der Wand</b> Wandlauf<br>
     <b>Wand berühren (in der Luft)</b> Klettern &nbsp;·&nbsp; <b>H</b> Hilfe &nbsp;·&nbsp; <b>M</b> Ton
   </div>
-  <div id="note">Fan-Projekt mit einem eigenen Netz-Helden im klassischen Rot-Blau-Look.
+  <div id="note">Auch mit Gamepad (Xbox/PlayStation) und auf dem Handy spielbar –
+    dort erscheint automatisch eine Bildschirmsteuerung.<br>
+    Fan-Projekt mit einem eigenen Netz-Helden im klassischen Rot-Blau-Look.
     Läuft komplett offline im Browser (Three.js liegt im Spielordner bei).</div>
 </div>
 
@@ -169,9 +194,36 @@
     <b>C</b> Erste Hilfe bei Verletzten (rotes Kreuz)<br>
     <b>An Wänden</b> automatisch klettern, <b>Shift</b> = Wandlauf (ab Stufe 4)<br>
     <b>Leertaste an der Wand</b> Absprung<br>
-    <b>Enter</b> Zurück zum Startpunkt (nach K.o.)
+    <b>Enter</b> Zurück zum Startpunkt (nach K.o.)<br>
+    <br>
+    <b>Gamepad</b> A Sprung · X Schlag · Y Tritt · B Rolle<br>
+    <b>Gamepad</b> LB Netz · RB Zip · LT Haken · RT Schwung · R3 Wurf
   </div>
   <div id="vignette"></div>
+</div>
+
+<!-- Steuerung für Handy und Tablet – wird nur auf Touchgeräten sichtbar -->
+<div id="touch">
+  <div id="tstick"><div id="tstickKnopf"></div></div>
+  <div id="tknoepfe">
+    <button id="tMenue" class="tklein">☰</button>
+    <button id="tHilfe" class="tklein">✚</button>
+    <div class="treihe">
+      <button id="tNetz" class="tklein">🕸</button>
+      <button id="tZip" class="tklein">➤</button>
+      <button id="tRolle" class="tklein">↻</button>
+    </div>
+    <div class="treihe">
+      <button id="tHaken" class="tklein">↑✊</button>
+      <button id="tWurf" class="tklein">✊➜</button>
+    </div>
+    <div class="tgross">
+      <button id="tTritt">Tritt</button>
+      <button id="tSchlag">Schlag</button>
+      <button id="tSprung">Sprung</button>
+      <button id="tSchwung">Schwung</button>
+    </div>
+  </div>
 </div>
 
 <div id="settings">

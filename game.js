@@ -3007,7 +3007,7 @@ let pointerLocked = false;
 let swingHeld = false; // rechte Maustaste
 
 // Testmodus: erlaubt automatisierte Läufe ohne Pointer-Lock
-function isActive() { return pointerLocked || window.__WEBHERO_TEST__ === true; }
+function isActive() { return pointerLocked || touchAktiv || window.__WEBHERO_TEST__ === true; }
 
 const overlay = document.getElementById('overlay');
 const hud = document.getElementById('hud');
@@ -3017,6 +3017,15 @@ overlay.addEventListener('click', () => {
   SFX.init();
   /* Musik darf erst nach einer Nutzeraktion starten (Browser-Regel). */
   MUSIK.starte();
+  if (istTouch) {
+    /* Auf dem Handy gibt es keine Zeigersperre – dort startet das Spiel
+       direkt und die Bildschirmsteuerung übernimmt. */
+    touchAktiv = true;
+    overlay.style.display = 'none';
+    hud.style.display = 'block';
+    baueTouch();
+    return;
+  }
   renderer.domElement.requestPointerLock();
 });
 document.addEventListener('pointerlockchange', () => {
@@ -3065,6 +3074,10 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
+/* Bewegung kann von drei Quellen kommen: Tastatur, Gamepad-Stick und
+   dem Daumenknüppel auf dem Handy. Alle schreiben in dieselbe Achse. */
+const stick = { x: 0, z: 0 };
+
 function inputDir() {
   // Bewegungsrichtung relativ zur Kamera (Bodenebene)
   let fx = 0, fz = 0;
@@ -3072,11 +3085,170 @@ function inputDir() {
   if (keys['KeyS'] || keys['ArrowDown']) fz -= 1;
   if (keys['KeyA'] || keys['ArrowLeft']) fx -= 1;
   if (keys['KeyD'] || keys['ArrowRight']) fx += 1;
+  if (!fx && !fz) { fx = stick.x; fz = stick.z; }
   if (!fx && !fz) return null;
-  const len = Math.hypot(fx, fz); fx /= len; fz /= len;
+  const len = Math.hypot(fx, fz);
+  if (len > 1) { fx /= len; fz /= len; }
   const sin = Math.sin(camYaw), cos = Math.cos(camYaw);
   return { x: fz * -sin + fx * cos, z: fz * -cos - fx * sin };
 }
+
+/* ======================= Gamepad =======================
+   Standard-Belegung ("standard mapping"), funktioniert mit Xbox- und
+   PlayStation-Pads gleichermaßen. Die Tasten lösen genau dieselben
+   Funktionen aus wie die Tastatur. */
+const PAD_TASTEN = {
+  0: () => tryJump(),
+  1: () => dodge(),
+  2: () => tryAttack('punch'),
+  3: () => tryAttack('kick'),
+  4: () => webShot(),
+  5: () => webZip(),
+  6: () => uppercut(),
+  8: () => { if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); },
+  9: () => zeigeEinstellungen(settingsEl.style.display !== 'flex'),
+  11: () => packenUndWerfen(),
+};
+const padVorher = {};
+let padAktiv = false;
+
+function updateGamepad() {
+  if (!navigator.getGamepads) return;
+  let gp = null;
+  const liste = navigator.getGamepads();
+  for (let i = 0; i < liste.length; i++) if (liste[i] && liste[i].connected) { gp = liste[i]; break; }
+  if (!gp) { padAktiv = false; return; }
+  padAktiv = true;
+  const tot = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
+
+  const lx = tot(gp.axes[0] || 0), ly = tot(gp.axes[1] || 0);
+  if (lx || ly) { stick.x = lx; stick.z = -ly; }
+  else if (!zeigerStick) { stick.x = 0; stick.z = 0; }
+
+  /* Rechter Stick blickt um – wie die Maus, nur mit fester Rate. */
+  const rx = tot(gp.axes[2] || 0), ry = tot(gp.axes[3] || 0);
+  mouseDX += rx * 26; mouseDY += ry * 20;
+
+  const gedrueckt = (i) => {
+    const b = gp.buttons[i];
+    return !!b && (typeof b === 'object' ? b.pressed || b.value > 0.5 : b > 0.5);
+  };
+  for (const i in PAD_TASTEN) {
+    const jetzt = gedrueckt(i);
+    if (jetzt && !padVorher[i] && isActive()) PAD_TASTEN[i]();
+    padVorher[i] = jetzt;
+  }
+  /* Gehaltene Tasten: RT = Netzschwung, L3 = Sprint. */
+  swingHeld = swingHeld || gedrueckt(7);
+  if (!gedrueckt(7) && padSchwang) swingHeld = false;
+  padSchwang = gedrueckt(7);
+  padSprint = gedrueckt(10) || Math.hypot(lx, ly) > 0.92;
+}
+let padSchwang = false, padSprint = false;
+
+/* ======================= Touch-Steuerung (Handy/Tablet) =======================
+   Links ein Daumenknüppel zum Laufen, rechts wischt man für die Kamera,
+   dazu ein Kranz aus Knöpfen. Auf dem Handy gibt es keine Zeigersperre,
+   deshalb startet das Spiel dort ohne pointerLock. */
+const istTouch = (typeof window !== 'undefined') &&
+  (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 1) &&
+  window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+let touchSprint = false, touchAktiv = false;
+let zeigerStick = false;   // wahr, solange ein Finger den Knüppel hält
+
+function baueTouch() {
+  const wrap = document.getElementById('touch');
+  if (!wrap || !istTouch) return;
+  wrap.style.display = 'block';
+  document.body.classList.add('touch');
+
+  /* --- Knüppel links --- */
+  const pad = document.getElementById('tstick');
+  const knopf = document.getElementById('tstickKnopf');
+  let stickId = null, mx = 0, my = 0, r = 55;
+  function stickStart(t) {
+    const b = pad.getBoundingClientRect();
+    mx = b.left + b.width / 2; my = b.top + b.height / 2; r = b.width / 2;
+    stickId = t.identifier; zeigerStick = true; stickBewegen(t);
+  }
+  function stickBewegen(t) {
+    let dx = (t.clientX - mx) / r, dy = (t.clientY - my) / r;
+    const l = Math.hypot(dx, dy);
+    if (l > 1) { dx /= l; dy /= l; }
+    stick.x = dx; stick.z = -dy;
+    touchSprint = l > 0.85;
+    knopf.style.transform = `translate(${dx * r * 0.55}px, ${dy * r * 0.55}px)`;
+  }
+  function stickEnde() {
+    stickId = null; zeigerStick = false; touchSprint = false;
+    stick.x = 0; stick.z = 0; knopf.style.transform = 'translate(0,0)';
+  }
+
+  /* --- Kamera: Wischen auf der rechten Bildhälfte --- */
+  let kamId = null, kx = 0, ky = 0;
+
+  wrap.addEventListener('touchstart', (ev) => {
+    for (const t of ev.changedTouches) {
+      if (t.target.closest && t.target.closest('#tknoepfe')) continue;
+      if (stickId === null && t.clientX < window.innerWidth * 0.45) { stickStart(t); continue; }
+      if (kamId === null) { kamId = t.identifier; kx = t.clientX; ky = t.clientY; }
+    }
+    ev.preventDefault();
+  }, { passive: false });
+
+  wrap.addEventListener('touchmove', (ev) => {
+    for (const t of ev.changedTouches) {
+      if (t.identifier === stickId) stickBewegen(t);
+      else if (t.identifier === kamId) {
+        mouseDX += (t.clientX - kx) * 1.5; mouseDY += (t.clientY - ky) * 1.5;
+        kx = t.clientX; ky = t.clientY;
+      }
+    }
+    ev.preventDefault();
+  }, { passive: false });
+
+  const ende = (ev) => {
+    for (const t of ev.changedTouches) {
+      if (t.identifier === stickId) stickEnde();
+      if (t.identifier === kamId) kamId = null;
+    }
+  };
+  wrap.addEventListener('touchend', ende);
+  wrap.addEventListener('touchcancel', ende);
+
+  /* --- Knöpfe --- */
+  const TASTEN = {
+    tSchlag: () => tryAttack('punch'),
+    tTritt: () => tryAttack('kick'),
+    tSprung: () => tryJump(),
+    tNetz: () => webShot(),
+    tZip: () => webZip(),
+    tRolle: () => dodge(),
+    tHaken: () => uppercut(),
+    tWurf: () => packenUndWerfen(),
+    tHilfe: () => { if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); },
+  };
+  for (const id in TASTEN) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.addEventListener('touchstart', (ev) => { ev.preventDefault(); ev.stopPropagation(); TASTEN[id](); });
+  }
+  /* Netzschwung: gedrückt halten. */
+  const schwung = document.getElementById('tSchwung');
+  if (schwung) {
+    schwung.addEventListener('touchstart', (ev) => { ev.preventDefault(); ev.stopPropagation(); swingHeld = true; });
+    schwung.addEventListener('touchend', () => { swingHeld = false; });
+    schwung.addEventListener('touchcancel', () => { swingHeld = false; });
+  }
+  const menue = document.getElementById('tMenue');
+  if (menue) menue.addEventListener('touchstart', (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    zeigeEinstellungen(settingsEl.style.display !== 'flex');
+  });
+}
+
+/* Sprint kommt von Shift, vom Gamepad oder vom Sprintknopf am Bildschirm. */
+function sprintAn() { return !!(keys['ShiftLeft'] || keys['ShiftRight'] || padSprint || touchSprint); }
 
 /* ======================= Kamera ======================= */
 let camYaw = Math.PI * 0.85, camPitch = 0.22, camDist = 5.6, camShake = 0;
@@ -3976,7 +4148,7 @@ function updatePlayer(dt) {
     const tx = w.nz, tz = -w.nx;
     /* Wandlauf: mit Shift geht es die Fassade richtig hinauf statt zu
        kriechen – dafür gibt es seit mixamo-7 eine eigene Bewegung. */
-    const sprintWand = (keys['ShiftLeft'] || keys['ShiftRight']) && up > 0 && stufeFrei('wandlauf');
+    const sprintWand = sprintAn() && up > 0 && stufeFrei('wandlauf');
     const kTempo = CFG.climbSpeed * (sprintWand ? 2.7 : 1);
     player.wandlauf = sprintWand;
     player.vel.set(tx * side * kTempo, up * kTempo, tz * side * kTempo);
@@ -4159,7 +4331,7 @@ function updatePlayer(dt) {
   player.vel.y -= grav * dt;
 
   if (player.onGround && player.state !== 'swing') {
-    const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
+    const sprint = sprintAn();
     const speed = sprint ? CFG.sprintSpeed : CFG.runSpeed;
     if (player.dodgeT > 0) {
       player.dodgeT -= dt;
@@ -6585,6 +6757,7 @@ function updateKlang(dt) {
 }
 
 function simuliere(dt) {
+  updateGamepad();
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
   /* Zeitlupe nach einem geglückten Konter – der Moment soll sich groß
      anfühlen und man bekommt Zeit für den Gegenschlag. */
@@ -6648,6 +6821,9 @@ if (window.__WEBHERO_TEST__ === true) {
     get ruf() { return ruf; },
     addScore, hurtCivilian, ersteHilfe,
     musikStart() { MUSIK.starte(); },
+    get istTouch() { return istTouch; },
+    get touchAktiv() { return touchAktiv; },
+    stick,
     musikStatus() { return MUSIK.status(); },
     get kamPos() { return camera.position.clone(); },
     starteMission,
