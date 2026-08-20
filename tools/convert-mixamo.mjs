@@ -51,6 +51,12 @@ const ANIM_KEYWORDS = [
   /* Neue Sonderbewegungen zuerst – ihre Dateinamen enthalten sonst
      Wörter, die schon von allgemeineren Regeln gefangen würden
      ("Jump Attack" enthält "jump", "Hook Punch" enthält "punch"). */
+  /* mixamo-6: Kante und Festhalten. Beide Namen enthalten Wörter, die
+     weiter unten schon gefangen würden ("Climbing Ledge" -> climb,
+     "Hanging Idle" -> swing), deshalb stehen sie ganz oben. */
+  [/ledge|climb[ ._-]?to[ ._-]?top|mantle|clamber|hang[ ._-]?to[ ._-]?crouch/i, 'kante'],
+  [/hanging[ ._-]?idle|braced[ ._-]?hang[ ._-]?idle/i, 'haengen'],
+
   /* mixamo-5: Wandklettern und seitliches Ausweichen. Diese Namen enthalten
      Wörter, die weiter unten schon von allgemeineren Regeln gefangen würden
      ("Climbing Up Wall" und "Freehang Climb" landen beide auf "climb",
