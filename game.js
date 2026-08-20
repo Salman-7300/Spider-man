@@ -102,6 +102,9 @@ const SFX = (() => {
   }
   return {
     init: ac,
+    /* Für die Musik: laufender Kontext und die aktuelle Lautstärke. */
+    kontext: ac,
+    pegel() { return muted ? 0 : lautstaerke; },
     setLautstaerke(v) { lautstaerke = clamp(v, 0, 1); },
     toggleMute() { muted = !muted; return muted; },
     thwip() { noise(0.09, 0.1, 1800); tone(900, 0.12, 'square', 0.05, 0.3); },
@@ -115,6 +118,160 @@ const SFX = (() => {
     zip() { tone(500, 0.22, 'sine', 0.08, 2.2); },
     splash() { noise(0.4, 0.2, 200); },
     hupe() { tone(430, 0.28, 'square', 0.07); setTimeout(() => tone(360, 0.22, 'square', 0.06), 60); },
+  };
+})();
+
+/* ======================= Musik & Stadtklang =======================
+   Alles wird im Browser erzeugt – das Spiel soll ohne Downloads offline
+   laufen, deshalb keine MP3-Dateien. Zwei Schichten:
+   1. Stadtklang: dumpfes Verkehrsrauschen unten, Wind weit oben, dazu
+      gelegentlich eine Hupe oder eine ferne Sirene.
+   2. Musik: eine ruhige Schleife beim Streifzug, die im Kampf auf eine
+      schnellere Variante mit Schlagzeug umschaltet. */
+const MUSIK = (() => {
+  let c = null, bus = null, musikBus = null, stadtBus = null;
+  let rausch = null, rauschFilter = null, wind = null, windFilter = null;
+  let naechsterTakt = 0, takt = 0, an = false;
+  let intensitaetZiel = 0, intensitaet = 0;
+  let ereignisCd = 6;
+
+  /* a-Moll: ruhig, passt zu einer Stadt bei Regen wie bei Sonne. */
+  const GRUND = [110.00, 130.81, 146.83, 164.81];        // A2 C3 D3 E3
+  const SKALA = [220.00, 261.63, 293.66, 329.63, 392.00, 440.00, 523.25];
+
+  function dauerRauschen(sekunden) {
+    const n = Math.floor(c.sampleRate * sekunden);
+    const buf = c.createBuffer(1, n, c.sampleRate);
+    const d = buf.getChannelData(0);
+    let letzter = 0;
+    for (let i = 0; i < n; i++) {
+      const w = Math.random() * 2 - 1;
+      letzter = (letzter + 0.02 * w) / 1.02;   // braunes Rauschen: tiefer, weicher
+      d[i] = letzter * 3.5;
+    }
+    return buf;
+  }
+
+  function starte() {
+    c = SFX.kontext(); if (!c || an) return;
+    bus = c.createGain(); bus.gain.value = 0; bus.connect(c.destination);
+    musikBus = c.createGain(); musikBus.gain.value = 0.55; musikBus.connect(bus);
+    stadtBus = c.createGain(); stadtBus.gain.value = 0.0; stadtBus.connect(bus);
+
+    const buf = dauerRauschen(4);
+    rausch = c.createBufferSource(); rausch.buffer = buf; rausch.loop = true;
+    rauschFilter = c.createBiquadFilter();
+    rauschFilter.type = 'lowpass'; rauschFilter.frequency.value = 320;
+    const rg = c.createGain(); rg.gain.value = 0.9;
+    rausch.connect(rauschFilter); rauschFilter.connect(rg); rg.connect(stadtBus);
+    rausch.start();
+
+    wind = c.createBufferSource(); wind.buffer = buf; wind.loop = true;
+    windFilter = c.createBiquadFilter();
+    windFilter.type = 'bandpass'; windFilter.frequency.value = 700; windFilter.Q.value = 0.6;
+    const wg = c.createGain(); wg.gain.value = 0.0; wg.connect(stadtBus);
+    wind.connect(windFilter); windFilter.connect(wg);
+    wind.start();
+    wind.__g = wg;
+
+    naechsterTakt = c.currentTime + 0.1;
+    an = true;
+  }
+
+  function note(freq, zeit, dauer, typ, vol, ziel) {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = typ; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, zeit);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), zeit + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, zeit + dauer);
+    o.connect(g); g.connect(ziel || musikBus);
+    o.start(zeit); o.stop(zeit + dauer + 0.02);
+  }
+
+  function schlag(zeit, hp, vol, dauer) {
+    const n = Math.floor(c.sampleRate * dauer);
+    const b = c.createBuffer(1, n, c.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.5);
+    const s = c.createBufferSource(); s.buffer = b;
+    const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
+    const g = c.createGain(); g.gain.value = vol;
+    s.connect(f); f.connect(g); g.connect(musikBus);
+    s.start(zeit);
+  }
+
+  /* Ein Achtel pro Schritt; im Kampf schneller. */
+  function planeTakt(t) {
+    const stufe = intensitaet;
+    const akkord = GRUND[(takt >> 3) % GRUND.length];
+    const s16 = takt % 8;
+
+    if (s16 === 0) note(akkord * 0.5, t, 0.9, 'triangle', 0.16 + stufe * 0.06);
+    if (s16 === 0 || s16 === 3 || s16 === 6) note(akkord, t, 0.35, 'sawtooth', 0.045 + stufe * 0.03);
+
+    /* Melodieton – beim Streifzug nur sparsam, im Kampf auf jedem Achtel. */
+    if (stufe > 0.35 || s16 % 4 === 0) {
+      const idx = (takt * 3 + (takt >> 3)) % SKALA.length;
+      note(SKALA[idx] * (stufe > 0.5 ? 1 : 0.5), t, 0.22, 'square', 0.028 + stufe * 0.022);
+    }
+
+    if (stufe > 0.25) {
+      if (s16 === 0 || s16 === 4) schlag(t, 90, 0.22 * stufe, 0.16);       // Bass
+      if (s16 === 2 || s16 === 6) schlag(t, 900, 0.14 * stufe, 0.12);      // Snare
+      if (stufe > 0.6 && s16 % 2 === 1) schlag(t, 6000, 0.05 * stufe, 0.05); // Hi-Hat
+    }
+    takt++;
+  }
+
+  let modus = 'an';   // 'an' | 'stadt' | 'aus'
+  return {
+    starte,
+    /* 0 = Streifzug, 1 = Kampf. */
+    setIntensitaet(v) { intensitaetZiel = clamp(v, 0, 1); },
+    setModus(v) { modus = v || 'an'; },
+    status() { return { an, modus, intensitaet: +intensitaet.toFixed(2), takt,
+      bus: bus ? +bus.gain.value.toFixed(3) : null,
+      stadt: stadtBus ? +stadtBus.gain.value.toFixed(3) : null }; },
+    update(dt, hoehe, tempo01, regen) {
+      if (!an || !c) return;
+      intensitaet += (intensitaetZiel - intensitaet) * Math.min(1, dt * 1.2);
+
+      const p = modus === 'aus' ? 0 : SFX.pegel();
+      bus.gain.value = p * 0.85;
+      musikBus.gain.value = modus === 'an' ? 0.55 : 0;
+
+      /* Stadtklang: unten Verkehr, oben Wind. */
+      const obenAnteil = clamp((hoehe - 18) / 45, 0, 1);
+      stadtBus.gain.value = 0.55;
+      rauschFilter.frequency.value = 320 - obenAnteil * 200;
+      windFilter.frequency.value = 620 + tempo01 * 900;
+      wind.__g.gain.value = obenAnteil * 0.35 + tempo01 * 0.3 + (regen ? 0.12 : 0);
+
+      /* Ferne Geräusche der Stadt. */
+      ereignisCd -= dt;
+      if (ereignisCd <= 0) {
+        ereignisCd = rand(7, 20);
+        const t = c.currentTime;
+        if (Math.random() < 0.55) {
+          note(330 + rand(-30, 30), t, 0.3, 'square', 0.02 * (1 - obenAnteil), stadtBus);
+        } else {
+          /* Sirene: zwei abwechselnde Töne */
+          for (let i = 0; i < 6; i++) {
+            note(i % 2 ? 760 : 620, t + i * 0.45, 0.4, 'sine', 0.012 * (1 - obenAnteil), stadtBus);
+          }
+        }
+      }
+
+      /* Musikschleife im Voraus planen – nur wenn sie auch hörbar ist. */
+      if (modus !== 'an') { naechsterTakt = c.currentTime + 0.1; return; }
+      const schrittDauer = intensitaet > 0.35 ? 0.24 : 0.34;
+      let schutz = 0;
+      while (naechsterTakt < c.currentTime + 0.25 && schutz++ < 16) {
+        if (naechsterTakt < c.currentTime) naechsterTakt = c.currentTime + 0.02;
+        planeTakt(naechsterTakt);
+        naechsterTakt += schrittDauer;
+      }
+    },
   };
 })();
 
@@ -2858,6 +3015,8 @@ const helpBox = document.getElementById('help');
 
 overlay.addEventListener('click', () => {
   SFX.init();
+  /* Musik darf erst nach einer Nutzeraktion starten (Browser-Regel). */
+  MUSIK.starte();
   renderer.domElement.requestPointerLock();
 });
 document.addEventListener('pointerlockchange', () => {
@@ -2899,6 +3058,7 @@ document.addEventListener('keydown', (e) => {
     case 'Escape': zeigeEinstellungen(settingsEl.style.display !== 'flex'); break;
     case 'KeyR': uppercut(); break;
     case 'KeyG': packenUndWerfen(); break;
+    case 'KeyC': if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); break;
     case 'Enter': if (player.dead) respawn(); break;
   }
   if (e.code === 'Space') e.preventDefault();
@@ -3702,11 +3862,36 @@ function stufeFrei(name) {
   return true;
 }
 
+/* ======================= Ruf der Stadt =======================
+   Zivilisten waren bisher folgenlos: sie fielen um, standen wieder auf,
+   nichts passierte. Jetzt hat die Stadt ein Vertrauensmaß. Wer Passanten
+   schützt und Verletzte aufhilft, bekommt mehr Punkte; wer sie liegen
+   lässt, verliert Ansehen – und die Leute jubeln nicht mehr. */
+let ruf = 100;
+let rufMeldungCd = 0;
+
+function setzeRuf(delta, text, pos) {
+  const vorher = ruf;
+  ruf = clamp(ruf + delta, 0, 100);
+  if (Math.round(vorher) === Math.round(ruf)) return;
+  if (text && rufMeldungCd <= 0) {
+    popupWorld(text, pos || player.pos, delta > 0 ? '#8ef0a0' : '#ff9b9b');
+    rufMeldungCd = 0.8;
+  }
+  try { localStorage.setItem('webhero_ruf', String(Math.round(ruf))); } catch (e) {}
+  updateHUD();
+}
+
+/* Punktezuschlag: bei bestem Ruf 1,25×, bei ruiniertem Ruf 0,6×. */
+function rufFaktor() { return 0.6 + (ruf / 100) * 0.65; }
+
 function addScore(n, label, worldPos) {
+  if (n > 0) n = Math.round(n * rufFaktor());
   player.score += n;
   const neu = stufeFuer(player.score);
   if (neu !== stufe) wendeStufeAn(neu, true);
-  if (label) popupWorld(`${label} +${n}`, worldPos || player.pos, '#ffd23c');
+  if (label) popupWorld(`${label} ${n >= 0 ? '+' : ''}${n}`, worldPos || player.pos,
+    n >= 0 ? '#ffd23c' : '#ff9b9b');
   if (player.score > bestScore) {
     bestScore = player.score;
     try { localStorage.setItem('webhero_best', String(bestScore)); } catch (e) {}
@@ -4916,13 +5101,22 @@ function makeHandy() {
 const RUFE = ['Spider-Man!', 'Da ist er!', 'Danke!', 'Wahnsinn!', '📸'];
 
 function updateCivilians(dt) {
+  if (rufMeldungCd > 0) rufMeldungCd -= dt;
   for (const c of civilians) {
     if (c.savedCd > 0) c.savedCd -= dt;
     if (c.state === 'hurt') {
       c.hurtT -= dt;
       c.visual.root.position.copy(c.pos);
       c.visual.play('sit', { t: elapsed }, dt);
-      if (c.hurtT <= 0) { c.state = 'walk'; c.hp = 20; }
+      /* Ein Verletzter, dem niemand hilft, kostet weiter Ansehen. */
+      if (c.hilfeBar) {
+        setzeRuf(-0.35 * dt);
+        if (!c.kreuz) { c.kreuz = makeHilfeKreuz(); scene.add(c.kreuz); }
+        c.kreuz.visible = true;
+        c.kreuz.position.set(c.pos.x, c.pos.y + 1.9 + Math.sin(elapsed * 3) * 0.08, c.pos.z);
+      }
+      if (c.hurtT <= 0) { c.state = 'walk'; c.hp = 20; c.hilfeBar = false; }
+      if (!c.hilfeBar && c.kreuz) c.kreuz.visible = false;
       continue;
     }
     const threat = nearestThreatTo(c.pos, 13);
@@ -5025,7 +5219,7 @@ function updateCivilians(dt) {
     /* Im Stand hat jeder Zivilist seine eigene Beschäftigung – telefonieren,
        warten, sich umsehen. Vorher standen 22 Figuren in derselben Pose. */
     let zAnim;
-    if (c.gafft && !c.filmt && c.visual.hatClip && c.visual.hatClip('jubel')) zAnim = 'jubel';
+    if (c.gafft && !c.filmt && ruf > 45 && c.visual.hatClip && c.visual.hatClip('jubel')) zAnim = 'jubel';
     else if (speed > 0.1) zAnim = 'run';
     else zAnim = c.ruhePose || 'idle';
     c.visual.play(zAnim,
@@ -5040,10 +5234,52 @@ function hurtCivilian(c, attacker) {
   popupWorld('Hilfe!', c.pos, '#ff9b9b');
   if (c.hp <= 0) {
     c.state = 'hurt';
-    c.hurtT = 12;
+    /* Verletzte stehen nicht mehr von allein auf – sie warten auf Hilfe.
+       Erst nach einer langen Weile rappelt sich jemand selbst hoch. */
+    c.hurtT = 40;
+    c.hilfeBar = true;
+    setzeRuf(-6, 'Ruf −6', c.pos);
+    addScore(-40, 'Zivilist verletzt', c.pos);
+    SFX.hurt && SFX.hurt();
   } else {
     c.state = 'flee'; c.fleeT = 4;
+    setzeRuf(-1);
   }
+}
+
+/* Ein rotes Kreuz über Verletzten – sonst findet man sie in der Stadt nicht. */
+let kreuzMat = null;
+function makeHilfeKreuz() {
+  if (!kreuzMat) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = '#e0202c'; g.fillRect(26, 10, 12, 44); g.fillRect(10, 26, 44, 12);
+    const t = new THREE.CanvasTexture(cv);
+    kreuzMat = new THREE.SpriteMaterial({ map: t, transparent: true, depthTest: false });
+  }
+  const s = new THREE.Sprite(kreuzMat);
+  s.scale.set(0.55, 0.55, 0.55);
+  s.renderOrder = 20;
+  return s;
+}
+
+/* Erste Hilfe: nahe an einem Verletzten die Taste C drücken. */
+function ersteHilfe() {
+  let ziel = null, best = 3.2;
+  for (const c of civilians) {
+    if (c.state !== 'hurt' || !c.hilfeBar) continue;
+    const d = Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z);
+    if (d < best) { best = d; ziel = c; }
+  }
+  if (!ziel) return false;
+  ziel.state = 'walk'; ziel.hurtT = 0; ziel.hp = 20;
+  ziel.hilfeBar = false; ziel.savedCd = 12;
+  if (ziel.kreuz) ziel.kreuz.visible = false;
+  ziel.ruhePose = 'jubel'; ziel.poseT = 2.5;
+  setzeRuf(+9, 'Ruf +9', ziel.pos);
+  addScore(120, 'Erste Hilfe geleistet!', ziel.pos);
+  return true;
 }
 
 /* ======================= Gegner (Gangs) ======================= */
@@ -5545,6 +5781,7 @@ function checkCivilianSaved(deadEnemy) {
     if (d < 12 && (c.state === 'flee' || c.state === 'hurt')) {
       if (!nearestThreatTo(c.pos, 12)) {
         c.savedCd = 20;
+        setzeRuf(+3, null, c.pos);
         addScore(100, 'Zivilist gerettet!', c.pos);
       }
     }
@@ -6152,7 +6389,7 @@ function updateMission(dt) {
 /* ======================= Einstellungen =======================
    Mausempfindlichkeit, Lautstärke und Grafikstufe waren fest verdrahtet.
    Alles ist jetzt über Esc erreichbar und wird im Browser gespeichert. */
-const EINST = { maus: 100, ton: 70, grafik: 'hoch' };
+const EINST = { maus: 100, ton: 70, grafik: 'hoch', musik: 'an' };
 try {
   const g = JSON.parse(localStorage.getItem('webhero_einst') || 'null');
   if (g) Object.assign(EINST, g);
@@ -6173,7 +6410,10 @@ function wendeGrafikAn() {
   LOD_WEITE = stufeG === 'niedrig' ? 70 : (stufeG === 'mittel' ? 100 : 130);
   if (regenPunkte) regenPunkte.visible = REGEN.erlaubt && REGEN.staerke > 0.02;
 }
-function wendeTonAn() { if (SFX.setLautstaerke) SFX.setLautstaerke(EINST.ton / 100); }
+function wendeTonAn() {
+  if (SFX.setLautstaerke) SFX.setLautstaerke(EINST.ton / 100);
+  MUSIK.setModus(EINST.musik);
+}
 
 function zeigeEinstellungen(an) {
   settingsEl.style.display = an ? 'flex' : 'none';
@@ -6183,20 +6423,25 @@ function zeigeEinstellungen(an) {
   const maus = document.getElementById('setMaus');
   const ton = document.getElementById('setTon');
   const graf = document.getElementById('setGrafik');
+  const mus = document.getElementById('setMusik');
   const wMaus = document.getElementById('wMaus');
   const wTon = document.getElementById('wTon');
   if (!maus) return;
   maus.value = EINST.maus; ton.value = EINST.ton; graf.value = EINST.grafik;
+  if (mus) mus.value = EINST.musik;
   const zeige = () => { wMaus.textContent = EINST.maus + '%'; wTon.textContent = EINST.ton + '%'; };
   zeige();
   maus.addEventListener('input', () => { EINST.maus = +maus.value; zeige(); einstSpeichern(); });
   ton.addEventListener('input', () => { EINST.ton = +ton.value; zeige(); wendeTonAn(); einstSpeichern(); });
   graf.addEventListener('change', () => { EINST.grafik = graf.value; wendeGrafikAn(); einstSpeichern(); });
+  if (mus) mus.addEventListener('change', () => { EINST.musik = mus.value; wendeTonAn(); einstSpeichern(); });
   document.getElementById('setZu').addEventListener('click', () => zeigeEinstellungen(false));
   document.getElementById('setReset').addEventListener('click', () => {
     try { localStorage.removeItem('webhero_stand'); localStorage.removeItem('webhero_best'); } catch (e) {}
-    player.score = 0; bestScore = 0; wendeStufeAn(0, false);
+    try { localStorage.removeItem('webhero_ruf'); } catch (e) {}
+    player.score = 0; bestScore = 0; ruf = 100; wendeStufeAn(0, false);
     popupScreen('Fortschritt zurückgesetzt');
+    updateHUD();
   });
 })();
 
@@ -6208,6 +6453,7 @@ const speedEl = document.getElementById('speed');
 const comboEl = document.getElementById('combo');
 const comboNEl = document.getElementById('comboN');
 const objectiveEl = document.getElementById('objective');
+const rufEl = document.getElementById('ruf');
 const vignetteEl = document.getElementById('vignette');
 
 let bestScore = 0;
@@ -6221,6 +6467,10 @@ try {
     player.hp = CFG.playerHP;
   }
 } catch (e) {}
+try {
+  const r = parseFloat(localStorage.getItem('webhero_ruf'));
+  if (isFinite(r)) ruf = clamp(r, 0, 100);
+} catch (e) {}
 
 function updateHUD() {
   hpbarEl.style.width = `${clamp(player.hp / CFG.playerHP * 100, 0, 100)}%`;
@@ -6230,6 +6480,10 @@ function updateHUD() {
   bestEl.innerHTML = `Stufe ${stufe + 1} · ${s.text}` +
     (naechste ? ` <small style="opacity:.7">(${naechste.punkte - player.score} bis Stufe ${stufe + 2})</small>` : '') +
     (bestScore > 0 ? `<br>Rekord: ${bestScore}` : '');
+  const rr = Math.round(ruf);
+  const rufFarbe = rr >= 70 ? '#8ef0a0' : (rr >= 40 ? '#ffd23c' : '#ff7b7b');
+  rufEl.innerHTML = `Ruf der Stadt <b style="color:${rufFarbe}">${rr}%</b>` +
+    `<span class="rufbalken"><i style="width:${rr}%;background:${rufFarbe}"></i></span>`;
   if (player.combo >= 2) {
     comboEl.style.opacity = 1;
     comboNEl.textContent = `${player.combo}×`;
@@ -6313,6 +6567,23 @@ function animate() {
    Darstellung sonst mit wenigen Bildern pro Sekunde und jede Messung, die
    von der Zeit abhängt, wird unbrauchbar. */
 let zeitlupe = 0;
+/* Musikstimmung: sobald Gegner den Helden verfolgen, wird es lauter und
+   schneller; nach dem Kampf beruhigt sich alles wieder von allein. */
+function updateKlang(dt) {
+  let kampf = 0;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    if (d < 26 && (e.target === 'player' || e.state === 'chase' || e.state === 'attack')) {
+      kampf = Math.max(kampf, d < 12 ? 1 : 0.6);
+    }
+  }
+  if (MISSION.art && kampf < 0.45) kampf = Math.max(kampf, 0.4);
+  MUSIK.setIntensitaet(kampf);
+  const tempo = Math.hypot(player.vel.x, player.vel.z, player.vel.y);
+  MUSIK.update(dt, player.pos.y, clamp((tempo - 12) / 26, 0, 1), REGEN.staerke > 0.3);
+}
+
 function simuliere(dt) {
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
   /* Zeitlupe nach einem geglückten Konter – der Moment soll sich groß
@@ -6330,6 +6601,7 @@ function simuliere(dt) {
   updateCamera(dt);
   updateEffekte(dt);
   updateKlatscher(dt);
+  updateKlang(dt);
 
   // Wasser-Animation
   if (waterMesh) waterTex.offset.x = elapsed * 0.015;
@@ -6373,7 +6645,10 @@ if (window.__WEBHERO_TEST__ === true) {
     schritt(dt, n) { for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60); },
     get mission() { return MISSION; },
     get stufe() { return stufe; },
-    addScore,
+    get ruf() { return ruf; },
+    addScore, hurtCivilian, ersteHilfe,
+    musikStart() { MUSIK.starte(); },
+    musikStatus() { return MUSIK.status(); },
     get kamPos() { return camera.position.clone(); },
     starteMission,
   };

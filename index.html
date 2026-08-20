@@ -20,6 +20,10 @@
     transition:width .15s ease; }
   #score { margin-top:8px; font-size:20px; font-weight:700; text-shadow:0 2px 6px #000; }
   #best { font-size:13px; opacity:.75; text-shadow:0 1px 4px #000; }
+  #ruf { margin-top:6px; font-size:13px; opacity:.9; text-shadow:0 1px 4px #000; }
+  #ruf .rufbalken { display:inline-block; width:80px; height:6px; margin-left:6px;
+    border-radius:3px; background:rgba(255,255,255,.18); vertical-align:middle; overflow:hidden; }
+  #ruf .rufbalken i { display:block; height:100%; border-radius:3px; transition:width .3s; }
 
   #combo { position:absolute; right:26px; top:90px; text-align:right;
     font-size:34px; font-weight:800; color:#ffd23c; text-shadow:0 2px 8px #000;
@@ -143,12 +147,13 @@
     <div id="hpwrap"><div id="hpbar"></div></div>
     <div id="score">Punkte: 0</div>
     <div id="best"></div>
+    <div id="ruf"></div>
   </div>
   <div id="combo"><span id="comboN">0</span><small>KOMBO</small></div>
   <div id="objective"></div>
   <div id="crosshair"></div>
   <div id="speed"></div>
-  <div id="hint">H – Hilfe · M – Ton · Esc – Pause</div>
+  <div id="hint">H – Hilfe · C – Erste Hilfe · M – Ton · Esc – Einstellungen</div>
   <div id="help">
     <b>W A S D</b> Laufen / Klettern<br>
     <b>Shift</b> Sprinten<br>
@@ -156,11 +161,15 @@
     <b>Leertaste / RMT halten</b> Netzschwung in der Luft<br>
     <b>Linksklick</b> Schlag-Kombo<br>
     <b>F</b> Tritt (mehr Schaden)<br>
+    <b>R</b> Aufwärtshaken – schleudert Gegner hoch (ab Stufe 2)<br>
+    <b>G</b> Packen &amp; Werfen (ab Stufe 3)<br>
     <b>Q</b> Netzschuss – wickelt Gegner ein<br>
     <b>E</b> Netz-Zip nach vorn / zu Gegnern<br>
-    <b>Strg</b> Ausweichrolle (unverwundbar)<br>
-    <b>An Wänden</b> automatisch klettern, Leertaste = Absprung<br>
-    <b>R</b> Zurück zum Startpunkt
+    <b>Strg</b> Ausweichrolle – im richtigen Moment: Spinnensinn-Konter<br>
+    <b>C</b> Erste Hilfe bei Verletzten (rotes Kreuz)<br>
+    <b>An Wänden</b> automatisch klettern, <b>Shift</b> = Wandlauf (ab Stufe 4)<br>
+    <b>Leertaste an der Wand</b> Absprung<br>
+    <b>Enter</b> Zurück zum Startpunkt (nach K.o.)
   </div>
   <div id="vignette"></div>
 </div>
@@ -172,6 +181,12 @@
       <input id="setMaus" type="range" min="30" max="260" step="5"><span class="wert" id="wMaus"></span></div>
     <div class="zeile"><span>Lautstärke</span>
       <input id="setTon" type="range" min="0" max="100" step="5"><span class="wert" id="wTon"></span></div>
+    <div class="zeile"><span>Musik</span>
+      <select id="setMusik">
+        <option value="an">An – Stadtklang und Musik</option>
+        <option value="stadt">Nur Stadtklang</option>
+        <option value="aus">Aus</option>
+      </select></div>
     <div class="zeile"><span>Grafik</span>
       <select id="setGrafik">
         <option value="hoch">Hoch – Schatten, Regen, weite Sicht</option>
