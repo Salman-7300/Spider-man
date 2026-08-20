@@ -1632,6 +1632,56 @@ function makeGlbVisual(m) {
   const _qd = new THREE.Quaternion(), _ed = new THREE.Euler();
   const _vw1 = new THREE.Vector3(), _vw2 = new THREE.Vector3();
   const _vw3 = new THREE.Vector3(), _vw4 = new THREE.Vector3();
+  const _hf = new THREE.Vector3(), _hs = new THREE.Vector3(), _hp = new THREE.Vector3();
+  const _fh = new THREE.Vector3();
+  const _mA = new THREE.Matrix4(), _mB = new THREE.Matrix4();
+
+  /* Eigenachsen der Hände aus der Bindehaltung ablesen: wohin zeigen die
+     Finger, wohin die Handfläche? Ohne das lässt sich die Hand nicht
+     gezielt auf eine Wand legen – die Ziel-Kinematik dreht den Unterarm
+     zwar zur Wand, die Drehung UM den Arm bleibt dabei aber frei. Genau
+     deshalb zeigten beim Klettern beide Handflächen nach außen. */
+  const handBasis = {};
+  (() => {
+    inner.updateMatrixWorld(true);
+    const q = new THREE.Quaternion();
+    for (const seite of ['left', 'right']) {
+      const hand = knochen[seite + 'hand'];
+      const mitte = knochen[seite + 'handmiddle1'];
+      const zeige = knochen[seite + 'handindex1'];
+      const klein = knochen[seite + 'handpinky1'];
+      if (!hand || !mitte || !zeige || !klein) continue;
+      const finger = mitte.position.clone().normalize();
+      const spreiz = klein.position.clone().sub(zeige.position).normalize();
+      const flaeche = new THREE.Vector3().crossVectors(finger, spreiz).normalize();
+      /* In der Bindehaltung zeigen die Handflächen nach unten – daran
+         lässt sich das Vorzeichen festmachen. */
+      hand.getWorldQuaternion(q);
+      if (flaeche.clone().applyQuaternion(q).y > 0) flaeche.negate();
+      const quer = new THREE.Vector3().crossVectors(flaeche, finger).normalize();
+      handBasis[seite] = { finger, quer, flaeche };
+    }
+  })();
+
+  /* Hand so drehen, dass die Finger in fingerWelt zeigen und die
+     Handfläche in flaecheWelt (also flach auf der Wand liegt). */
+  function setzeHand(seite, fingerWelt, flaecheWelt, k) {
+    const hb = handBasis[seite];
+    const hand = knochen[seite + 'hand'];
+    if (!hb || !hand) return;
+    hand.updateMatrixWorld(true);
+    _hp.copy(flaecheWelt).normalize();
+    _hf.copy(fingerWelt).addScaledVector(_hp, -_hf.dot(_hp));
+    if (_hf.lengthSq() < 1e-6) return;
+    _hf.normalize();
+    _hs.crossVectors(_hp, _hf).normalize();
+    _mA.makeBasis(hb.finger, hb.quer, hb.flaeche).transpose();
+    _mB.makeBasis(_hf, _hs, _hp).multiply(_mA);
+    _q.setFromRotationMatrix(_mB);
+    hand.parent.getWorldQuaternion(_q2);
+    _q2.invert().multiply(_q);
+    hand.quaternion.slerp(_q2, clamp(k, 0, 1));
+  }
   /* Knochen zur Ruhelage ziehen und von dort um kleine Winkel auslenken. */
   function drehZuRuhe(bone, ax, ay, az, k) {
     if (!bone) return;
@@ -1672,7 +1722,7 @@ function makeGlbVisual(m) {
     /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen.
        Die Beine werden vollständig gesetzt (nicht angenähert) – sonst kämpft
        die laufende Geh-Animation dagegen an und die Beine zappeln. */
-    poseSchwung(zielWelt, seite, t) {
+    poseSchwung(zielWelt, seite, t, bogen) {
       const gross = seite === 'L' ? 'leftarm' : 'rightarm';
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
       const andere = seite === 'L' ? 'rightarm' : 'leftarm';
@@ -1691,16 +1741,32 @@ function makeGlbVisual(m) {
          pfuschen (halbes Gewicht, kleine Ausschläge). */
       const takt = Math.sin((t || 0) * 2.3);
       const k = 0.9;
+      /* lage: -1 = es geht abwärts in den Bogen hinein, +1 = es geht wieder
+         hinauf. Am tiefsten Punkt zieht man die Beine an, oben streckt man
+         sie nach vorn – erst dadurch wirkt der Schwung gelöst statt wie
+         eine an einem Faden hängende Puppe. */
+      const lage = clamp(bogen === undefined ? 0 : bogen, -1, 1);
+      const anziehen = 1 - Math.abs(lage);          // 1 am Tiefpunkt
+      const strecken = Math.max(0, lage);           // 1 im Aufstieg
       /* Am Netz hing die Figur bisher kerzengerade – das wirkte steif wie
          eine Puppe. Jetzt sind die Beine deutlich angewinkelt und laufen
          nach hinten aus, die Knie schwingen gegenläufig mit dem Pendel und
          der Rumpf legt sich nach vorn in den Bogen. */
-      drehZuRuhe(knochen.leftupleg, 0.06 + takt * 0.30, 0, 0, k);
-      drehZuRuhe(knochen.rightupleg, 0.10 - takt * 0.30, 0, 0, k);
-      drehZuRuhe(knochen.leftleg, 0.95 - takt * 0.28, 0, 0, k);
-      drehZuRuhe(knochen.rightleg, 0.78 + takt * 0.28, 0, 0, k);
-      drehe(knochen.spine1, 0.17 + takt * 0.05, 0, 0, 0.45);
-      drehe(knochen.spine, 0.10, 0, 0, 0.35);
+      const hueft = 0.10 - anziehen * 0.55 - strecken * 0.35;
+      const knie = 0.55 + anziehen * 0.95 - strecken * 0.30;
+      drehZuRuhe(knochen.leftupleg, hueft + takt * 0.34, 0, 0, k);
+      drehZuRuhe(knochen.rightupleg, hueft + 0.06 - takt * 0.34, 0, 0, k);
+      drehZuRuhe(knochen.leftleg, knie - takt * 0.30, 0, 0, k);
+      drehZuRuhe(knochen.rightleg, knie - 0.14 + takt * 0.30, 0, 0, k);
+      /* Rumpf: am Tiefpunkt eingerollt, im Aufstieg aufgerichtet, dazu
+         eine leichte Drehung zum Netzarm hin. */
+      drehe(knochen.spine1, 0.10 + anziehen * 0.22 - strecken * 0.16,
+            (seite === 'L' ? 0.12 : -0.12) + takt * 0.05, 0, 0.5);
+      drehe(knochen.spine, 0.06 + anziehen * 0.12, seite === 'L' ? 0.08 : -0.08, 0, 0.4);
+      /* Der freie Arm schwingt weit aus – nicht angelegt wie im Stillstand. */
+      drehe(knochen[andere], -0.55 + wiegen * 2.2 - strecken * 0.5, 0,
+            seite === 'L' ? -0.95 : 0.95, 0.7);
+      drehe(knochen[andereK], -0.35 - anziehen * 0.5, 0, 0, 0.7);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -1831,6 +1897,10 @@ function makeGlbVisual(m) {
       zieleKnochen(knochen.rightupleg, knochen.rightleg, _vw4, k);
       punkt(_vw4, 0.44, 0.22 + g * 0.16, 0.13);
       zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
+      /* Handflächen flach auf die Fassade, Finger nach oben-außen. */
+      _vw3.copy(rein);
+      setzeHand('left', _fh.set(0, 1, 0).addScaledVector(rechts, -0.3), _vw3, 0.9);
+      setzeHand('right', _fh.set(0, 1, 0).addScaledVector(rechts, 0.3), _vw3, 0.9);
       // Kopf hebt sich, der Blick geht nach oben
       drehZuRuhe(knochen.head, -0.35, 0, 0, k * 0.8);
     },
@@ -3318,6 +3388,28 @@ function updatePlayer(dt) {
     const tx = w.nz, tz = -w.nx;
     player.vel.set(tx * side * CFG.climbSpeed, up * CFG.climbSpeed, tz * side * CFG.climbSpeed);
     player.pos.addScaledVector(player.vel, dt);
+    /* Am Rand der Wand um die Ecke wechseln. Vorher wurde die Figur dort
+       einfach festgehalten – an jeder Hauskante war Schluss. */
+    if (side !== 0) {
+      const rand = 0.25;
+      let neuNx = 0, neuNz = 0;
+      if (w.nx !== 0) {
+        if (player.pos.z < c.z0 + rand) neuNz = -1;
+        else if (player.pos.z > c.z1 - rand) neuNz = 1;
+      } else {
+        if (player.pos.x < c.x0 + rand) neuNx = -1;
+        else if (player.pos.x > c.x1 - rand) neuNx = 1;
+      }
+      if (neuNx !== 0 || neuNz !== 0) {
+        player.wallInfo = player.wall = { nx: neuNx, nz: neuNz, col: c };
+        if (neuNx !== 0) player.pos.x = (neuNx > 0 ? c.x1 : c.x0) + neuNx * CFG.climbGap;
+        else player.pos.z = (neuNz > 0 ? c.z1 : c.z0) + neuNz * CFG.climbGap;
+        // knapp hinter die Kante setzen, damit man nicht sofort zurückspringt
+        if (neuNx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.35, c.z1 - 0.35);
+        else player.pos.x = clamp(player.pos.x, c.x0 + 0.35, c.x1 - 0.35);
+        SFX.swoosh();
+      }
+    }
     // seitlich begrenzen
     if (w.nx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.2, c.z1 - 0.2);
     else player.pos.x = clamp(player.pos.x, c.x0 + 0.2, c.x1 - 0.2);
@@ -3330,7 +3422,7 @@ function updatePlayer(dt) {
        einfach aufs Dach versetzt und nach oben geschleudert; jetzt läuft
        dafür eine eigene Bewegung ab und der Körper wandert währenddessen
        auf die Dachfläche. */
-    if (player.pos.y + 1.3 > c.h && up > 0) {
+    if (player.pos.y + 1.75 > c.h && up > 0) {
       const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
       const ziel = V3(
         player.pos.x - w.nx * (player.radius + 0.75),
@@ -3695,7 +3787,8 @@ function updateHeroVisual(dt) {
          haben hier wiederholt für schiefe Haltungen gesorgt. */
       heroVisual.bodenAusgleich(1);
     } else if (player.state === 'swing' && player.swing) {
-      heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed);
+      heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
+                             clamp(player.vel.y * 0.09, -1, 1));
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
@@ -4692,6 +4785,7 @@ function spawnGang(cx, cz, n) {
       facing: rand(0, TAU),
       phase: rand(0, TAU),
       typ, warn, blockZ,
+      umwegT: 0, umwegSeite: 1, blockiertT: 0,
       hp: typ.hp, hpMax: typ.hp,
       blockT: 0, blockCd: rand(1, 4), warnT: 0,
       state: 'patrol',
@@ -4997,7 +5091,10 @@ function updateEnemies(dt) {
       if (e.warnT <= 0) {
         e.warn.visible = false;
         e.attack = { type: 'thugSwing', t: 0, hitDone: false };
-        e.attackCd = rand(0.9, 1.5);
+        /* Enger Abstand heißt auch: es trifft öfter. Die Pause zwischen
+           zwei Schlägen wird dafür wieder etwas länger, sonst nimmt ein
+           einzelner Ganove in zehn Sekunden fast die ganze Lebensleiste. */
+        e.attackCd = rand(1.3, 2.1);
         e.visual.attackOneShot();
       }
     } else if (e.warn) e.warn.visible = false;
@@ -5050,9 +5147,31 @@ function updateEnemies(dt) {
     }
 
     if (e.webT > 0) speed *= 0.35;      // im Netz zappelnd, kaum vorwärts
+    /* Blockiert eine Hauswand den direkten Weg, wird eine Weile seitlich
+       daran entlanggelaufen. Vorher rannten die Ganoven stur gegen die
+       Fassade – von außen sah es aus, als liefen sie ins Haus hinein. */
+    if (e.umwegT > 0) {
+      e.umwegT -= dt;
+      const qx = -moveZ * e.umwegSeite, qz = moveX * e.umwegSeite;
+      moveX = moveX * 0.35 + qx * 0.95;
+      moveZ = moveZ * 0.35 + qz * 0.95;
+      const l = Math.hypot(moveX, moveZ) || 1;
+      moveX /= l; moveZ /= l;
+    }
     e.vel.x = moveX * speed; e.vel.z = moveZ * speed;
+    const vorX = e.pos.x, vorZ = e.pos.z;
     e.pos.x += e.vel.x * dt; e.pos.z += e.vel.z * dt;
     collideBody(e);
+    if (speed > 0.5 && e.umwegT <= 0) {
+      const gewollt = speed * dt;
+      const echt = Math.hypot(e.pos.x - vorX, e.pos.z - vorZ);
+      e.blockiertT = echt < gewollt * 0.45 ? (e.blockiertT || 0) + dt : 0;
+      if (e.blockiertT > 0.35) {
+        e.umwegT = rand(1.2, 2.2);
+        e.umwegSeite = Math.random() < 0.5 ? 1 : -1;
+        e.blockiertT = 0;
+      }
+    }
     /* Höhe weich nachführen: bei Bordsteinkanten sonst sichtbares Springen,
        und niemals unter den Boden. */
     e.pos.y = lerp(e.pos.y, groundY(e.pos.x, e.pos.z), Math.min(1, dt * 12));
