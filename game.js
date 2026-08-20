@@ -332,6 +332,10 @@ if (typeof window !== "undefined") window.__setzeZeit = (t) => { TAG.zeit = t; }
    Punktobjekt, das um die Kamera herum mitwandert – dadurch kostet der
    ganze Regen nur einen Zeichenaufruf. */
 const REGEN = { an: false, staerke: 0, naechsterWechsel: 70, erlaubt: true };
+/* Material der Fahrbahn – bei Regen wird der Asphalt dunkler und wirkt nass. */
+let strassenMat = null;
+/* Gullis, aus denen Dampf steigt – wird beim Stadtbau gefüllt. */
+const DAMPF_STELLEN = [];
 /* Ab welcher Entfernung Figuren nicht mehr animiert werden – hängt an der
    Grafikstufe in den Einstellungen. */
 let LOD_WEITE = 130;
@@ -812,6 +816,7 @@ function buildCity() {
   ground.position.set(-7, 0, 0);
   ground.receiveShadow = true;
   cityGroup.add(ground);
+  strassenMat = ground.material;
 
   /* Fahrbahnmarkierungen. Sie gehen ins gemeinsame Sammel-Mesh: einzeln
      gezeichnet waren das über 500 Zeichenaufrufe allein für die Striche –
@@ -865,6 +870,18 @@ function buildCity() {
       if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz - size / 2 + 1);
       /* U-Bahn-Eingang an jeder dritten Blockecke. */
       if ((bi * 3 + bj) % 7 === 0) baueUBahn(cx - size / 2 + 4, cz - size / 2 + 2.5);
+    }
+  }
+
+  /* Gullis auswählen und ihre Deckel setzen – der Dampf selbst entsteht
+     später, wenn alle Hilfsmittel geladen sind. */
+  for (let i = 0; i <= BLOCKS; i++) {
+    for (let j = 0; j <= BLOCKS; j++) {
+      if ((i * 5 + j) % 4 !== 0) continue;
+      const gx = ORIGIN + i * PITCH + rand(-2.5, 2.5);
+      const gz = ORIGIN + j * PITCH + rand(-2.5, 2.5);
+      DAMPF_STELLEN.push({ x: gx, z: gz, y: 0 });
+      deko(1.5, 0.05, 1.0, gx, 0.03, gz, 0x2a2d33);
     }
   }
 
@@ -3668,6 +3685,7 @@ function camForward() {
   return _v3.set(-Math.sin(camYaw), 0, -Math.cos(camYaw)).normalize().clone();
 }
 
+let camRoll = 0;
 function updateCamera(dt) {
   const emp = 0.0023 * (EINST.maus / 100);
   camYaw -= mouseDX * emp;
@@ -3718,6 +3736,23 @@ function updateCamera(dt) {
     camShake = Math.max(0, camShake - dt * 1.6);
   }
   camera.lookAt(target);
+
+  /* Kameraneigung: Beim Schwingen legt sich das Bild in die Kurve, beim
+     schnellen Fallen kippt es leicht mit. Das ist der Unterschied zwischen
+     "Figur pendelt" und "ich schwinge da durch". */
+  let rollZiel = 0;
+  if (player.state === 'swing' && player.swing) {
+    /* Seitliche Beschleunigung: Geschwindigkeit quer zur Blickrichtung. */
+    const f = _v1.set(Math.sin(camYaw), 0, Math.cos(camYaw));
+    const quer = player.vel.x * f.z - player.vel.z * f.x;
+    rollZiel = clamp(-quer / 26, -0.42, 0.42);
+    /* Zusätzlich in die Richtung des Netzarms kippen. */
+    rollZiel += (player.swing.hand === 'L' ? 0.07 : -0.07);
+  } else if (!player.onGround) {
+    rollZiel = clamp(-player.vel.y / 160, -0.09, 0.09);
+  }
+  camRoll = lerp(camRoll, rollZiel, Math.min(1, dt * 3.5));
+  if (Math.abs(camRoll) > 0.001) camera.rotateZ(camRoll);
 
   // Sonne folgt dem Spieler (Schattenausschnitt)
   sun.position.copy(player.pos).addScaledVector(SONNE_RICHTUNG, 150);
@@ -4452,7 +4487,11 @@ function stufeFrei(name) {
 let ruf = 100;
 let rufMeldungCd = 0;
 
-function setzeRuf(delta, text, pos) {
+/* boden: Abzüge aus dieser Quelle wirken nur, solange der Ruf darüber
+   liegt. Ohne diese Grenze zieht eine unbeaufsichtigte Stadt den Ruf
+   binnen weniger Minuten auf null und er kommt nie wieder hoch. */
+function setzeRuf(delta, text, pos, boden) {
+  if (delta < 0 && boden !== undefined && ruf <= boden) return;
   const vorher = ruf;
   ruf = clamp(ruf + delta, 0, 100);
   if (Math.round(vorher) === Math.round(ruf)) return;
@@ -5715,15 +5754,21 @@ const RUFE = ['Spider-Man!', 'Da ist er!', 'Danke!', 'Wahnsinn!', '📸'];
 
 function updateCivilians(dt) {
   if (rufMeldungCd > 0) rufMeldungCd -= dt;
+  /* Wie viele Verletzte gerade unversorgt herumliegen – davon hängt ab,
+     ob der Ruf sinkt oder sich langsam wieder erholt. */
+  let liegen = 0;
   for (const c of civilians) {
     if (c.savedCd > 0) c.savedCd -= dt;
     if (c.state === 'hurt') {
       c.hurtT -= dt;
       c.visual.root.position.copy(c.pos);
       c.visual.play('sit', { t: elapsed }, dt);
-      /* Ein Verletzter, dem niemand hilft, kostet weiter Ansehen. */
+      /* Ein Verletzter, dem niemand hilft, kostet weiter Ansehen – aber
+         nur mäßig und nicht pro Person aufaddiert, sonst ist der Ruf nach
+         einer einzigen verpatzten Schlägerei dauerhaft ruiniert. */
       if (c.hilfeBar) {
-        setzeRuf(-0.35 * dt);
+        liegen++;
+        if (liegen === 1) setzeRuf(-0.22 * dt, null, null, 30);
         if (!c.kreuz) { c.kreuz = makeHilfeKreuz(); scene.add(c.kreuz); }
         c.kreuz.visible = true;
         c.kreuz.position.set(c.pos.x, c.pos.y + 1.9 + Math.sin(elapsed * 3) * 0.08, c.pos.z);
@@ -5854,6 +5899,13 @@ function updateCivilians(dt) {
     if (haltenImGebiet(c.pos)) c.waypoint = null;
     if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
   }
+
+  /* Liegt niemand mehr verletzt herum und läuft kein Auftrag ins Leere,
+     erholt sich der Ruf langsam von selbst – bis 65 %. Alles darüber muss
+     man sich mit Rettungen und erledigten Aufträgen verdienen. */
+  /* Erholung läuft auch dann weiter, wenn jemand liegt – nur langsamer.
+     Sonst bleibt der Ruf in einer belebten Stadt dauerhaft am Boden. */
+  if (ruf < 65) setzeRuf(Math.min(0.9, 65 - ruf) * dt * (liegen === 0 ? 0.25 : 0.06));
 }
 
 function hurtCivilian(c, attacker) {
@@ -5865,12 +5917,12 @@ function hurtCivilian(c, attacker) {
        Erst nach einer langen Weile rappelt sich jemand selbst hoch. */
     c.hurtT = 40;
     c.hilfeBar = true;
-    setzeRuf(-6, 'Ruf −6', c.pos);
+    setzeRuf(-6, 'Ruf −6', c.pos, 25);
     addScore(-40, 'Zivilist verletzt', c.pos);
     SFX.hurt && SFX.hurt();
   } else {
     c.state = 'flee'; c.fleeT = 4;
-    setzeRuf(-1);
+    setzeRuf(-1, null, null, 40);
   }
 }
 
@@ -6885,7 +6937,7 @@ function missionEnde(erfolg, text, punkte) {
   hideObjective();
   popupScreen(text);
   /* Ein erledigter Auftrag hebt das Ansehen, ein liegengebliebener senkt es. */
-  setzeRuf(erfolg ? +4 : -7);
+  setzeRuf(erfolg ? +5 : -4);
   if (erfolg && punkte) addScore(punkte, '', player.pos);
   missionCd = erfolg ? 14 : 22;
 }
@@ -7126,6 +7178,113 @@ function zeigeEinstellungen(an) {
     updateHUD();
   });
 })();
+
+/* ======================= Dampf aus den Gullis =======================
+   Nichts sagt "Großstadt" so schnell wie eine dampfende Kanalöffnung.
+   Alle Wolken hängen in einem einzigen Punktobjekt – das kostet einen
+   Zeichenaufruf für die ganze Stadt. */
+let dampfPunkte = null, dampfDaten = null, dampfTex = null;
+const DAMPF_JE = 26;
+
+function baueDampf() {
+  dampfTex = canvasTex(64, 64, (g) => {
+    const gr = g.createRadialGradient(32, 32, 2, 32, 32, 31);
+    gr.addColorStop(0, 'rgba(255,255,255,0.85)');
+    gr.addColorStop(0.5, 'rgba(230,235,240,0.35)');
+    gr.addColorStop(1, 'rgba(220,228,236,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  });
+  const n = DAMPF_STELLEN.length * DAMPF_JE;
+  if (!n) return;
+  const pos = new Float32Array(n * 3);
+  dampfDaten = new Float32Array(n * 3);           // t, tempo, seite
+  for (let i = 0; i < n; i++) {
+    dampfDaten[i * 3] = Math.random();            // Fortschritt 0..1
+    dampfDaten[i * 3 + 1] = rand(0.07, 0.18);     // Steiggeschwindigkeit
+    dampfDaten[i * 3 + 2] = rand(0, TAU);         // Drift-Richtung
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  dampfPunkte = new THREE.Points(geo, new THREE.PointsMaterial({
+    map: dampfTex, size: 4.4, transparent: true, opacity: 0.5,
+    depthWrite: false, sizeAttenuation: true, blending: THREE.NormalBlending }));
+  dampfPunkte.frustumCulled = false;
+  scene.add(dampfPunkte);
+}
+
+function updateDampf(dt) {
+  if (!dampfPunkte) {
+    if (!dampfDaten && DAMPF_STELLEN.length) baueDampf();
+    if (!dampfPunkte) return;
+  }
+  if (!REGEN.erlaubt) { dampfPunkte.visible = false; return; }   // niedrige Grafikstufe
+  dampfPunkte.visible = true;
+  const p = dampfPunkte.geometry.attributes.position.array;
+  let k = 0;
+  for (const s of DAMPF_STELLEN) {
+    const nah = Math.abs(s.x - player.pos.x) < 110 && Math.abs(s.z - player.pos.z) < 110;
+    for (let i = 0; i < DAMPF_JE; i++, k++) {
+      if (!nah) { p[k * 3 + 1] = -999; continue; }
+      let t = dampfDaten[k * 3] + dampfDaten[k * 3 + 1] * dt;
+      if (t > 1) t -= 1;
+      dampfDaten[k * 3] = t;
+      const w = dampfDaten[k * 3 + 2];
+      /* Die Wolke steigt, wird breiter und driftet mit dem Wind. */
+      p[k * 3]     = s.x + Math.cos(w) * t * 2.2 + Math.sin(elapsed * 0.5 + w) * t * 0.8;
+      p[k * 3 + 1] = s.y + 0.1 + t * 5.2;
+      p[k * 3 + 2] = s.z + Math.sin(w) * t * 2.2;
+    }
+  }
+  dampfPunkte.geometry.attributes.position.needsUpdate = true;
+  /* Nachts und bei Regen dampft es stärker. */
+  const kalt = (TAG.zeit < 0.28 || TAG.zeit > 0.78) ? 1 : 0.55;
+  dampfPunkte.material.opacity = 0.5 * kalt + REGEN.staerke * 0.22;
+}
+
+/* ======================= Regenspritzer auf dem Boden =======================
+   Regen ohne Aufschlag wirkt wie ein Bildschirmfilter. Die Ringe zeigen,
+   dass die Tropfen wirklich irgendwo ankommen. */
+const SPRITZER_ANZ = 26;
+let spritzer = null;
+function baueSpritzer() {
+  const geo = new THREE.RingGeometry(0.05, 0.13, 10);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xcfe4f2, transparent: true,
+    opacity: 0.5, depthWrite: false, side: THREE.DoubleSide });
+  spritzer = [];
+  for (let i = 0; i < SPRITZER_ANZ; i++) {
+    const m = new THREE.Mesh(geo, mat.clone());
+    m.visible = false; m.renderOrder = 6;
+    scene.add(m);
+    spritzer.push({ mesh: m, t: 1 });
+  }
+}
+function updateSpritzer(dt) {
+  /* Nasser Asphalt: dunkler und leicht bläulich, solange es regnet. */
+  if (strassenMat) {
+    const n = REGEN.staerke;
+    strassenMat.color.setRGB(1 - n * 0.45, 1 - n * 0.44, 1 - n * 0.36);
+  }
+  if (!spritzer) { if (REGEN.staerke > 0.1) baueSpritzer(); return; }
+  if (!REGEN.erlaubt) return;
+  const stark = REGEN.staerke;
+  for (const s of spritzer) {
+    if (s.t >= 1) {
+      if (stark < 0.15 || Math.random() > stark * dt * 26) { s.mesh.visible = false; continue; }
+      /* Neuer Aufschlag in der Nähe des Helden, auf der Höhe des Bodens. */
+      const x = player.pos.x + rand(-11, 11), z = player.pos.z + rand(-11, 11);
+      const y = groundY(x, z);
+      if (player.pos.y - y > 14) { s.mesh.visible = false; continue; }
+      s.mesh.position.set(x, y + 0.02, z);
+      s.t = 0; s.mesh.visible = true;
+    }
+    s.t += dt * 3.4;
+    const w = clamp(s.t, 0, 1);
+    s.mesh.scale.setScalar(0.4 + w * 2.6);
+    s.mesh.material.opacity = (1 - w) * 0.45;
+    if (s.t >= 1) s.mesh.visible = false;
+  }
+}
 
 /* ======================= Minikarte =======================
    Die Stadt ist ein Raster – ohne Übersicht verliert man beim Schwingen
@@ -7408,6 +7567,8 @@ function simuliere(dt) {
   updateEffekte(dt);
   updateKlatscher(dt);
   updateKlang(dt);
+  updateDampf(dt);
+  updateSpritzer(dt);
 
   // Wasser-Animation
   if (waterMesh) waterTex.offset.x = elapsed * 0.015;
@@ -7457,6 +7618,9 @@ if (window.__WEBHERO_TEST__ === true) {
     get istTouch() { return istTouch; },
     get touchAktiv() { return touchAktiv; },
     stick,
+    DAMPF_STELLEN,
+    dampfDa() { return dampfPunkte; },
+    regenAn() { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; },
     tippeSprung() { tryJump(); },
     renderInfo() { return { calls: renderer.info.render.calls,
       dreiecke: renderer.info.render.triangles,
