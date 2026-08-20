@@ -882,6 +882,8 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   /* mixamo-5: freies Klettern, seitliches Hangeln, Ausweichschritt
      nach links und rechts. */
   'klettern_frei', 'klettern_seit', 'ausweichenL', 'ausweichenR',
+  /* mixamo-6: über eine Kante ziehen, am Sims hängen. */
+  'kante', 'haengen',
   'hook', 'punch3', 'luftangriff', 'knie', 'block', 'taunt', 'jubel'];
 
 /* Höhe eines Modells bestimmen.
@@ -1096,6 +1098,8 @@ const GLB_CLIP_PATTERNS = {
   land: [/land/i, /landing/i],
   swing: [/swing/i, /hang/i, /fly/i, /brachiat/i],
   climb: [/^climb$/i, /climb/i, /crawl/i, /ladder/i],
+  kante: [/kante/i],
+  haengen: [/haengen/i],
   klettern_frei: [/klettern_frei/i],
   klettern_seit: [/klettern_seit/i],
   ausweichenL: [/ausweichenL/],
@@ -1129,6 +1133,7 @@ const GLB_FALLBACK = {
   kick: ['attack'],
   swing: ['air', 'run', 'idle'], climb: ['walk', 'idle'],
   klettern_frei: ['climb'], klettern_seit: ['climb'],
+  kante: ['climb', 'jump'], haengen: ['climb', 'idle'],
   ausweichenL: ['roll'], ausweichenR: ['roll'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
@@ -1988,6 +1993,20 @@ function makeGlbVisual(m) {
        aber nur einen knappen Satz dauern. Sie wird deshalb beschleunigt
        abgespielt, damit die Rolle wirklich zu Ende geht, statt mittendrin
        in den Stand zu springen. */
+    /* Kantenzug: einmalige Bewegung mit fester Spieldauer. */
+    kanteOneShot(zielDauer) {
+      const a = actionFor('kante');
+      if (!a) return 0;
+      const d = a.getClip().duration;
+      const v = clamp(d / zielDauer, 1, 4.5);
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = true;
+      if (current) current.fadeOut(0.1);
+      a.reset(); a.fadeIn(0.1); a.timeScale = v; a.play();
+      angriff = a;
+      angriffT = Math.min(zielDauer, d / v);
+      return angriffT;
+    },
     rolleOneShot(zielDauer, welche) {
       const a = actionFor(welche || 'roll') || actionFor('roll');
       if (!a) return 0;
@@ -2399,7 +2418,8 @@ const player = {
   height: 1.75,
   hp: CFG.playerHP,
   facing: 0,
-  state: 'ground',        // ground | air | swing | climb | zip
+  state: 'ground',        // ground | air | swing | climb | zip | kante
+  kante: null,
   onGround: true,
   jumps: 0,
   phase: 0,
@@ -3101,6 +3121,30 @@ function updatePlayer(dt) {
   const dir = inputDir();
   const wantSwing = (keys['Space'] || swingHeld);
 
+  /* ---- Über die Kante ziehen ---- */
+  if (player.state === 'kante' && player.kante) {
+    const k = player.kante;
+    k.t += dt / k.dauer;
+    const f = clamp(k.t, 0, 1);
+    /* Erst hochziehen, dann nach vorn aufs Dach – das entspricht dem
+       Ablauf der Bewegung. */
+    const hoch = clamp(f / 0.62, 0, 1);
+    const vor = clamp((f - 0.45) / 0.55, 0, 1);
+    player.pos.y = lerp(k.von.y, k.nach.y, hoch * hoch * (3 - 2 * hoch));
+    player.pos.x = lerp(k.von.x, k.nach.x, vor * vor * (3 - 2 * vor));
+    player.pos.z = lerp(k.von.z, k.nach.z, vor * vor * (3 - 2 * vor));
+    player.anim = 'kante';
+    if (f >= 1) {
+      player.kante = null;
+      player.state = 'ground';
+      player.onGround = true;
+      player.jumps = 0;
+      player.vel.set(0, 0, 0);
+    }
+    updateHeroVisual(dt);
+    return;
+  }
+
   /* ---- Klettern ---- */
   if (player.state === 'climb') {
     const w = player.wallInfo;
@@ -3129,13 +3173,26 @@ function updatePlayer(dt) {
        ohne Eingabe hängt die Figur still an der Wand. */
     const bewegt = Math.abs(up) + Math.abs(side);
     player.klettertempo = bewegt === 0 ? 0 : (up < 0 ? -0.9 : 1);
-    // Oben angekommen → aufs Dach ziehen
+    /* Oben angekommen → über die Kante ziehen. Vorher wurde die Figur
+       einfach aufs Dach versetzt und nach oben geschleudert; jetzt läuft
+       dafür eine eigene Bewegung ab und der Körper wandert währenddessen
+       auf die Dachfläche. */
     if (player.pos.y + 1.3 > c.h && up > 0) {
-      player.pos.y = c.h;
-      player.pos.x -= w.nx * (player.radius + 0.5);
-      player.pos.z -= w.nz * (player.radius + 0.5);
-      player.vel.set(-w.nx * 3, 5, -w.nz * 3);
-      player.state = 'air';
+      const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
+      const ziel = V3(
+        player.pos.x - w.nx * (player.radius + 0.75),
+        c.h,
+        player.pos.z - w.nz * (player.radius + 0.75),
+      );
+      if (dauer > 0.2) {
+        player.state = 'kante';
+        player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: c.h };
+        player.vel.set(0, 0, 0);
+      } else {
+        player.pos.copy(ziel);
+        player.vel.set(-w.nx * 3, 5, -w.nz * 3);
+        player.state = 'air';
+      }
       player.wallInfo = null;
     } else if (player.pos.y <= groundY(player.pos.x, player.pos.z) + 0.05 && up <= 0) {
       player.state = 'ground';
@@ -3150,7 +3207,7 @@ function updatePlayer(dt) {
        geht es mit dem freien Klettern nach oben. Die Wandpose legt sich in
        beiden Fällen darüber. */
     const seitlich = Math.abs(side) > Math.abs(up);
-    player.anim = bewegt === 0 ? 'klettern_frei'      // ruhig an der Wand hängen
+    player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : seitlich ? 'klettern_seit'          // seitlich hangeln
                 : 'climb';                            // senkrecht hoch/runter
     updateHeroVisual(dt);
@@ -3486,6 +3543,8 @@ function updateHeroVisual(dt) {
       heroVisual.bodenAusgleich(1);
     } else if (player.state === 'swing' && player.swing) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed);
+    } else if (player.state === 'kante') {
+      /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
       /* Die geladene Bewegung liefert den Rhythmus, die Wandpose setzt
          Hände und Füße wirklich an die Wand. */
