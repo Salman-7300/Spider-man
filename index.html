@@ -33,6 +33,29 @@
 
   /* Ring statt gefülltem Punkt: Der weiße Punkt sah im Bild aus wie eine
      kleine Kugel, die in der Luft schwebt. */
+  /* Ladebalken im Startbild */
+  #ladewrap { margin-top:30px; width:340px; height:10px; border-radius:6px;
+    background:rgba(255,255,255,.14); overflow:hidden; }
+  #ladebar { height:100%; width:0%; border-radius:6px;
+    background:linear-gradient(90deg,#e3212d,#ffd23c); transition:width .18s ease; }
+  #ladetext { margin-top:8px; font-size:14px; opacity:.75; }
+
+  /* Einstellungen (Esc) */
+  #settings { position:fixed; inset:0; z-index:22; display:none;
+    align-items:center; justify-content:center; background:rgba(6,10,20,.82); }
+  #settings .box { background:#10151f; border:1px solid #2a3446; border-radius:14px;
+    padding:26px 30px; width:420px; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  #settings h2 { font-size:24px; margin-bottom:6px; color:#ffd23c; }
+  #settings .zeile { display:flex; align-items:center; justify-content:space-between;
+    margin-top:16px; font-size:15px; gap:14px; }
+  #settings input[type=range] { flex:1; accent-color:#e3212d; }
+  #settings select { background:#1a2130; color:#e8eef7; border:1px solid #2a3446;
+    border-radius:7px; padding:5px 9px; font:inherit; }
+  #settings .wert { width:46px; text-align:right; opacity:.8; font-variant-numeric:tabular-nums; }
+  #settings .hinweis { margin-top:20px; font-size:13px; opacity:.6; line-height:1.5; }
+  #settings button { margin-top:20px; width:100%; padding:11px; border-radius:9px;
+    border:0; background:#e3212d; color:#fff; font:inherit; font-weight:700; cursor:pointer; }
+
   #crosshair { position:absolute; left:50%; top:50%; width:14px; height:14px; margin:-7px;
     border-radius:50%; border:1.5px solid rgba(255,255,255,.7);
     box-shadow:0 0 4px rgba(0,0,0,.9), inset 0 0 4px rgba(0,0,0,.6); }
@@ -98,13 +121,17 @@
   <div id="title">WEB&nbsp;HERO</div>
   <div id="subtitle">Die Stadt braucht dich! – Schwinge dich durch die Straßenschluchten,<br>
     stoppe die Gangs und rette die Zivilisten.</div>
-  <div id="clickmsg">▶ Klicken zum Starten</div>
+  <div id="ladewrap"><div id="ladebar"></div></div>
+  <div id="ladetext">Figuren werden geladen …</div>
+  <div id="clickmsg" style="display:none">▶ Klicken zum Starten</div>
   <div id="ctrl">
     <b>W A S D</b> Laufen &nbsp;·&nbsp; <b>Maus</b> Kamera &nbsp;·&nbsp; <b>Shift</b> Sprinten<br>
     <b>Leertaste</b> Springen · in der Luft halten: <b>Netzschwung</b><br>
     <b>Rechte Maustaste (halten)</b> Netzschwung (alternativ)<br>
     <b>Linksklick</b> Schlag-Kombo &nbsp;·&nbsp; <b>F</b> Tritt &nbsp;·&nbsp; <b>Strg</b> Ausweichrolle<br>
     <b>Q</b> Netzschuss (Gegner einwickeln) &nbsp;·&nbsp; <b>E</b> Netz-Zip / Netz-Angriff<br>
+    <b>R</b> Aufwärtshaken (Luftkombo) &nbsp;·&nbsp; <b>G</b> Packen &amp; Werfen<br>
+    <b>Strg im richtigen Moment</b> Spinnensinn-Konter &nbsp;·&nbsp; <b>Shift an der Wand</b> Wandlauf<br>
     <b>Wand berühren (in der Luft)</b> Klettern &nbsp;·&nbsp; <b>H</b> Hilfe &nbsp;·&nbsp; <b>M</b> Ton
   </div>
   <div id="note">Fan-Projekt mit einem eigenen Netz-Helden im klassischen Rot-Blau-Look.
@@ -138,9 +165,30 @@
   <div id="vignette"></div>
 </div>
 
+<div id="settings">
+  <div class="box">
+    <h2>Einstellungen</h2>
+    <div class="zeile"><span>Mausempfindlichkeit</span>
+      <input id="setMaus" type="range" min="30" max="260" step="5"><span class="wert" id="wMaus"></span></div>
+    <div class="zeile"><span>Lautstärke</span>
+      <input id="setTon" type="range" min="0" max="100" step="5"><span class="wert" id="wTon"></span></div>
+    <div class="zeile"><span>Grafik</span>
+      <select id="setGrafik">
+        <option value="hoch">Hoch – Schatten, Regen, weite Sicht</option>
+        <option value="mittel">Mittel – ohne Schatten</option>
+        <option value="niedrig">Niedrig – für schwache Rechner</option>
+      </select></div>
+    <div class="zeile"><span>Fortschritt</span>
+      <button id="setReset" style="width:auto;margin:0;padding:6px 12px;background:#3a2530">Zurücksetzen</button></div>
+    <div class="hinweis">Esc schließt dieses Fenster wieder. Die Einstellungen
+      werden im Browser gespeichert.</div>
+    <button id="setZu">Weiterspielen</button>
+  </div>
+</div>
+
 <div id="msg">
   <h1>K.O.!</h1>
-  <p>Drücke <b>R</b>, um weiterzumachen.</p>
+  <p>Drücke <b>Enter</b>, um weiterzumachen.</p>
 </div>
 
 <div id="loaderr">

@@ -73,7 +73,7 @@ function dampAngle(cur, target, k) {
 
 /* ======================= Audio (WebAudio, winzig) ======================= */
 const SFX = (() => {
-  let ctx = null, muted = false;
+  let ctx = null, muted = false, lautstaerke = 0.7;
   function ac() {
     if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
     if (ctx && ctx.state === 'suspended') ctx.resume();
@@ -84,7 +84,7 @@ const SFX = (() => {
     const o = c.createOscillator(), g = c.createGain();
     o.type = type || 'sine'; o.frequency.value = freq;
     if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), c.currentTime + dur);
-    g.gain.value = vol || 0.15;
+    g.gain.value = Math.max(0.0001, (vol || 0.15) * lautstaerke);
     g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
     o.connect(g); g.connect(c.destination);
     o.start(); o.stop(c.currentTime + dur);
@@ -97,11 +97,12 @@ const SFX = (() => {
     for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
     const s = c.createBufferSource(); s.buffer = buf;
     const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp || 800;
-    const g = c.createGain(); g.gain.value = vol || 0.12;
+    const g = c.createGain(); g.gain.value = Math.max(0.0001, (vol || 0.12) * lautstaerke);
     s.connect(f); f.connect(g); g.connect(c.destination); s.start();
   }
   return {
     init: ac,
+    setLautstaerke(v) { lautstaerke = clamp(v, 0, 1); },
     toggleMute() { muted = !muted; return muted; },
     thwip() { noise(0.09, 0.1, 1800); tone(900, 0.12, 'square', 0.05, 0.3); },
     punch() { tone(120, 0.09, 'sine', 0.3, 0.5); noise(0.05, 0.12, 300); },
@@ -173,7 +174,10 @@ if (typeof window !== "undefined") window.__setzeZeit = (t) => { TAG.zeit = t; }
    Regen zieht ab und zu über die Stadt. Die Tropfen sind ein einziges
    Punktobjekt, das um die Kamera herum mitwandert – dadurch kostet der
    ganze Regen nur einen Zeichenaufruf. */
-const REGEN = { an: false, staerke: 0, naechsterWechsel: 70 };
+const REGEN = { an: false, staerke: 0, naechsterWechsel: 70, erlaubt: true };
+/* Ab welcher Entfernung Figuren nicht mehr animiert werden – hängt an der
+   Grafikstufe in den Einstellungen. */
+let LOD_WEITE = 130;
 let regenPunkte = null, regenGeschw = null;
 const REGEN_ANZAHL = 3200, REGEN_BOX = 55;
 
@@ -203,7 +207,7 @@ function updateWetter(dt) {
     REGEN.an = !REGEN.an;
     REGEN.naechsterWechsel = REGEN.an ? rand(50, 110) : rand(120, 240);
   }
-  const ziel = REGEN.an ? 1 : 0;
+  const ziel = (REGEN.an && REGEN.erlaubt) ? 1 : 0;
   REGEN.staerke += clamp(ziel - REGEN.staerke, -dt * 0.25, dt * 0.25);
   regenPunkte.material.opacity = REGEN.staerke * 0.42;
   regenPunkte.visible = REGEN.staerke > 0.02;
@@ -998,12 +1002,33 @@ function messeModell(scene) {
   return { minY: lo - rand, maxY: hi + rand, quelle: 'knochen' };
 }
 
+/* Ladefortschritt fürs Startbild: vorher hing das Bild ohne Rückmeldung,
+   bis alle rund 130 Dateien da waren. */
+let ladeGesamt = 1, ladeFertig = 0;
+function ladeSchritt() {
+  ladeFertig++;
+  const bar = document.getElementById('ladebar');
+  const txt = document.getElementById('ladetext');
+  const p = Math.min(100, Math.round((ladeFertig / ladeGesamt) * 100));
+  if (bar) bar.style.width = p + '%';
+  if (txt) txt.textContent = p < 100 ? `Figuren und Bewegungen … ${p}%` : 'Bereit!';
+}
+function ladeFertigMelden() {
+  const w = document.getElementById('ladewrap');
+  const t = document.getElementById('ladetext');
+  const c = document.getElementById('clickmsg');
+  if (w) w.style.display = 'none';
+  if (t) t.style.display = 'none';
+  if (c) c.style.display = 'block';
+}
+
 function loadGlbAssets(done) {
-  if (typeof THREE.GLTFLoader !== 'function' || location.protocol === 'file:') { done(); return; }
+  if (typeof THREE.GLTFLoader !== 'function' || location.protocol === 'file:') { ladeFertigMelden(); done(); return; }
   const loader = new THREE.GLTFLoader();
   const slots = Object.keys(GLB_SLOTS);
   let pending = slots.length;
-  const finish = () => { if (--pending === 0) loadCompanionClips(); };
+  ladeGesamt = slots.length + slots.length * GLB_ANIM_PARTS.length;
+  const finish = () => { ladeSchritt(); if (--pending === 0) loadCompanionClips(); };
   for (const slot of slots) {
     loader.load(GLB_SLOTS[slot], (gltf) => {
       try {
@@ -1036,9 +1061,13 @@ function loadGlbAssets(done) {
       if (!glbModels[slot]) continue;
       for (const part of GLB_ANIM_PARTS) jobs.push([slot, part]);
     }
-    if (!jobs.length) { teileBewegungen(); ergaenzeSpiegelungen(); done(); return; }
+    if (!jobs.length) { ladeFertigMelden(); teileBewegungen(); ergaenzeSpiegelungen(); done(); return; }
+    ladeGesamt = slots.length + jobs.length;
     let pending2 = jobs.length;
-    const finish2 = () => { if (--pending2 === 0) { teileBewegungen(); ergaenzeSpiegelungen(); done(); } };
+    const finish2 = () => {
+      ladeSchritt();
+      if (--pending2 === 0) { ladeFertigMelden(); teileBewegungen(); ergaenzeSpiegelungen(); done(); }
+    };
     for (const [slot, part] of jobs) {
       loader.load(`assets/${slot}@${part}.glb`, (gltf) => {
         try {
@@ -2102,7 +2131,7 @@ function makeGlbVisual(m) {
       /* Detailstufe nach Entfernung: Skelett-Animation ist teuer, deshalb
          weit entfernte Figuren ausblenden bzw. seltener animieren. */
       const dist2 = root.position.distanceToSquared(player.pos);
-      if (dist2 > 130 * 130) { root.visible = false; return; }
+      if (dist2 > LOD_WEITE * LOD_WEITE) { root.visible = false; return; }
       root.visible = true;
       /* Läuft gerade ein Angriff, hat der Vorrang vor Laufen/Stehen */
       if (angriff) {
@@ -2867,6 +2896,7 @@ document.addEventListener('keydown', (e) => {
     case 'ControlLeft': case 'ControlRight': dodge(); e.preventDefault(); break;
     case 'KeyH': helpBox.style.display = helpBox.style.display === 'block' ? 'none' : 'block'; break;
     case 'KeyM': { const m = SFX.toggleMute(); popupScreen(m ? '🔇 Ton aus' : '🔊 Ton an'); break; }
+    case 'Escape': zeigeEinstellungen(settingsEl.style.display !== 'flex'); break;
     case 'KeyR': uppercut(); break;
     case 'KeyG': packenUndWerfen(); break;
     case 'Enter': if (player.dead) respawn(); break;
@@ -2897,8 +2927,9 @@ function camForward() {
 }
 
 function updateCamera(dt) {
-  camYaw -= mouseDX * 0.0023;
-  camPitch = clamp(camPitch + mouseDY * 0.0023, -1.15, 1.25);
+  const emp = 0.0023 * (EINST.maus / 100);
+  camYaw -= mouseDX * emp;
+  camPitch = clamp(camPitch + mouseDY * emp, -1.15, 1.25);
   mouseDX = 0; mouseDY = 0;
 
   const speed = player.vel.length();
@@ -3344,6 +3375,7 @@ const KOMBO = [
    Luftkombo. Danach bleibt der Gegner oben, solange man weiter trifft. ---- */
 function uppercut() {
   if (!heroVisual || player.dead || player.state === 'climb' || player.rollT > 0) return;
+  if (!stufeFrei('uppercut')) { popupScreen('🔒 Aufwärtshaken ab Stufe 2'); return; }
   if (player.attackCd > 0.05) return;
   const ziel = nearestEnemy(2.8, 0.0);
   const dauer = heroVisual.attackOneShot(0, 'uppercut', 0.6) || 0.6;
@@ -3362,6 +3394,7 @@ function uppercut() {
    schleudern. Trifft er dabei eine Wand oder ein Auto, tut das extra weh. ---- */
 function packenUndWerfen() {
   if (!heroVisual || player.dead || player.state === 'climb') return;
+  if (!stufeFrei('wurf')) { popupScreen('🔒 Packen & Werfen ab Stufe 3'); return; }
   if (player.attackCd > 0.05) return;
   const e = nearestEnemy(2.6, -0.2);
   if (!e) { popupScreen('Niemand zum Packen in Reichweite'); return; }
@@ -3519,7 +3552,7 @@ function resolveAttackHit() {
   }
   const konter = player.konterT > 0 && player.konterZiel === e;
   const wucht = konter ? 2.4 : (a.finisher ? 1.9 : (a.type === 'kick' ? 1.5 : 1));
-  let dmg = (a.type === 'kick' ? 16 : 11) * (a.finisher ? 1.5 : 1);
+  let dmg = (a.type === 'kick' ? 16 : 11) * (a.finisher ? 1.5 : 1) * STUFEN[stufe].wucht;
   if (konter) {
     dmg *= 2.2;
     player.konterT = 0; player.konterZiel = null;
@@ -3628,12 +3661,59 @@ function respawn() {
   updateHUD();
 }
 
+/* ======================= Fortschritt =======================
+   Punkte sind zugleich Erfahrung. Mit jeder Stufe gibt es dauerhaft mehr
+   Lebensenergie und Schlagkraft, und die Spezialbewegungen werden nach
+   und nach freigeschaltet – vorher konnte man von Anfang an alles und
+   hatte keinen Grund weiterzuspielen. */
+const STUFEN = [
+  { punkte: 0,    text: 'Neuling',      hp: 100, wucht: 1.00, frei: null },
+  { punkte: 600,  text: 'Straßenheld',  hp: 115, wucht: 1.10, frei: 'Aufwärtshaken (R)' },
+  { punkte: 1600, text: 'Netzschwinger', hp: 130, wucht: 1.20, frei: 'Packen & Werfen (G)' },
+  { punkte: 3200, text: 'Beschützer',   hp: 145, wucht: 1.32, frei: 'Wandlauf (Shift an der Wand)' },
+  { punkte: 5600, text: 'Stadtlegende', hp: 165, wucht: 1.45, frei: 'Netz-Zip trifft doppelt' },
+  { punkte: 9000, text: 'Ikone',        hp: 190, wucht: 1.6,  frei: 'Kombo ohne Ende' },
+];
+let stufe = 0;
+function stufeFuer(p) {
+  let i = 0;
+  for (let k = 0; k < STUFEN.length; k++) if (p >= STUFEN[k].punkte) i = k;
+  return i;
+}
+function wendeStufeAn(neu, mitMeldung) {
+  const alt = stufe;
+  stufe = neu;
+  const s = STUFEN[stufe];
+  const anteil = player.hp / CFG.playerHP;
+  CFG.playerHP = s.hp;
+  player.hp = Math.min(s.hp, Math.max(player.hp, s.hp * anteil));
+  if (mitMeldung && neu > alt) {
+    popupScreen(`⭐ Stufe ${neu + 1}: ${s.text}` + (s.frei ? ` – ${s.frei} freigeschaltet!` : ''));
+    SFX.score();
+    player.hp = CFG.playerHP;                 // Aufstieg heilt
+  }
+  updateHUD();
+}
+function stufeFrei(name) {
+  /* Welche Spezialbewegung ist schon verfügbar? */
+  if (name === 'uppercut') return stufe >= 1;
+  if (name === 'wurf') return stufe >= 2;
+  if (name === 'wandlauf') return stufe >= 3;
+  return true;
+}
+
 function addScore(n, label, worldPos) {
   player.score += n;
+  const neu = stufeFuer(player.score);
+  if (neu !== stufe) wendeStufeAn(neu, true);
   if (label) popupWorld(`${label} +${n}`, worldPos || player.pos, '#ffd23c');
   if (player.score > bestScore) {
     bestScore = player.score;
     try { localStorage.setItem('webhero_best', String(bestScore)); } catch (e) {}
+  }
+  try {
+    localStorage.setItem('webhero_stand', JSON.stringify({ punkte: player.score, stufe }));
+  } catch (e) {
   }
   SFX.score();
   updateHUD();
@@ -3711,7 +3791,7 @@ function updatePlayer(dt) {
     const tx = w.nz, tz = -w.nx;
     /* Wandlauf: mit Shift geht es die Fassade richtig hinauf statt zu
        kriechen – dafür gibt es seit mixamo-7 eine eigene Bewegung. */
-    const sprintWand = (keys['ShiftLeft'] || keys['ShiftRight']) && up > 0;
+    const sprintWand = (keys['ShiftLeft'] || keys['ShiftRight']) && up > 0 && stufeFrei('wandlauf');
     const kTempo = CFG.climbSpeed * (sprintWand ? 2.7 : 1);
     player.wandlauf = sprintWand;
     player.vel.set(tx * side * kTempo, up * kTempo, tz * side * kTempo);
@@ -6069,6 +6149,57 @@ function updateMission(dt) {
   }
 }
 
+/* ======================= Einstellungen =======================
+   Mausempfindlichkeit, Lautstärke und Grafikstufe waren fest verdrahtet.
+   Alles ist jetzt über Esc erreichbar und wird im Browser gespeichert. */
+const EINST = { maus: 100, ton: 70, grafik: 'hoch' };
+try {
+  const g = JSON.parse(localStorage.getItem('webhero_einst') || 'null');
+  if (g) Object.assign(EINST, g);
+} catch (e) {}
+
+const settingsEl = document.getElementById('settings');
+function einstSpeichern() {
+  try { localStorage.setItem('webhero_einst', JSON.stringify(EINST)); } catch (e) {}
+}
+function wendeGrafikAn() {
+  const stufeG = EINST.grafik;
+  renderer.shadowMap.enabled = stufeG === 'hoch';
+  if (sun) sun.castShadow = stufeG === 'hoch';
+  REGEN.erlaubt = stufeG !== 'niedrig';
+  if (stufeG === 'niedrig' && REGEN.staerke > 0) REGEN.staerke = 0;
+  scene.fog.far = stufeG === 'niedrig' ? 260 : (stufeG === 'mittel' ? 380 : 520);
+  /* Weit entfernte Figuren werden bei niedriger Stufe früher ausgeblendet. */
+  LOD_WEITE = stufeG === 'niedrig' ? 70 : (stufeG === 'mittel' ? 100 : 130);
+  if (regenPunkte) regenPunkte.visible = REGEN.erlaubt && REGEN.staerke > 0.02;
+}
+function wendeTonAn() { if (SFX.setLautstaerke) SFX.setLautstaerke(EINST.ton / 100); }
+
+function zeigeEinstellungen(an) {
+  settingsEl.style.display = an ? 'flex' : 'none';
+  if (an && document.pointerLockElement) document.exitPointerLock();
+}
+(function baueEinstellungen() {
+  const maus = document.getElementById('setMaus');
+  const ton = document.getElementById('setTon');
+  const graf = document.getElementById('setGrafik');
+  const wMaus = document.getElementById('wMaus');
+  const wTon = document.getElementById('wTon');
+  if (!maus) return;
+  maus.value = EINST.maus; ton.value = EINST.ton; graf.value = EINST.grafik;
+  const zeige = () => { wMaus.textContent = EINST.maus + '%'; wTon.textContent = EINST.ton + '%'; };
+  zeige();
+  maus.addEventListener('input', () => { EINST.maus = +maus.value; zeige(); einstSpeichern(); });
+  ton.addEventListener('input', () => { EINST.ton = +ton.value; zeige(); wendeTonAn(); einstSpeichern(); });
+  graf.addEventListener('change', () => { EINST.grafik = graf.value; wendeGrafikAn(); einstSpeichern(); });
+  document.getElementById('setZu').addEventListener('click', () => zeigeEinstellungen(false));
+  document.getElementById('setReset').addEventListener('click', () => {
+    try { localStorage.removeItem('webhero_stand'); localStorage.removeItem('webhero_best'); } catch (e) {}
+    player.score = 0; bestScore = 0; wendeStufeAn(0, false);
+    popupScreen('Fortschritt zurückgesetzt');
+  });
+})();
+
 /* ======================= HUD & Popups ======================= */
 const hpbarEl = document.getElementById('hpbar');
 const scoreEl = document.getElementById('score');
@@ -6081,11 +6212,24 @@ const vignetteEl = document.getElementById('vignette');
 
 let bestScore = 0;
 try { bestScore = parseInt(localStorage.getItem('webhero_best') || '0', 10) || 0; } catch (e) {}
+/* Fortschritt aus der letzten Sitzung übernehmen. */
+try {
+  const st = JSON.parse(localStorage.getItem('webhero_stand') || 'null');
+  if (st && typeof st.punkte === 'number') {
+    player.score = st.punkte;
+    wendeStufeAn(stufeFuer(player.score), false);
+    player.hp = CFG.playerHP;
+  }
+} catch (e) {}
 
 function updateHUD() {
   hpbarEl.style.width = `${clamp(player.hp / CFG.playerHP * 100, 0, 100)}%`;
+  const s = STUFEN[stufe];
+  const naechste = STUFEN[stufe + 1];
   scoreEl.textContent = `Punkte: ${player.score}`;
-  bestEl.textContent = bestScore > 0 ? `Rekord: ${bestScore}` : '';
+  bestEl.innerHTML = `Stufe ${stufe + 1} · ${s.text}` +
+    (naechste ? ` <small style="opacity:.7">(${naechste.punkte - player.score} bis Stufe ${stufe + 2})</small>` : '') +
+    (bestScore > 0 ? `<br>Rekord: ${bestScore}` : '');
   if (player.combo >= 2) {
     comboEl.style.opacity = 1;
     comboNEl.textContent = `${player.combo}×`;
@@ -6148,6 +6292,8 @@ function initActors() {
   spawnGangAwayFromPlayer();
   actorsReady = true;
 }
+wendeGrafikAn();
+wendeTonAn();
 loadGlbAssets(initActors);
 
 /* ======================= Hauptschleife ======================= */
@@ -6226,6 +6372,8 @@ if (window.__WEBHERO_TEST__ === true) {
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
     schritt(dt, n) { for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60); },
     get mission() { return MISSION; },
+    get stufe() { return stufe; },
+    addScore,
     get kamPos() { return camera.position.clone(); },
     starteMission,
   };
