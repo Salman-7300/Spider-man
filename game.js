@@ -2318,10 +2318,54 @@ function overlayAttack(h, atk, k) {
 }
 
 /* ======================= Netz-Visuals ======================= */
-const webMat = new THREE.MeshBasicMaterial({ color: 0xf5f5f5 });
+/* ======================= Netzfaden =======================
+   Ein Netzfaden ist kein glattes weißes Rohr, sondern ein Bündel feiner
+   Fäden, das an der Hand dicker ist als am Anker und unter dem eigenen
+   Gewicht leicht durchhängt. Genau das hat vorher gefehlt. */
+const fadenTex = canvasTex(64, 64, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  /* Mehrere feine Stränge längs, dazu ein paar Querverbindungen –
+     um den Zylinder gewickelt ergibt das ein gedrehtes Seil. */
+  g.lineCap = 'round';
+  for (let i = 0; i < 5; i++) {
+    const x = 5 + i * 13 + rand(-2, 2);
+    g.strokeStyle = i % 2 ? 'rgba(255,255,255,0.95)' : 'rgba(226,234,242,0.8)';
+    g.lineWidth = i % 2 ? 2.4 : 1.5;
+    g.beginPath();
+    for (let y = 0; y <= h; y += 8) g.lineTo(x + Math.sin(y * 0.09 + i) * 2.2, y);
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.45)'; g.lineWidth = 1;
+  for (let i = 0; i < 7; i++) {
+    const y = rand(0, h);
+    g.beginPath(); g.moveTo(rand(0, w * 0.6), y); g.lineTo(rand(w * 0.4, w), y + rand(-6, 6)); g.stroke();
+  }
+});
+fadenTex.wrapS = fadenTex.wrapT = THREE.RepeatWrapping;
+
+/* Grundgitter: offener Zylinder, dessen Punkte jedes Bild neu gesetzt
+   werden. Ein starrer Zylinder kann sich nicht durchbiegen. */
+const FADEN_RING = 6, FADEN_LANG = 14;
+const fadenBasis = (() => {
+  const g = new THREE.CylinderGeometry(1, 1, 1, FADEN_RING, FADEN_LANG, true);
+  const p = g.attributes.position;
+  const roh = new Float32Array(p.count * 3);
+  roh.set(p.array);
+  return { geo: g, roh };
+})();
+
 function makeWebStrand() {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.015, 1, 5), webMat);
+  const geo = fadenBasis.geo.clone();
+  const mat = new THREE.MeshBasicMaterial({
+    map: fadenTex.clone(), transparent: true, alphaTest: 0.12,
+    depthWrite: false, side: THREE.DoubleSide, color: 0xffffff,
+  });
+  mat.map.needsUpdate = true;
+  mat.map.wrapS = mat.map.wrapT = THREE.RepeatWrapping;
+  const m = new THREE.Mesh(geo, mat);
+  m.frustumCulled = false;
   m.visible = false;
+  m.renderOrder = 3;
   scene.add(m);
   return m;
 }
@@ -2330,20 +2374,80 @@ const shotStrands = [makeWebStrand(), makeWebStrand(), makeWebStrand()];
 let shotIdx = 0;
 const activeShots = []; // {mesh, life, from, to}
 
-function placeStrand(mesh, from, to) {
-  const d = _v1.subVectors(to, from);
-  const len = d.length();
-  if (len < 0.01) { mesh.visible = false; return; }
+const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
+const _fd = new THREE.Vector3(), _fe = new THREE.Vector3();
+
+/* from = Hand, to = Anker. durchhang: 0 = straff gespannt. */
+function placeStrand(mesh, from, to, durchhang) {
+  _fa.subVectors(to, from);
+  const len = _fa.length();
+  if (len < 0.05) { mesh.visible = false; return; }
   mesh.visible = true;
-  mesh.scale.set(1, len, 1);
-  mesh.position.copy(from).addScaledVector(d, 0.5);
-  mesh.quaternion.setFromUnitVectors(_v2.set(0, 1, 0), d.normalize());
+  _fa.multiplyScalar(1 / len);                       // Richtung
+  /* Zwei Querachsen zur Fadenrichtung aufspannen. */
+  _fb.set(0, 1, 0);
+  if (Math.abs(_fa.y) > 0.94) _fb.set(1, 0, 0);
+  _fc.crossVectors(_fa, _fb).normalize();            // quer
+  _fd.crossVectors(_fc, _fa).normalize();            // hoch
+  const sag = durchhang === undefined ? 0.012 : durchhang;
+  const tiefe = Math.min(1.1, len * sag);
+
+  const p = mesh.geometry.attributes.position;
+  const roh = fadenBasis.roh;
+  for (let i = 0; i < p.count; i++) {
+    const bx = roh[i * 3], by = roh[i * 3 + 1], bz = roh[i * 3 + 2];
+    const t = by + 0.5;                              // 0 an der Hand, 1 am Anker
+    // Radius: an der Hand kräftig, zum Anker hin dünner
+    const r = 0.036 - 0.021 * t;
+    const durch = tiefe * 4 * t * (1 - t);           // Parabel-Durchhang
+    _fe.copy(from)
+       .addScaledVector(_fa, len * t)
+       .addScaledVector(_fd, -durch)
+       .addScaledVector(_fc, bx * r)
+       .addScaledVector(_fd, bz * r);
+    p.setXYZ(i, _fe.x, _fe.y, _fe.z);
+  }
+  p.needsUpdate = true;
+  mesh.geometry.computeBoundingSphere();
+  // Muster mit der Länge mitwachsen lassen, sonst wird es lang gezogen
+  mesh.material.map.repeat.set(1, Math.max(1, Math.round(len * 0.6)));
+}
+
+/* Kurzer Netzklatscher: ein aufblitzendes Netzmuster am Einschlagpunkt. */
+const klatscherPool = [];
+const klatscherAktiv = [];
+function netzKlatscher(pos) {
+  let m = klatscherPool.pop();
+  if (!m) {
+    m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), fleckMat.clone());
+    m.material.depthTest = false;
+    m.renderOrder = 4;
+    scene.add(m);
+  }
+  m.position.copy(pos);
+  m.visible = true;
+  m.material.opacity = 0.95;
+  m.scale.setScalar(0.2);
+  klatscherAktiv.push({ m, t: 0 });
+}
+function updateKlatscher(dt) {
+  for (let i = klatscherAktiv.length - 1; i >= 0; i--) {
+    const k = klatscherAktiv[i];
+    k.t += dt;
+    k.m.quaternion.copy(camera.quaternion);
+    k.m.scale.setScalar(0.2 + Math.min(1, k.t / 0.16) * 0.75);
+    k.m.material.opacity = clamp(1 - k.t / 0.42, 0, 1) * 0.95;
+    if (k.t > 0.42) { k.m.visible = false; klatscherPool.push(k.m); klatscherAktiv.splice(i, 1); }
+  }
 }
 
 function flashWebShot(from, to) {
   const mesh = shotStrands[shotIdx = (shotIdx + 1) % shotStrands.length];
-  placeStrand(mesh, from, to);
-  activeShots.push({ mesh, life: 0.18 });
+  /* Der Faden schießt sichtbar heraus, statt sofort in voller Länge da
+     zu sein – das gibt dem Schuss Richtung und Tempo. */
+  activeShots.push({ mesh, life: 0.24, t: 0, from: from.clone(), to: to.clone() });
+  placeStrand(mesh, from, from, 0);
+  mesh.material.opacity = 1;
 }
 
 /* ======================= Treffer-Effekte ======================= */
@@ -2754,7 +2858,10 @@ function webShot() {
   SFX.web();
   if (target) {
     applyWeb(target);
-    treffEffekt(ziel, 0.8, 0xbfe8ff);
+    treffEffekt(ziel, 0.6, 0xdff0ff);
+    /* Zusätzlich ein kurzer Netzklatscher am Einschlag – ein paar Fäden,
+       die sternförmig auseinanderspritzen. */
+    netzKlatscher(ziel);
     popupWorld('Eingewickelt!', target.pos, '#bfe8ff');
   }
 }
@@ -3574,7 +3681,10 @@ function updateHeroVisual(dt) {
      hinterher und schnitt durch den Körper. */
   if (player.fadenZiel) {
     heroVisual.root.updateMatrixWorld(true);
-    placeStrand(swingStrand, heroHandPos(_v3, player.fadenHand), player.fadenZiel);
+    /* Beim Schwingen hängt das Seil unter Last leicht durch, beim Netz-Zip
+       ist es straff gespannt. */
+    placeStrand(swingStrand, heroHandPos(_v3, player.fadenHand), player.fadenZiel,
+                player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
   }
 }
@@ -4292,24 +4402,85 @@ let crimeGang = null, crimeTimer = 20;
 /* ---- Netzkokon ----
    Statt einer glatten Kugel ein unregelmäßig umwickeltes Bündel: leicht
    verbeulter Körper plus quer laufende Netzbänder und ein paar Fäden. */
-const cocoonMat = new THREE.MeshLambertMaterial({
-  color: 0xeef1f4, transparent: true, opacity: 0.93, flatShading: true,
+/* Zwei Netz-Muster: eines deckend für den fertigen Kokon (man sieht die
+   Wicklungen), eines mit durchsichtigem Hintergrund für Fäden und
+   Netzflecken auf dem Körper. Die früheren glatten weißen Ringe sahen aus
+   wie Plastikreifen, nicht wie Netz. */
+const wickelTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#f2f5f8'; g.fillRect(0, 0, w, h);
+  g.lineCap = 'round';
+  for (let i = 0; i < 26; i++) {
+    g.strokeStyle = i % 3 ? 'rgba(203,213,225,0.85)' : 'rgba(255,255,255,0.9)';
+    g.lineWidth = i % 3 ? 1.4 : 2.6;
+    const y = rand(0, h);
+    g.beginPath(); g.moveTo(-4, y); 
+    for (let x = 0; x <= w + 4; x += 16) g.lineTo(x, y + Math.sin(x * 0.08 + i) * 3.5);
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(176,190,208,0.8)'; g.lineWidth = 1;
+  for (let i = 0; i < 12; i++) {
+    g.beginPath(); g.moveTo(rand(0, w), 0); g.lineTo(rand(0, w), h); g.stroke();
+  }
 });
-const bandMat = new THREE.MeshLambertMaterial({ color: 0xfbfdff });
+/* Muster mehrfach über den Kokon legen – sonst sieht man die Wicklungen
+   auf der kleinen Fläche kaum. */
+wickelTex.wrapS = wickelTex.wrapT = THREE.RepeatWrapping;
+wickelTex.repeat.set(2, 3);
+const fleckTex = canvasTex(128, 128, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineCap = 'round';
+  const cx = w / 2, cy = h / 2;
+  // Speichen
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + rand(-0.15, 0.15);
+    g.lineWidth = rand(1.6, 3);
+    g.beginPath(); g.moveTo(cx, cy);
+    g.lineTo(cx + Math.cos(a) * cy * rand(0.75, 1.05), cy + Math.sin(a) * cy * rand(0.75, 1.05));
+    g.stroke();
+  }
+  // Spiralringe
+  for (let r = 10; r < cy; r += rand(8, 14)) {
+    g.lineWidth = rand(1, 2);
+    g.beginPath();
+    for (let i = 0; i <= 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const rr = r * (1 + Math.sin(a * 3 + r) * 0.09);
+      const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+});
+const cocoonMat = new THREE.MeshLambertMaterial({
+  map: wickelTex, transparent: true, opacity: 0.95, flatShading: true,
+});
+const bandMat = new THREE.MeshLambertMaterial({ color: 0xf4f8fc });
+const fleckMat = new THREE.MeshBasicMaterial({
+  map: fleckTex, transparent: true, alphaTest: 0.08, depthWrite: false,
+  side: THREE.DoubleSide, opacity: 0.92,
+});
 
 const cocoonKoerperGeo = (() => {
-  const g = new THREE.SphereGeometry(0.46, 14, 12);
+  const g = new THREE.SphereGeometry(0.42, 16, 14);
   const pos = g.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    // in die Länge ziehen und unregelmäßig eindellen
-    const beule = 1 + Math.sin(y * 22) * 0.05 + Math.sin(x * 17 + z * 13) * 0.04;
-    pos.setXYZ(i, x * beule, y * 1.95, z * beule);
+    const t = y / 0.42;                       // -1 (unten) .. +1 (oben)
+    /* Menschliche Silhouette statt Vase: breite Schultern, schmalere
+       Hüfte, oben der eingewickelte Kopf, unten die Füße. */
+    let breite = 0.86 + 0.30 * Math.exp(-Math.pow((t - 0.45) / 0.30, 2))  // Schultern
+               - 0.22 * Math.exp(-Math.pow((t - 0.95) / 0.16, 2))         // Hals
+               - 0.30 * Math.max(0, t + 0.72);                            // Beine
+    breite *= 1 + Math.sin(y * 26) * 0.045 + Math.sin(x * 19 + z * 15) * 0.035;
+    pos.setXYZ(i, x * breite * 1.02, y * 2.1, z * breite * 0.80);
   }
   g.computeVertexNormals();
   return g;
 })();
-const bandGeo = new THREE.TorusGeometry(0.47, 0.045, 5, 14);
+/* Dünner Ring statt dickem Reifen – gewickelter Faden, kein Schlauch. */
+const bandGeo = new THREE.TorusGeometry(0.29, 0.016, 4, 13);
+const fadenGeo = new THREE.CylinderGeometry(0.009, 0.009, 0.55, 4);
+const fleckGeo = new THREE.PlaneGeometry(0.46, 0.46);
 
 /* Der Kokon wächst mit der Anzahl der Treffer:
    Stufe 1 = ein paar Fäden quer über den Körper,
@@ -4322,31 +4493,60 @@ function makeCocoon() {
   koerper.castShadow = true;
   koerper.visible = false;                // erst ab Stufe 3
   g.add(koerper);
+
+  /* Netzflecken: dort, wo das Netz auftrifft, klebt ein Stück Spinnennetz
+     am Körper. Das ist der erste sichtbare Treffer – vorher schwebten
+     stattdessen sofort weiße Reifen um die Beine. */
+  const flecken = [];
+  for (let i = 0; i < 4; i++) {
+    const f = new THREE.Mesh(fleckGeo, fleckMat);
+    const a = rand(0, Math.PI * 2);
+    const y = rand(-0.30, 0.52);          // Rumpf, nicht der Kopf
+    f.position.set(Math.cos(a) * 0.26, y, Math.sin(a) * 0.20);
+    f.lookAt(Math.cos(a) * 3, y, Math.sin(a) * 3);
+    f.rotation.z = rand(0, Math.PI);
+    f.scale.setScalar(rand(0.75, 1.15));
+    f.visible = false;
+    g.add(f); flecken.push(f);
+  }
+
+  /* Wicklungen: viele dünne Fäden, schräg um den Körper gelegt. */
   const baender = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 9; i++) {
     const b = new THREE.Mesh(bandGeo, bandMat);
-    const t = -0.78 + i * 0.26;
-    b.position.y = t;
-    b.rotation.x = Math.PI / 2 + rand(-0.3, 0.3);
-    b.rotation.z = rand(-0.25, 0.25);
-    const w = (1 - Math.abs(t) * 0.4) * 0.92;
-    b.scale.set(w, w, 1);
+    const t = -0.82 + i * 0.21;
+    b.position.set(rand(-0.03, 0.03), t, rand(-0.03, 0.03));
+    b.rotation.x = Math.PI / 2 + rand(-0.34, 0.34);
+    b.rotation.z = rand(-0.3, 0.3);
+    /* Der Querschnitt eines Menschen ist keine Scheibe: breiter als tief,
+       an den Schultern weiter als an Hüfte und Beinen. */
+    const schulter = 1 + 0.22 * Math.exp(-Math.pow((t - 0.42) / 0.3, 2));
+    const w = (1 - Math.max(0, -t - 0.3) * 0.45) * schulter * rand(0.9, 1.04);
+    b.scale.set(w, w * 0.7, rand(0.85, 1.15));
     b.visible = false;
     g.add(b); baender.push(b);
   }
+
+  /* Lose Fäden, die quer über den Körper laufen und abstehen. */
   const faeden = [];
-  for (let i = 0; i < 4; i++) {
-    const f = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, rand(0.6, 1.2), 4), bandMat);
-    f.position.set(rand(-0.3, 0.3), rand(-0.6, 0.6), rand(-0.3, 0.3));
-    f.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
+  for (let i = 0; i < 12; i++) {
+    const f = new THREE.Mesh(fadenGeo, bandMat);
+    f.position.set(rand(-0.26, 0.26), rand(-0.75, 0.85), rand(-0.20, 0.20));
+    f.rotation.set(rand(0, 3.2), rand(0, 3.2), rand(0, 3.2));
+    f.scale.set(1, rand(0.6, 1.5), 1);
     f.visible = false;
     g.add(f); faeden.push(f);
   }
+
   g.userData.setzeStufe = (stufe) => {
-    // Stufe 1: 2 Bänder + 2 Fäden · Stufe 2: 4 Bänder + alle Fäden · Stufe 3: alles
-    const bAnzahl = stufe >= 3 ? baender.length : (stufe === 2 ? 4 : 2);
+    /* Stufe 1: ein Netzfleck und ein paar Fäden – der Gegner kann noch
+       laufen. Stufe 2: erste Wicklungen. Stufe 3: komplett eingesponnen. */
+    const fl = stufe >= 3 ? flecken.length : (stufe === 2 ? 3 : 2);
+    flecken.forEach((f, i) => { f.visible = i < fl && stufe < 3; });
+    const bAnzahl = stufe >= 3 ? baender.length : (stufe === 2 ? 4 : 0);
     baender.forEach((b, i) => { b.visible = i < bAnzahl; });
-    faeden.forEach((f, i) => { f.visible = stufe >= 2 || i < 2; });
+    const fAnzahl = stufe >= 3 ? faeden.length : (stufe === 2 ? 8 : 4);
+    faeden.forEach((f, i) => { f.visible = i < fAnzahl; });
     koerper.visible = stufe >= 3;
   };
   return g;
@@ -4416,7 +4616,7 @@ function spawnGang(cx, cz, n) {
     const warn = makeWarnzeichen(); visual.root.add(warn);
     const blockZ = makeBlockzeichen(); visual.root.add(blockZ);
     const cocoon = makeCocoon();
-    cocoon.position.y = 0.95;
+    cocoon.position.y = 1.0;
     cocoon.visible = false;
     visual.root.add(cocoon);
     const e = {
@@ -4907,6 +5107,7 @@ function simuliere(dt) {
   updateEnemies(dt);
   updateCamera(dt);
   updateEffekte(dt);
+  updateKlatscher(dt);
 
   // Wasser-Animation
   if (waterMesh) waterTex.offset.x = elapsed * 0.015;
@@ -4914,7 +5115,12 @@ function simuliere(dt) {
   // Netzschuss-Blitze ausblenden
   for (let i = activeShots.length - 1; i >= 0; i--) {
     const s = activeShots[i];
-    s.life -= dt;
+    s.life -= dt; s.t += dt;
+    /* Erst herausschießen (6 Hundertstel), dann verblassen. */
+    const auszug = clamp(s.t / 0.06, 0, 1);
+    _v1.copy(s.from).lerp(s.to, auszug);
+    placeStrand(s.mesh, s.from, _v1, 0.004);
+    s.mesh.material.opacity = clamp(s.life / 0.14, 0, 1);
     if (s.life <= 0) { s.mesh.visible = false; activeShots.splice(i, 1); }
   }
   if (player.state !== 'swing' && player.state !== 'zip') swingStrand.visible = false;
