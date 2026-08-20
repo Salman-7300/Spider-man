@@ -535,6 +535,39 @@ const sidewalkTex = canvasTex(64, 64, (g) => {
   g.strokeRect(1, 1, 62, 62);
 });
 
+/* Rasen: ungleichmäßige Grüntöne plus einzelne Halme. Eine glatte grüne
+   Fläche sah aus wie Filz. */
+const rasenTex = canvasTex(128, 128, (g) => {
+  g.fillStyle = '#16290f'; g.fillRect(0, 0, 128, 128);
+  /* Nur leichte Flecken – zu viel Kontrast sah aus wie Tarnmuster. */
+  for (let i = 0; i < 200; i++) {
+    const t = Math.random();
+    g.fillStyle = t < 0.5 ? '#1a3012' : '#12230d';
+    const w = rand(6, 20), h = rand(6, 20);
+    g.globalAlpha = rand(0.12, 0.32);
+    g.fillRect(rand(0, 128 - w), rand(0, 128 - h), w, h);
+  }
+  g.globalAlpha = 1;
+  g.lineCap = 'round';
+  for (let i = 0; i < 420; i++) {              // einzelne Halme
+    const x = rand(0, 128), y = rand(0, 128), l = rand(2, 4.5);
+    g.strokeStyle = Math.random() < 0.45 ? 'rgba(58,92,44,0.45)' : 'rgba(14,30,12,0.5)';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(-1.2, 1.2), y - l); g.stroke();
+  }
+});
+rasenTex.repeat.set(14, 14);
+
+/* Kiesweg für den Park. */
+const wegTex = canvasTex(64, 64, (g) => {
+  g.fillStyle = '#5d5342'; g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 140; i++) {
+    g.fillStyle = Math.random() < 0.5 ? '#6b6049' : '#4e4536';
+    g.fillRect(rand(0, 62), rand(0, 62), rand(1, 3), rand(1, 3));
+  }
+});
+wegTex.repeat.set(6, 6);
+
 const waterTex = canvasTex(128, 128, (g) => {
   g.fillStyle = '#20537c'; g.fillRect(0, 0, 128, 128);
   for (let i = 0; i < 70; i++) {
@@ -704,9 +737,12 @@ function schmueckeHaus(w, h, d, x, z) {
            px + ox, unten + 1.6, pz + oz, 0xfff0c0);
     }
   }
+  /* Das Vordach ist nur eine 15 cm dicke Platte. Man klettert daran vorbei,
+     statt sich daraufzuziehen – sonst endet jeder Aufstieg von der Straße
+     schon nach drei Metern auf der Markise. */
   addCollider({ x0: x - (w + 1.05) / 2, x1: x + (w + 1.05) / 2,
                 z0: z - (d + 1.05) / 2, z1: z + (d + 1.05) / 2,
-                h: unten + 3.28, y0: unten + 2.9, klein: true });
+                h: unten + 3.28, y0: unten + 2.9, klein: true, keinHalt: true });
 
   /* Gesims am Dachrand – gibt dem Haus oben einen Abschluss. Es steht
      45 cm über die Wand hinaus; ohne Kollision stand man mit den Beinen
@@ -843,11 +879,50 @@ function buildCity() {
 /* ---- Park ----
    Rasen, ein Wegkreuz, Bäume, Bänke und ein Brunnen. Alles bis auf die
    Baumkronen geht ins gemeinsame Deko-Mesh. */
+const parks = [];
 function bauePark(cx, cz, size) {
   const halb = size / 2;
-  deko(size, 0.06, size, cx, SLAB_H + 0.03, cz, 0x2b5330);          // Rasen
-  deko(size, 0.07, 3.2, cx, SLAB_H + 0.06, cz, 0x8d7f66);           // Weg quer
-  deko(3.2, 0.07, size, cx, SLAB_H + 0.06, cz, 0x8d7f66);           // Weg längs
+  parks.push({ x: cx, z: cz, s: size });
+  /* Rasen und Wege liegen BÜNDIG mit dem Gehweg. Vorher standen sie 6 cm
+     darüber und die Füße steckten sichtbar im Gras. */
+  const rasen = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+    new THREE.MeshLambertMaterial({ map: rasenTex }));
+  rasen.rotation.x = -Math.PI / 2;
+  rasen.position.set(cx, SLAB_H + 0.006, cz);
+  rasen.receiveShadow = true;
+  cityGroup.add(rasen);
+
+  const wegMat = new THREE.MeshLambertMaterial({ map: wegTex });
+  for (const [ww, dd] of [[size, 3.2], [3.2, size]]) {
+    const weg = new THREE.Mesh(new THREE.PlaneGeometry(ww, dd), wegMat);
+    weg.rotation.x = -Math.PI / 2;
+    weg.position.set(cx, SLAB_H + 0.012, cz);
+    weg.receiveShadow = true;
+    cityGroup.add(weg);
+  }
+
+  /* Grasbüschel: kleine Kegel, die den flachen Boden aufbrechen. */
+  const buschMat = new THREE.MeshLambertMaterial({ color: 0x1c3517 });
+  const buschGeo = new THREE.ConeGeometry(0.3, 0.34, 6);
+  const buschAnz = 60;
+  const buschel = new THREE.InstancedMesh(buschGeo, buschMat, buschAnz);
+  const bm = new THREE.Matrix4(), bq = new THREE.Quaternion();
+  const bp = new THREE.Vector3(), bs = new THREE.Vector3(), be = new THREE.Euler();
+  let gesetztB = 0;
+  for (let i = 0; i < buschAnz * 3 && gesetztB < buschAnz; i++) {
+    const bx = cx + rand(-halb + 1, halb - 1), bz = cz + rand(-halb + 1, halb - 1);
+    if (Math.abs(bx - cx) < 2.2 || Math.abs(bz - cz) < 2.2) continue;   // nicht auf den Weg
+    if (Math.hypot(bx - cx, bz - cz) < 4.2) continue;                    // nicht in den Brunnen
+    be.set(0, rand(0, TAU), 0);
+    const gr = rand(0.5, 1.05);
+    bm.compose(bp.set(bx, SLAB_H + 0.15 * gr, bz), bq.setFromEuler(be),
+               bs.set(gr * rand(0.8, 1.3), gr, gr * rand(0.8, 1.3)));
+    buschel.setMatrixAt(gesetztB++, bm);
+  }
+  buschel.count = gesetztB;
+  buschel.instanceMatrix.needsUpdate = true;
+  buschel.castShadow = true;
+  cityGroup.add(buschel);
 
   /* Brunnen in der Mitte. */
   const becken = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.4, 0.7, 20),
@@ -878,13 +953,40 @@ function bauePark(cx, cz, size) {
                   h: SLAB_H + 3.4, klein: true });
   }
 
-  /* Bänke entlang der Wege. */
+  /* Bänke entlang der Wege – mit Beinen, sonst schwebt die Sitzfläche. */
   for (const [bx, bz, quer] of [[cx - 7, cz + 2.4, true], [cx + 7, cz + 2.4, true],
                                 [cx + 2.4, cz - 7, false], [cx + 2.4, cz + 7, false]]) {
     const w = quer ? 2.2 : 0.6, d = quer ? 0.6 : 2.2;
-    deko(w, 0.16, d, bx, SLAB_H + 0.55, bz, 0x7a5636);
-    deko(quer ? w : 0.12, 0.5, quer ? 0.12 : d, bx, SLAB_H + 0.85,
-         bz + (quer ? -0.24 : 0), 0x7a5636);
+    const sitzY = SLAB_H + 0.45;
+    // Zwei gusseiserne Wangen tragen die Bank bis auf den Boden
+    for (const s2 of [-1, 1]) {
+      const ox = quer ? s2 * (w / 2 - 0.22) : 0;
+      const oz = quer ? 0 : s2 * (d / 2 - 0.22);
+      deko(quer ? 0.12 : 0.5, 0.45, quer ? 0.5 : 0.12,
+           bx + ox, SLAB_H + 0.225, bz + oz, 0x3a3f45);
+    }
+    // Sitzlatten
+    for (let i = 0; i < 3; i++) {
+      const o = (i - 1) * 0.19;
+      deko(quer ? w : 0.16, 0.06, quer ? 0.16 : d,
+           bx + (quer ? 0 : o), sitzY, bz + (quer ? o : 0), 0x7a5636);
+    }
+    // Rückenlehne, leicht nach hinten geneigt
+    for (let i = 0; i < 2; i++) {
+      const hy = sitzY + 0.28 + i * 0.22;
+      const o = quer ? -0.28 - i * 0.06 : 0;
+      const o2 = quer ? 0 : -0.28 - i * 0.06;
+      deko(quer ? w : 0.14, 0.15, quer ? 0.14 : d,
+           bx + o2, hy, bz + o, 0x7a5636);
+    }
+    // Lehnenstützen
+    for (const s2 of [-1, 1]) {
+      const ox = quer ? s2 * (w / 2 - 0.22) : -0.3;
+      const oz = quer ? -0.3 : s2 * (d / 2 - 0.22);
+      deko(0.1, 0.62, 0.1, bx + ox, sitzY + 0.31, bz + oz, 0x3a3f45);
+    }
+    addCollider({ x0: bx - w / 2, x1: bx + w / 2, z0: bz - d / 2, z1: bz + d / 2,
+                  h: sitzY + 0.03, klein: true });
   }
 }
 
@@ -2295,10 +2397,37 @@ function makeGlbVisual(m) {
          sie an, im Aufstieg streckt er sie aus. */
       const hueft = 0.04 + anziehen * 0.18 - strecken * 0.16;
       const knie = 0.45 + anziehen * 0.75 - strecken * 0.32;
-      drehZuRuhe(knochen.leftupleg, hueft + takt * 0.34, 0, 0, k);
-      drehZuRuhe(knochen.rightupleg, hueft + 0.06 - takt * 0.34, 0, 0, k);
-      drehZuRuhe(knochen.leftleg, knie - takt * 0.30, 0, 0, k);
-      drehZuRuhe(knochen.rightleg, knie - 0.14 + takt * 0.30, 0, 0, k);
+      /* Die Beine wirkten wie ein Stück Stoff: beide Gelenke folgten
+         demselben Sinus, die Knöchel wurden gar nicht geführt und alles
+         bewegte sich in einer Ebene. Drei Dinge machen daraus ein Bein
+         mit Knochen:
+         1. das Knie läuft dem Oberschenkel nach (Phasenversatz),
+         2. der Knöchel folgt dem Knie noch später und streckt den Spann,
+         3. die Beine scheren leicht seitlich, statt parallel zu pendeln. */
+      const takt2 = Math.sin((t || 0) * 2.3 - 0.55);       // Knie hinkt nach
+      const takt3 = Math.sin((t || 0) * 2.3 - 1.05);       // Knöchel noch später
+      const schere = 0.10 + Math.sin((t || 0) * 1.15) * 0.16;   // Beine nie parallel
+
+      drehZuRuhe(knochen.leftupleg,  hueft + takt * 0.34, 0, schere, k);
+      drehZuRuhe(knochen.rightupleg, hueft + 0.06 - takt * 0.34, 0, -schere, k);
+
+      /* Das Knie beugt nur in eine Richtung – ein negativer Wert würde das
+         Bein nach vorn überstrecken. */
+      const knieL = Math.max(0.12, knie + 0.22 - takt2 * 0.46);
+      const knieR = Math.max(0.12, knie - 0.24 + takt2 * 0.46);
+      drehZuRuhe(knochen.leftleg,  knieL, 0, 0, k);
+      drehZuRuhe(knochen.rightleg, knieR, 0, 0, k);
+
+      /* Knöchel: je stärker das Knie gebeugt ist, desto mehr zeigt der Fuß
+         nach hinten weg – so hängen die Füße nicht mehr starr im Raum. */
+      if (knochen.leftfoot) {
+        drehZuRuhe(knochen.leftfoot,  0.34 + knieL * 0.55 + takt3 * 0.22, 0, 0, k * 0.9);
+      }
+      if (knochen.rightfoot) {
+        drehZuRuhe(knochen.rightfoot, 0.34 + knieR * 0.55 - takt3 * 0.22, 0, 0, k * 0.9);
+      }
+      if (knochen.lefttoebase) drehZuRuhe(knochen.lefttoebase, 0.22, 0, 0, k * 0.7);
+      if (knochen.righttoebase) drehZuRuhe(knochen.righttoebase, 0.22, 0, 0, k * 0.7);
       /* Rumpf: am Tiefpunkt eingerollt, im Aufstieg aufgerichtet, dazu
          eine leichte Drehung zum Netzarm hin. */
       drehe(knochen.spine1, -0.06 + anziehen * 0.16 - strecken * 0.12,
@@ -2471,6 +2600,23 @@ function makeGlbVisual(m) {
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
       zieleKnochen(knochen[gross], knochen[klein], zielWelt, k);
       drehe(knochen[klein], 0, 0, 0, k);
+    },
+    /* Etwas in eine Hand geben (Handy, später auch anderes). Das Objekt
+       hängt danach am Handknochen und macht jede Bewegung mit. */
+    inDieHand(seite, obj, versatz, drehung) {
+      const bone = haende[seite] || haende.R || haende.L;
+      if (!bone) return false;
+      if (obj.parent !== bone) bone.add(obj);
+      /* Die Knochen sind mit dem Modellmaßstab skaliert – der Versatz muss
+         das ausgleichen, sonst klebt das Handy im Handgelenk oder schwebt
+         einen halben Meter daneben. */
+      bone.updateWorldMatrix(true, false);
+      const s = _va.setFromMatrixScale(bone.matrixWorld);
+      const f = s.x > 0.0001 ? 1 / s.x : 1;
+      obj.position.set(versatz.x * f, versatz.y * f, versatz.z * f);
+      obj.scale.setScalar(f);
+      if (drehung) obj.rotation.set(drehung.x, drehung.y, drehung.z);
+      return true;
     },
     /* Weltposition einer Hand – für den Netzfaden */
     handPos(seite, out) {
@@ -3265,6 +3411,18 @@ overlay.addEventListener('click', () => {
     overlay.style.display = 'none';
     hud.style.display = 'block';
     baueTouch();
+    /* Vollbild: sonst frisst die Adressleiste ein Fünftel des Bildes und
+       ein Wisch nach oben wirft einen aus dem Spiel. */
+    const el = document.documentElement;
+    const voll = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (voll) { try { voll.call(el).catch(() => {}); } catch (e) {} }
+    if (screen.orientation && screen.orientation.lock) {
+      try { screen.orientation.lock('landscape').catch(() => {}); } catch (e) {}
+    }
+    /* Bildschirm nicht abdunkeln lassen. */
+    if (navigator.wakeLock && navigator.wakeLock.request) {
+      try { navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+    }
     return;
   }
   renderer.domElement.requestPointerLock();
@@ -3394,7 +3552,7 @@ let padSchwang = false, padSprint = false;
 const istTouch = (typeof window !== 'undefined') &&
   (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 1) &&
   window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-let touchSprint = false, touchAktiv = false;
+let touchSprint = false, touchAktiv = false, touchKleben = false;
 let zeigerStick = false;   // wahr, solange ein Finger den Knüppel hält
 
 function baueTouch() {
@@ -3441,7 +3599,8 @@ function baueTouch() {
     for (const t of ev.changedTouches) {
       if (t.identifier === stickId) stickBewegen(t);
       else if (t.identifier === kamId) {
-        mouseDX += (t.clientX - kx) * 1.5; mouseDY += (t.clientY - ky) * 1.5;
+        const emp = 1.5 * (EINST.maus / 100);
+        mouseDX += (t.clientX - kx) * emp; mouseDY += (t.clientY - ky) * emp;
         kx = t.clientX; ky = t.clientY;
       }
     }
@@ -3474,6 +3633,16 @@ function baueTouch() {
     if (!el) continue;
     el.addEventListener('touchstart', (ev) => { ev.preventDefault(); ev.stopPropagation(); TASTEN[id](); });
   }
+  /* Klettern: gedrückt halten, um an der Wand zu bleiben. */
+  const klettern = document.getElementById('tKlettern');
+  if (klettern) {
+    const an = (ev) => { ev.preventDefault(); ev.stopPropagation(); touchKleben = true; };
+    const aus = () => { touchKleben = false; };
+    klettern.addEventListener('touchstart', an);
+    klettern.addEventListener('touchend', aus);
+    klettern.addEventListener('touchcancel', aus);
+  }
+
   /* Netzschwung: gedrückt halten. */
   const schwung = document.getElementById('tSchwung');
   if (schwung) {
@@ -4383,6 +4552,9 @@ function updatePlayer(dt) {
     if (keys['KeyS'] || keys['ArrowDown']) up -= 1;
     if (keys['KeyD'] || keys['ArrowRight']) side += 1;
     if (keys['KeyA'] || keys['ArrowLeft']) side -= 1;
+    /* An der Wand zählte bisher nur die Tastatur. Auf dem Handy und mit
+       Gamepad klebte man dadurch bewegungsunfähig an der Fassade fest. */
+    if (!up && !side && (stick.x || stick.z)) { up = stick.z; side = stick.x; }
     /* Tangente „nach rechts" aus Sicht der Figur. Die Figur schaut in
        Richtung (-nx, -nz); rechts davon liegt (-f.z, f.x) = (nz, -nx).
        Vorher stand hier genau das Gegenteil – deshalb liefen A und D
@@ -4405,7 +4577,7 @@ function updatePlayer(dt) {
       if (lc.h < player.pos.y + 0.1 || lc.y0 > kopf) continue;
       if (player.pos.x < lc.x0 - player.radius || player.pos.x > lc.x1 + player.radius) continue;
       if (player.pos.z < lc.z0 - player.radius || player.pos.z > lc.z1 + player.radius) continue;
-      if (up > 0 && lc.h - player.pos.y < 2.6) {
+      if (up > 0 && lc.h - player.pos.y < 2.6 && !lc.keinHalt) {
         const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
         const ziel = V3(
           player.pos.x - w.nx * (player.radius + 0.75),
@@ -4710,8 +4882,11 @@ function updatePlayer(dt) {
   if (player.wall && !player.onGround && player.state !== 'swing' && player.state !== 'zip') {
     const w = player.wall;
     const movingIn = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.3;
-    onWallTimer = movingIn || keys['KeyC'] ? onWallTimer + dt : 0;
-    if ((movingIn || keys['KeyC']) && onWallTimer >= 0) {
+    /* Halte-Taste zum Ankleben. Früher lag sie auf C – die Taste macht
+       jetzt Erste Hilfe. */
+    const kleben = keys['KeyX'] || touchKleben;
+    onWallTimer = movingIn || kleben ? onWallTimer + dt : 0;
+    if ((movingIn || kleben) && onWallTimer >= 0) {
       player.state = 'climb';
       player.wallInfo = w;
       player.vel.set(0, 0, 0);
@@ -5532,7 +5707,6 @@ function makeHandy() {
   const glas = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.01),
     new THREE.MeshBasicMaterial({ color: 0x9fd2e8 }));
   glas.position.z = 0.015; m.add(glas);
-  m.position.set(0.28, 1.35, 0.3);
   m.visible = false;
   return m;
 }
@@ -5564,6 +5738,13 @@ function updateCivilians(dt) {
     /* Reaktion auf den Helden: stehenbleiben, hinschauen, filmen, rufen.
        Nur wenn gerade keine Gefahr in der Nähe ist. */
     if (!c.handy) { c.handy = makeHandy(); c.visual.root.add(c.handy); }
+    /* Das Handy hing bisher an einem festen Punkt vor dem Körper und
+       schwebte dadurch neben der Hand in der Luft. Jetzt sitzt es am
+       Handknochen und wird wirklich gehalten. */
+    if (!c.handyInHand && c.visual.inDieHand) {
+      c.handyInHand = c.visual.inDieHand('R', c.handy,
+        _v3.set(0.02, 0.11, 0.015), { x: -0.5, y: 0, z: 1.5 });
+    }
     const dHeld = Math.hypot(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
     const sichtbar = dHeld < 9 && Math.abs(player.pos.y - c.pos.y) < 6;
     if (!threat && c.state !== 'flee' && c.state !== 'hurt' && sichtbar) {
@@ -5664,6 +5845,12 @@ function updateCivilians(dt) {
     else zAnim = c.ruhePose || 'idle';
     c.visual.play(zAnim,
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
+    /* Beim Filmen wird der Arm mit dem Handy zum Helden gestreckt –
+       vorher hing der Arm herunter und das Handy schwebte davor. */
+    if (c.handy.visible && c.visual.poseSchuss) {
+      _v3.set(player.pos.x, player.pos.y + 1.2, player.pos.z);
+      c.visual.poseSchuss(_v3, 'R', 0.85);
+    }
     if (haltenImGebiet(c.pos)) c.waypoint = null;
     if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
   }
@@ -6872,15 +7059,24 @@ function updateMission(dt) {
 /* ======================= Einstellungen =======================
    Mausempfindlichkeit, Lautstärke und Grafikstufe waren fest verdrahtet.
    Alles ist jetzt über Esc erreichbar und wird im Browser gespeichert. */
-const EINST = { maus: 100, ton: 70, grafik: 'hoch', musik: 'an' };
+const EINST = { maus: 100, ton: 70, grafik: 'hoch', musik: 'an', karte: 'an' };
 try {
   const g = JSON.parse(localStorage.getItem('webhero_einst') || 'null');
   if (g) Object.assign(EINST, g);
+  /* Handys und Tablets starten mit mittlerer Grafik – Schatten kosten dort
+     am meisten. Wer es anders will, stellt es einmal um; die Wahl bleibt
+     dann gespeichert. */
+  else if (istTouch) EINST.grafik = 'mittel';
 } catch (e) {}
 
 const settingsEl = document.getElementById('settings');
 function einstSpeichern() {
   try { localStorage.setItem('webhero_einst', JSON.stringify(EINST)); } catch (e) {}
+}
+function wendeKarteAn() {
+  karteAn = EINST.karte === 'an';
+  const el = document.getElementById('minimap');
+  if (el) el.style.display = karteAn ? 'block' : 'none';
 }
 function wendeGrafikAn() {
   const stufeG = EINST.grafik;
@@ -6907,17 +7103,20 @@ function zeigeEinstellungen(an) {
   const ton = document.getElementById('setTon');
   const graf = document.getElementById('setGrafik');
   const mus = document.getElementById('setMusik');
+  const kar = document.getElementById('setKarte');
   const wMaus = document.getElementById('wMaus');
   const wTon = document.getElementById('wTon');
   if (!maus) return;
   maus.value = EINST.maus; ton.value = EINST.ton; graf.value = EINST.grafik;
   if (mus) mus.value = EINST.musik;
+  if (kar) kar.value = EINST.karte;
   const zeige = () => { wMaus.textContent = EINST.maus + '%'; wTon.textContent = EINST.ton + '%'; };
   zeige();
   maus.addEventListener('input', () => { EINST.maus = +maus.value; zeige(); einstSpeichern(); });
   ton.addEventListener('input', () => { EINST.ton = +ton.value; zeige(); wendeTonAn(); einstSpeichern(); });
   graf.addEventListener('change', () => { EINST.grafik = graf.value; wendeGrafikAn(); einstSpeichern(); });
   if (mus) mus.addEventListener('change', () => { EINST.musik = mus.value; wendeTonAn(); einstSpeichern(); });
+  if (kar) kar.addEventListener('change', () => { EINST.karte = kar.value; wendeKarteAn(); einstSpeichern(); });
   document.getElementById('setZu').addEventListener('click', () => zeigeEinstellungen(false));
   document.getElementById('setReset').addEventListener('click', () => {
     try { localStorage.removeItem('webhero_stand'); localStorage.removeItem('webhero_best'); } catch (e) {}
@@ -6928,6 +7127,116 @@ function zeigeEinstellungen(an) {
   });
 })();
 
+/* ======================= Minikarte =======================
+   Die Stadt ist ein Raster – ohne Übersicht verliert man beim Schwingen
+   sofort die Orientierung. Der Untergrund (Straßen, Blöcke, Fluss, Parks)
+   wird einmal in eine Bildkarte gezeichnet; pro Bild wird nur noch der
+   Ausschnitt um den Helden herausgeschnitten und die Punkte darübergelegt.
+   Norden ist oben, der Pfeil dreht sich. */
+const KARTE_WELT = 420;          // abgedeckter Bereich in Metern (−210 … 210)
+const KARTE_PX = 840;            // Auflösung der Bildkarte
+const KARTE_SICHT = 150;         // Radius, den die Minikarte zeigt
+let karteBasis = null, karteCtx = null, karteEl = null, karteAn = true;
+
+function w2k(v) { return (v + KARTE_WELT / 2) / KARTE_WELT * KARTE_PX; }
+
+function baueKarte() {
+  karteBasis = document.createElement('canvas');
+  karteBasis.width = karteBasis.height = KARTE_PX;
+  const g = karteBasis.getContext('2d');
+  const m = KARTE_PX / KARTE_WELT;
+
+  g.fillStyle = '#1c2129'; g.fillRect(0, 0, KARTE_PX, KARTE_PX);   // Asphalt
+
+  /* Häuserblöcke der Stadtseite. */
+  g.fillStyle = '#39414d';
+  const bs = (PITCH - ROAD_HALF * 2) * m;
+  for (let bi = 0; bi < BLOCKS; bi++) {
+    for (let bj = 0; bj < BLOCKS; bj++) {
+      const cx = ORIGIN + bi * PITCH + PITCH / 2, cz = ORIGIN + bj * PITCH + PITCH / 2;
+      g.fillRect(w2k(cx) - bs / 2, w2k(cz) - bs / 2, bs, bs);
+    }
+  }
+  /* Parks grün einfärben. */
+  g.fillStyle = '#2f5a34';
+  for (const p of parks) g.fillRect(w2k(p.x) - p.s * m / 2, w2k(p.z) - p.s * m / 2, p.s * m, p.s * m);
+
+  /* Fluss und gegenüberliegendes Ufer. */
+  g.fillStyle = '#14324d';
+  g.fillRect(w2k(RIVER_X0), 0, (SHORE_X0 - RIVER_X0) * m, KARTE_PX);
+  g.fillStyle = '#1c2129';
+  g.fillRect(w2k(SHORE_X0), 0, KARTE_PX - w2k(SHORE_X0), KARTE_PX);
+  g.fillStyle = '#39414d';
+  const ss = (SHORE_PITCH - SHORE_ROAD * 2) * m;
+  for (let bi = 0; bi < SHORE_NX; bi++) {
+    for (let bj = 0; bj < SHORE_NZ; bj++) {
+      const cx = SHORE_OX + bi * SHORE_PITCH + SHORE_PITCH / 2;
+      const cz = SHORE_OZ + bj * SHORE_PITCH + SHORE_PITCH / 2;
+      g.fillRect(w2k(cx) - ss / 2, w2k(cz) - ss / 2, ss, ss);
+    }
+  }
+  /* Brücke. */
+  g.fillStyle = '#4a5361';
+  g.fillRect(w2k(RIVER_X0), w2k(BRIDGE_Z - BRIDGE_HW),
+             (SHORE_X0 - RIVER_X0) * m, BRIDGE_HW * 2 * m);
+}
+
+function zeichnePunkt(g, cx, cy, wx, wz, mp, farbe, r) {
+  const px = cx + (wx - player.pos.x) * mp;
+  const py = cy + (wz - player.pos.z) * mp;
+  if (Math.hypot(px - cx, py - cy) > cx - 3) return;
+  g.fillStyle = farbe;
+  g.beginPath(); g.arc(px, py, r, 0, TAU); g.fill();
+}
+
+function updateKarte() {
+  if (!karteEl) return;
+  if (!karteAn) return;
+  if (!karteBasis) baueKarte();
+  const g = karteCtx;
+  const W = karteEl.width, cx = W / 2, cy = W / 2;
+  g.clearRect(0, 0, W, W);
+  g.save();
+  g.beginPath(); g.arc(cx, cy, cx, 0, TAU); g.clip();
+
+  /* Ausschnitt der Bildkarte um den Helden. */
+  const m = KARTE_PX / KARTE_WELT;
+  const halb = KARTE_SICHT * m;
+  g.imageSmoothingEnabled = true;
+  g.drawImage(karteBasis, w2k(player.pos.x) - halb, w2k(player.pos.z) - halb,
+              halb * 2, halb * 2, 0, 0, W, W);
+
+  /* Maßstab Bildschirm-Pixel je Meter. */
+  const mp = W / (KARTE_SICHT * 2);
+
+  /* Gegner rot, Verletzte weiß-rot, Auftragsziel gelb. */
+  for (const e of enemies) {
+    if (e.dead) continue;
+    zeichnePunkt(g, cx, cy, e.pos.x, e.pos.z, mp, '#ff4b3e', 3);
+  }
+  for (const c of civilians) {
+    if (c.state === 'hurt' && c.hilfeBar) zeichnePunkt(g, cx, cy, c.pos.x, c.pos.z, mp, '#ffffff', 3);
+  }
+  const mz = MISSION.art ? missionZiel() : null;
+  if (mz) {
+    const px = cx + (mz.x - player.pos.x) * mp, py = cy + (mz.z - player.pos.z) * mp;
+    const l = Math.hypot(px - cx, py - cy);
+    const k = l > cx - 8 ? (cx - 8) / l : 1;         // am Rand festhalten
+    const ax = cx + (px - cx) * k, ay = cy + (py - cy) * k;
+    g.strokeStyle = '#ffd23c'; g.lineWidth = 3;
+    g.beginPath(); g.arc(ax, ay, 6 + Math.sin(elapsed * 5) * 1.5, 0, TAU); g.stroke();
+  }
+
+  /* Der Held: Pfeil in Blickrichtung. Auf der Karte ist +z nach unten. */
+  g.translate(cx, cy);
+  g.rotate(Math.PI - player.facing);
+  g.fillStyle = '#4fd2ff';
+  g.beginPath();
+  g.moveTo(0, -8); g.lineTo(6, 7); g.lineTo(0, 3.5); g.lineTo(-6, 7);
+  g.closePath(); g.fill();
+  g.restore();
+}
+
 /* ======================= HUD & Popups ======================= */
 const hpbarEl = document.getElementById('hpbar');
 const scoreEl = document.getElementById('score');
@@ -6937,6 +7246,8 @@ const comboEl = document.getElementById('combo');
 const comboNEl = document.getElementById('comboN');
 const objectiveEl = document.getElementById('objective');
 const rufEl = document.getElementById('ruf');
+karteEl = document.getElementById('minimapC');
+if (karteEl) karteCtx = karteEl.getContext('2d');
 const vignetteEl = document.getElementById('vignette');
 
 let bestScore = 0;
@@ -7016,7 +7327,13 @@ function hideObjective() {
 
 /* ======================= Hitstop / Zeit ======================= */
 let hitstopT = 0;
-function hitstop(sec) { hitstopT = Math.max(hitstopT, sec); }
+function hitstop(sec) {
+  hitstopT = Math.max(hitstopT, sec);
+  /* Auf dem Handy ersetzt ein kurzer Rüttler das fehlende Tastengefühl. */
+  if (touchAktiv && navigator.vibrate) {
+    try { navigator.vibrate(Math.round(clamp(sec, 0.03, 0.12) * 220)); } catch (e) {}
+  }
+}
 
 /* ======================= Startaufbau der Figuren ======================= */
 let actorsReady = false;
@@ -7031,18 +7348,23 @@ function initActors() {
 }
 wendeGrafikAn();
 wendeTonAn();
+wendeKarteAn();
 loadGlbAssets(initActors);
 
 /* ======================= Hauptschleife ======================= */
 const clock = new THREE.Clock();
 let elapsed = 0;
 
+let karteCd = 0;
 function animate() {
   requestAnimationFrame(animate);
   let dt = Math.min(clock.getDelta(), 0.05);
   if (!isActive() || !actorsReady) { renderer.render(scene, camera); return; }
   simuliere(dt);
   renderer.render(scene, camera);
+  /* Die Minikarte braucht keine 60 Bilder je Sekunde. */
+  karteCd -= dt;
+  if (karteCd <= 0) { karteCd = 0.05; updateKarte(); }
 }
 
 /* Ein Simulationsschritt ohne Bild. So lässt sich das Spiel in Tests mit
@@ -7135,6 +7457,7 @@ if (window.__WEBHERO_TEST__ === true) {
     get istTouch() { return istTouch; },
     get touchAktiv() { return touchAktiv; },
     stick,
+    tippeSprung() { tryJump(); },
     renderInfo() { return { calls: renderer.info.render.calls,
       dreiecke: renderer.info.render.triangles,
       programme: renderer.info.programs ? renderer.info.programs.length : -1,

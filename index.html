@@ -44,6 +44,15 @@
   #score { margin-top:8px; font-size:20px; font-weight:700; text-shadow:0 2px 6px #000; }
   #best { font-size:13px; opacity:.75; text-shadow:0 1px 4px #000; }
   #ruf { margin-top:6px; font-size:13px; opacity:.9; text-shadow:0 1px 4px #000; }
+
+  /* ---- Minikarte ---- */
+  #minimap { position:absolute; top:14px; right:14px; width:180px; height:180px;
+    border-radius:50%; overflow:hidden; background:rgba(10,14,22,.55);
+    border:2px solid rgba(255,255,255,.28); box-shadow:0 4px 18px rgba(0,0,0,.45); }
+  #minimap canvas { width:100%; height:100%; display:block; }
+  #minimapN { position:absolute; top:2px; left:50%; transform:translateX(-50%);
+    font-size:11px; font-weight:700; color:#ffd23c; text-shadow:0 1px 3px #000; }
+  @media (max-width:760px) { #minimap { width:118px; height:118px; top:10px; right:10px; } }
   #ruf .rufbalken { display:inline-block; width:80px; height:6px; margin-left:6px;
     border-radius:3px; background:rgba(255,255,255,.18); vertical-align:middle; overflow:hidden; }
   #ruf .rufbalken i { display:block; height:100%; border-radius:3px; transition:width .3s; }
@@ -175,6 +184,8 @@
     <div id="ruf"></div>
   </div>
   <div id="combo"><span id="comboN">0</span><small>KOMBO</small></div>
+  <div id="minimap"><canvas id="minimapC" width="360" height="360"></canvas>
+    <div id="minimapN">N</div></div>
   <div id="objective"></div>
   <div id="crosshair"></div>
   <div id="speed"></div>
@@ -217,6 +228,9 @@
       <button id="tHaken" class="tklein">↑✊</button>
       <button id="tWurf" class="tklein">✊➜</button>
     </div>
+    <div class="treihe">
+      <button id="tKlettern" class="tklein">🧗</button>
+    </div>
     <div class="tgross">
       <button id="tTritt">Tritt</button>
       <button id="tSchlag">Schlag</button>
@@ -237,6 +251,11 @@
       <select id="setMusik">
         <option value="an">An – Stadtklang und Musik</option>
         <option value="stadt">Nur Stadtklang</option>
+        <option value="aus">Aus</option>
+      </select></div>
+    <div class="zeile"><span>Minikarte</span>
+      <select id="setKarte">
+        <option value="an">An</option>
         <option value="aus">Aus</option>
       </select></div>
     <div class="zeile"><span>Grafik</span>
