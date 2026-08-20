@@ -2635,6 +2635,78 @@ function makeGlbVisual(m) {
       if (drehung) obj.rotation.set(drehung.x, drehung.y, drehung.z);
       return true;
     },
+    /* Gleitpose: Arme seitlich weit ausgebreitet, Beine gespreizt und
+       leicht angewinkelt. Zwischen Armen und Rumpf spannt sich später die
+       Netzhaut – dafür müssen die Arme wirklich weg vom Körper stehen. */
+    poseGleiten(nase, kurve, t, k) {
+      const w = k === undefined ? 0.9 : k;
+      const flattern = Math.sin((t || 0) * 5.5) * 0.045;
+      /* Arme: fast waagerecht zur Seite, minimal nach vorn. Die Kurve
+         senkt den inneren und hebt den äußeren Arm. */
+      const roll = (kurve || 0) * 0.3;
+      /* Die Arme werden im WELTRAUM ausgerichtet, nicht über Eulerwinkel.
+         Beim Mixamo-Skelett liegt die Ruhedrehung der Oberarme so, dass
+         eine Drehung um die lokale Z-Achse den Arm nach vorn statt zur
+         Seite führt – die Netzhaut blieb dadurch auf zehn Zentimeter
+         zusammengefaltet. Mit einem Zielpunkt weit seitlich stimmt es
+         unabhängig von der Ruhelage. */
+      root.updateMatrixWorld(true);
+      _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();  // rechts
+      _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();  // vorn
+      for (const seite of ['left', 'right']) {
+        /* Achtung: Im Modellraum liegt der Knochen "leftarm" auf der
+           +X-Seite – das Modell ist um 180° gedreht. Mit der naheliegenden
+           Zuordnung kreuzten die Arme vor dem Körper, statt sich zu
+           spreizen, und die Netzhaut blieb zusammengefaltet. */
+        const vz = seite === 'left' ? 1 : -1;
+        const arm = knochen[seite + 'arm'], unter = knochen[seite + 'forearm'];
+        const hand = knochen[seite + 'hand'];
+        if (!arm || !unter) continue;
+        arm.getWorldPosition(_vw3);
+        /* Ziel: weit zur Seite, ein Stück nach hinten und leicht nach
+           unten – die typische Haltung mit gespannter Netzhaut. */
+        const hoch = -0.16 + roll * vz * 0.8 + flattern * vz * 2;
+        _vw4.copy(_vw3)
+          .addScaledVector(_vw1, vz * 3.0)
+          .addScaledVector(_vw2, -0.55)
+          .addScaledVector(_fh.set(0, 1, 0), hoch * 3);
+        zieleKnochen(arm, unter, _vw4, w);
+        if (hand) {
+          /* Der Unterarm zeigt in dieselbe Richtung weiter – der Ellbogen
+             bleibt fast gestreckt, sonst knickt die Haut ein. */
+          unter.getWorldPosition(_vw3);
+          _vw4.copy(_vw3)
+            .addScaledVector(_vw1, vz * 3.0)
+            .addScaledVector(_vw2, -0.4)
+            .addScaledVector(_fh.set(0, 1, 0), hoch * 2.4);
+          zieleKnochen(unter, hand, _vw4, w * 0.95);
+        }
+      }
+      /* Beine gespreizt und leicht angewinkelt – wie beim Fallschirmsprung. */
+      const beinAn = 0.30 - (nase || 0) * 0.16;
+      drehZuRuhe(knochen.leftupleg,  beinAn, 0,  0.34 + roll * 0.4, w);
+      drehZuRuhe(knochen.rightupleg, beinAn, 0, -0.34 + roll * 0.4, w);
+      drehZuRuhe(knochen.leftleg,  0.42 + flattern * 2, 0, 0, w);
+      drehZuRuhe(knochen.rightleg, 0.42 - flattern * 2, 0, 0, w);
+      if (knochen.leftfoot)  drehZuRuhe(knochen.leftfoot,  0.34, 0, 0, w * 0.8);
+      if (knochen.rightfoot) drehZuRuhe(knochen.rightfoot, 0.34, 0, 0, w * 0.8);
+      /* Rumpf: bei gedrückter Nase mehr Vorlage, dazu Kurvenlage. */
+      drehe(knochen.spine1, -0.1 + (nase || 0) * 0.1, (kurve || 0) * 0.16, 0, 0.5);
+      drehe(knochen.spine,  -0.06, (kurve || 0) * 0.1, 0, 0.4);
+      /* Der Blick geht nach vorn, nicht auf den Asphalt. */
+      drehZuRuhe(knochen.head, -0.30, (kurve || 0) * 0.2, 0, 0.8);
+      drehZuRuhe(knochen.neck, -0.18, 0, 0, 0.75);
+    },
+    /* Weltpositionen der Knochen, die die Netzhaut aufspannen. */
+    fluegelPunkte(seite, out) {
+      const p = seite === 'L' ? 'left' : 'right';
+      const b = [knochen[p + 'hand'], knochen[p + 'forearm'], knochen[p + 'arm'],
+                 knochen[p + 'upleg'], knochen[p + 'leg']];
+      for (let i = 0; i < 5; i++) if (!b[i]) return false;
+      root.updateMatrixWorld(true);
+      for (let i = 0; i < 5; i++) b[i].getWorldPosition(out[i]);
+      return true;
+    },
     /* Ein gehaltenes Objekt senkrecht stellen. Der Schirm hängt am
        Handknochen und würde sonst waagerecht am Unterarm liegen. */
     haltAufrecht(obj, neigung) {
@@ -3578,7 +3650,7 @@ let padSchwang = false, padSprint = false;
 const istTouch = (typeof window !== 'undefined') &&
   (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 1) &&
   window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-let touchSprint = false, touchAktiv = false, touchKleben = false;
+let touchSprint = false, touchAktiv = false, touchKleben = false, touchGleiten = false;
 let zeigerStick = false;   // wahr, solange ein Finger den Knüppel hält
 
 function baueTouch() {
@@ -3659,6 +3731,16 @@ function baueTouch() {
     if (!el) continue;
     el.addEventListener('touchstart', (ev) => { ev.preventDefault(); ev.stopPropagation(); TASTEN[id](); });
   }
+  /* Gleiten: gedrückt halten, dann tragen die Netzflügel. */
+  const gleiten = document.getElementById('tGleiten');
+  if (gleiten) {
+    const an = (ev) => { ev.preventDefault(); ev.stopPropagation(); touchGleiten = true; };
+    const aus = () => { touchGleiten = false; };
+    gleiten.addEventListener('touchstart', an);
+    gleiten.addEventListener('touchend', aus);
+    gleiten.addEventListener('touchcancel', aus);
+  }
+
   /* Klettern: gedrückt halten, um an der Wand zu bleiben. */
   const klettern = document.getElementById('tKlettern');
   if (klettern) {
@@ -4788,8 +4870,30 @@ function updatePlayer(dt) {
   }
   if (!keys['Space'] && !swingHeld) player.swingLock = false;
 
+  /* ---- Gleiten mit den Netzflügeln ----
+     Zwischen Armen und Rumpf spannt sich eine Netzhaut. Hoch über der
+     Skyline findet der Netzanker nichts mehr – dort war das Spiel bisher
+     ein reiner Sturzflug. Mit den Flügeln wird daraus ein Gleitflug:
+     langsames Sinken, dafür Tempo nach vorn, das man gegen Höhe eintauschen
+     kann. Ausgelöst wird es mit derselben Taste wie Sprinten. */
+  const hoeheUeberGrund = player.pos.y - groundY(player.pos.x, player.pos.z);
+  /* Erst ab vier Metern Höhe und frühestens am Scheitelpunkt des Sprungs –
+     sonst breitet die Figur schon bei jedem Sprint-Sprung die Flügel aus. */
+  const willGleiten = (sprintAn() || touchGleiten) && !player.onGround &&
+                      player.state === 'air' && !player.zip && player.rollT <= 0 &&
+                      hoeheUeberGrund > 4 && (player.gleiten || player.vel.y < 2);
+  if (willGleiten && !player.gleiten) {
+    player.gleiten = true;
+    player.gleitT = 0;
+    SFX.web();
+  } else if (!willGleiten && player.gleiten) {
+    player.gleiten = false;
+  }
+  if (player.gleiten) player.gleitT += dt;
+
   /* ---- Physik ---- */
-  const grav = player.state === 'swing' ? CFG.swingGravity : CFG.gravity;
+  let grav = player.state === 'swing' ? CFG.swingGravity : CFG.gravity;
+  if (player.gleiten) grav *= 0.24;          // die Flügel tragen
   player.vel.y -= grav * dt;
 
   if (player.onGround && player.state !== 'swing') {
@@ -4818,6 +4922,35 @@ function updatePlayer(dt) {
       player.vel.z = lerp(player.vel.z, 0, Math.min(1, dt * 22));
       if (Math.hypot(player.vel.x, player.vel.z) < 0.35) { player.vel.x = 0; player.vel.z = 0; }
     }
+  } else if (player.gleiten) {
+    /* ---- Gleitflug ----
+       Sinken wird gedämpft, die Sinkgeschwindigkeit in Vortrieb umgesetzt.
+       W drückt die Nase herunter: schneller, aber man verliert Höhe.
+       S zieht sie hoch: man bremst und steigt kurz, verliert dann Tempo.
+       A/D legen die Figur in die Kurve. */
+    if (player.dodgeT > 0) player.dodgeT -= dt;
+    const nase = (keys['KeyW'] || keys['ArrowUp'] ? 1 : 0) -
+                 (keys['KeyS'] || keys['ArrowDown'] ? 1 : 0) +
+                 (stick.z || 0);
+    const kurve = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) -
+                  (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0) +
+                  (stick.x || 0);
+    player.gleitNase = lerp(player.gleitNase || 0, clamp(nase, -1, 1), Math.min(1, dt * 4));
+    player.gleitKurve = lerp(player.gleitKurve || 0, clamp(kurve, -1, 1), Math.min(1, dt * 4));
+
+    /* Sinkgeschwindigkeit begrenzen – das ist der eigentliche Flügel. */
+    const sinkMax = -(4.2 + player.gleitNase * 7.5);      // 3,3 … 11,7 m/s
+    if (player.vel.y < sinkMax) player.vel.y = lerp(player.vel.y, sinkMax, Math.min(1, dt * 3.2));
+
+    /* Kurve: die Blickrichtung dreht, das Tempo folgt der Nase. */
+    player.facing -= player.gleitKurve * dt * 1.5;
+    const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+    /* Aus Sinken wird Vortrieb: je steiler, desto schneller. */
+    const zielTempo = 15 + player.gleitNase * 11;         // 4 … 26 m/s
+    const hs = Math.hypot(player.vel.x, player.vel.z);
+    const neuTempo = lerp(hs, zielTempo, Math.min(1, dt * 1.6));
+    player.vel.x = f.x * neuTempo;
+    player.vel.z = f.z * neuTempo;
   } else {
     // Luftsteuerung
     if (player.dodgeT > 0) player.dodgeT -= dt;
@@ -5012,6 +5145,7 @@ function updatePlayer(dt) {
   else if (player.state === 'zip') player.anim = (player.zip && player.zip.enemy) ? 'knie' : 'air';
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
      oben geht, läuft der Absprung, danach erst der freie Fall. */
+  else if (player.gleiten) player.anim = 'gleiten';
   else if (!player.onGround) player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
   else if (player.hartLandung > 0) player.anim = 'fallrolle';
   else if (player.landT > 0) player.anim = 'land';
@@ -5064,6 +5198,12 @@ function updateHeroVisual(dt) {
       const rx = Math.cos(player.facing), rz = -Math.sin(player.facing);
       const seit = (a.x - player.pos.x) * rx + (a.z - player.pos.z) * rz;
       r.rotation.z = lerp(r.rotation.z, clamp(-seit * 0.07, -0.5, 0.5), Math.min(1, dt * 5));
+    } else if (player.gleiten) {
+      /* Im Gleitflug liegt der Körper flach in der Luft, Kopf voran – wie
+         im Wingsuit. Aufrecht stehend sähe die Netzhaut sinnlos aus. */
+      tilt = 0.62 + (player.gleitNase || 0) * 0.42;
+      r.rotation.z = lerp(r.rotation.z, clamp(-(player.gleitKurve || 0) * 0.5, -0.5, 0.5),
+                          Math.min(1, dt * 5));
     } else {
       if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
       if (r.rotation.z !== 0) r.rotation.z = lerp(r.rotation.z, 0, Math.min(1, dt * 8));
@@ -5095,6 +5235,8 @@ function updateHeroVisual(dt) {
     } else if (player.state === 'swing' && player.swing) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
                              clamp(player.vel.y * 0.09, -1, 1), r.rotation.x);
+    } else if (player.gleiten) {
+      heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed, 0.9);
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
@@ -5125,6 +5267,8 @@ function updateHeroVisual(dt) {
     }
   }
 
+  updateNetzFluegel(dt);
+
   /* Netzfaden ganz zum Schluss setzen – erst jetzt steht die Hand wirklich
      dort, wo sie im Bild zu sehen ist. Vorher hing der Faden ein Bild
      hinterher und schnitt durch den Körper. */
@@ -5136,6 +5280,108 @@ function updateHeroVisual(dt) {
                 player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
   }
+}
+
+/* ======================= Netzflügel =======================
+   Die Häute zwischen Arm und Rumpf. Sie sind keine starre Geometrie,
+   sondern werden in jedem Bild aus den Weltpositionen von Hand, Ellbogen,
+   Schulter und Hüfte aufgespannt – dadurch sitzen sie immer richtig,
+   egal welche Animation gerade läuft. */
+let fluegelL = null, fluegelR = null, fluegelMat = null, fluegelSicht = 0;
+const _fp = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(),
+             new THREE.Vector3(), new THREE.Vector3()];
+
+function macheFluegelTex() {
+  return canvasTex(128, 128, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    /* Fächer aus Fäden vom Handgelenk (oben) zur Hüfte (unten links). */
+    g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineCap = 'round';
+    for (let i = 0; i <= 14; i++) {
+      const t = i / 14;
+      g.lineWidth = 1.1;
+      g.beginPath();
+      g.moveTo(t * w, 0);
+      g.lineTo(w * 0.06, h * (0.15 + t * 0.8));
+      g.stroke();
+    }
+    /* Querfäden als leicht durchhängende Bögen. */
+    g.strokeStyle = 'rgba(255,255,255,0.55)';
+    for (let r = 1; r <= 7; r++) {
+      const t = r / 8;
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let i = 0; i <= 14; i++) {
+        const u = i / 14;
+        const x = lerp(u * w, w * 0.06, 1 - t) * 1;
+        const x2 = lerp(w * 0.06, u * w, t);
+        const y = lerp(0, h * (0.15 + u * 0.8), t) + Math.sin(u * Math.PI) * 4;
+        i ? g.lineTo(x2, y) : g.moveTo(x2, y);
+      }
+      g.stroke();
+    }
+  });
+}
+
+function baueNetzFluegel() {
+  fluegelMat = new THREE.MeshLambertMaterial({
+    map: macheFluegelTex(), color: 0xe8eef5, transparent: true, opacity: 0,
+    side: THREE.DoubleSide, depthWrite: false });
+  const mache = () => {
+    const geo = new THREE.BufferGeometry();
+    /* Drei Dreiecke: vom Handgelenk über die Achsel bis zum Knie. */
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(27), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
+      1, 1,     0.55, 1,    0.06, 0.42,
+      0.55, 1,  0.12, 1,    0.06, 0.42,
+      1, 1,     0.06, 0.42, 0.5, 0.02,
+    ]), 2));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(27), 3));
+    const m = new THREE.Mesh(geo, fluegelMat);
+    m.frustumCulled = false;
+    m.renderOrder = 8;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  };
+  fluegelL = mache(); fluegelR = mache();
+}
+
+function setzeFluegel(mesh, seite) {
+  if (!heroVisual.fluegelPunkte || !heroVisual.fluegelPunkte(seite, _fp)) return false;
+  const [hand, ell, schulter, huefte, knie] = _fp;
+  /* Die Haut hängt zwischen Hand und Hüfte leicht durch – ein gerader
+     Zuschnitt sähe aus wie ein Brett. */
+  const mitte = _v1.copy(hand).add(huefte).multiplyScalar(0.5);
+  /* Der Bauschpunkt wird leicht von der Körpermitte weggezogen – dadurch
+     wirkt die Haut gespannt statt eingefallen. */
+  const durch = _v2.copy(ell).lerp(mitte, 0.28);
+  _v3.copy(ell).sub(huefte).setY(0);
+  if (_v3.lengthSq() > 0.0001) durch.addScaledVector(_v3.normalize(), 0.1);
+  const p = mesh.geometry.attributes.position.array;
+  const setz = (i, v) => { p[i * 3] = v.x; p[i * 3 + 1] = v.y; p[i * 3 + 2] = v.z; };
+  setz(0, hand);  setz(1, durch);    setz(2, huefte);
+  setz(3, durch); setz(4, schulter); setz(5, huefte);
+  /* Untere Bahn bis zum Knie – nur bis zur Hüfte sah die Haut aus wie ein
+     Stück Stoff unter der Achsel, nicht wie ein Flügel. */
+  setz(6, hand);  setz(7, huefte);   setz(8, knie);
+  mesh.geometry.attributes.position.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  return true;
+}
+
+function updateNetzFluegel(dt) {
+  if (heroVisual.procedural) return;
+  if (!fluegelL) baueNetzFluegel();
+  /* Ein- und Ausblenden, damit die Häute nicht schlagartig erscheinen. */
+  const ziel = player.gleiten ? 1 : 0;
+  fluegelSicht = lerp(fluegelSicht, ziel, Math.min(1, dt * (ziel > 0 ? 14 : 9)));
+  if (fluegelSicht < 0.02) {
+    fluegelL.visible = fluegelR.visible = false;
+    return;
+  }
+  fluegelMat.opacity = fluegelSicht * 0.72;
+  fluegelL.visible = setzeFluegel(fluegelL, 'L');
+  fluegelR.visible = setzeFluegel(fluegelR, 'R');
 }
 
 /* ======================= Autos / Verkehr ======================= */
@@ -7712,6 +7958,8 @@ if (window.__WEBHERO_TEST__ === true) {
     get touchAktiv() { return touchAktiv; },
     stick,
     DAMPF_STELLEN,
+    fluegelSicht() { return +fluegelSicht.toFixed(2); },
+    fluegelObj() { return fluegelL ? { L: fluegelL, R: fluegelR } : null; },
     voegelDa() { return voegel ? voegel.count : 0; },
     dampfDa() { return dampfPunkte; },
     regenAn() { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; },
