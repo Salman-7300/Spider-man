@@ -12,9 +12,14 @@ name: 3D-Charaktere aus Release umwandeln (FBX zu GLB)
 # Optional: Enthält der Release-Tag einen Figurennamen (z. B. "thug-1"),
 # gehören alle Dateien des Releases zu genau dieser Figur.
 
+# HINWEIS: Der Workflow startet NICHT mehr automatisch beim Veröffentlichen
+# eines Releases. Er lief dabei immer mit dem Stand des Umwandlers, der zum
+# Zeitpunkt des Releases im Branch lag – also noch ohne die Zuordnungen für
+# die gerade hochgeladenen Bewegungen. Ergebnis waren dreimal hintereinander
+# falsch einsortierte Dateien (zuletzt landete das Gegnermodell als Zivilist
+# und der Ausweichschritt als Rolle) und jedes Mal ein Merge-Konflikt.
+# Starten über "Actions" -> diesen Workflow -> "Run workflow" mit dem Tag.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
