@@ -3008,6 +3008,8 @@ function makeGlbVisual(m) {
   let angriff = null, angriffT = 0;
   return {
     root, procedural: false, mixer,
+    /* Nur fuer Messungen im Test: die Knochen des Rigs. */
+    knochen,
     /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen.
        Die Beine werden vollständig gesetzt (nicht angenähert) – sonst kämpft
        die laufende Geh-Animation dagegen an und die Beine zappeln. */
@@ -3311,6 +3313,95 @@ function makeGlbVisual(m) {
       krallen('right', 0.34);
       // Kopf hebt sich, der Blick geht nach oben
       drehZuRuhe(knochen.head, -0.35, 0, 0, k * 0.8);
+    },
+    /* ---- Wandlauf ----
+       Aufrecht an der Fassade, aber mit Laufrhythmus statt Kriechen:
+       lange Schritte die Wand hinauf, die Arme greifen abwechselnd nach
+       oben, der Koerper lehnt in die Wand. Haende und Fuesse liegen dabei
+       wirklich auf der Fassade - nicht daneben und nicht darin. */
+    poseWandlauf(nx, nz, phase, k) {
+      root.updateMatrixWorld(true);
+      const rechts = _vw1.set(nz, 0, -nx);
+      const rein = _vw2.set(-nx, 0, -nz);
+      /* Becken wieder ueber den Anfasspunkt ziehen - dieselbe Korrektur
+         wie beim Kriechen, sonst schwebt die Figur vor dem Haus. */
+      if (knochen.hips) {
+        knochen.hips.getWorldPosition(_vw3);
+        const dx = _vw3.x - root.position.x, dz = _vw3.z - root.position.z;
+        const tiefe = dx * rein.x + dz * rein.z;
+        const quer = dx * rechts.x + dz * rechts.z;
+        inner.position.z = clamp(inner.position.z + (-0.30 - tiefe) * 0.35, -1.2, 1.2);
+        inner.position.x = clamp(inner.position.x + quer * 0.35, -0.5, 0.5);
+        root.updateMatrixWorld(true);
+      }
+      const m = root.position;
+      const g = Math.sin(phase);
+      const punkt = (out, seite, hoehe, tiefe) => out
+        .copy(m).addScaledVector(rechts, seite).addScaledVector(rein, tiefe)
+        .setY(m.y + hoehe);
+
+      /* ---- Arme: greifen abwechselnd weit nach oben ----
+         Die Ellbogen bleiben dicht am Koerper (nicht spinnenartig
+         abgespreizt), damit es nach Zug am Arm aussieht und nicht nach
+         Kriechen. */
+      punkt(_vw3, -0.30, 1.44 + g * 0.16, -0.10);            // linker Ellbogen
+      zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
+      punkt(_vw3, -0.24, 2.10 + g * 0.46, 0.02);             // linke Hand
+      zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
+      punkt(_vw4, 0.30, 1.44 - g * 0.16, -0.10);
+      zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
+      punkt(_vw4, 0.24, 2.10 - g * 0.46, 0.02);
+      zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
+
+      /* ---- Beine: lange Schritte ----
+         Der Schritt geht ueber gut einen halben Meter Hoehenunterschied -
+         beim Kriechen sind es 0,16 m. Genau daran erkennt man von aussen,
+         dass die Figur rennt. */
+      punkt(_vw3, -0.16, 0.86 - g * 0.24, -0.20);            // linkes Knie
+      zieleKnochen(knochen.leftupleg, knochen.leftleg, _vw3, k);
+      punkt(_vw3, -0.13, 0.16 - g * 0.54, -0.01);            // linker Fuss
+      zieleKnochen(knochen.leftleg, knochen.leftfoot, _vw3, k);
+      punkt(_vw4, 0.16, 0.86 + g * 0.24, -0.20);
+      zieleKnochen(knochen.rightupleg, knochen.rightleg, _vw4, k);
+      punkt(_vw4, 0.13, 0.16 + g * 0.54, -0.01);
+      zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
+
+      /* Sohlen flach an der Wand, Zehen nach oben in Laufrichtung. */
+      _vw3.copy(rein).negate();
+      _fh.set(0, 1, 0).addScaledVector(rechts, -0.18);
+      setzeFuss('left', _fh, _vw3, k * 0.95);
+      _fh.set(0, 1, 0).addScaledVector(rechts, 0.18);
+      setzeFuss('right', _fh, _vw3, k * 0.95);
+      /* Handflaechen flach auf die Fassade, Finger nach oben. */
+      _vw3.copy(rein);
+      setzeHand('left', _fh.set(0, 1, 0).addScaledVector(rechts, -0.14), _vw3, 0.9);
+      setzeHand('right', _fh.set(0, 1, 0).addScaledVector(rechts, 0.14), _vw3, 0.9);
+      krallen('left', 0.28);
+      krallen('right', 0.28);
+      /* Blick nach oben, dorthin, wo es hingeht. */
+      drehZuRuhe(knochen.head, -0.42, 0, 0, k * 0.8);
+    },
+    /* ---- Wandlauf: die Sohlen auf die Fassade legen ----
+       Der Koerper steht beim Wandlauf senkrecht auf der Wand und rennt sie
+       hinauf - die Laufbewegung liefert den Rhythmus. Ohne Nacharbeit
+       zeigten die Sohlen dorthin, wohin die Bewegung sie zufaellig stellte,
+       und der hintere Fuss verschwand in der Fassade (gemessen: rechte Zehe
+       12 cm drin). Jede Sohle wird jetzt flach an die Wand gelegt, und zwar
+       um so staerker, je naeher der Fuss der Wand schon ist - der
+       schwingende Fuss behaelt so seine Laufbewegung. */
+    poseWandlaufFuesse(nx, nz, flaeche, k) {
+      root.updateMatrixWorld(true);
+      const sohle = _vw1.set(nx, 0, nz);
+      for (const seite of ['left', 'right']) {
+        const f = knochen[seite + 'foot'];
+        if (!f) continue;
+        f.getWorldPosition(_vw3);
+        const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
+        const nah = 1 - clamp((d - 0.05) / 0.35, 0, 1);
+        if (nah < 0.02) continue;
+        _fh.set(0, 1, 0);                 // Zehen zeigen die Wand hinauf
+        setzeFuss(seite, _fh, sohle, clamp(k * nah, 0, 1));
+      }
     },
     /* Nach dem Klettern den Wandversatz wieder abbauen. */
     versatzAus(k) {
@@ -4417,7 +4508,7 @@ const player = {
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
-  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, wandVersatz: 0, katFlug: 0,
+  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, katFlug: 0,
   haltenT: 0, duckt: false, duckMisch: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
@@ -4939,6 +5030,7 @@ function camForward() {
 let camRoll = 0;
 let mausRuhe = 0;
 let flugGlatt = 0;   // geglättete Flugrichtung für die mitziehende Kamera
+let kamZwang = 0;    // nur für Tests: feste Kameraentfernung
 function updateCamera(dt) {
   const emp = 0.0023 * (EINST.maus / 100);
   const mausAktiv = Math.abs(mouseDX) > 0.5 || Math.abs(mouseDY) > 0.5;
@@ -4999,8 +5091,9 @@ function updateCamera(dt) {
     const tief = clamp((player.swing.anchor.y - player.pos.y) / Math.max(4, player.swing.len), 0, 1);
     schwungWeit = tief * 2.6;
   }
-  const targetDist = player.state === 'swing' ? 8.0 + schwungWeit
-                                             : lerp(6.3, 7.8, clamp(speed / 25, 0, 1));
+  const targetDist = kamZwang > 0 ? kamZwang
+                   : (player.state === 'swing' ? 8.0 + schwungWeit
+                                              : lerp(6.3, 7.8, clamp(speed / 25, 0, 1)));
   camDist = lerp(camDist, targetDist, dt * 3);
   const targetFov = lerp(70, 84, clamp(speed / 30, 0, 1));
   camera.fov = lerp(camera.fov, targetFov, dt * 4);
@@ -6716,34 +6809,23 @@ function updateHeroVisual(dt) {
   if (!heroVisual) return;
   const r = heroVisual.root;
   r.position.copy(player.pos);
-  /* Beim Wandlauf liegt der Körper waagerecht. Weil er um den Fußpunkt
-     kippt, schwingen die Füße dabei rund einen halben Meter von der Wand
-     weg – die Figur lief in der Luft neben dem Haus. Der ganze Körper wird
-     deshalb zur Fassade hin verschoben, bis die Füße wirklich aufsetzen. */
-  {
-    const wl = player.state === 'climb' && player.wandlauf && player.wallInfo;
-    player.wandVersatz = lerp(player.wandVersatz || 0, wl ? 0.62 : 0,
-                              Math.min(1, dt * 8));
-    if (player.wandVersatz > 0.01 && player.wallInfo) {
-      r.position.x -= player.wallInfo.nx * player.wandVersatz;
-      r.position.z -= player.wallInfo.nz * player.wandVersatz;
-      /* Und ein Stück höher, damit der Körper nicht in der Wand liegt. */
-      r.position.y += player.wandVersatz * 0.45;
-    }
-  }
   r.rotation.y = player.facing;
 
   /* Beim Klettern lehnt der Körper leicht zur Wand – das liest sich sofort
      als Kleben statt als Hochlaufen. */
   if (player.state === 'climb') {
-    /* ---- Wandlauf: der Körper legt sich waagerecht an die Fassade ----
-       Vorher lief nur dieselbe Kletterbewegung schneller ab – es sah aus,
-       als würde die Figur die Wand hochkriechen, nicht hochrennen.
-       Jetzt wird der Körper um gut 80 Grad zurückgekippt: die Füße zeigen
-       zur Wand, der Kopf nach außen, und die Laufbewegung zeigt genau nach
-       oben. Das ist die Haltung, in der man eine Wand hochläuft. */
-    const zielX = player.wandlauf ? -1.42 : 0.13;
-    r.rotation.x = lerp(r.rotation.x, zielX, Math.min(1, dt * (player.wandlauf ? 7 : 10)));
+    /* ---- Wandlauf ----
+       Der zweite Versuch, den Koerper waagerecht an die Fassade zu kippen,
+       war ein Fehlgriff: gemessen stand der Kopf danach fast einen Meter
+       von der Wand ab, Kopf und Fuesse lagen auf derselben Hoehe, und der
+       rechte Fuss steckte in der Fassade. Aus der Seitenansicht sah das aus
+       wie ein Hechtsprung ins Haus.
+       Jetzt bleibt der Koerper aufrecht an der Wand - wie beim Klettern -
+       und der Unterschied steckt in der Bewegung: lange Schritte die Wand
+       hinauf, Arme greifen abwechselnd hoch. Das liest sich als Rennen,
+       nicht als Kriechen. */
+    const zielX = player.wandlauf ? 0.05 : 0.13;
+    r.rotation.x = lerp(r.rotation.x, zielX, Math.min(1, dt * (player.wandlauf ? 8 : 10)));
   } else
   /* Ausweichen: schneller Satz mit Vorlage – bewusst OHNE Überschlag.
      Die frühere Rolle drehte den Körper um die Füße, dadurch verschwand die
@@ -6857,6 +6939,8 @@ function updateHeroVisual(dt) {
          die laufenden Beine überschreiben. */
       if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         heroVisual.poseWandkriechen(w.nx, w.nz, player.phase, 0.85);
+      } else if (w && player.wandlauf && heroVisual.poseWandlauf) {
+        heroVisual.poseWandlauf(w.nx, w.nz, player.phase, 0.9);
       }
       else if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
@@ -6925,6 +7009,48 @@ function updateHeroVisual(dt) {
                 player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
   }
+
+  /* Ganz zum Schluss: nachmessen, ob etwas in der Fassade steckt. */
+  wandFreiraum();
+}
+
+/* ---- Nichts darf in der Wand stecken ----
+   Beim Wandlauf schwingt das hintere Bein durch die Fassade: gemessen
+   steckte der rechte Fuss 2,6 cm und die rechte Zehe 12 cm tief drin, und
+   genau das sah aus, als waere der Fuss abgeschnitten. Statt jede Pose
+   einzeln nachzujustieren wird hier am Ende gemessen und die ganze Figur so
+   weit herausgeschoben, dass ueberall Luft bleibt. Wirkt fuer Klettern und
+   Wandlauf gleichermassen. */
+const WAND_KNOCHEN = ['leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase',
+                      'leftleg', 'rightleg', 'lefthand', 'righthand',
+                      'leftforearm', 'rightforearm', 'head', 'hips'];
+const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
+const _wk = V3(0, 0, 0);
+function wandFreiraum() {
+  if (player.state !== 'climb' || !player.wallInfo) return;
+  const kn = heroVisual && heroVisual.knochen;
+  if (!kn) return;
+  const w = player.wallInfo, c = w.col;
+  if (!c) return;
+  const r = heroVisual.root;
+  r.updateMatrixWorld(true);
+  const flaeche = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0)
+                             : (w.nz > 0 ? c.z1 : c.z0);
+  let min = Infinity;
+  for (const n of WAND_KNOCHEN) {
+    const b = kn[n];
+    if (!b) continue;
+    b.getWorldPosition(_wk);
+    const d = w.nx !== 0 ? (_wk.x - flaeche) * w.nx : (_wk.z - flaeche) * w.nz;
+    if (d < min) min = d;
+  }
+  /* Sehr grosse Abweichungen ignorieren: dann steht die Figur gar nicht an
+     dieser Wand und das Verschieben waere ein Sprung. */
+  if (min >= WAND_LUFT || min < -1.5) return;
+  const s = WAND_LUFT - min;
+  r.position.x += w.nx * s;
+  r.position.z += w.nz * s;
+  r.updateMatrixWorld(true);
 }
 
 /* ======================= Netz-Katapult =======================
@@ -9935,8 +10061,12 @@ function regleQualitaet(msJetzt) {
 }
 
 let knopfCd = 0;
+/* Nur fuer Tests: haelt die Bildschleife an, damit eine gesetzte Kamera
+   stehen bleibt und nicht sofort wieder ueberschrieben wird. */
+let gefroren = false;
 function animate() {
   requestAnimationFrame(animate);
+  if (gefroren) return;
   let dt = Math.min(clock.getDelta(), 0.05);
   if (!isActive() || !actorsReady) { renderer.render(scene, camera); return; }
   simuliere(dt);
@@ -10100,6 +10230,17 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeRegen(v) { REGEN.an = v > 0; REGEN.staerke = v; REGEN.naechsterWechsel = 9999; },
     regenStaerke() { return +REGEN.staerke.toFixed(2); },
     zeichne() { renderer.render(scene, camera); },
+    frier(an) { gefroren = !!an; },
+    kamNah(d) { kamZwang = d || 0; },
+    /* Freie Kameraaufnahme fuer Tests: Position und Blickziel setzen und
+       sofort zeichnen, bevor updateCamera wieder uebernimmt. */
+    aufnahme(px, py, pz, zx, zy, zz) {
+      camera.position.set(px, py, pz);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(zx, zy, zz);
+      camera.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+    },
     setSchatten(an) { renderer.shadowMap.enabled = an; if (sun) sun.castShadow = an; },
     fluegelObj() { return fluegelL ? { L: fluegelL, R: fluegelR } : null; },
     voegelDa() { return voegel ? voegel.count : 0; },
