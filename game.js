@@ -583,6 +583,54 @@ const wegTex = canvasTex(64, 64, (g) => {
 });
 wegTex.repeat.set(6, 6);
 
+/* Schaufenster: nicht nur eine helle Fläche, sondern ein gemalter Laden
+   dahinter – Theke, Regale, Hängelampe, manchmal jemand drin. Auf
+   Straßenhöhe steht man direkt davor, dort fällt die fehlende Tiefe am
+   meisten auf. Dasselbe Verfahren wie bei den Fassadenfenstern. */
+const ladenTex = canvasTex(256, 128, (g, w, h) => {
+  /* Warmer Innenraum mit Verlauf nach hinten. */
+  const vl = g.createLinearGradient(0, 0, 0, h);
+  vl.addColorStop(0, '#4a3a1e'); vl.addColorStop(0.55, '#5f4a24'); vl.addColorStop(1, '#241a0e');
+  g.fillStyle = vl; g.fillRect(0, 0, w, h);
+  /* Rückwand mit Regalbrettern – die waagerechten Linien geben Tiefe. */
+  g.fillStyle = '#3b2d16';
+  g.fillRect(w * 0.08, h * 0.12, w * 0.84, h * 0.5);
+  for (let i = 0; i < 3; i++) {
+    const y = h * (0.2 + i * 0.14);
+    g.fillStyle = '#6b5326'; g.fillRect(w * 0.1, y, w * 0.8, 3);
+    /* Ware auf dem Brett. */
+    for (let k = 0; k < 9; k++) {
+      if (Math.random() < 0.3) continue;
+      const bw = rand(5, 13), bh = rand(6, 13);
+      g.fillStyle = ['#8a3f2e', '#2e5a7a', '#7a6a2e', '#5a3f6a'][randi(0, 3)];
+      g.fillRect(w * 0.11 + k * (w * 0.087), y - bh, bw, bh);
+    }
+  }
+  /* Theke vorn – schräg gezeichnet, damit sie nach vorn zu kommen scheint. */
+  g.fillStyle = '#2a2015';
+  g.beginPath();
+  g.moveTo(0, h); g.lineTo(w * 0.06, h * 0.72); g.lineTo(w * 0.94, h * 0.72); g.lineTo(w, h);
+  g.closePath(); g.fill();
+  g.fillStyle = '#4a3a22'; g.fillRect(w * 0.05, h * 0.7, w * 0.9, 4);
+  /* Hängelampe. */
+  g.strokeStyle = '#2a2015'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(w * 0.5, 0); g.lineTo(w * 0.5, h * 0.14); g.stroke();
+  const lg = g.createRadialGradient(w * 0.5, h * 0.18, 2, w * 0.5, h * 0.18, 26);
+  lg.addColorStop(0, 'rgba(255,236,180,0.95)'); lg.addColorStop(1, 'rgba(255,236,180,0)');
+  g.fillStyle = lg; g.fillRect(w * 0.5 - 26, h * 0.18 - 26, 52, 52);
+  /* Ab und zu jemand hinter der Theke. */
+  if (Math.random() < 0.5) {
+    g.fillStyle = '#1c1408';
+    g.beginPath(); g.arc(w * 0.7, h * 0.52, 7, 0, TAU); g.fill();
+    g.fillRect(w * 0.7 - 8, h * 0.58, 16, h * 0.16);
+  }
+  /* Spiegelung auf der Scheibe – erst dadurch wirkt Glas davor. */
+  g.fillStyle = 'rgba(190,215,235,0.14)';
+  g.beginPath();
+  g.moveTo(0, h * 0.1); g.lineTo(w * 0.42, 0); g.lineTo(w * 0.62, 0); g.lineTo(0, h * 0.52);
+  g.closePath(); g.fill();
+});
+
 const waterTex = canvasTex(128, 128, (g) => {
   g.fillStyle = '#20537c'; g.fillRect(0, 0, 128, 128);
   for (let i = 0; i < 70; i++) {
@@ -733,9 +781,9 @@ function schmueckeHaus(w, h, d, x, z) {
      spielt der Kampf – dort lohnt sich das Detail. */
   const LADEN = [0xd8452f, 0x2f7ad8, 0x27a05c, 0xd8a02f, 0x7a3fd8];
   for (const [nx, nz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
-    if (Math.random() < 0.35) continue;
+    if (Math.random() < 0.18) continue;
     const laengs = nx === 0 ? w : d;
-    if (laengs < 7) continue;
+    if (laengs < 6) continue;
     const px = x + nx * (w / 2 + 0.34), pz = z + nz * (d / 2 + 0.34);
     const bw = nx === 0 ? Math.min(4.2, laengs * 0.5) : 0.14;
     const bd = nx === 0 ? 0.14 : Math.min(4.2, laengs * 0.5);
@@ -744,12 +792,15 @@ function schmueckeHaus(w, h, d, x, z) {
     // Türrahmen
     const tw = nx === 0 ? 1.5 : 0.16, td = nx === 0 ? 0.16 : 1.5;
     deko(tw, 2.3, td, px, unten + 1.15, pz, 0x14171c);
-    // Zwei helle Auslagen links und rechts der Tür
+    /* Zwei Schaufenster links und rechts der Tür – mit gemaltem Innenraum
+       statt einer hellen Platte. */
     for (const s2 of [-1, 1]) {
       const ox = nx === 0 ? s2 * (laengs * 0.22) : 0;
       const oz = nx === 0 ? 0 : s2 * (laengs * 0.22);
-      deko(nx === 0 ? 1.9 : 0.12, 1.3, nx === 0 ? 0.12 : 1.9,
-           px + ox, unten + 1.6, pz + oz, 0xfff0c0);
+      /* Unterhalb des Schaufensterbands, damit sich beide nicht
+         überlagern: Band ab 1,65 m, Scheibe von 0,55 bis 1,6 m. */
+      ladenFenster.push({ x: px + ox, y: unten + 1.08, z: pz + oz,
+                          breite: 2.1, hoehe: 1.06, nx, nz });
     }
   }
   /* Das Vordach ist nur eine 15 cm dicke Platte. Man klettert daran vorbei,
@@ -901,6 +952,7 @@ function buildCity() {
   baueAmpeln();
   baueHausMeshes();
   baueWassertuerme();
+  baueLadenFenster();
   baueDekoMesh();
 }
 
@@ -1179,6 +1231,52 @@ function makeBuildingMesh(w, h, d, x, z) {
 
 /* ---- Wassertürme als Instanzen ---- */
 const wassertuerme = [];
+/* Alle Schaufenster der Stadt in EINEM Mesh mit EINER Textur – das kostet
+   einen einzigen Zeichenaufruf. */
+const ladenFenster = [];
+function baueLadenFenster() {
+  if (!ladenFenster.length) return;
+  const n = ladenFenster.length * 6;
+  const p = new Float32Array(n * 3), nn = new Float32Array(n * 3), u = new Float32Array(n * 2);
+  let o = 0;
+  for (const f of ladenFenster) {
+    /* Achsen der Scheibe: quer zur Wandnormalen, dazu senkrecht nach oben. */
+    const qx = f.nx === 0 ? f.breite / 2 : 0;
+    const qz = f.nx === 0 ? 0 : f.breite / 2;
+    const hy = f.hoehe / 2;
+    /* Ein Hauch vor der Wand, damit nichts durchblitzt. */
+    const ex = f.nx * 0.02, ez = f.nz * 0.02;
+    const ecken = [
+      [-qx, -hy, -qz], [qx, -hy, qz], [qx, hy, qz],
+      [-qx, -hy, -qz], [qx, hy, qz], [-qx, hy, -qz],
+    ];
+    const uvs = [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]];
+    for (let i = 0; i < 6; i++) {
+      p[(o + i) * 3] = f.x + ecken[i][0] + ex;
+      p[(o + i) * 3 + 1] = f.y + ecken[i][1];
+      p[(o + i) * 3 + 2] = f.z + ecken[i][2] + ez;
+      nn[(o + i) * 3] = f.nx; nn[(o + i) * 3 + 1] = 0; nn[(o + i) * 3 + 2] = f.nz;
+      u[(o + i) * 2] = uvs[i][0]; u[(o + i) * 2 + 1] = uvs[i][1];
+    }
+    o += 6;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nn, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(u, 2));
+  geo.computeBoundingSphere();
+  /* Basic statt Lambert: der Laden ist von innen beleuchtet und soll auch
+     im Schatten der Häuserschlucht leuchten. */
+  /* Beidseitig: die Eckenreihenfolge stimmt nur für zwei der vier
+     Wandseiten, die anderen beiden wurden sonst weggeschnitten und man sah
+     die Scheibe gar nicht. */
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    map: ladenTex, side: THREE.DoubleSide }));
+  mesh.frustumCulled = false;
+  cityGroup.add(mesh);
+  ladenFenster.length = 0;
+}
+
 function baueWassertuerme() {
   if (!wassertuerme.length) return;
   const teile = [];
@@ -2812,6 +2910,59 @@ function makeGlbVisual(m) {
         obj.position.copy(versatzWelt).applyQuaternion(_q2).multiplyScalar(f);
       }
     },
+    /* Drei-Punkt-Landung: tief in die Hocke, eine Faust am Boden, der
+       andere Arm nach hinten ausgestreckt. Die klassische Pose, mit der
+       Spider-Man aus großer Höhe aufkommt. */
+    poseDreiPunkt(k, seite) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      const p = seite === 'L' ? 'left' : 'right';
+      const q = seite === 'L' ? 'right' : 'left';
+      /* Tief in die Hocke: ein Knie vorn, das andere abgestützt. */
+      drehZuRuhe(knochen[p + 'upleg'], 1.15, 0, 0.16, w);
+      drehZuRuhe(knochen[p + 'leg'], 1.55, 0, 0, w);
+      drehZuRuhe(knochen[q + 'upleg'], 0.55, 0, -0.34, w);
+      drehZuRuhe(knochen[q + 'leg'], 1.9, 0, 0, w);
+      if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.3, 0, 0, w * 0.9);
+      if (knochen[q + 'foot']) drehZuRuhe(knochen[q + 'foot'], 0.55, 0, 0, w * 0.9);
+      /* Rumpf nach vorn eingerollt. */
+      drehe(knochen.spine1, 0.42 * w, 0, 0, w * 0.8);
+      drehe(knochen.spine, 0.2 * w, 0, 0, w * 0.7);
+      /* Die stützende Faust geht zum Boden zwischen die Füße. */
+      root.updateMatrixWorld(true);
+      _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();   // rechts
+      _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();   // vorn
+      const arm = knochen[p + 'arm'], unter = knochen[p + 'forearm'];
+      if (arm && unter) {
+        arm.getWorldPosition(_vw3);
+        _vw4.copy(_vw3).addScaledVector(_vw2, 0.5)
+            .addScaledVector(_fh.set(0, 1, 0), -2.4);
+        zieleKnochen(arm, unter, _vw4, w);
+        const hand = knochen[p + 'hand'];
+        if (hand) {
+          unter.getWorldPosition(_vw3);
+          _vw4.copy(_vw3).addScaledVector(_vw2, 0.25)
+              .addScaledVector(_fh.set(0, 1, 0), -2.4);
+          zieleKnochen(unter, hand, _vw4, w);
+        }
+        faust(p, w);
+      }
+      /* Der freie Arm streckt nach hinten aus – das hält die Pose im
+         Gleichgewicht und macht die Silhouette lesbar. */
+      const arm2 = knochen[q + 'arm'], unter2 = knochen[q + 'forearm'];
+      if (arm2 && unter2) {
+        arm2.getWorldPosition(_vw3);
+        const vz = q === 'left' ? 1 : -1;   // Skelett ist gespiegelt benannt
+        _vw4.copy(_vw3).addScaledVector(_vw2, -1.8)
+            .addScaledVector(_vw1, vz * 1.4)
+            .addScaledVector(_fh.set(0, 1, 0), 0.5);
+        zieleKnochen(arm2, unter2, _vw4, w);
+        drehe(unter2, -0.15, 0, 0, w);
+        faust(q, w * 0.8);
+      }
+      /* Der Blick geht nach vorn, nicht auf den Asphalt. */
+      drehZuRuhe(knochen.head, -0.5 * w, 0, 0, w * 0.85);
+      drehZuRuhe(knochen.neck, -0.22 * w, 0, 0, w * 0.8);
+    },
     /* Nur für Messungen: passt die Schrittweite zum echten Tempo? */
     laufInfo() { return letzterTakt; },
     /* Weltposition des Kopfes – für den Spinnensinn. */
@@ -3609,6 +3760,7 @@ const player = {
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
+  kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R',
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
@@ -3937,14 +4089,40 @@ function camForward() {
 }
 
 let camRoll = 0;
+let mausRuhe = 0;
 function updateCamera(dt) {
   const emp = 0.0023 * (EINST.maus / 100);
+  const mausAktiv = Math.abs(mouseDX) > 0.5 || Math.abs(mouseDY) > 0.5;
   camYaw -= mouseDX * emp;
   camPitch = clamp(camPitch + mouseDY * emp, -1.15, 1.25);
   mouseDX = 0; mouseDY = 0;
+  mausRuhe = mausAktiv ? 0 : mausRuhe + dt;
 
   const speed = player.vel.length();
-  const targetDist = player.state === 'swing' ? 8.4 : lerp(6.3, 7.8, clamp(speed / 25, 0, 1));
+
+  /* ---- Kamera zieht in der Kurve nach ----
+     Beim Schwingen dreht sich die Flugrichtung ständig; die Kamera stand
+     bisher starr da, wo die Maus sie zuletzt hingelegt hatte. Sobald man
+     die Maus einen Moment ruhen lässt, wandert sie sanft hinter die
+     Flugrichtung – man sieht, wohin es geht, ohne dauernd nachziehen zu
+     müssen. Jede Mausbewegung übernimmt sofort wieder das Kommando. */
+  if ((player.state === 'swing' || player.gleiten) && speed > 6 && mausRuhe > 0.35) {
+    const flug = Math.atan2(player.vel.x, player.vel.z);
+    /* camYaw ist die Richtung, aus der die Kamera schaut – also gegenüber. */
+    const zielYaw = flug + Math.PI;
+    const staerke = clamp((mausRuhe - 0.35) * 1.2, 0, 1) * (player.gleiten ? 1.5 : 1.0);
+    camYaw = dampAngle(camYaw, zielYaw, Math.min(0.3, dt * 1.5 * staerke));
+  }
+
+  /* Am Tiefpunkt des Bogens geht die Kamera weiter auf: dort ist man am
+     schnellsten und braucht am meisten Übersicht. */
+  let schwungWeit = 0;
+  if (player.state === 'swing' && player.swing) {
+    const tief = clamp((player.swing.anchor.y - player.pos.y) / Math.max(4, player.swing.len), 0, 1);
+    schwungWeit = tief * 2.6;
+  }
+  const targetDist = player.state === 'swing' ? 8.0 + schwungWeit
+                                             : lerp(6.3, 7.8, clamp(speed / 25, 0, 1));
   camDist = lerp(camDist, targetDist, dt * 3);
   const targetFov = lerp(70, 84, clamp(speed / 30, 0, 1));
   camera.fov = lerp(camera.fov, targetFov, dt * 4);
@@ -4482,6 +4660,8 @@ function tryAttack(type) {
      verdrahtet und viel kürzer als der Clip – deshalb startete die
      Animation bei schnellem Klicken immer wieder von vorn. */
   const dauer = heroVisual.attackOneShot(0, k.art, k.ziel) || k.ziel || 0.42;
+  /* Flinke Gegner reagieren auf das Ausholen, nicht erst auf den Treffer. */
+  versucheAusweichen();
   const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie';
   player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm, art: k.art,
                     hitDone: false, finisher, stufe, dauer };
@@ -4573,6 +4753,35 @@ function nearestEnemy(maxDist, minDot) {
     best = e; bestD = d;
   }
   return best;
+}
+
+/* Der flinke Ganove springt zur Seite, wenn der Held ausholt. Er muss dazu
+   nah genug stehen, darf nicht gerade selbst zuschlagen und braucht eine
+   Pause zwischen zwei Sprüngen – sonst tänzelt er unerreichbar herum. */
+function versucheAusweichen() {
+  for (const e of enemies) {
+    if (e.dead || !e.typ || !e.typ.ausweichen) continue;
+    if (e.staggerT > 0 || e.betaeubtT > 0 || e.attack || e.webStufe > 0) continue;
+    if ((e.ausweichCd || 0) > 0) continue;
+    const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 3.4 || Math.abs(e.pos.y - player.pos.y) > 2) continue;
+    /* Nur wer vor dem Helden steht, sieht den Schlag kommen. */
+    const fx = Math.sin(player.facing), fz = Math.cos(player.facing);
+    if ((dx * fx + dz * fz) / (d || 1) < 0.2) continue;
+    if (Math.random() > e.typ.ausweichen) { e.ausweichCd = 0.8; continue; }
+    /* Quer zur Schlagrichtung wegspringen. */
+    const seite = Math.random() < 0.5 ? 1 : -1;
+    const qx = -fz * seite, qz = fx * seite;
+    e.vel.x += qx * 7.5; e.vel.z += qz * 7.5;
+    e.ausweichCd = rand(1.6, 2.6);
+    e.staggerT = Math.max(e.staggerT, 0.28);   // kurz aus dem Takt, nicht getroffen
+    e.iFrames = 0.26;
+    if (e.visual.attackOneShot) {
+      e.visual.attackOneShot(0, seite > 0 ? 'ausweichenR' : 'ausweichenL', 0.45);
+    }
+    popupWorld('Ausgewichen!', e.pos, '#bfe8ff');
+  }
 }
 
 function resolveAttackHit() {
@@ -4676,10 +4885,16 @@ function resolveAttackHit() {
   // Rückstoß – Finisher schleudert den Gegner richtig weg
   const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
   const d = Math.hypot(dx, dz) || 1;
-  const kb = (a.type === 'kick' ? 9 : 5.5) * wucht;
+  /* Der Brecher steht wie ein Baum: Rückstoß und Taumeln fallen bei ihm
+     fast weg. Erst ein Tritt, ein Finisher oder ein Konter bringt ihn
+     wirklich aus dem Tritt – vorher fühlten sich alle Gegner gleich an. */
+  const fest = (e.typ && e.typ.standfest) || 0;
+  const bricht = a.type === 'kick' || a.finisher || konter;
+  const daempfer = bricht ? 1 - fest * 0.5 : 1 - fest;
+  const kb = (a.type === 'kick' ? 9 : 5.5) * wucht * daempfer;
   e.vel.x += (dx / d) * kb; e.vel.z += (dz / d) * kb;
-  e.vel.y += (a.type === 'kick' ? 4 : 2) * wucht;
-  e.staggerT = Math.max(e.staggerT, a.finisher ? 0.9 : 0.5);
+  e.vel.y += (a.type === 'kick' ? 4 : 2) * wucht * daempfer;
+  e.staggerT = Math.max(e.staggerT, (a.finisher ? 0.9 : 0.5) * (bricht ? 1 : 1 - fest));
   if (e.visual && e.visual.attackOneShot && !e.dead) e.visual.attackOneShot(2.2);
 
   /* Leichter Vorwärtsschub des Helden: die Schläge "greifen" dadurch */
@@ -5159,7 +5374,9 @@ function updatePlayer(dt) {
   } else {
     // Luftsteuerung
     if (player.dodgeT > 0) player.dodgeT -= dt;
-    if (dir) {
+    /* Beim Schwingen übernimmt die Kurvensteuerung – die grobe
+       Luftsteuerung würde sonst dagegenarbeiten. */
+    if (dir && player.state !== 'swing') {
       player.vel.x += dir.x * CFG.airAccel * dt;
       player.vel.z += dir.z * CFG.airAccel * dt;
       const hs = Math.hypot(player.vel.x, player.vel.z);
@@ -5188,6 +5405,13 @@ function updatePlayer(dt) {
   if (player.state === 'swing' && player.swing) {
     const s = player.swing;
     s.t += dt;
+    /* Lenkeingabe für die Kurve – Tastatur, Gamepad-Stick oder Daumenknüppel. */
+    const kurveRoh = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) -
+                     (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0) + (stick.x || 0);
+    /* Weich anlegen, damit die Kurve nicht schlagartig einsetzt. */
+    player.kurveGlatt = lerp(player.kurveGlatt || 0, clamp(kurveRoh, -1, 1),
+                             Math.min(1, dt * 6));
+    const kurveEin = Math.abs(player.kurveGlatt) > 0.02 ? player.kurveGlatt : 0;
     /* Seil sanft auf die Wunschlänge bringen statt ruckartig einzuholen */
     const tief = player.pos.y < s.anchor.y - s.zielLen * 0.72;   // nahe dem Tiefpunkt?
     if (keys['KeyW'] || keys['ArrowUp']) {
@@ -5223,6 +5447,27 @@ function updatePlayer(dt) {
           player.vel.addScaledVector(_v2, 16 * hdt);
         }
       }
+      /* ---- Kurve fliegen ----
+         A/D drehen die Schwungebene. Der Schubvektor steht senkrecht auf
+         Flugbahn UND Seil – dadurch ändert sich nur die Richtung, nicht das
+         Tempo, und das Pendel wird nicht verzerrt.
+         Wichtig: das gilt auch bei LOCKEREM Seil. Solange die Lenkung nur
+         im straffen Seil wirkte, kam über einen ganzen Bogen kaum ein
+         Dutzend Grad zusammen – man musste zum Abbiegen loslassen, sich
+         drehen und neu anschießen. */
+      if (kurveEin) {
+        const rd = _v2.copy(player.pos).sub(s.anchor);
+        const rl = rd.length() || 0.001;
+        rd.multiplyScalar(1 / rl);
+        _v3.crossVectors(player.vel, rd);
+        const l = _v3.length();
+        if (l > 0.001) {
+          _v3.multiplyScalar(1 / l);
+          /* Bei hohem Tempo fällt die Kurve von selbst weiter aus – das
+             ist richtig so und fühlt sich nach Fliegen an. */
+          player.vel.addScaledVector(_v3, kurveEin * 26 * hdt);
+        }
+      }
     }
     player.vel.multiplyScalar(1 - 0.02 * dt);
     const maxV = 40;
@@ -5244,10 +5489,34 @@ function updatePlayer(dt) {
   collidePlayerHelis(prevY);
 
   if (player.onGround) {
+    const kamVomSchwung = player.state === 'swing' || player.gleiten || player.gleitAus > 0;
     if (player.state === 'swing') stopSwing(false);
     if (!wasOnGround && player.vel.length() < 4) SFX.swoosh();
-    /* Aus größerer Höhe aufkommen: kurz die Landeanimation zeigen. */
-    if (!wasOnGround && fallTempo > 6) {
+    /* ---- Ankommen aus Schwung oder Gleitflug ----
+       Vorher endete beides einfach im Stand: man kam mit 20 m/s an und
+       stand im nächsten Bild still. Jetzt gibt es zwei Ausgänge – wer
+       flach und schnell ankommt, rollt die Wucht nach vorn ab; wer eher
+       von oben kommt, setzt die Drei-Punkt-Landung. */
+    const waagerecht = Math.hypot(player.vel.x, player.vel.z);
+    if (!wasOnGround && kamVomSchwung && (waagerecht > 9 || fallTempo > 9)) {
+      if (waagerecht > fallTempo * 1.15 && heroVisual.attackOneShot) {
+        /* Flach und schnell: abrollen und dabei Tempo mitnehmen. */
+        player.landT = heroVisual.attackOneShot(0, 'fallrolle', 0.8) || 0.8;
+        player.hartLandung = player.landT;
+        const f = _v1.set(player.vel.x, 0, player.vel.z).normalize();
+        const rest = Math.min(11, waagerecht * 0.55);
+        player.vel.x = f.x * rest; player.vel.z = f.z * rest;
+        player.facing = Math.atan2(f.x, f.z);
+      } else {
+        /* Von oben: Drei-Punkt-Landung. */
+        player.dreiPunktT = 0.62;
+        player.dreiPunktSeite = Math.random() < 0.5 ? 'L' : 'R';
+        player.vel.x *= 0.12; player.vel.z *= 0.12;
+      }
+      camShake = Math.max(camShake, 0.2);
+      staubWolke(player.pos, 1.7);
+      SFX.kick();
+    } else if (!wasOnGround && fallTempo > 6) {
       player.landT = clamp(fallTempo / 26, 0.18, 0.42);
       /* Aus großer Höhe wird abgerollt statt in die Knie zu federn. */
       if (fallTempo > 17 && heroVisual.attackOneShot) {
@@ -5343,6 +5612,11 @@ function updatePlayer(dt) {
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   if (player.landT > 0) player.landT -= dt;
   if (player.hartLandung > 0) player.hartLandung -= dt;
+  if (player.dreiPunktT > 0) {
+    player.dreiPunktT -= dt;
+    /* Bewegt man sich, bricht die Pose sofort ab – sonst klebt man fest. */
+    if (Math.hypot(player.vel.x, player.vel.z) > 3.5) player.dreiPunktT = 0;
+  }
   /* Rollen gehören auf den Boden. Verlässt die Figur ihn mitten in der
      Landerolle wieder – über eine Dachkante, von einem Autodach, durch
      einen Treffer –, lief die Bewegung frei schwebend weiter und sah aus
@@ -5364,6 +5638,7 @@ function updatePlayer(dt) {
      oben geht, läuft der Absprung, danach erst der freie Fall. */
   else if (player.gleiten) player.anim = 'gleiten';
   else if (!player.onGround) player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
+  else if (player.dreiPunktT > 0) player.anim = 'land';
   else if (player.hartLandung > 0) player.anim = 'fallrolle';
   else if (player.landT > 0) player.anim = 'land';
   else if (dir && hSpeed > 0.4) {
@@ -5454,6 +5729,13 @@ function updateHeroVisual(dt) {
       const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4);
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
                              clamp(player.vel.y * 0.09, -1, 1), r.rotation.x, beideHaende);
+    } else if (player.dreiPunktT > 0) {
+      /* Ein- und wieder ausblenden, damit die Pose nicht umspringt. */
+      const p = player.dreiPunktT / 0.62;
+      heroVisual.poseDreiPunkt(clamp(Math.min(1, (1 - p) * 6) * Math.min(1, p * 3.2), 0, 1),
+                               player.dreiPunktSeite || 'R');
+      /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
+      heroVisual.bodenAusgleich(Math.min(1, dt * 16));
     } else if (player.gleiten) {
       heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
                              0.9 * clamp(player.gleitMisch || 0, 0, 1));
@@ -5509,6 +5791,63 @@ function updateHeroVisual(dt) {
                 player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
   }
+}
+
+/* ======================= Ankerzeichen =======================
+   Man sah nie, woran das Netz greifen würde – der Schwung fühlte sich
+   deshalb wie Glückssache an. Ein kleines Fadenkreuz am nächsten
+   Ankerpunkt macht das Anschießen lesbar. */
+let ankerZeichen = null, ankerSicht = 0;
+
+function baueAnkerZeichen() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true,
+    opacity: 0, depthTest: false, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 20), mat);
+  g.add(ring);
+  /* Vier kurze Striche als Fadenkreuz – erkennt man auch vor unruhigem
+     Hintergrund noch. */
+  for (let i = 0; i < 4; i++) {
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.075), mat);
+    const w = i * Math.PI / 2;
+    s.position.set(Math.cos(w) * 0.92, Math.sin(w) * 0.92, 0);
+    s.rotation.z = w;
+    g.add(s);
+  }
+  g.renderOrder = 26;
+  g.visible = false;
+  scene.add(g);
+  ankerZeichen = g;
+  ankerZeichen.__mat = mat;
+}
+
+function updateAnkerZeichen(dt) {
+  if (!ankerZeichen) baueAnkerZeichen();
+  /* Nur zeigen, wenn ein Schwung überhaupt in Frage kommt. */
+  const moeglich = !player.dead && !player.onGround && player.state === 'air' &&
+                   !player.zip && !player.gleiten;
+  let ziel = null;
+  if (moeglich) {
+    /* Die Suche ist nicht gratis – zweimal je Sekunde reicht völlig, das
+       Zeichen wandert ohnehin weich hinterher. */
+    player.ankerCd = (player.ankerCd || 0) - dt;
+    if (player.ankerCd <= 0) {
+      player.ankerCd = 0.12;
+      player.ankerMerk = findAnchor();
+    }
+    ziel = player.ankerMerk;
+  } else player.ankerMerk = null;
+
+  ankerSicht = lerp(ankerSicht, ziel ? 1 : 0, Math.min(1, dt * (ziel ? 12 : 8)));
+  if (ankerSicht < 0.03 || !ziel) { ankerZeichen.visible = false; return; }
+  ankerZeichen.visible = true;
+  ankerZeichen.position.lerp(ziel, Math.min(1, dt * 14));
+  ankerZeichen.quaternion.copy(camera.quaternion);
+  /* Gleich groß am Bildschirm, egal wie weit weg. */
+  const dist = ankerZeichen.position.distanceTo(camera.position);
+  const sk = clamp(dist * 0.035, 0.5, 3.4);
+  ankerZeichen.scale.setScalar(sk);
+  ankerZeichen.__mat.opacity = ankerSicht * 0.55;
 }
 
 /* ======================= Spinnensinn =======================
@@ -6944,9 +7283,14 @@ function makeHPBar() {
 /* Gegnertypen – ohne neue Modelle, allein über Größe, Farbton und Werte.
    Damit fühlt sich nicht mehr jeder Gegner gleich an. */
 const GANOVEN = [
-  { art: 'schlaeger', groesse: 1.00, hp: 34, schaden: 8,  tempo: 5.0, blockChance: 0.18, farbe: 0x000000, gewicht: 55 },
-  { art: 'brecher',   groesse: 1.22, hp: 62, schaden: 14, tempo: 3.9, blockChance: 0.34, farbe: 0x2a1410, gewicht: 22 },
-  { art: 'flink',     groesse: 0.88, hp: 22, schaden: 6,  tempo: 6.6, blockChance: 0.08, farbe: 0x101c28, gewicht: 23 },
+  /* standfest: nimmt kaum Rückstoß und taumelt nur kurz.
+     ausweichen: Wahrscheinlichkeit, einem Schlag zur Seite auszuweichen. */
+  { art: 'schlaeger', groesse: 1.00, hp: 34, schaden: 8,  tempo: 5.0, blockChance: 0.18,
+    standfest: 0.0, ausweichen: 0.0,  farbe: 0x000000, gewicht: 55 },
+  { art: 'brecher',   groesse: 1.22, hp: 62, schaden: 14, tempo: 3.9, blockChance: 0.34,
+    standfest: 0.85, ausweichen: 0.0, farbe: 0x2a1410, gewicht: 22 },
+  { art: 'flink',     groesse: 0.88, hp: 22, schaden: 6,  tempo: 6.6, blockChance: 0.08,
+    standfest: 0.0, ausweichen: 0.42, farbe: 0x101c28, gewicht: 23 },
 ];
 function waehleGanov() {
   const summe = GANOVEN.reduce((a, g) => a + g.gewicht, 0);
@@ -7080,6 +7424,7 @@ function spawnGang(cx, cz, n) {
       typ, warn, blockZ,
       umwegT: 0, umwegSeite: 1, blockiertT: 0,
       inDerLuft: 0, geworfen: 0, betaeubtT: 0, dieb: false, bewacht: null,
+      ausweichCd: 0, iFrames: 0,
       hp: typ.hp, hpMax: typ.hp,
       blockT: 0, blockCd: rand(1, 4), warnT: 0,
       state: 'patrol',
@@ -7184,6 +7529,9 @@ function alarmiereGang(e, umkreis) {
 
 function damageEnemy(e, dmg, kind) {
   if (e.dead) return;
+  /* Wer gerade zur Seite gesprungen ist, ist für einen Moment nicht zu
+     treffen – sonst wäre das Ausweichen reine Kosmetik. */
+  if (e.iFrames > 0) return;
   e.hp -= dmg;
   e.target = 'player';
   e.state = 'chase';
@@ -7489,6 +7837,8 @@ function updateEnemies(dtBild) {
       if (a.t >= 1) e.attack = null;
     }
     if (e.attackCd > 0) e.attackCd -= dt;
+    if (e.ausweichCd > 0) e.ausweichCd -= dt;
+    if (e.iFrames > 0) e.iFrames -= dt;
 
     /* Vorwarnung: Ausrufezeichen blinkt, danach folgt der Schlag. */
     if (e.warnT > 0) {
@@ -8347,6 +8697,7 @@ function simuliere(dt) {
   updateCamera(dt);
   updateEffekte(dt);
   updateKlatscher(dt);
+  updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
   updateKlang(dt);
   updateDampf(dt);
@@ -8405,6 +8756,7 @@ if (window.__WEBHERO_TEST__ === true) {
     groundYAt: groundY,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
     sinnObj() { return sinnBoegen; },
+    ankerObj() { return ankerZeichen; },
     profil(n) {
       const teile = { updatePlayer, updateWetter, updateTagNacht, updateCars, updateHelis,
                       updateCivilians, updateEnemies, updateCamera, updateEffekte,
