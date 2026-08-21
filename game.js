@@ -683,7 +683,39 @@ function onBridge(x, z) {
 function inWater(x, z) {
   return x > RIVER_X0 && x < RIVER_X1 && !onBridge(x, z);
 }
+/* ---- U-Bahn-Stationen ----
+   Jeder Eingang gehört zu einem echten begehbaren Schacht: Treppe nach
+   unten, darunter ein Bahnsteig mit Gleis. Damit man wirklich hinunterlaufen
+   kann, muss die Bodenhöhe innerhalb des Schachts bekannt sein – deshalb
+   fragt groundY hier zuerst nach. */
+const UBAHNEN = [];
+const UB_TIEF = -4.2;            // Bahnsteighöhe
+const UB_TREPPE = 5.0;           // Länge der Treppe in z
+const UB_BREIT = 4.0;            // Breite der Treppe in x
+const UB_HALLE_X = 22, UB_HALLE_Z = 11;
+
+/* Liefert die Bodenhöhe im Schacht oder null, wenn (x,z) draußen liegt. */
+function ubahnBoden(x, z) {
+  for (const u of UBAHNEN) {
+    /* Treppe: läuft von z0 (oben) nach z0+UB_TREPPE (unten). */
+    if (x > u.x - UB_BREIT / 2 && x < u.x + UB_BREIT / 2 &&
+        z > u.z && z < u.z + UB_TREPPE) {
+      const t = (z - u.z) / UB_TREPPE;
+      /* In Stufen statt als Rampe – man soll Tritte sehen und spüren. */
+      const stufe = Math.floor(t * UB_STUFEN) / UB_STUFEN;
+      return lerp(SLAB_H, UB_TIEF, stufe);
+    }
+    /* Bahnsteig unter der Straße. */
+    if (x > u.x - UB_HALLE_X / 2 && x < u.x + UB_HALLE_X / 2 &&
+        z > u.z + UB_TREPPE && z < u.z + UB_TREPPE + UB_HALLE_Z) return UB_TIEF;
+  }
+  return null;
+}
+const UB_STUFEN = 14;
+
 function groundY(x, z) {
+  const ub = UBAHNEN.length ? ubahnBoden(x, z) : null;
+  if (ub !== null) return ub;
   if (x >= SHORE_X1 || x <= -195 || Math.abs(z) >= 195) return 0;
   if (onBridge(x, z)) return 0.3;
   if (x > RIVER_X0) {
@@ -1080,40 +1112,89 @@ function bauePark(cx, cz, size) {
 /* ---- U-Bahn-Eingang ----
    Treppenschacht mit Geländer und beleuchtetem Schild. */
 function baueUBahn(x, z) {
-  /* Der Schacht war 30 cm flach – man sah eine dunkle Platte mit fünf
-     Strichen darauf und konnte nicht erkennen, ob das eine Haltestelle
-     oder eine Treppe sein soll. Jetzt geht er sichtbar in die Tiefe:
-     dunkler Schacht, acht Stufen, die wirklich absteigen, und unten eine
-     schwach beleuchtete Wand. */
-  deko(4.6, 3.2, 3.2, x, SLAB_H - 1.6, z, 0x0d0f13);            // Schacht
-  for (let i = 0; i < 8; i++) {
-    const y = SLAB_H - 0.12 - i * 0.26;
-    const zz = z - 1.35 + i * 0.34;
-    deko(4.0, 0.1, 0.34, x, y, zz, 0x6a7078);                    // Trittfläche
-    deko(4.0, 0.26, 0.08, x, y - 0.13, zz + 0.17, 0x3c4249);     // Setzstufe
+  UBAHNEN.push({ x, z });
+  const zU = z + UB_TREPPE;                      // Fuß der Treppe
+  const hallenMitteZ = zU + UB_HALLE_Z / 2;
+
+  /* ---- Treppe ---- */
+  for (let i = 0; i < UB_STUFEN; i++) {
+    const y0 = lerp(SLAB_H, UB_TIEF, i / UB_STUFEN);
+    const y1 = lerp(SLAB_H, UB_TIEF, (i + 1) / UB_STUFEN);
+    const zz = z + (i + 0.5) * (UB_TREPPE / UB_STUFEN);
+    const tiefe = UB_TREPPE / UB_STUFEN;
+    deko(UB_BREIT, 0.1, tiefe, x, y1 + 0.05, zz, 0x6a7078);          // Trittfläche
+    deko(UB_BREIT, y0 - y1, 0.08, x, (y0 + y1) / 2, zz - tiefe / 2, 0x3c4249);  // Setzstufe
   }
-  /* Wand am Fuß der Treppe mit Leuchtstreifen – gibt dem Schacht Tiefe. */
-  deko(4.0, 1.4, 0.12, x, SLAB_H - 2.1, z + 1.45, 0x1a2028);
-  deko(3.2, 0.16, 0.16, x, SLAB_H - 1.75, z + 1.36, 0xdfe9c8);
-  for (const s of [-1, 1]) {
-    deko(0.12, 1.1, 3.0, x + s * 2.2, SLAB_H + 0.55, z, 0x2e3238);   // Geländer
-    deko(0.2, 0.1, 3.0, x + s * 2.2, SLAB_H + 1.12, z, 0xb9c0c8);
-  }
-  deko(0.2, 2.6, 0.2, x - 2.6, SLAB_H + 1.3, z, 0x2e3238);           // Mast
-  deko(1.5, 0.9, 0.12, x - 2.6, SLAB_H + 2.7, z, 0x1b8f4a);          // Schild
-  deko(1.2, 0.6, 0.14, x - 2.6, SLAB_H + 2.7, z, 0xf2f6f0);
-  /* Vorher lag EIN Block über dem ganzen Eingang – man konnte weder
-     hineingehen noch darüber laufen, sondern kletterte daran hoch wie an
-     einem Haus. Jetzt sind nur die beiden Geländer fest; dazwischen führt
-     die Treppe nach unten, und die ist begehbar. */
+  /* Seitenwände der Treppe – und Geländer oben. */
   for (const s2 of [-1, 1]) {
-    addCollider({ x0: x + s2 * 2.2 - 0.12, x1: x + s2 * 2.2 + 0.12,
-                  z0: z - 1.5, z1: z + 1.5,
-                  h: SLAB_H + 1.15, klein: true });
+    const wx = x + s2 * (UB_BREIT / 2 + 0.25);
+    deko(0.5, 5.4, UB_TREPPE, wx, UB_TIEF + 2.7, z + UB_TREPPE / 2, 0x2a2f36);
+    deko(0.12, 1.0, UB_TREPPE * 0.5, x + s2 * (UB_BREIT / 2 + 0.1),
+         SLAB_H + 0.5, z + UB_TREPPE * 0.25, 0x2e3238);
+    addCollider({ x0: wx - 0.25, x1: wx + 0.25, z0: z - 0.3,
+                  z1: z + UB_TREPPE + 0.3, h: SLAB_H + 1.1, y0: UB_TIEF - 0.4 });
   }
-  /* Der Mast des Schildes. */
-  addCollider({ x0: x - 2.72, x1: x - 2.48, z0: z - 0.12, z1: z + 0.12,
-                h: SLAB_H + 2.6, klein: true });
+  /* Der Treppenkopf bleibt offen: von dort geht man hinein. (Eine Wand an
+     dieser Stelle hat den Eingang komplett verriegelt.) */
+
+  /* ---- Bahnsteighalle ---- */
+  const hx = UB_HALLE_X, hz = UB_HALLE_Z;
+  deko(hx, 0.3, hz, x, UB_TIEF - 0.15, hallenMitteZ, 0x30343a);            // Boden
+  deko(hx, 0.4, hz, x, UB_TIEF + 3.6, hallenMitteZ, 0x23272d);             // Decke
+  /* Wände ringsum, mit Aussparung dort, wo die Treppe hereinkommt. */
+  for (const s2 of [-1, 1]) {                                              // Stirnseiten
+    const wx = x + s2 * hx / 2;
+    deko(0.4, 3.9, hz, wx, UB_TIEF + 1.95, hallenMitteZ, 0x3a4048);
+    /* Die Wand reicht bis auf Straßenniveau. Endete sie an der Decke,
+       war ihre Oberkante ein Sims, an dem sich die Figur aus der Station
+       heraus nach oben zog. */
+    addCollider({ x0: wx - 0.2, x1: wx + 0.2, z0: hallenMitteZ - hz / 2,
+                  z1: hallenMitteZ + hz / 2, h: SLAB_H, y0: UB_TIEF - 0.4 });
+  }
+  /* Rückwand mit Gleis davor. */
+  deko(hx, 3.9, 0.4, x, UB_TIEF + 1.95, hallenMitteZ + hz / 2, 0x3a4048);
+  addCollider({ x0: x - hx / 2, x1: x + hx / 2, z0: hallenMitteZ + hz / 2 - 0.2,
+                z1: hallenMitteZ + hz / 2 + 0.2, h: SLAB_H, y0: UB_TIEF - 0.4 });
+  /* Vorderwand links und rechts der Treppe. */
+  for (const s2 of [-1, 1]) {
+    const bx = (hx / 2 - UB_BREIT / 2 - 0.5) / 2 + (UB_BREIT / 2 + 0.5) / 2;
+    const mitte = x + s2 * ((UB_BREIT / 2 + 0.5 + hx / 2) / 2);
+    const breite = hx / 2 - UB_BREIT / 2 - 0.5;
+    deko(breite, 3.9, 0.4, mitte, UB_TIEF + 1.95, zU, 0x3a4048);
+    addCollider({ x0: mitte - breite / 2, x1: mitte + breite / 2,
+                  z0: zU - 0.2, z1: zU + 0.2, h: SLAB_H, y0: UB_TIEF - 0.4 });
+  }
+
+  /* Gleisbett: der Boden fällt hinter der Bahnsteigkante ab. */
+  const gleisZ = hallenMitteZ + hz / 2 - 1.9;
+  deko(hx - 1, 1.1, 3.0, x, UB_TIEF - 0.55, gleisZ, 0x1a1d21);
+  for (const s2 of [-1, 1]) {                                              // Schienen
+    deko(hx - 2, 0.12, 0.14, x, UB_TIEF - 0.02, gleisZ + s2 * 0.75, 0x8a8f96);
+  }
+  /* Bahnsteigkante mit Warnstreifen. */
+  deko(hx, 0.12, 0.5, x, UB_TIEF + 0.06, gleisZ - 1.75, 0xd8c24a);
+
+  /* Beleuchtung: Leuchtbänder an der Decke, dazu ein Schild. */
+  for (let i = -1; i <= 1; i++) {
+    deko(hx - 4, 0.14, 0.5, x + i * 0.0, UB_TIEF + 3.3, hallenMitteZ + i * 3.0, 0xf2f6e8);
+  }
+  deko(3.0, 1.0, 0.12, x, UB_TIEF + 2.6, hallenMitteZ + hz / 2 - 0.3, 0x1b8f4a);
+  deko(2.6, 0.7, 0.14, x, UB_TIEF + 2.6, hallenMitteZ + hz / 2 - 0.3, 0xf2f6f0);
+  /* Zwei Bänke auf dem Bahnsteig. */
+  for (const s2 of [-1, 1]) {
+    const bx = x + s2 * 6;
+    deko(2.2, 0.1, 0.55, bx, UB_TIEF + 0.45, zU + 1.3, 0x7a5636);
+    deko(2.2, 0.5, 0.12, bx, UB_TIEF + 0.72, zU + 1.05, 0x7a5636);
+    addCollider({ x0: bx - 1.1, x1: bx + 1.1, z0: zU + 1.0, z1: zU + 1.6,
+                  h: UB_TIEF + 0.5, klein: true });
+  }
+
+  /* ---- Oben: Geländer und Schild ---- */
+  deko(0.2, 2.6, 0.2, x - UB_BREIT / 2 - 1.1, SLAB_H + 1.3, z, 0x2e3238);   // Mast
+  deko(1.5, 0.9, 0.12, x - UB_BREIT / 2 - 1.1, SLAB_H + 2.7, z, 0x1b8f4a);  // Schild
+  deko(1.2, 0.6, 0.14, x - UB_BREIT / 2 - 1.1, SLAB_H + 2.7, z, 0xf2f6f0);
+  addCollider({ x0: x - UB_BREIT / 2 - 1.22, x1: x - UB_BREIT / 2 - 0.98,
+                z0: z - 0.12, z1: z + 0.12, h: SLAB_H + 2.6, klein: true });
 }
 
 /* ---- Häuser als Sammel-Mesh ----
@@ -1227,7 +1308,12 @@ function baueHausMeshes() {
 function makeBuildingMesh(w, h, d, x, z) {
   const texIdx = randi(0, facadeTexes.length - 1);
   sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx);
-  addCollider({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h: SLAB_H + h });
+  /* Die Häuserkollision endet einen Meter unter der Straße. Ohne diese
+     Untergrenze reicht sie beliebig tief ins Erdreich – in der U-Bahn-
+     Station stand man dadurch an einer unsichtbaren Hauswand und kletterte
+     daran wieder ans Tageslicht. */
+  addCollider({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
+                h: SLAB_H + h, y0: -1.0 });
   schmueckeHaus(w, h, d, x, z);
   /* Hohe Häuser bekommen Staffelgeschosse: Der Turm wird nach oben
      schmaler, statt als glatter Quader zu enden. Jede Stufe ist ein
@@ -1239,7 +1325,8 @@ function makeBuildingMesh(w, h, d, x, z) {
       sw *= rand(0.62, 0.78); sd *= rand(0.62, 0.78);
       const sh = rand(6, 14);
       sammleHausBox(sw, sh, sd, x, sy + sh / 2, z, texIdx);
-      addCollider({ x0: x - sw / 2, x1: x + sw / 2, z0: z - sd / 2, z1: z + sd / 2, h: sy + sh });
+      addCollider({ x0: x - sw / 2, x1: x + sw / 2, z0: z - sd / 2, z1: z + sd / 2,
+                    h: sy + sh, y0: -1.0 });
       deko(sw + 0.7, 0.45, sd + 0.7, x, sy + sh - 0.22, z, 0x8b9099);
       sy += sh;
     }
@@ -1435,10 +1522,55 @@ function buildRiverAndBridge() {
   quay2.position.set(SHORE_X0 + 2, -2, 0);
   cityGroup.add(quay2);
 
-  // Geländer am Ufer
+  /* ---- Uferpromenade ----
+     Zwischen der letzten Querstraße (x = 175) und der Kaimauer lag eine
+     rund elf Meter breite, völlig leere helle Fläche. Aus der Ferne sah
+     das aus wie ein Fehler in der Karte. Jetzt liegt dort eine Promenade:
+     dunkleres Pflaster, ein Bordstein zur Straße, Bäume, Bänke und
+     Laternen entlang des Wassers. */
+  const PROM_X0 = 175, PROM_X1 = RIVER_X0;
+  const prom = new THREE.Mesh(
+    new THREE.PlaneGeometry(PROM_X1 - PROM_X0, 400),
+    new THREE.MeshLambertMaterial({ map: wegTex }));
+  prom.rotation.x = -Math.PI / 2;
+  prom.position.set((PROM_X0 + PROM_X1) / 2, SLAB_H + 0.008, 0);
+  prom.receiveShadow = true;
+  cityGroup.add(prom);
+  /* Sockel, damit die Promenade wie ein Gehweg über der Straße liegt. */
+  deko(PROM_X1 - PROM_X0, SLAB_H * 2, 400, (PROM_X0 + PROM_X1) / 2, 0, 0, 0x9aa0a6);
+  /* Bordstein zur Straße hin. */
+  deko(0.4, 0.34, 400, PROM_X0, SLAB_H - 0.04, 0, 0x7c8288);
+
+  const kroneMatU = new THREE.MeshLambertMaterial({ color: 0x2f6b38 });
   for (let z = -190; z < 190; z += 8) {
     if (Math.abs(z - BRIDGE_Z) < BRIDGE_HW + 3) continue;
-    deko(0.2, 1, 7, RIVER_X0 - 0.3, 0.5, z + 3.5, 0x22343f);
+    deko(0.2, 1, 7, RIVER_X0 - 0.3, SLAB_H + 0.5, z + 3.5, 0x22343f);
+    /* Alle 24 m ein Baum mit Bank, dazwischen eine Laterne. */
+    const takt = Math.round((z + 190) / 8) % 3;
+    if (takt === 0) {
+      const bx = PROM_X0 + 4.5, bz = z + 3.5;
+      deko(0.5, 3.2, 0.5, bx, SLAB_H + 1.6, bz, 0x5a4028);
+      const krone = new THREE.Mesh(new THREE.SphereGeometry(rand(1.7, 2.3), 7, 6), kroneMatU);
+      krone.position.set(bx, SLAB_H + rand(3.8, 4.4), bz);
+      krone.castShadow = true;
+      cityGroup.add(krone);
+      addCollider({ x0: bx - 0.4, x1: bx + 0.4, z0: bz - 0.4, z1: bz + 0.4,
+                    h: SLAB_H + 3.2, klein: true });
+    } else if (takt === 1) {
+      /* Bank mit Blick aufs Wasser. */
+      const bx = PROM_X1 - 3.2, bz = z + 3.5;
+      for (const s2 of [-1, 1]) {
+        deko(0.5, 0.45, 0.12, bx, SLAB_H + 0.225, bz + s2 * 0.9, 0x3a3f45);
+      }
+      for (let i = 0; i < 3; i++) {
+        deko(0.16, 0.06, 2.2, bx + (i - 1) * 0.19, SLAB_H + 0.45, bz, 0x7a5636);
+      }
+      deko(0.14, 0.5, 2.2, bx + 0.3, SLAB_H + 0.72, bz, 0x7a5636);
+      addCollider({ x0: bx - 0.4, x1: bx + 0.4, z0: bz - 1.1, z1: bz + 1.1,
+                    h: SLAB_H + 0.48, klein: true });
+    } else {
+      addLamp(PROM_X0 + 2.0, z + 3.5);
+    }
   }
 
   /* Brücke. Fahrbahn und Geländer beginnen erst dort, wo die Brücke
@@ -2571,6 +2703,25 @@ function makeGlbVisual(m) {
     bone.updateMatrixWorld(true);
   }
 
+  /* Einen Knochen um eine WELTACHSE weiterdrehen, ohne seine bisherige
+     Haltung zu verwerfen. Object3D.rotateOnWorldAxis rechnet bei gedrehtem
+     Elternknochen falsch, deshalb hier von Hand. */
+  const _ikH = new THREE.Vector3(), _ikK = new THREE.Vector3();
+  const _ikA = new THREE.Vector3(), _ikT = new THREE.Vector3();
+  const _ikU = new THREE.Vector3(), _ikV = new THREE.Vector3();
+  const _ikAx = new THREE.Vector3();
+  const _ikQ = new THREE.Quaternion(), _ikQ2 = new THREE.Quaternion();
+  const _ikQ3 = new THREE.Quaternion();
+  function drehKnochenWelt(bone, achseWelt, winkel, k) {
+    if (!bone || !winkel) return;
+    _ikQ.setFromAxisAngle(achseWelt, winkel);
+    bone.getWorldQuaternion(_ikQ2);
+    _ikQ2.premultiply(_ikQ);                       // Zieldrehung in der Welt
+    bone.parent.getWorldQuaternion(_ikQ3);
+    _ikQ2.premultiply(_ikQ3.invert());             // in den Elternraum
+    bone.quaternion.slerp(_ikQ2, k === undefined ? 1 : k);
+  }
+
   function drehe(bone, x, y, z, k) {
     if (!bone) return;
     bone.rotation.x = lerp(bone.rotation.x, x, k);
@@ -2598,10 +2749,12 @@ function makeGlbVisual(m) {
       /* Nur der Netzarm wird geführt. Die Beine überlässt der Schwung der
          laufenden Animation – eigene Beinposen haben gegen sie gearbeitet
          und zu zuckenden Beinen geführt. */
-      /* Auch der Netzarm zeigt mit BEIDEN Gliedern zum Anker, sonst knickt
-         der Unterarm weg und die Hand sitzt neben dem Faden. */
+      /* Der Oberarm zeigt zum Anker, der Unterarm bleibt leicht gebeugt.
+         Beide Glieder auf den Anker zu richten streckt den Arm vollständig
+         durch – bei waagerechtem Körper landet er dann HINTER dem Kopf,
+         und die Figur sah verrenkt aus. */
       zieleKnochen(knochen[gross], knochen[klein], zielWelt, 1);
-      zieleKnochen(knochen[klein], knochen[hand], zielWelt, 1);
+      drehe(knochen[klein], -0.14, 0, 0, 1);
       const wiegen = Math.sin((t || 0) * 1.6) * 0.1;
       drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5);
       drehe(knochen[andereK], -0.5, 0, 0, 0.5);
@@ -2680,12 +2833,14 @@ function makeGlbVisual(m) {
          der freie Arm gestreckt nach hinten – vorher stand er wie
          vergessen in der Luft. */
       if (beide) {
-        /* Beide Glieder des freien Arms zielen auf den Anker – erst dann
-           liegt die zweite Hand wirklich am Faden. Vorher wurde nur der
-           Oberarm gezielt und der Unterarm gebeugt: die Hand griff daneben
-           und man sah weiter nur eine Hand am Netz. */
-        zieleKnochen(knochen[andere], knochen[andereK], zielWelt, 0.95);
-        zieleKnochen(knochen[andereK], knochen[andereH], zielWelt, 0.95);
+        /* Die zweite Hand greift NEBEN die erste an denselben Faden. Sie
+           zielt deshalb nicht auf den Anker – das streckte den Arm hinter
+           den Kopf –, sondern auf einen Punkt kurz über der Netzhand. */
+        knochen[hand].getWorldPosition(_vw1);
+        _vw2.copy(zielWelt).sub(_vw1).normalize();
+        _vw3.copy(_vw1).addScaledVector(_vw2, 0.42);
+        zieleKnochen(knochen[andere], knochen[andereK], _vw3, 0.95);
+        drehe(knochen[andereK], -0.2, 0, 0, 0.95);
         faust(seite === 'L' ? 'right' : 'left', 1);
       } else {
         /* Nach hinten ausgestreckt in Flugrichtung – wie ein Ruder. */
@@ -3152,7 +3307,6 @@ function makeGlbVisual(m) {
     fussIK(hoeheFn, k, blickX, blickZ) {
       if (k <= 0.001) return;
       root.updateMatrixWorld(true);
-      /* Kniepol: die Knie zeigen in Laufrichtung nach vorn. */
       _vw1.set(blickX || 0, 0, blickZ === undefined ? 1 : blickZ);
       if (_vw1.lengthSq() < 1e-6) _vw1.set(0, 0, 1);
       _vw1.normalize();
@@ -3161,41 +3315,64 @@ function makeGlbVisual(m) {
         const knie = knochen[seite + 'leg'];
         const fuss = knochen[seite + 'foot'];
         if (!hueft || !knie || !fuss) continue;
-        hueft.getWorldPosition(_vw2);
-        knie.getWorldPosition(_vw3);
-        fuss.getWorldPosition(_vw4);
-        const a = _vw2.distanceTo(_vw3);          // Oberschenkel
-        const bLen = _vw3.distanceTo(_vw4);       // Unterschenkel
-        if (a < 0.05 || bLen < 0.05) continue;
-        /* Zielhöhe: Boden unter DIESEM Fuß plus Knöchelhöhe. */
-        const boden = hoeheFn(_vw4.x, _vw4.z);
-        const ziel = boden + KNOECHEL_HOCH;
-        const fehler = ziel - _vw4.y;
-        /* Nur Füße nachführen, die ohnehin am Boden sind – das Schwungbein
-           soll frei bleiben, sonst schleift es über die Straße. */
-        const naehe = 1 - clamp(Math.abs(fehler) / 0.35, 0, 1);
+        hueft.getWorldPosition(_ikH);
+        knie.getWorldPosition(_ikK);
+        fuss.getWorldPosition(_ikA);
+        const a = _ikH.distanceTo(_ikK);
+        const bl = _ikK.distanceTo(_ikA);
+        if (a < 0.05 || bl < 0.05) continue;
+
+        const boden = hoeheFn(_ikA.x, _ikA.z);
+        const fehler = (boden + KNOECHEL_HOCH) - _ikA.y;
+        /* Nur Füße nahe am Boden nachführen – das Schwungbein bleibt frei. */
+        const naehe = 1 - clamp(Math.abs(fehler) / 0.32, 0, 1);
         const w = k * naehe;
-        if (w < 0.02) continue;
-        _fh.copy(_vw4); _fh.y += fehler * w;      // neues Knöchelziel
-        /* Zweigelenk-IK: erst den Knieort ausrechnen, dann beide Glieder
-           dorthin zielen. */
-        _hf.subVectors(_fh, _vw2);
-        let dist = _hf.length();
-        const maxD = a + bLen - 0.02, minD = Math.abs(a - bLen) + 0.02;
-        if (dist < 1e-4) continue;
-        dist = clamp(dist, minD, maxD);
-        _hf.normalize();
-        /* Winkel zwischen Oberschenkel und der Linie Hüfte→Knöchel. */
-        const cosA = clamp((a * a + dist * dist - bLen * bLen) / (2 * a * dist), -1, 1);
-        const alpha = Math.acos(cosA);
-        /* Drehachse steht senkrecht auf der Beinebene; der Pol legt fest,
-           wohin das Knie zeigt. */
-        _hs.crossVectors(_hf, _vw1);
-        if (_hs.lengthSq() < 1e-6) _hs.set(1, 0, 0); else _hs.normalize();
-        _hp.copy(_hf).applyAxisAngle(_hs, -alpha);
-        _vw3.copy(_vw2).addScaledVector(_hp, a);   // Zielort des Knies
-        zieleKnochen(hueft, knie, _vw3, w);
-        zieleKnochen(knie, fuss, _fh, w);
+        if (w < 0.02 || Math.abs(fehler) < 0.002) continue;
+        _ikT.copy(_ikA); _ikT.y += fehler * w;
+
+        /* ---- 1. Kniewinkel anpassen ----
+           Der Abstand Hüfte–Knöchel muss zur neuen Zielhöhe passen. Statt
+           die Knochen neu auszurichten, wird der vorhandene Kniewinkel um
+           die Differenz weitergedreht – dadurch bleibt die Verdrehung des
+           Beins um seine Längsachse erhalten. Genau die ging beim
+           vollständigen Neuausrichten verloren, und die Füße standen
+           verkehrt herum. */
+        const dIst = clamp(_ikH.distanceTo(_ikA), 0.02, a + bl - 0.01);
+        const dSoll = clamp(_ikH.distanceTo(_ikT), Math.abs(a - bl) + 0.03, a + bl - 0.02);
+        const gIst = Math.acos(clamp((a * a + bl * bl - dIst * dIst) / (2 * a * bl), -1, 1));
+        const gSoll = Math.acos(clamp((a * a + bl * bl - dSoll * dSoll) / (2 * a * bl), -1, 1));
+        const dGamma = clamp(gSoll - gIst, -0.45, 0.45);
+        if (Math.abs(dGamma) > 0.0015) {
+          /* Beugeachse aus der aktuellen Beinstellung. */
+          _ikU.subVectors(_ikK, _ikH).normalize();
+          _ikV.subVectors(_ikA, _ikK).normalize();
+          _ikAx.crossVectors(_ikU, _ikV);
+          if (_ikAx.lengthSq() < 1e-5) _ikAx.crossVectors(_ikU, _vw1);
+          if (_ikAx.lengthSq() < 1e-5) { _ikAx.set(1, 0, 0); }
+          _ikAx.normalize();
+          drehKnochenWelt(knie, _ikAx, -dGamma, 1);
+          knie.updateMatrixWorld(true);
+          fuss.getWorldPosition(_ikA);
+        }
+
+        /* ---- 2. Bein als Ganzes zum Ziel drehen ----
+           Wieder als Differenzdrehung auf die bestehende Haltung. */
+        _ikU.subVectors(_ikA, _ikH);
+        _ikV.subVectors(_ikT, _ikH);
+        if (_ikU.lengthSq() < 1e-6 || _ikV.lengthSq() < 1e-6) continue;
+        _ikU.normalize(); _ikV.normalize();
+        const winkel = Math.acos(clamp(_ikU.dot(_ikV), -1, 1));
+        if (winkel > 0.0015) {
+          _ikAx.crossVectors(_ikU, _ikV);
+          if (_ikAx.lengthSq() < 1e-6) continue;
+          _ikAx.normalize();
+          const w2 = Math.min(winkel, 0.4);
+          drehKnochenWelt(hueft, _ikAx, w2, 1);
+          /* Der Fuß behält seine Ausrichtung zur Welt – sonst kippt die
+             Sohle mit dem Bein mit. */
+          drehKnochenWelt(fuss, _ikAx, -w2, 0.8);
+          hueft.updateMatrixWorld(true);
+        }
       }
     },
     /* Hinlegen: Die Umfall-Bewegung dreht den Körper zwar waagerecht, lässt
@@ -3951,7 +4128,7 @@ const player = {
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
-  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0,
+  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
@@ -4297,7 +4474,10 @@ function updateCamera(dt) {
      die Maus einen Moment ruhen lässt, wandert sie sanft hinter die
      Flugrichtung – man sieht, wohin es geht, ohne dauernd nachziehen zu
      müssen. Jede Mausbewegung übernimmt sofort wieder das Kommando. */
-  if ((player.state === 'swing' || player.gleiten) && speed > 6 && mausRuhe > 0.35) {
+  /* Beim Schwingen zieht die Kamera NICHT mehr mit: die Flugrichtung ist
+     dort ständig in Bewegung, die Kamera lief mit und man hatte den
+     Eindruck, das Spiel lenke von allein. Beim Gleiten bleibt es. */
+  if (player.gleiten && speed > 6 && mausRuhe > 0.35) {
     const flug = Math.atan2(player.vel.x, player.vel.z);
     /* camYaw ist die Richtung, aus der die Kamera schaut – also gegenüber. */
     const zielYaw = flug + Math.PI;
@@ -5330,9 +5510,17 @@ function updatePlayer(dt) {
     /* Wandlauf: mit Shift geht es die Fassade richtig hinauf statt zu
        kriechen – dafür gibt es seit mixamo-7 eine eigene Bewegung. */
     const sprintWand = sprintAn() && up > 0 && stufeFrei('wandlauf');
+    /* Der Anlaufschwung läuft in gut einer Sekunde aus – danach klettert
+       die Figur ganz normal weiter. Ein Wandlauf ohne Ende sähe falsch
+       aus, und man soll oben ankommen, nicht dauerhaft rennen. */
+    if (player.wandSchwung > 0) {
+      player.wandSchwung -= dt * (sprintAn() ? 6.5 : 11);
+      if (player.wandSchwung < 0) player.wandSchwung = 0;
+    }
     const kTempo = CFG.climbSpeed * (sprintWand ? 2.7 : 1);
-    player.wandlauf = sprintWand;
-    player.vel.set(tx * side * kTempo, up * kTempo, tz * side * kTempo);
+    const hoch = up * kTempo + Math.max(0, player.wandSchwung);
+    player.wandlauf = sprintWand || player.wandSchwung > 1.5;
+    player.vel.set(tx * side * kTempo, hoch, tz * side * kTempo);
     player.pos.addScaledVector(player.vel, dt);
     /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
        der Fassade heraus. Vorher steckte die Figur mit dem Oberkörper darin
@@ -5684,6 +5872,20 @@ function updatePlayer(dt) {
     player.kurveGlatt = lerp(player.kurveGlatt || 0, clamp(kurveRoh, -1, 1),
                              Math.min(1, dt * 6));
     const kurveEin = Math.abs(player.kurveGlatt) > 0.02 ? player.kurveGlatt : 0;
+    /* ---- Von allein geradeaus ----
+       Ein freies Pendel dreht seine Ebene ständig: der Schwung zog immer
+       von selbst nach links oder rechts, obwohl man gar nichts gedrückt
+       hat. Ohne Lenkeingabe wird die Flugrichtung deshalb sanft auf die
+       Blickrichtung zurückgeführt – gedrückt man A oder D, hat die Lenkung
+       Vorrang. */
+    let geradeAus = 0;
+    if (!kurveEin) {
+      const flug = Math.atan2(player.vel.x, player.vel.z);
+      let ab = flug - (camYaw + Math.PI);
+      while (ab > Math.PI) ab -= TAU;
+      while (ab < -Math.PI) ab += TAU;
+      geradeAus = clamp(-ab * 0.45, -0.45, 0.45);
+    }
     /* Seil sanft auf die Wunschlänge bringen statt ruckartig einzuholen */
     const tief = player.pos.y < s.anchor.y - s.zielLen * 0.72;   // nahe dem Tiefpunkt?
     if (keys['KeyW'] || keys['ArrowUp']) {
@@ -5727,7 +5929,8 @@ function updatePlayer(dt) {
          im straffen Seil wirkte, kam über einen ganzen Bogen kaum ein
          Dutzend Grad zusammen – man musste zum Abbiegen loslassen, sich
          drehen und neu anschießen. */
-      if (kurveEin) {
+      const lenkung = kurveEin || geradeAus;
+      if (lenkung) {
         const rd = _v2.copy(player.pos).sub(s.anchor);
         const rl = rd.length() || 0.001;
         rd.multiplyScalar(1 / rl);
@@ -5810,6 +6013,33 @@ function updatePlayer(dt) {
   }
 
   /* ---- automatisches Klettern ---- */
+  /* ---- Mit Anlauf die Wand hoch ----
+     Bisher musste man springen, die Wand berühren und dann Shift halten.
+     Wer im Sprint gegen eine Fassade lief, blieb einfach stehen.
+     Jetzt trägt der Schwung: wer mit Tempo dagegen rennt, läuft ein Stück
+     die Wand hinauf, wird dabei immer langsamer und geht danach ins
+     normale Klettern über – so wie es aussehen soll. */
+  if (player.wall && player.onGround && player.state !== 'swing' &&
+      player.state !== 'zip' && player.rollT <= 0) {
+    const w = player.wall;
+    const tempoRein = -(player.altVelX * w.nx + player.altVelZ * w.nz);
+    const rein = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.5;
+    /* Nur an richtigen Hauswänden – nicht an Brüstungen, Bänken oder den
+       Wänden der U-Bahn-Station. Sonst trägt der Anlauf die Figur an einer
+       viereinhalb Meter hohen Mauer wieder aus der Station heraus. */
+    const hochGenug = w.col && (w.col.h - player.pos.y) > 6 && !w.col.klein;
+    if (rein && hochGenug && tempoRein > 5.5) {
+      player.state = 'climb';
+      player.wallInfo = w;
+      player.onGround = false;
+      /* Der waagerechte Schwung wird in Höhe umgesetzt. */
+      player.wandSchwung = clamp(tempoRein * 0.95, 6, 13);
+      player.wandlauf = true;
+      player.jumps = 0;
+      SFX.swoosh();
+    }
+  }
+
   if (player.wall && !player.onGround && player.state !== 'swing' && player.state !== 'zip') {
     const w = player.wall;
     const movingIn = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.3;
@@ -6068,7 +6298,7 @@ function updateHeroVisual(dt) {
          Bordstein, Treppe, Autodach. Beim Angriff und in der Rolle nicht,
          dort führt die Bewegung. */
       if (heroVisual.fussIK && !player.attack && player.rollT <= 0 &&
-          player.dreiPunktT <= 0) {
+          player.dreiPunktT <= 0 && !window.__IK_AUS) {
         heroVisual.fussIK(bodenHoeheFuerFuss, 0.85,
                           Math.sin(player.facing), Math.cos(player.facing));
       }
@@ -7102,6 +7332,11 @@ function updateCivilians(dtBild) {
     const dt = fern ? dtBild * 3 : dtBild;
     if (c.savedCd > 0) c.savedCd -= dt;
     if (c.state === 'hurt') {
+      /* Wer am Boden liegt, filmt nicht und hält keinen Schirm. Vorher
+         blieben beide sichtbar und hingen neben der liegenden Figur. */
+      if (c.handy) c.handy.visible = false;
+      if (c.schirm) c.schirm.visible = false;
+      c.gafft = false; c.filmt = false;
       c.hurtT -= dt;
       c.visual.root.position.copy(c.pos);
       c.visual.play('sit', { t: elapsed }, dt);
@@ -9098,6 +9333,7 @@ if (window.__WEBHERO_TEST__ === true) {
     get heroVisual() { return heroVisual; },
     colliders,
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
+    setzeKamYaw(v) { camYaw = v; },
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
     schritt(dt, n) { for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60); },
     get mission() { return MISSION; },
@@ -9111,6 +9347,7 @@ if (window.__WEBHERO_TEST__ === true) {
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
+    ubahnen() { return UBAHNEN; },
     bodenFuss: bodenHoeheFuerFuss,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
     sinnObj() { return sinnBoegen; },
