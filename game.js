@@ -120,6 +120,12 @@ const SFX = (() => {
     zip() { tone(500, 0.22, 'sine', 0.08, 2.2); },
     splash() { noise(0.4, 0.2, 200); },
     hupe() { tone(430, 0.28, 'square', 0.07); setTimeout(() => tone(360, 0.22, 'square', 0.06), 60); },
+    /* U-Bahn: dumpfes Rollen, das mit der Naehe lauter wird. */
+    zug(nah) {
+      const v = clamp(nah, 0, 1);
+      noise(0.7, 0.16 * v, 180);
+      tone(70, 0.6, 'sawtooth', 0.09 * v, 0.6);
+    },
     /* Spinnensinn: ein feines, schnell aufsteigendes Kribbeln. */
     sinn() {
       tone(1750, 0.07, 'sine', 0.05, 1.5);
@@ -733,33 +739,82 @@ function baueBank(x, y, z, laengsZ, holz) {
    unten, darunter ein Bahnsteig mit Gleis. Damit man wirklich hinunterlaufen
    kann, muss die Bodenhöhe innerhalb des Schachts bekannt sein – deshalb
    fragt groundY hier zuerst nach. */
-const UBAHNEN = [];
-const UB_TIEF = -4.2;            // Bahnsteighöhe
-const UB_TREPPE = 5.0;           // Länge der Treppe in z
-const UB_BREIT = 4.0;            // Breite der Treppe in x
-const UB_HALLE_X = 22, UB_HALLE_Z = 11;
+/* ======================= U-Bahn =======================
+   Eine durchgehende Linie in x-Richtung unter der Strasse bei z = UB_Z.
+   Vier Stationen, dazwischen offene Tunnel, durch die man wirklich laufen
+   kann - vorher war der Tunnelmund nur ein dunkles Loch, das einen zur
+   naechsten Station versetzt hat. Auf dem Gleis fahren zwei Zuege, einer
+   je Richtung. */
+const UBAHNEN = [];                       // gebaute Stationen, { x }
+const UB_TIEF = -9.5;                     // Bahnsteighoehe, tief unter der Strasse
+const UB_GLEIS_TIEF = UB_TIEF - 1.2;      // Sohle des Gleistrogs
+const UB_Z = 25;                          // die Linie folgt dieser Strassenachse
+const UB_STAT_X = [-150, -50, 50, 150];   // Stationen (Blockmitten)
+const UB_HALLE_X = 30;                    // Laenge einer Bahnsteighalle
 
-/* Liefert die Bodenhöhe im Schacht oder null, wenn (x,z) draußen liegt. */
-function ubahnBoden(x, z) {
-  for (const u of UBAHNEN) {
-    /* Treppe: läuft von z0 (oben) nach z0+UB_TREPPE (unten). */
-    if (x > u.x - UB_BREIT / 2 && x < u.x + UB_BREIT / 2 &&
-        z > u.z && z < u.z + UB_TREPPE) {
-      const t = (z - u.z) / UB_TREPPE;
-      /* In Stufen statt als Rampe – man soll Tritte sehen und spüren. */
-      const stufe = Math.floor(t * UB_STUFEN) / UB_STUFEN;
-      return lerp(SLAB_H, UB_TIEF, stufe);
+/* Querschnitt, fuer Halle und Tunnel gleich (z-Grenzen). */
+const UB_GLEIS_Z0 = 23.0, UB_GLEIS_Z1 = 27.8;    // Gleistrog (zwei Gleise)
+const UB_GLEIS_A = UB_GLEIS_Z0 + 1.25;           // Gleis Richtung +x
+const UB_GLEIS_B = UB_GLEIS_Z1 - 1.25;           // Gleis Richtung -x
+const UB_STEIG_Z0 = 27.8, UB_STEIG_Z1 = 34.8;    // Bahnsteig / Gehweg
+const UB_DECKE = UB_TIEF + 4.4;
+
+/* Treppenschacht: liegt im Randstreifen des Gehwegs (z 31..35), wo keine
+   Haeuser stehen, und laeuft in x-Richtung. Kopf aussen, Fuss innen. */
+const UB_SCHACHT_Z0 = 31.2, UB_SCHACHT_Z1 = 34.8;
+const UB_TR_X0 = 2.0;                     // Fuss, relativ zur Stationsmitte
+const UB_TR_X1 = 15.4;                    // Kopf an der Oberflaeche
+const UB_TREPPE = UB_TR_X1 - UB_TR_X0;
+const UB_STUFEN = 34;
+
+const UB_X0 = UB_STAT_X[0] - UB_HALLE_X / 2;                       // Linienanfang
+const UB_X1 = UB_STAT_X[UB_STAT_X.length - 1] + UB_HALLE_X / 2;    // Linienende
+
+/* Hat dieser Block einen U-Bahn-Eingang? Dann bekommt der Gehwegsockel ein
+   Loch, sonst sieht man von oben nur eine geschlossene Flaeche - genau das
+   war der Grund, warum man den Eingang nicht gefunden hat. */
+function ubahnLochFuerBlock(cx, cz) {
+  if (Math.abs(cz - 50) > 1) return null;
+  for (const sx of UB_STAT_X) {
+    if (Math.abs(sx - cx) < 1) {
+      /* Genau der Schacht, keinen Zentimeter mehr: sonst laeuft man neben
+         der Treppe auf unsichtbarem Boden. */
+      return { x0: sx + UB_TR_X0, x1: sx + UB_TR_X1,
+               z0: UB_SCHACHT_Z0, z1: UB_SCHACHT_Z1, sx };
     }
-    /* Bahnsteig unter der Straße. */
-    if (x > u.x - UB_HALLE_X / 2 && x < u.x + UB_HALLE_X / 2 &&
-        z > u.z + UB_TREPPE && z < u.z + UB_TREPPE + UB_HALLE_Z) return UB_TIEF;
   }
   return null;
 }
-const UB_STUFEN = 14;
 
-function groundY(x, z) {
-  const ub = UBAHNEN.length ? ubahnBoden(x, z) : null;
+/* Bodenhoehe im Schacht, in der Halle oder im Tunnel - sonst null.
+   yRef ist die Hoehe dessen, der fragt. Ohne diese Angabe zaehlt die
+   Oberflaeche: sonst faellt jeder, der ueber der Station auf der Strasse
+   steht, durch die Fahrbahn in den Bahnsteig. Genau das ist passiert. */
+function ubahnBoden(x, z, yRef) {
+  if (!UBAHNEN.length) return null;
+  /* Der Treppenschacht ist nach oben offen und gilt immer. */
+  if (z > UB_SCHACHT_Z0 && z < UB_SCHACHT_Z1) {
+    for (const u of UBAHNEN) {
+      if (x > u.x + UB_TR_X0 && x < u.x + UB_TR_X1) {
+        const t = clamp((u.x + UB_TR_X1 - x) / UB_TREPPE, 0, 1);
+        /* In Stufen statt als Rampe - man soll Tritte sehen und spueren. */
+        const stufe = Math.floor(t * UB_STUFEN) / UB_STUFEN;
+        return lerp(SLAB_H, UB_TIEF, stufe);
+      }
+    }
+  }
+  /* Halle und Tunnel liegen unter der Fahrbahn. Nur wer schon unten ist,
+     steht darauf. Die Grenze liegt deutlich unter der Strasse (Fahrbahn 0,
+     Gehweg 0,25) und weit ueber der Hallendecke bei UB_DECKE. */
+  if (yRef === undefined || yRef > -1.5) return null;
+  if (x < UB_X0 || x > UB_X1) return null;
+  if (z > UB_STEIG_Z0 && z < UB_STEIG_Z1) return UB_TIEF;
+  if (z > UB_GLEIS_Z0 && z < UB_GLEIS_Z1) return UB_GLEIS_TIEF;
+  return null;
+}
+
+function groundY(x, z, yRef) {
+  const ub = ubahnBoden(x, z, yRef);
   if (ub !== null) return ub;
   if (x >= SHORE_X1 || x <= -195 || Math.abs(z) >= 195) return 0;
   if (onBridge(x, z)) return 0.3;
@@ -997,25 +1052,52 @@ function buildCity() {
 
   // Blöcke: Gehwegsockel + Gebäude
   const slabGeo = new THREE.BoxGeometry(1, SLAB_H * 2, 1);
+  /* Ein Blocksockel, zerlegt in Streifen, damit ein rechteckiges Loch
+     ausgespart bleibt (Treppenschacht der U-Bahn). Ohne Loch bleibt es bei
+     einer einzigen Platte. */
+  function sockelTeile(cx, cz, size, loch) {
+    const x0 = cx - size / 2, x1 = cx + size / 2;
+    const z0 = cz - size / 2, z1 = cz + size / 2;
+    if (!loch) return [{ x: cx, z: cz, w: size, d: size }];
+    const lx0 = clamp(loch.x0, x0, x1), lx1 = clamp(loch.x1, x0, x1);
+    const lz0 = clamp(loch.z0, z0, z1), lz1 = clamp(loch.z1, z0, z1);
+    const teile = [];
+    const rechteck = (a, b, c, d) => {
+      if (b - a > 0.02 && d - c > 0.02)
+        teile.push({ x: (a + b) / 2, z: (c + d) / 2, w: b - a, d: d - c });
+    };
+    rechteck(x0, x1, z0, lz0);        // vor dem Loch
+    rechteck(x0, x1, lz1, z1);        // hinter dem Loch
+    rechteck(x0, lx0, lz0, lz1);      // links daneben
+    rechteck(lx1, x1, lz0, lz1);      // rechts daneben
+    return teile;
+  }
   const slabMat = new THREE.MeshLambertMaterial({ map: sidewalkTex });
   for (let bi = 0; bi < BLOCKS; bi++) {
     for (let bj = 0; bj < BLOCKS; bj++) {
       const cx = ORIGIN + bi * PITCH + PITCH / 2;
       const cz = ORIGIN + bj * PITCH + PITCH / 2;
-      const slab = new THREE.Mesh(slabGeo, slabMat);
       const size = PITCH - ROAD_HALF * 2; // 38
-      slab.scale.set(size, 1, size);
-      slab.position.set(cx, 0, cz);
-      slab.receiveShadow = true;
-      cityGroup.add(slab);
+      /* Liegt hier ein U-Bahn-Eingang, bekommt der Sockel ein echtes Loch.
+         Vorher lag der Gehweg als geschlossene Platte über dem Treppen-
+         schacht: die Kollision kannte die Treppe, das Auge sah nur Boden. */
+      const loch = ubahnLochFuerBlock(cx, cz);
+      for (const t of sockelTeile(cx, cz, size, loch)) {
+        const slab = new THREE.Mesh(slabGeo, slabMat);
+        slab.scale.set(t.w, 1, t.d);
+        slab.position.set(t.x, 0, t.z);
+        slab.receiveShadow = true;
+        cityGroup.add(slab);
+      }
       /* Zwei Blöcke werden zum Park statt zur Baustelle – die Stadt war
          bisher lückenlos zugebaut. */
-      if ((bi === 2 && bj === 4) || (bi === 5 && bj === 1)) bauePark(cx, cz, size);
+      /* Kein Park auf einem Block mit U-Bahn-Eingang: der Rasen liegt als
+         geschlossene Flaeche ueber dem Treppenloch. */
+      if (!loch && ((bi === 2 && bj === 2) || (bi === 5 && bj === 1))) bauePark(cx, cz, size);
       else buildBlockBuildings(cx, cz);
       // Straßenlampen an jeder zweiten Ecke
       if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz - size / 2 + 1);
-      /* U-Bahn-Eingang an jeder dritten Blockecke. */
-      if ((bi * 3 + bj) % 7 === 0) baueUBahn(cx - size / 2 + 4, cz - size / 2 + 2.5);
+      if (loch) baueUBahn(loch.sx);
     }
   }
 
@@ -1031,6 +1113,9 @@ function buildCity() {
     }
   }
 
+  /* Die Tunnel entstehen erst, wenn alle Stationen stehen. */
+  if (UBAHNEN.length) baueUBahnLinie();
+
   buildRiverAndBridge();
   buildFarShore();
   baueAmpeln();
@@ -1038,6 +1123,7 @@ function buildCity() {
   baueWassertuerme();
   baueLadenFenster();
   baueDekoMesh();
+  baueZuege();
 }
 
 /* ---- Park ----
@@ -1127,110 +1213,270 @@ function bauePark(cx, cz, size) {
 
 /* ---- U-Bahn-Eingang ----
    Treppenschacht mit Geländer und beleuchtetem Schild. */
-function baueUBahn(x, z) {
-  UBAHNEN.push({ x, z });
-  const zU = z + UB_TREPPE;                      // Fuß der Treppe
-  const hallenMitteZ = zU + UB_HALLE_Z / 2;
+/* ---- Eine Station ----
+   Bahnsteig, Gleistrog, Decke, Waende, dazu die Treppe im Randstreifen des
+   Gehwegs. Der Tunnel selbst entsteht spaeter in baueUBahnLinie(). */
+function baueUBahn(x) {
+  UBAHNEN.push({ x });
+  const hx = UB_HALLE_X;
+  const zM = (UB_GLEIS_Z0 + UB_STEIG_Z1) / 2;
+  const zT = UB_STEIG_Z1 - UB_GLEIS_Z0;
+  const steigM = (UB_STEIG_Z0 + UB_STEIG_Z1) / 2;
+  const steigT = UB_STEIG_Z1 - UB_STEIG_Z0;
+  const gleisM = (UB_GLEIS_Z0 + UB_GLEIS_Z1) / 2;
+  const gleisT = UB_GLEIS_Z1 - UB_GLEIS_Z0;
 
   /* ---- Treppe ---- */
+  const stufeT = UB_TREPPE / UB_STUFEN;
   for (let i = 0; i < UB_STUFEN; i++) {
     const y0 = lerp(SLAB_H, UB_TIEF, i / UB_STUFEN);
     const y1 = lerp(SLAB_H, UB_TIEF, (i + 1) / UB_STUFEN);
-    const zz = z + (i + 0.5) * (UB_TREPPE / UB_STUFEN);
-    const tiefe = UB_TREPPE / UB_STUFEN;
-    deko(UB_BREIT, 0.1, tiefe, x, y1 + 0.05, zz, 0x6a7078);          // Trittfläche
-    deko(UB_BREIT, y0 - y1, 0.08, x, (y0 + y1) / 2, zz - tiefe / 2, 0x3c4249);  // Setzstufe
-    /* Heller Streifen auf jeder Stufenkante. Von oben sah man vorher nur
+    const xx = x + UB_TR_X1 - (i + 0.5) * stufeT;
+    deko(stufeT, 0.1, UB_SCHACHT_Z1 - UB_SCHACHT_Z0, xx, y1 + 0.05,
+         (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0x6a7078);                    // Trittflaeche
+    deko(0.08, y0 - y1, UB_SCHACHT_Z1 - UB_SCHACHT_Z0, xx + stufeT / 2, (y0 + y1) / 2,
+         (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0x3c4249);                    // Setzstufe
+    /* Heller Streifen auf jeder Stufenkante: von oben sah man vorher nur
        ein schwarzes Loch und konnte nicht erkennen, dass es hinuntergeht. */
-    deko(UB_BREIT - 0.2, 0.035, 0.09, x, y1 + 0.11, zz - tiefe / 2 + 0.06, 0xe8e4c8);
+    deko(0.09, 0.035, UB_SCHACHT_Z1 - UB_SCHACHT_Z0 - 0.2, xx + stufeT / 2 - 0.06,
+         y1 + 0.11, (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0xe8e4c8);
   }
-  /* Licht im Treppenschacht: zwei Leuchtbänder an den Seitenwänden. */
+  /* Schachtwaende laengs, dazu Leuchtbaender. */
   for (const s2 of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      const t = (i + 0.5) / 3;
-      deko(0.1, 0.16, 1.1, x + s2 * (UB_BREIT / 2 + 0.05),
-           lerp(SLAB_H, UB_TIEF, t) + 2.0, z + t * UB_TREPPE, 0xf4f0d8);
+    const wz = s2 < 0 ? UB_SCHACHT_Z0 - 0.25 : UB_SCHACHT_Z1 + 0.25;
+    deko(UB_TREPPE + 0.9, 11.0, 0.5, x + (UB_TR_X0 + UB_TR_X1) / 2,
+         UB_TIEF + 5.5, wz, 0x4e565f);
+    addCollider({ x0: x + UB_TR_X0 - 0.45, x1: x + UB_TR_X1 + 0.45,
+                  z0: wz - 0.25, z1: wz + 0.25, h: SLAB_H + 1.1,
+                  y0: UB_TIEF - 0.4, keinKlettern: true });
+    for (let i = 0; i < 5; i++) {
+      const t = (i + 0.5) / 5;
+      deko(1.3, 0.16, 0.1, x + UB_TR_X1 - t * UB_TREPPE,
+           lerp(SLAB_H, UB_TIEF, t) + 2.2, wz + (s2 < 0 ? 0.2 : -0.2), 0xf4f0d8);
     }
   }
-  /* Seitenwände der Treppe – und Geländer oben. */
+  /* Der Treppenkopf bleibt offen: von dort geht man hinein. Eine Wand an
+     dieser Stelle hat den Eingang komplett verriegelt - genau das war beim
+     alten Schacht der Fehler. Am unteren Ende steht dafuer ein Gelaender,
+     damit man von der Strasse nicht in den Schacht faellt. */
+  const gx = x + UB_TR_X0 - 0.3;
+  deko(0.2, 1.1, UB_SCHACHT_Z1 - UB_SCHACHT_Z0 + 0.9, gx, SLAB_H + 0.55,
+       (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0x2e3238);
+  addCollider({ x0: gx - 0.12, x1: gx + 0.12, z0: UB_SCHACHT_Z0 - 0.45,
+                z1: UB_SCHACHT_Z1 + 0.45, h: SLAB_H + 1.0, y0: SLAB_H - 0.1,
+                keinKlettern: true });
+  /* Gelaender laengs an beiden Schachtkanten, damit das Loch von oben
+     sichtbar eingefasst ist. */
   for (const s2 of [-1, 1]) {
-    const wx = x + s2 * (UB_BREIT / 2 + 0.25);
-    deko(0.5, 5.4, UB_TREPPE, wx, UB_TIEF + 2.7, z + UB_TREPPE / 2, 0x2a2f36);
-    deko(0.12, 1.0, UB_TREPPE * 0.5, x + s2 * (UB_BREIT / 2 + 0.1),
-         SLAB_H + 0.5, z + UB_TREPPE * 0.25, 0x2e3238);
-    addCollider({ x0: wx - 0.25, x1: wx + 0.25, z0: z - 0.3,
-                  z1: z + UB_TREPPE + 0.3, h: SLAB_H + 1.1, y0: UB_TIEF - 0.4,
-                  keinKlettern: true });
+    const wz = s2 < 0 ? UB_SCHACHT_Z0 - 0.3 : UB_SCHACHT_Z1 + 0.3;
+    deko(UB_TREPPE * 0.9, 1.0, 0.12, x + (UB_TR_X0 + UB_TR_X1) / 2,
+         SLAB_H + 0.5, wz, 0x2e3238);
   }
-  /* Der Treppenkopf bleibt offen: von dort geht man hinein. (Eine Wand an
-     dieser Stelle hat den Eingang komplett verriegelt.) */
 
   /* ---- Bahnsteighalle ---- */
-  const hx = UB_HALLE_X, hz = UB_HALLE_Z;
-  deko(hx, 0.3, hz, x, UB_TIEF - 0.15, hallenMitteZ, 0x30343a);            // Boden
-  deko(hx, 0.4, hz, x, UB_TIEF + 3.6, hallenMitteZ, 0x23272d);             // Decke
-  /* Wände ringsum, mit Aussparung dort, wo die Treppe hereinkommt. */
-  for (const s2 of [-1, 1]) {                                              // Stirnseiten
-    const wx = x + s2 * hx / 2;
-    deko(0.4, 3.9, hz, wx, UB_TIEF + 1.95, hallenMitteZ, 0x3a4048);
-    /* Die Wand reicht bis auf Straßenniveau. Endete sie an der Decke,
-       war ihre Oberkante ein Sims, an dem sich die Figur aus der Station
-       heraus nach oben zog. */
-    /* Oberkante UNTER der Fahrbahn: mit h = SLAB_H ragte die Wand in die
-       Straße darüber und war dort eine unsichtbare Sperre. */
-    addCollider({ x0: wx - 0.2, x1: wx + 0.2, z0: hallenMitteZ - hz / 2,
-                  z1: hallenMitteZ + hz / 2, h: -0.12, y0: UB_TIEF - 0.4,
-                  keinKlettern: true });
+  deko(hx, 0.4, steigT, x, UB_TIEF - 0.2, steigM, 0x4a5058);          // Bahnsteigboden
+  deko(hx, 0.4, gleisT, x, UB_GLEIS_TIEF - 0.2, gleisM, 0x1a1d21);    // Gleissohle
+  /* Decke: mit Aussparung dort, wo der Treppenschacht durchstoesst. */
+  deko(hx, 0.4, UB_STEIG_Z1 - UB_GLEIS_Z0 - (UB_SCHACHT_Z1 - UB_SCHACHT_Z0),
+       x, UB_DECKE, (UB_GLEIS_Z0 + UB_SCHACHT_Z0) / 2, 0x353b42);
+  for (const seite of [-1, 1]) {
+    const bx = seite < 0 ? (x - hx / 2 + (UB_TR_X0 + hx / 2) / 2)
+                         : (x + UB_TR_X1 + (hx / 2 - UB_TR_X1) / 2 + 0.2);
+    const bw = seite < 0 ? (UB_TR_X0 + hx / 2) : Math.max(0.4, hx / 2 - UB_TR_X1);
+    if (bw > 0.5) deko(bw, 0.4, UB_SCHACHT_Z1 - UB_SCHACHT_Z0, bx, UB_DECKE,
+                       (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0x353b42);
   }
-  /* Rückwand mit Gleis davor. */
-  deko(hx, 3.9, 0.4, x, UB_TIEF + 1.95, hallenMitteZ + hz / 2, 0x3a4048);
-  addCollider({ x0: x - hx / 2, x1: x + hx / 2, z0: hallenMitteZ + hz / 2 - 0.2,
-                z1: hallenMitteZ + hz / 2 + 0.2, h: -0.12, y0: UB_TIEF - 0.4,
-                keinKlettern: true });
-  /* Vorderwand links und rechts der Treppe. */
-  for (const s2 of [-1, 1]) {
-    const bx = (hx / 2 - UB_BREIT / 2 - 0.5) / 2 + (UB_BREIT / 2 + 0.5) / 2;
-    const mitte = x + s2 * ((UB_BREIT / 2 + 0.5 + hx / 2) / 2);
-    const breite = hx / 2 - UB_BREIT / 2 - 0.5;
-    deko(breite, 3.9, 0.4, mitte, UB_TIEF + 1.95, zU, 0x3a4048);
-    addCollider({ x0: mitte - breite / 2, x1: mitte + breite / 2,
-                  z0: zU - 0.2, z1: zU + 0.2, h: -0.12, y0: UB_TIEF - 0.4,
-                  keinKlettern: true });
+  /* Rueckwand des Bahnsteigs, mit Loch fuer die Treppe. */
+  for (const seite of [-1, 1]) {
+    const bw = seite < 0 ? (hx / 2 + UB_TR_X0) : Math.max(0.4, hx / 2 - UB_TR_X1);
+    const bx = seite < 0 ? (x - hx / 2 + bw / 2) : (x + hx / 2 - bw / 2);
+    if (bw < 0.5) continue;
+    deko(bw, 5.0, 0.5, bx, UB_TIEF + 2.5, UB_STEIG_Z1 + 0.25, 0x66707c);
+    deko(bw, 1.4, 0.12, bx, UB_TIEF + 2.0, UB_STEIG_Z1 - 0.05, 0xa8b6c2);   // Kachelband
+    addCollider({ x0: bx - bw / 2, x1: bx + bw / 2,
+                  z0: UB_STEIG_Z1, z1: UB_STEIG_Z1 + 0.5,
+                  h: -0.12, y0: UB_TIEF - 0.4, keinKlettern: true });
   }
+  /* Vorderwand jenseits des Gleises. */
+  deko(hx, 6.2, 0.5, x, UB_GLEIS_TIEF + 3.1, UB_GLEIS_Z0 - 0.25, 0x66707c);
+  addCollider({ x0: x - hx / 2, x1: x + hx / 2, z0: UB_GLEIS_Z0 - 0.5,
+                z1: UB_GLEIS_Z0, h: -0.12, y0: UB_GLEIS_TIEF - 0.4, keinKlettern: true });
 
-  /* Tunnelmünder an beiden Enden des Gleises. Wer hineingeht, fährt zur
-     nächsten Station – so kommt man unterirdisch durch die ganze Stadt. */
-  const gleisZt = hallenMitteZ + hz / 2 - 1.9;
-  for (const s2 of [-1, 1]) {
-    const tx = x + s2 * (hx / 2 - 0.2);
-    deko(1.2, 2.6, 3.4, tx, UB_TIEF + 0.9, gleisZt, 0x07090c);      // dunkles Loch
-    deko(1.5, 0.3, 3.8, tx, UB_TIEF + 2.3, gleisZt, 0x4a5058);      // Sturz
-  }
+  /* Bahnsteigkante mit Warnstreifen und Schienen. */
+  deko(hx, 1.3, 0.4, x, UB_TIEF - 0.45, UB_STEIG_Z0 + 0.2, 0x4a5058);
+  deko(hx, 0.12, 0.5, x, UB_TIEF + 0.06, UB_STEIG_Z0 + 0.3, 0xd8c24a);
 
-  /* Gleisbett: der Boden fällt hinter der Bahnsteigkante ab. */
-  const gleisZ = hallenMitteZ + hz / 2 - 1.9;
-  deko(hx - 1, 1.1, 3.0, x, UB_TIEF - 0.55, gleisZ, 0x1a1d21);
-  for (const s2 of [-1, 1]) {                                              // Schienen
-    deko(hx - 2, 0.12, 0.14, x, UB_TIEF - 0.02, gleisZ + s2 * 0.75, 0x8a8f96);
-  }
-  /* Bahnsteigkante mit Warnstreifen. */
-  deko(hx, 0.12, 0.5, x, UB_TIEF + 0.06, gleisZ - 1.75, 0xd8c24a);
-
-  /* Beleuchtung: Leuchtbänder an der Decke, dazu ein Schild. */
+  /* Beleuchtung, Schild, Baenke. */
   for (let i = -1; i <= 1; i++) {
-    deko(hx - 4, 0.14, 0.5, x + i * 0.0, UB_TIEF + 3.3, hallenMitteZ + i * 3.0, 0xf2f6e8);
+    deko(hx - 6, 0.16, 0.6, x, UB_DECKE - 0.3, steigM + i * 2.4, 0xffffff);
   }
-  deko(3.0, 1.0, 0.12, x, UB_TIEF + 2.6, hallenMitteZ + hz / 2 - 0.3, 0x1b8f4a);
-  deko(2.6, 0.7, 0.14, x, UB_TIEF + 2.6, hallenMitteZ + hz / 2 - 0.3, 0xf2f6f0);
-  /* Zwei Bänke auf dem Bahnsteig. */
-  for (const s2 of [-1, 1]) baueBank(x + s2 * 6, UB_TIEF, zU + 1.4, false);
+  deko(hx - 4, 0.16, 0.6, x, UB_DECKE - 0.3, (UB_GLEIS_Z0 + UB_GLEIS_Z1) / 2, 0xf2f6e8);
+  deko(3.4, 1.1, 0.14, x, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.2, 0x1b8f4a);
+  deko(3.0, 0.8, 0.16, x, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.22, 0xf2f6f0);
+  for (const s2 of [-1, 1]) baueBank(x + s2 * 8, UB_TIEF, UB_STEIG_Z1 - 1.6, false);
 
-  /* ---- Oben: Geländer und Schild ---- */
-  deko(0.2, 2.6, 0.2, x - UB_BREIT / 2 - 1.1, SLAB_H + 1.3, z, 0x2e3238);   // Mast
-  deko(1.5, 0.9, 0.12, x - UB_BREIT / 2 - 1.1, SLAB_H + 2.7, z, 0x1b8f4a);  // Schild
-  deko(1.2, 0.6, 0.14, x - UB_BREIT / 2 - 1.1, SLAB_H + 2.7, z, 0xf2f6f0);
-  addCollider({ x0: x - UB_BREIT / 2 - 1.22, x1: x - UB_BREIT / 2 - 0.98,
-                z0: z - 0.12, z1: z + 0.12, h: SLAB_H + 2.6, klein: true });
+  /* ---- Oben: Mast und Schild neben dem Loch ---- */
+  const mx = x + UB_TR_X1 + 1.6;
+  deko(0.2, 2.6, 0.2, mx, SLAB_H + 1.3, UB_SCHACHT_Z1, 0x2e3238);
+  deko(1.5, 0.9, 0.12, mx, SLAB_H + 2.7, UB_SCHACHT_Z1, 0x1b8f4a);
+  deko(1.2, 0.6, 0.14, mx, SLAB_H + 2.7, UB_SCHACHT_Z1, 0xf2f6f0);
+  addCollider({ x0: mx - 0.12, x1: mx + 0.12, z0: UB_SCHACHT_Z1 - 0.12,
+                z1: UB_SCHACHT_Z1 + 0.12, h: SLAB_H + 2.6, klein: true });
+}
+
+/* ---- Die Tunnel zwischen den Stationen ----
+   Offen und begehbar: Bahnsteighoher Gehweg neben dem Gleis, Decke darueber,
+   Waende links und rechts, alle 12 m eine Lampe. */
+function baueUBahnLinie() {
+  const steigM = (UB_STEIG_Z0 + UB_STEIG_Z1) / 2;
+  const steigT = UB_STEIG_Z1 - UB_STEIG_Z0;
+  const gleisM = (UB_GLEIS_Z0 + UB_GLEIS_Z1) / 2;
+  const gleisT = UB_GLEIS_Z1 - UB_GLEIS_Z0;
+
+  const abschnitte = [];
+  for (let i = 0; i + 1 < UB_STAT_X.length; i++) {
+    abschnitte.push([UB_STAT_X[i] + UB_HALLE_X / 2, UB_STAT_X[i + 1] - UB_HALLE_X / 2]);
+  }
+  for (const [a, b] of abschnitte) {
+    const laenge = b - a, mitte = (a + b) / 2;
+    deko(laenge, 0.4, steigT, mitte, UB_TIEF - 0.2, steigM, 0x2b2f34);        // Gehweg
+    deko(laenge, 0.4, gleisT, mitte, UB_GLEIS_TIEF - 0.2, gleisM, 0x16191d);  // Gleissohle
+    deko(laenge, 0.4, UB_STEIG_Z1 - UB_GLEIS_Z0, mitte, UB_DECKE - 0.8,
+         (UB_GLEIS_Z0 + UB_STEIG_Z1) / 2, 0x33383e);                          // Decke
+    /* Heller als die erste Fassung: unter Tage gibt es nur Umgebungslicht,
+       und dunkelgraue Waende wurden dort zu einer schwarzen Wand. */
+    deko(laenge, 5.6, 0.5, mitte, UB_TIEF + 2.8, UB_STEIG_Z1 + 0.25, 0x555c66);
+    deko(laenge, 6.8, 0.5, mitte, UB_GLEIS_TIEF + 3.4, UB_GLEIS_Z0 - 0.25, 0x555c66);
+    /* Gekachelter Streifen auf Augenhoehe - gibt der Wand einen Massstab. */
+    deko(laenge, 1.2, 0.12, mitte, UB_TIEF + 2.0, UB_STEIG_Z1 - 0.05, 0x8fa0ae);
+    addCollider({ x0: a, x1: b, z0: UB_STEIG_Z1, z1: UB_STEIG_Z1 + 0.5,
+                  h: -0.12, y0: UB_TIEF - 0.4, keinKlettern: true });
+    addCollider({ x0: a, x1: b, z0: UB_GLEIS_Z0 - 0.5, z1: UB_GLEIS_Z0,
+                  h: -0.12, y0: UB_GLEIS_TIEF - 0.4, keinKlettern: true });
+    /* Bahnsteigkante bleibt durchgehend, damit der Gehweg eine Kante hat. */
+    deko(laenge, 1.3, 0.4, mitte, UB_TIEF - 0.45, UB_STEIG_Z0 + 0.2, 0x3e444b);
+    const n = Math.max(3, Math.round(laenge / 7));
+    for (let i = 0; i < n; i++) {
+      const lx = a + (i + 0.5) * (laenge / n);
+      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 1.15, steigM, 0xffffff);
+      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 1.15, (UB_GLEIS_Z0 + UB_GLEIS_Z1) / 2, 0xf2f6e8);
+      if (i % 2 === 0)
+        deko(0.28, 5.4, 0.28, lx, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.6, 0x3c434c);  // Stuetze
+    }
+  }
+  /* Zwei Gleise ueber die ganze Linie - eins je Fahrtrichtung -, dazu
+     Schwellen. */
+  for (const gz of [UB_GLEIS_A, UB_GLEIS_B]) {
+    for (const s2 of [-1, 1]) {
+      deko(UB_X1 - UB_X0, 0.14, 0.16, (UB_X0 + UB_X1) / 2, UB_GLEIS_TIEF + 0.07,
+           gz + s2 * 0.72, 0x8a8f96);
+    }
+    for (let sx = UB_X0 + 1; sx < UB_X1; sx += 2.4) {
+      deko(0.3, 0.1, 2.0, sx, UB_GLEIS_TIEF + 0.02, gz, 0x3a3128);
+    }
+  }
+  /* Enden der Linie zumauern. */
+  for (const ex of [UB_X0 - 0.25, UB_X1 + 0.25]) {
+    deko(0.5, 12.0, UB_STEIG_Z1 - UB_GLEIS_Z0 + 1, ex, UB_GLEIS_TIEF + 6.0,
+         (UB_GLEIS_Z0 + UB_STEIG_Z1) / 2, 0x2a2f36);
+    addCollider({ x0: ex - 0.25, x1: ex + 0.25, z0: UB_GLEIS_Z0 - 0.5,
+                  z1: UB_STEIG_Z1 + 0.5, h: -0.12, y0: UB_GLEIS_TIEF - 0.4,
+                  keinKlettern: true });
+  }
+}
+
+/* ======================= Zuege =======================
+   Auf jedem der beiden Gleise faehrt ein Zug, einer je Richtung. Er faehrt
+   durch die ganze Linie und kehrt am Ende um. Wer im Gleistrog steht, wird
+   auf den Bahnsteig geschoben und bekommt einen Treffer - deshalb blinkt
+   vorher der Bahnsteig und man hoert das Rollen naeher kommen. */
+const ZUEGE = [];
+const ZUG_LANG = 26, ZUG_BREIT = 2.3, ZUG_HOCH = 2.9;
+/* Zwei Gleise nebeneinander im gemeinsamen Trog. */
+const ZUG_Z = [UB_GLEIS_A, UB_GLEIS_B];
+
+function baueZug(farbe) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshLambertMaterial({ color: farbe });
+  const fenster = new THREE.MeshBasicMaterial({ color: 0xd8ecff });
+  const kasten = new THREE.Mesh(new THREE.BoxGeometry(ZUG_LANG, ZUG_HOCH, ZUG_BREIT), mat);
+  kasten.position.y = ZUG_HOCH / 2 + 0.35;
+  g.add(kasten);
+  /* Fensterbaender links und rechts, dazu ein heller Streifen. */
+  for (const s2 of [-1, 1]) {
+    const f = new THREE.Mesh(new THREE.BoxGeometry(ZUG_LANG - 3, 0.85, 0.06), fenster);
+    f.position.set(0, ZUG_HOCH * 0.62 + 0.35, s2 * (ZUG_BREIT / 2 + 0.02));
+    g.add(f);
+  }
+  /* Scheinwerfer vorn und hinten. */
+  for (const s2 of [-1, 1]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.35, 1.3), fenster);
+    l.position.set(s2 * (ZUG_LANG / 2 + 0.02), 1.0, 0);
+    g.add(l);
+  }
+  g.visible = false;
+  scene.add(g);
+  return g;
+}
+
+function baueZuege() {
+  if (!UBAHNEN.length || ZUEGE.length) return;
+  for (let i = 0; i < 2; i++) {
+    ZUEGE.push({
+      mesh: baueZug(i === 0 ? 0xb8352f : 0x2f5fb8),
+      z: ZUG_Z[i],
+      x: i === 0 ? UB_X0 + 40 : UB_X1 - 40,
+      richtung: i === 0 ? 1 : -1,
+      tempo: 21 + i * 3,
+      warten: i * 5,
+      haltCd: 0,
+    });
+  }
+}
+
+let zugKlangCd = 0;
+function updateZug(dt) {
+  if (!ZUEGE.length) return;
+  /* Unter Tage sichtbar, darueber nicht - spart Zeichenaufrufe. */
+  const untenDrin = player.pos.y < SLAB_H && Math.abs(player.pos.z - UB_Z) < 60;
+  let naehe = 0;
+  for (const t of ZUEGE) {
+    if (t.warten > 0) { t.warten -= dt; t.mesh.visible = false; continue; }
+    t.x += t.richtung * t.tempo * dt;
+    /* Halt an jeder Station - so sieht man den Zug wirklich einfahren,
+       statt ihn nur vorbeirauschen zu hoeren. */
+    if (t.haltCd > 0) t.haltCd -= dt;
+    else for (const sx of UB_STAT_X) {
+      if (Math.abs(t.x - sx) < t.tempo * dt + 0.2) {
+        t.x = sx; t.warten = 3.5; t.haltCd = 2.5; break;
+      }
+    }
+    /* Am Ende der Linie umkehren und kurz warten. */
+    if (t.x > UB_X1 - ZUG_LANG / 2) { t.x = UB_X1 - ZUG_LANG / 2; t.richtung = -1; t.warten = 4; }
+    if (t.x < UB_X0 + ZUG_LANG / 2) { t.x = UB_X0 + ZUG_LANG / 2; t.richtung = 1; t.warten = 4; }
+    t.mesh.position.set(t.x, UB_GLEIS_TIEF, t.z);
+    t.mesh.visible = untenDrin;
+    if (!untenDrin) continue;
+
+    const dx = Math.abs(player.pos.x - t.x);
+    naehe = Math.max(naehe, clamp(1 - (dx - ZUG_LANG / 2) / 45, 0, 1));
+    /* Treffer nur, wenn man wirklich im Trog steht. */
+    const imTrog = player.pos.z > UB_GLEIS_Z0 && player.pos.z < UB_GLEIS_Z1 &&
+                   player.pos.y < UB_TIEF - 0.2 && player.pos.y > UB_GLEIS_TIEF - 1;
+    if (imTrog && dx < ZUG_LANG / 2 + 0.8 && Math.abs(player.pos.z - t.z) < ZUG_BREIT / 2 + 0.6) {
+      /* Auf den Bahnsteig schieben statt zu ueberfahren. */
+      player.pos.z = UB_STEIG_Z0 + 1.4;
+      player.pos.y = UB_TIEF + 0.1;
+      player.vel.set(t.richtung * 6, 4, 3);
+      damagePlayer(8, null);
+      camShake = Math.max(camShake, 0.3);
+      popupScreen('🚇 Weg vom Gleis!');
+    }
+  }
+  if (untenDrin && naehe > 0.05) {
+    zugKlangCd -= dt;
+    if (zugKlangCd <= 0) { zugKlangCd = 0.55; SFX.zug(naehe); }
+  }
 }
 
 /* ---- Häuser als Sammel-Mesh ----
@@ -4629,6 +4875,25 @@ function zeigeTouchHilfe(an) {
 
 /* Sprint kommt von Shift, vom Gamepad oder vom Sprintknopf am Bildschirm. */
 function sprintAn() { return !!(keys['ShiftLeft'] || keys['ShiftRight'] || padSprint || touchSprint || touchSprintKnopf); }
+/* Gleiten startet nur auf ausdrücklichen Druck.
+   Der Daumenknüppel zählt hier NICHT mit: zum Laufen lenkt man ihn ohnehin
+   voll aus, und auf dem iPad breitete die Figur deshalb schon bei jedem
+   Sprung die Flügel aus. Sprinten und Gleiten teilen sich am Rechner die
+   Taste, auf dem Handy sind es zwei Knöpfe – beide bewusst gedrückt. */
+/* Flügel einklappen und die Haltung sofort mit ausblenden. Ohne das lief
+   die Gleitpose an der Wand weiter und die Figur klebte breitbeinig da. */
+function beendeGleiten() {
+  if (!player.gleiten && (player.gleitMisch || 0) < 0.01) return;
+  player.gleiten = false;
+  player.gleitAus = 0;
+  player.gleitMisch = 0;
+  player.gleitNase = 0;
+  player.gleitKurve = 0;
+}
+function gleitTaste() {
+  return !!(keys['ShiftLeft'] || keys['ShiftRight'] || padSprint ||
+            touchGleiten || touchSprintKnopf);
+}
 
 /* ---- Vier Gangarten ----
    Vorher gab es nur zwei Geschwindigkeiten und beide sahen gleich aus.
@@ -4752,7 +5017,7 @@ function updateCamera(dt) {
   for (let i = 1; i <= 10; i++) {
     const t = (camDist * i) / 10;
     const px = target.x + dir.x * t, py = target.y + dir.y * t, pz = target.z + dir.z * t;
-    let blocked = py < groundY(px, pz) + 0.3;
+    let blocked = py < groundY(px, pz, py) + 0.3;
     /* Steht die Figur auf einem Dach und man schaut nach unten, rutschte
        die Kamera an der Dachkante vorbei unter das Dach – man sah dann von
        unten in das Gesims hinein. Solange man festen Boden unter den Füßen
@@ -4805,7 +5070,7 @@ function updateCamera(dt) {
    Autodächern, auf denen man gerade steht. groundY allein kennt nur Straße
    und Gehweg; auf einem Dach stünde der Fuß sonst in der Luft. */
 function bodenHoeheFuerFuss(x, z) {
-  let h = groundY(x, z);
+  let h = groundY(x, z, player.pos.y);
   /* Steht die Figur auf einer Plattform (Dach, Vorsprung, Autodach), gilt
      deren Oberkante – aber nur dicht darunter, damit ein Bein nicht auf ein
      zwanzig Meter tieferes Dach gezogen wird. */
@@ -4875,7 +5140,9 @@ function collideBody(body, prevY, radiusExtra) {
     }
   }
   // Boden
-  const gy = groundY(p.x, p.z);
+  /* Die eigene Höhe entscheidet mit: über der U-Bahn zählt die Fahrbahn,
+     unten der Bahnsteig. */
+  const gy = groundY(p.x, p.z, p.y);
   if (p.y <= gy + 0.001 && body.vel.y <= 0.01 && !inWater(p.x, p.z)) {
     p.y = gy; body.vel.y = 0; body.onGround = true;
   }
@@ -4914,7 +5181,7 @@ function findAnchor() {
   }
   const px = player.pos.x, py = player.pos.y, pz = player.pos.z;
   const wunschWeite = clamp(12 + vh * 1.1, 14, 34);   // schneller = weiter greifen
-  const boden = groundY(px, pz);
+  const boden = groundY(px, pz, py);
 
   /* Ein Netz muss an einem echten Bauwerk hängen. Früher gab es als
      Rückfall einen "Himmelsanker" – dann hing der Faden sichtbar im
@@ -4983,7 +5250,7 @@ function startSwing() {
      einfach verworfen – tief über der Stadt fand man dann gar keinen mehr
      und der Schwung ging nicht los. Jetzt zieht das Netz stattdessen an,
      genau wie im Vorbild. */
-  const boden = groundY(player.pos.x, player.pos.z);
+  const boden = groundY(player.pos.x, player.pos.z, player.pos.y);
   const maxLen = Math.max(CFG.ropeMin, anchor.y - boden - 2.2);
   /* Zusätzliche Obergrenze: ein 40-m-Seil schwingt kaum, es fällt nur.
      Mit höchstens 32 m bleiben die Bögen zügig und man merkt den Zug. */
@@ -5694,7 +5961,7 @@ function updatePlayer(dt) {
   if (player.dead) {
     /* Auch im K.o. wirkt Schwerkraft – vorher blieb die Figur dort in der
        Luft stehen, wo sie getroffen wurde. */
-    const boden = groundY(player.pos.x, player.pos.z);
+    const boden = groundY(player.pos.x, player.pos.z, player.pos.y);
     if (player.pos.y > boden) {
       player.vel.y -= CFG.gravity * dt;
       player.pos.y += player.vel.y * dt;
@@ -5859,7 +6126,7 @@ function updatePlayer(dt) {
         player.state = 'air';
       }
       player.wallInfo = null;
-    } else if (player.pos.y <= groundY(player.pos.x, player.pos.z) + 0.05 && up <= 0) {
+    } else if (player.pos.y <= groundY(player.pos.x, player.pos.z, player.pos.y) + 0.05 && up <= 0) {
       player.state = 'ground';
       player.wallInfo = null;
     } else if (wantSwing && !keys['Space']) {
@@ -5923,7 +6190,7 @@ function updatePlayer(dt) {
     /* Direkt über dem Boden gibt es keinen brauchbaren Bogen – erst ab etwas
        Höhe oder im Fallen greift das Netz. Startet man tief, gibt es einen
        kräftigen Satz nach oben, damit der Schwung Platz hat. */
-    const hoehe = player.pos.y - groundY(player.pos.x, player.pos.z);
+    const hoehe = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
     /* Kein künstlicher Satz nach oben mehr. Vorher wurde die Figur beim
        Anschwingen dicht über dem Boden schlagartig auf 5,5 m/s nach oben
        geschossen – das sah aus, als würde sie aus dem Nichts fünf Meter
@@ -5959,12 +6226,15 @@ function updatePlayer(dt) {
      ein reiner Sturzflug. Mit den Flügeln wird daraus ein Gleitflug:
      langsames Sinken, dafür Tempo nach vorn, das man gegen Höhe eintauschen
      kann. Ausgelöst wird es mit derselben Taste wie Sprinten. */
-  const hoeheUeberGrund = player.pos.y - groundY(player.pos.x, player.pos.z);
-  /* Erst ab vier Metern Höhe und frühestens am Scheitelpunkt des Sprungs –
-     sonst breitet die Figur schon bei jedem Sprint-Sprung die Flügel aus. */
-  const willGleiten = (sprintAn() || touchGleiten) && !player.onGround &&
+  const hoeheUeberGrund = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
+  /* Erst ab acht Metern Höhe und frühestens am Scheitelpunkt des Sprungs –
+     sonst breitet die Figur schon bei jedem Sprung die Flügel aus.
+     Einmal in der Luft darf der Flug auch tiefer weitergehen; nur der
+     Start braucht die Höhe. */
+  const gleitHoehe = player.gleiten ? 2.5 : 8;
+  const willGleiten = gleitTaste() && !player.onGround &&
                       player.state === 'air' && !player.zip && player.rollT <= 0 &&
-                      hoeheUeberGrund > 4 && (player.gleiten || player.vel.y < 2);
+                      hoeheUeberGrund > gleitHoehe && (player.gleiten || player.vel.y < 2);
   if (willGleiten && !player.gleiten) {
     player.gleiten = true;
     player.gleitT = 0;
@@ -6047,15 +6317,19 @@ function updatePlayer(dt) {
     const kurve = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) -
                   (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0) +
                   (stick.x || 0);
-    player.gleitNase = lerp(player.gleitNase || 0, clamp(nase, -1, 1), Math.min(1, dt * 4));
-    player.gleitKurve = lerp(player.gleitKurve || 0, clamp(kurve, -1, 1), Math.min(1, dt * 4));
+    /* Steuerung deutlich wacher als vorher: die Eingabe war mit dt*4
+       geglättet und die Drehrate lag bei 1,5 rad/s – eine Kehrtwende
+       dauerte über zwei Sekunden und man konnte einem Haus nicht mehr
+       ausweichen. */
+    player.gleitNase = lerp(player.gleitNase || 0, clamp(nase, -1, 1), Math.min(1, dt * 6.5));
+    player.gleitKurve = lerp(player.gleitKurve || 0, clamp(kurve, -1, 1), Math.min(1, dt * 8));
 
     /* Sinkgeschwindigkeit begrenzen – das ist der eigentliche Flügel. */
     const sinkMax = -(4.2 + player.gleitNase * 7.5);      // 3,3 … 11,7 m/s
     if (player.vel.y < sinkMax) player.vel.y = lerp(player.vel.y, sinkMax, Math.min(1, dt * 3.2));
 
     /* Kurve: die Blickrichtung dreht, das Tempo folgt der Nase. */
-    player.facing -= player.gleitKurve * dt * 1.5;
+    player.facing -= player.gleitKurve * dt * 2.9;
     const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
     /* Aus Sinken wird Vortrieb: je steiler, desto schneller. */
     const zielTempo = 15 + player.gleitNase * 11;         // 4 … 26 m/s
@@ -6063,7 +6337,7 @@ function updatePlayer(dt) {
        eine einzige Zeitkonstante für Tempo UND Richtung. Vorher wurde die
        Richtung in jedem Bild hart auf die Blickrichtung gesetzt; das war
        das Ruckeln in der Kurve. */
-    const k = Math.min(1, dt * 2.2);
+    const k = Math.min(1, dt * 3.4);
     player.vel.x = lerp(player.vel.x, f.x * zielTempo, k);
     player.vel.z = lerp(player.vel.z, f.z * zielTempo, k);
   } else {
@@ -6304,6 +6578,7 @@ function updatePlayer(dt) {
       player.wandSchwung = clamp(tempoRein * 0.95, 6, 13);
       player.wandlauf = true;
       player.jumps = 0;
+      beendeGleiten();
       SFX.swoosh();
     }
   }
@@ -6314,12 +6589,19 @@ function updatePlayer(dt) {
     /* Halte-Taste zum Ankleben. Früher lag sie auf C – die Taste macht
        jetzt Erste Hilfe. */
     const kleben = keys['KeyX'] || touchKleben;
+    /* Im Gleitflug klebt man nicht sofort an jeder Fassade, an der man
+       vorbeistreift: mit 25 m/s in die Wand zu greifen sah aus wie ein
+       Fehler. Erst ein kurzer Moment Kontakt (oder die Halte-Taste) lässt
+       greifen – und dann werden die Flügel sauber eingeklappt, statt dass
+       die Gleithaltung an der Wand weiterläuft. */
+    const noetig = player.gleiten ? 0.12 : 0;
     onWallTimer = movingIn || kleben ? onWallTimer + dt : 0;
-    if ((movingIn || kleben) && onWallTimer >= 0) {
+    if ((movingIn || kleben) && onWallTimer >= noetig) {
       player.state = 'climb';
       player.wallInfo = w;
       player.vel.set(0, 0, 0);
       player.jumps = 0;
+      beendeGleiten();
     }
   } else onWallTimer = 0;
 
@@ -6642,40 +6924,6 @@ function updateHeroVisual(dt) {
     placeStrand(swingStrand, _v3, player.fadenZiel,
                 player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
-  }
-}
-
-/* ---- Fahrt durch den Tunnel ----
-   Am Gleisende führt der Tunnel weiter. Wer hineingeht, kommt an der
-   nächsten Station wieder heraus. Damit ist der Untergrund kein
-   Sackgassen-Raum mehr, sondern ein zweiter Weg durch die Stadt. */
-let tunnelCd = 0;
-function updateTunnel(dt) {
-  if (tunnelCd > 0) { tunnelCd -= dt; return; }
-  if (!player.onGround || player.pos.y > -2) return;
-  for (let i = 0; i < UBAHNEN.length; i++) {
-    const u = UBAHNEN[i];
-    const zU = u.z + UB_TREPPE;
-    const hallenMitteZ = zU + UB_HALLE_Z / 2;
-    const gleisZ = hallenMitteZ + UB_HALLE_Z / 2 - 1.9;
-    if (Math.abs(player.pos.z - gleisZ) > 1.7) continue;
-    const dx = player.pos.x - u.x;
-    if (Math.abs(dx) < UB_HALLE_X / 2 - 1.1) continue;
-    if (Math.abs(dx) > UB_HALLE_X / 2 + 1.0) continue;
-    /* Ziel: die nächste Station in der Liste (in der Richtung, in die man
-       geht). */
-    const richtung = dx > 0 ? 1 : -1;
-    const ziel = UBAHNEN[(i + (richtung > 0 ? 1 : UBAHNEN.length - 1)) % UBAHNEN.length];
-    if (!ziel || ziel === u) return;
-    const zZ = ziel.z + UB_TREPPE + UB_HALLE_Z / 2;
-    player.pos.set(ziel.x - richtung * (UB_HALLE_X / 2 - 2.5), UB_TIEF,
-                   zZ + UB_HALLE_Z / 2 - 3.4);
-    player.vel.set(0, 0, 0);
-    tunnelCd = 1.6;
-    camShake = Math.max(camShake, 0.12);
-    SFX.zip();
-    popupScreen('🚇 Nächste Station');
-    return;
   }
 }
 
@@ -9742,7 +9990,7 @@ function simuliere(dt) {
   updateCamera(dt);
   updateEffekte(dt);
   updateKlatscher(dt);
-  updateTunnel(dt);
+  updateZug(dt);
   updateKatapult(dt);
   updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
@@ -9828,6 +10076,8 @@ if (window.__WEBHERO_TEST__ === true) {
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
     ubahnen() { return UBAHNEN; },
+    zuege() { return ZUEGE.map(t => ({ x: +t.x.toFixed(1), z: t.z, r: t.richtung,
+                                       sichtbar: t.mesh.visible })); },
     katStand() { return { aktiv: KAT.aktiv, ladung: KAT.ladung }; },
     bodenFuss: bodenHoeheFuerFuss,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
