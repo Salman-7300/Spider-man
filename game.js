@@ -2442,6 +2442,53 @@ function makeGlbVisual(m) {
     }
   })();
 
+  /* Dasselbe für die Füße: Richtung der Zehen und Richtung der Sohle in
+     der Bindehaltung. Ohne diese Basis lässt sich der Fuß nur ausrichten,
+     nicht abrollen – die Sohle zeigte dann irgendwohin und der Fuß wirkte,
+     als hinge er ohne Knochen am Bein. */
+  const fussBasis = {};
+  (() => {
+    inner.updateMatrixWorld(true);
+    const q = new THREE.Quaternion();
+    for (const seite of ['left', 'right']) {
+      const fuss = knochen[seite + 'foot'];
+      const zeh = knochen[seite + 'toebase'];
+      if (!fuss || !zeh) continue;
+      const zehen = zeh.position.clone().normalize();
+      /* Die Sohle zeigt in der Bindehaltung nach unten. */
+      fuss.getWorldQuaternion(q);
+      const runter = new THREE.Vector3(0, -1, 0).applyQuaternion(q.clone().invert());
+      /* Nur den Anteil senkrecht zur Zehenrichtung behalten. */
+      const sohle = runter.addScaledVector(zehen, -runter.dot(zehen));
+      if (sohle.lengthSq() < 1e-6) continue;
+      sohle.normalize();
+      const quer = new THREE.Vector3().crossVectors(sohle, zehen).normalize();
+      fussBasis[seite] = { zehen, quer, sohle };
+    }
+  })();
+
+  /* Fuß so drehen, dass die Zehen in zehenWelt zeigen und die Sohle auf
+     sohleWelt liegt (also flach an der Wand). */
+  function setzeFuss(seite, zehenWelt, sohleWelt, k) {
+    const fb = fussBasis[seite];
+    const fuss = knochen[seite + 'foot'];
+    if (!fb || !fuss) return;
+    fuss.updateMatrixWorld(true);
+    _hp.copy(sohleWelt).normalize();
+    _hf.copy(zehenWelt).addScaledVector(_hp, -_hf.dot(_hp));
+    if (_hf.lengthSq() < 1e-6) return;
+    _hf.normalize();
+    _hs.crossVectors(_hp, _hf).normalize();
+    _mA.makeBasis(fb.zehen, fb.quer, fb.sohle).transpose();
+    _mB.makeBasis(_hf, _hs, _hp).multiply(_mA);
+    _q.setFromRotationMatrix(_mB);
+    /* Vom Weltraum in den Raum des Unterschenkels. */
+    fuss.parent.getWorldQuaternion(_q2);
+    _q.premultiply(_q2.invert());
+    fuss.quaternion.slerp(_q, k === undefined ? 1 : k);
+    fuss.updateMatrixWorld(true);
+  }
+
   /* Finger leicht einkrallen – die Bewegungsdateien enthalten keine
      Fingerspuren, deshalb standen die Hände beim Klettern mit gespreizten,
      kerzengeraden Fingern an der Wand wie ein Seestern. */
@@ -2748,7 +2795,7 @@ function makeGlbVisual(m) {
            einen halben Meter von der Wand entfernt. */
         /* Zielabstand so gewählt, dass Brust und Bauch die Wand streifen
            und Hände und Füße genau auf der Fassade liegen – nicht darin. */
-        inner.position.z = clamp(inner.position.z + (-0.15 - tiefe) * 0.35, -1.2, 1.2);
+        inner.position.z = clamp(inner.position.z + (-0.24 - tiefe) * 0.35, -1.2, 1.2);
         /* Achtung beim Vorzeichen: die lokale X-Achse der Wurzel zeigt nach
            LINKS, also entgegen "rechts". Mit dem falschen Vorzeichen war es
            eine Mitkopplung – der Körper wanderte bis an den Anschlag von
@@ -2769,13 +2816,19 @@ function makeGlbVisual(m) {
       /* Oberarm zielt auf den Ellbogen, Unterarm auf die Hand. Beide Ziele
          liegen auf der Fassade, dadurch stehen die Ellbogen nach außen wie
          bei einer Spinne und die Hände liegen wirklich an der Wand. */
-      punkt(_vw3, -0.52, 1.50 + g * 0.10, 0.06);          // linker Ellbogen
+      /* Alle Zielpunkte liegen 12 cm WEITER VON DER WAND als vorher.
+         Gemessen steckten linker Fuß (-2 cm), linke Zehe (-4 cm) und
+         linkes Knie (-5 cm) in der Fassade – man sah dort nur ein
+         abgeschnittenes Stück Fuß und dachte, er sei vom Bein gelöst.
+         Die Haut ist rund 5 cm dick, deshalb braucht jedes Glied etwas
+         Luft. (tiefe wird Richtung Wand gemessen: kleiner = weiter weg.) */
+      punkt(_vw3, -0.52, 1.50 + g * 0.10, -0.04);         // linker Ellbogen
       zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
-      punkt(_vw3, -0.27, 2.14 + g * 0.34, 0.13);          // linke Hand
+      punkt(_vw3, -0.27, 2.14 + g * 0.34, 0.02);          // linke Hand
       zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
-      punkt(_vw4, 0.52, 1.50 - g * 0.10, 0.06);
+      punkt(_vw4, 0.52, 1.50 - g * 0.10, -0.04);
       zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
-      punkt(_vw4, 0.27, 2.14 - g * 0.34, 0.13);
+      punkt(_vw4, 0.27, 2.14 - g * 0.34, 0.02);
       zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
 
       /* ---- Beine ----
@@ -2788,27 +2841,39 @@ function makeGlbVisual(m) {
          auseinander. Mit den Werten unten sind es 0,48 m und 0,31 m – etwas
          breiter als die Hüfte (0,14 m), wie es sich für eine Spinnen-
          haltung gehört, aber kein Spagat mehr. */
-      punkt(_vw3, -0.14, 0.80 - g * 0.10, -0.02);
+      punkt(_vw3, -0.14, 0.80 - g * 0.10, -0.14);
       zieleKnochen(knochen.leftupleg, knochen.leftleg, _vw3, k);
-      punkt(_vw3, -0.09, 0.04 - g * 0.16, 0.11);
+      punkt(_vw3, -0.09, 0.04 - g * 0.16, -0.01);
       zieleKnochen(knochen.leftleg, knochen.leftfoot, _vw3, k);
-      punkt(_vw4, 0.14, 0.80 + g * 0.10, -0.02);
+      punkt(_vw4, 0.14, 0.80 + g * 0.10, -0.14);
       zieleKnochen(knochen.rightupleg, knochen.rightleg, _vw4, k);
-      punkt(_vw4, 0.09, 0.04 + g * 0.16, 0.11);
+      punkt(_vw4, 0.09, 0.04 + g * 0.16, -0.01);
       zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
       /* ---- Füße ----
          Der Knöchel wurde gar nicht geführt: die Sohlen zeigten dorthin,
          wohin die Leiter-Bewegung sie zufällig stellte, meist schräg von
          der Wand weg. Die Zehen zielen jetzt auf einen Punkt AUF der
          Fassade, schräg nach außen – damit liegt die Sohle an der Wand. */
-      if (knochen.lefttoebase) {
-        punkt(_vw3, -0.18, 0.02 - g * 0.16, 0.13);
-        zieleKnochen(knochen.leftfoot, knochen.lefttoebase, _vw3, k * 0.9);
-      }
-      if (knochen.righttoebase) {
-        punkt(_vw4, 0.18, 0.02 + g * 0.16, 0.13);
-        zieleKnochen(knochen.rightfoot, knochen.righttoebase, _vw4, k * 0.9);
-      }
+      /* ---- Zehen ----
+         Der Zehenpunkt wird vom TATSÄCHLICHEN Fuß aus gerechnet, nicht von
+         der Wurzel. Der Unterschenkel erreicht seinen Zielpunkt nie ganz –
+         ein fester Höhenversatz zur Wurzel landete deshalb mal über und mal
+         unter dem Knöchel, und dann zeigten die Zehen senkrecht nach unten.
+         Der Fuß sah dadurch aus, als hinge er ohne Knochen am Bein.
+         Jetzt zeigen die Zehen zuverlässig schräg nach oben-außen an der
+         Wand – dieselbe Haltung wie bei den Händen. */
+      /* Die Sohlen liegen flach auf der Fassade, die Zehen zeigen nach
+         unten-außen – das ist eine natürliche Streckung im Sprunggelenk.
+         Der frühere Versuch, die Zehen nach OBEN zu richten, verlangte
+         über 90 Grad Beugung: da riss die Haut vom Bein ab.
+         Die Sohle wird über eine eigene Fußbasis gesetzt (wie bei den
+         Händen); nur die Richtung zu zielen reicht nicht, weil sich der
+         Fuß dabei um seine Längsachse frei verdrehen kann. */
+      _vw3.copy(rein).negate();                    // Sohle zeigt zur Wand
+      _fh.set(0, -1, 0).addScaledVector(rechts, -0.45);
+      setzeFuss('left', _fh, _vw3, k * 0.95);
+      _fh.set(0, -1, 0).addScaledVector(rechts, 0.45);
+      setzeFuss('right', _fh, _vw3, k * 0.95);
       /* Handflächen flach auf die Fassade, Finger nach oben-außen. */
       _vw3.copy(rein);
       setzeHand('left', _fh.set(0, 1, 0).addScaledVector(rechts, -0.26), _vw3, 0.9);
@@ -3816,7 +3881,8 @@ const player = {
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
-  kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R',
+  kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
+  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
@@ -4253,7 +4319,12 @@ function updateCamera(dt) {
 function wandPuffer() {
   if (player.onGround || player.state === 'climb' || player.state === 'kante') return 0;
   const v = Math.hypot(player.vel.x, player.vel.z);
-  return clamp((v - 6) / 20, 0, 1) * 0.25;
+  /* Beim Schwingen und Gleiten liegt der Körper waagerecht: Kopf und Arme
+     reichen dann rund 80 cm vor den Mittelpunkt, um den die Kollision
+     rechnet. Mit dem alten Puffer steckte der Oberkörper weiter in der
+     Fassade, obwohl der Mittelpunkt sauber davor lag. */
+  const flach = player.state === 'swing' || player.gleiten;
+  return clamp((v - 4) / 16, 0, 1) * (flach ? 0.55 : 0.25);
 }
 
 function collideBody(body, prevY, radiusExtra) {
@@ -5785,6 +5856,27 @@ function updateHeroVisual(dt) {
       tilt = (0.62 + (player.gleitNase || 0) * 0.42) * clamp(player.gleitMisch || 0, 0, 1);
       r.rotation.z = lerp(r.rotation.z, clamp(-(player.gleitKurve || 0) * 0.5, -0.5, 0.5),
                           Math.min(1, dt * 5));
+    } else if (player.onGround) {
+      /* ---- Laufgefühl ----
+         Die Figur lief bisher kerzengerade und ohne jede Reaktion auf
+         Beschleunigen, Bremsen oder Kurven – das war der Hauptgrund, warum
+         das Laufen wie Abspielen aussah statt wie Bewegung.
+         Jetzt lehnt sie sich beim Anlaufen nach vorn, richtet sich beim
+         Bremsen auf und legt sich in die Kurve wie ein Radfahrer. */
+      const hs = Math.hypot(player.vel.x, player.vel.z);
+      const vor = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+      const quer = _v2.set(vor.z, 0, -vor.x);
+      const bx = (player.vel.x - (player.altVelX || 0)) / Math.max(0.0001, dt);
+      const bz = (player.vel.z - (player.altVelZ || 0)) / Math.max(0.0001, dt);
+      /* Beschleunigung in Lauf- und Querrichtung. */
+      const laengs = clamp((bx * vor.x + bz * vor.z) / 30, -1, 1);
+      const seitlich = clamp((bx * quer.x + bz * quer.z) / 30, -1, 1);
+      player.neigVor = lerp(player.neigVor || 0, laengs, Math.min(1, dt * 5));
+      player.neigSeit = lerp(player.neigSeit || 0, seitlich, Math.min(1, dt * 5));
+      /* Grundvorlage nach Tempo, dazu der Anteil aus der Beschleunigung. */
+      tilt = clamp(hs * 0.016 + player.neigVor * 0.22, -0.12, 0.34);
+      r.rotation.z = lerp(r.rotation.z, clamp(-player.neigSeit * 0.3, -0.3, 0.3),
+                          Math.min(1, dt * 6));
     } else {
       if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
       if (r.rotation.z !== 0) r.rotation.z = lerp(r.rotation.z, 0, Math.min(1, dt * 8));
@@ -5820,6 +5912,7 @@ function updateHeroVisual(dt) {
          sah man die zweite Hand im normalen Schwung fast nie. */
       const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4 ||
                              player.vel.y < -2);
+      player.beideAmFaden = beideHaende;
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
                              clamp(player.vel.y * 0.09, -1, 1), r.rotation.x, beideHaende);
     } else if (player.dreiPunktT > 0) {
@@ -5871,6 +5964,9 @@ function updateHeroVisual(dt) {
                            0.75 * clamp(player.gleitAus / 0.4, 0, 1));
   }
 
+  /* Für die Neigung im nächsten Bild. */
+  player.altVelX = player.vel.x; player.altVelZ = player.vel.z;
+
   updateNetzFluegel(dt);
 
   /* Netzfaden ganz zum Schluss setzen – erst jetzt steht die Hand wirklich
@@ -5878,9 +5974,18 @@ function updateHeroVisual(dt) {
      hinterher und schnitt durch den Körper. */
   if (player.fadenZiel) {
     heroVisual.root.updateMatrixWorld(true);
+    heroHandPos(_v3, player.fadenHand);
+    /* Greifen beide Hände zu, beginnt der Faden zwischen ihnen. Die freie
+       Hand zielt zwar zum Anker, kommt bei Armlänge aber nicht exakt auf
+       die Linie – der Faden lief deshalb sichtbar an ihr vorbei und es sah
+       weiter nach einer Hand am Netz aus. */
+    if (player.beideAmFaden) {
+      const frei = heroHandPos(_v2, player.fadenHand === 'L' ? 'R' : 'L');
+      if (frei) _v3.lerp(frei, 0.5);
+    }
     /* Beim Schwingen hängt das Seil unter Last leicht durch, beim Netz-Zip
        ist es straff gespannt. */
-    placeStrand(swingStrand, heroHandPos(_v3, player.fadenHand), player.fadenZiel,
+    placeStrand(swingStrand, _v3, player.fadenZiel,
                 player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
   }
