@@ -2357,6 +2357,8 @@ function makeGlbVisual(m) {
   inner.traverse((o) => { if (o.isBone) alleKnochen.push(o); });
   const basisY = inner.position.y;
   let fussRuhe = null, bodenKorrektur = 0, schattenAn = true;
+  /* Höhe des Knöchels über der Sohle. */
+  const KNOECHEL_HOCH = 0.095;
   /* Ruhehöhe der Füße JETZT aus der Bindehaltung messen – noch bevor
      irgendeine Bewegung läuft. Früher wurde sie beim ersten Bildaufbau
      genommen; fiel die Figur da gerade (angezogene Beine), merkte sich der
@@ -3128,6 +3130,73 @@ function makeGlbVisual(m) {
          Körper im Schritttakt. Genau das hat das Laufen unruhig gemacht. */
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.35));
       inner.position.y = basisY + bodenKorrektur;
+    },
+    /* Kopf ruhig halten: Beim Laufen nickt der ganze Körper mit, und mit
+       der neuen Vorlage schaut die Figur sonst auf den Asphalt. Kopf und
+       Hals nehmen die Neigung des Körpers zum Teil zurück, dadurch bleibt
+       der Blick auf der Straße vor ihr. */
+    kopfStabil(koerperNeigung, k) {
+      const w = clamp(k === undefined ? 0.5 : k, 0, 1);
+      drehZuRuhe(knochen.head, -koerperNeigung * 0.75, 0, 0, w);
+      if (knochen.neck) drehZuRuhe(knochen.neck, -koerperNeigung * 0.3, 0, 0, w * 0.8);
+    },
+    /* ---- Fuß-IK auf die echte Bodenhöhe ----
+       Der Gesamtausgleich oben hebt oder senkt den ganzen Körper nach dem
+       TIEFSTEN Fuß. Auf ebener Straße reicht das; sobald aber ein Fuß auf
+       dem Bordstein und der andere auf der Fahrbahn steht – oder auf einer
+       Treppe, einem Autodach, dem Brunnenrand – stimmt immer nur einer von
+       beiden. Der andere schwebte oder steckte im Boden.
+       Hier wird jedes Bein einzeln nachgeführt: Zweigelenk-IK aus Hüfte,
+       Knie und Knöchel, Ziel ist der Boden unter genau diesem Fuß.
+       hoeheFn(x, z) liefert die Bodenhöhe, k die Stärke. */
+    fussIK(hoeheFn, k, blickX, blickZ) {
+      if (k <= 0.001) return;
+      root.updateMatrixWorld(true);
+      /* Kniepol: die Knie zeigen in Laufrichtung nach vorn. */
+      _vw1.set(blickX || 0, 0, blickZ === undefined ? 1 : blickZ);
+      if (_vw1.lengthSq() < 1e-6) _vw1.set(0, 0, 1);
+      _vw1.normalize();
+      for (const seite of ['left', 'right']) {
+        const hueft = knochen[seite + 'upleg'];
+        const knie = knochen[seite + 'leg'];
+        const fuss = knochen[seite + 'foot'];
+        if (!hueft || !knie || !fuss) continue;
+        hueft.getWorldPosition(_vw2);
+        knie.getWorldPosition(_vw3);
+        fuss.getWorldPosition(_vw4);
+        const a = _vw2.distanceTo(_vw3);          // Oberschenkel
+        const bLen = _vw3.distanceTo(_vw4);       // Unterschenkel
+        if (a < 0.05 || bLen < 0.05) continue;
+        /* Zielhöhe: Boden unter DIESEM Fuß plus Knöchelhöhe. */
+        const boden = hoeheFn(_vw4.x, _vw4.z);
+        const ziel = boden + KNOECHEL_HOCH;
+        const fehler = ziel - _vw4.y;
+        /* Nur Füße nachführen, die ohnehin am Boden sind – das Schwungbein
+           soll frei bleiben, sonst schleift es über die Straße. */
+        const naehe = 1 - clamp(Math.abs(fehler) / 0.35, 0, 1);
+        const w = k * naehe;
+        if (w < 0.02) continue;
+        _fh.copy(_vw4); _fh.y += fehler * w;      // neues Knöchelziel
+        /* Zweigelenk-IK: erst den Knieort ausrechnen, dann beide Glieder
+           dorthin zielen. */
+        _hf.subVectors(_fh, _vw2);
+        let dist = _hf.length();
+        const maxD = a + bLen - 0.02, minD = Math.abs(a - bLen) + 0.02;
+        if (dist < 1e-4) continue;
+        dist = clamp(dist, minD, maxD);
+        _hf.normalize();
+        /* Winkel zwischen Oberschenkel und der Linie Hüfte→Knöchel. */
+        const cosA = clamp((a * a + dist * dist - bLen * bLen) / (2 * a * dist), -1, 1);
+        const alpha = Math.acos(cosA);
+        /* Drehachse steht senkrecht auf der Beinebene; der Pol legt fest,
+           wohin das Knie zeigt. */
+        _hs.crossVectors(_hf, _vw1);
+        if (_hs.lengthSq() < 1e-6) _hs.set(1, 0, 0); else _hs.normalize();
+        _hp.copy(_hf).applyAxisAngle(_hs, -alpha);
+        _vw3.copy(_vw2).addScaledVector(_hp, a);   // Zielort des Knies
+        zieleKnochen(hueft, knie, _vw3, w);
+        zieleKnochen(knie, fuss, _fh, w);
+      }
     },
     /* Hinlegen: Die Umfall-Bewegung dreht den Körper zwar waagerecht, lässt
        die Hüfte dabei aber auf Stehhöhe – die Figur lag deshalb rund einen
@@ -4310,6 +4379,29 @@ function updateCamera(dt) {
   sun.target.position.copy(player.pos);
 }
 
+/* Bodenhöhe unter einem einzelnen Fuß – inklusive Dächern, Vorsprüngen und
+   Autodächern, auf denen man gerade steht. groundY allein kennt nur Straße
+   und Gehweg; auf einem Dach stünde der Fuß sonst in der Luft. */
+function bodenHoeheFuerFuss(x, z) {
+  let h = groundY(x, z);
+  /* Steht die Figur auf einer Plattform (Dach, Vorsprung, Autodach), gilt
+     deren Oberkante – aber nur dicht darunter, damit ein Bein nicht auf ein
+     zwanzig Meter tieferes Dach gezogen wird. */
+  const oben = player.pos.y;
+  for (const c of collidersNear(x, z)) {
+    if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
+    if (c.h > h && c.h <= oben + 0.6) h = c.h;
+  }
+  if (player.platform && player.platform.mesh) {
+    const b = carAABB(player.platform);
+    if (x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1 && b.top > h) h = b.top;
+  }
+  /* Steht man auf einer Kante und ragt ein Fuß darüber hinaus, darf er
+     nicht auf die Straße zwei Stufen tiefer gezogen werden. */
+  if (player.onGround) h = Math.max(h, player.pos.y - 0.5);
+  return h;
+}
+
 /* ======================= Kollision Figur <-> Welt ======================= */
 /* Zusätzlicher Abstand zur Wand, solange die Figur schnell durch die Luft
    fliegt. Der Kollisionsradius von 45 cm passt zu einer stehenden Figur;
@@ -5467,15 +5559,35 @@ function updatePlayer(dt) {
       player.vel.x *= b; player.vel.z *= b;
       if (dir) player.facing = dampAngle(player.facing, Math.atan2(dir.x, dir.z), Math.min(1, dt * 3));
     } else if (dir) {
-      player.vel.x = lerp(player.vel.x, dir.x * speed, Math.min(1, dt * 10));
-      player.vel.z = lerp(player.vel.z, dir.z * speed, Math.min(1, dt * 10));
-      player.facing = dampAngle(player.facing, Math.atan2(dir.x, dir.z), Math.min(1, dt * 12));
+      /* ---- Anlauf ----
+         Aus dem Stand ging es bisher in einer Zehntelsekunde auf volles
+         Tempo – die Figur schoss los, als würde sie geschoben. Jetzt
+         braucht sie rund eine halbe Sekunde, und aus dem Stand heraus ist
+         der erste Schub kräftiger als das letzte Stück zur Höchst-
+         geschwindigkeit (so läuft man wirklich an).
+         Ein Richtungswechsel bremst zusätzlich: quer zur Laufrichtung
+         bekommt man keinen Halt. */
+      const hs = Math.hypot(player.vel.x, player.vel.z);
+      const anteil = clamp(hs / Math.max(1, speed), 0, 1);
+      const rate = lerp(9.5, 4.5, anteil);
+      player.vel.x = lerp(player.vel.x, dir.x * speed, Math.min(1, dt * rate));
+      player.vel.z = lerp(player.vel.z, dir.z * speed, Math.min(1, dt * rate));
+      /* Schnelle Figuren drehen träger – sonst wirkt jede Kurve wie ein
+         Sprung auf der Stelle. */
+      const drehRate = lerp(14, 6.5, clamp(hs / CFG.sprintSpeed, 0, 1));
+      player.facing = dampAngle(player.facing, Math.atan2(dir.x, dir.z),
+                                Math.min(1, dt * drehRate));
     } else {
-      /* Kräftige Bodenreibung: ohne Eingabe steht die Figur zügig still,
-         statt noch meterweit zu schlittern. */
-      player.vel.x = lerp(player.vel.x, 0, Math.min(1, dt * 22));
-      player.vel.z = lerp(player.vel.z, 0, Math.min(1, dt * 22));
-      if (Math.hypot(player.vel.x, player.vel.z) < 0.35) { player.vel.x = 0; player.vel.z = 0; }
+      /* ---- Auslauf ----
+         Vorher stand die Figur nach 0,05 s still und der Rest wurde hart
+         auf null gesetzt: aus vollem Sprint in den Stand, ohne Übergang.
+         Jetzt läuft sie aus – schnell genug, dass die Steuerung knackig
+         bleibt, aber sichtbar. */
+      const hs = Math.hypot(player.vel.x, player.vel.z);
+      const bremse = hs > 6 ? 7 : 13;      // aus vollem Lauf länger
+      player.vel.x = lerp(player.vel.x, 0, Math.min(1, dt * bremse));
+      player.vel.z = lerp(player.vel.z, 0, Math.min(1, dt * bremse));
+      if (hs < 0.12) { player.vel.x = 0; player.vel.z = 0; }
     }
   } else if (player.gleiten) {
     /* ---- Gleitflug ----
@@ -5952,6 +6064,15 @@ function updateHeroVisual(dt) {
       const zaeh = (player.anim === 'run' || player.anim === 'walk') ? 0.6
                  : (player.anim === 'land' || player.anim === 'roll') ? 12 : 5;
       heroVisual.bodenAusgleich(Math.min(0.35, dt * zaeh));
+      /* Danach jedes Bein einzeln auf den Boden UNTER DIESEM FUSS setzen –
+         Bordstein, Treppe, Autodach. Beim Angriff und in der Rolle nicht,
+         dort führt die Bewegung. */
+      if (heroVisual.fussIK && !player.attack && player.rollT <= 0 &&
+          player.dreiPunktT <= 0) {
+        heroVisual.fussIK(bodenHoeheFuerFuss, 0.85,
+                          Math.sin(player.facing), Math.cos(player.facing));
+      }
+      if (heroVisual.kopfStabil) heroVisual.kopfStabil(r.rotation.x, 0.55);
     }
   }
 
@@ -8990,6 +9111,7 @@ if (window.__WEBHERO_TEST__ === true) {
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
+    bodenFuss: bodenHoeheFuerFuss,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
     sinnObj() { return sinnBoegen; },
     ankerObj() { return ankerZeichen; },
