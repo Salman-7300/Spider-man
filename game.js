@@ -862,9 +862,16 @@ function schmueckeHaus(w, h, d, x, z) {
   if (h > 30 && Math.random() < 0.3) {              // Reklametafel
     const bw = Math.min(w * 0.9, 10), bh = rand(3, 5);
     const quer = Math.random() < 0.5;
-    deko(quer ? bw : 0.3, bh, quer ? 0.3 : bw, x, oben + bh / 2 + 0.6, z,
+    const tw = quer ? bw : 0.3, td = quer ? 0.3 : bw;
+    deko(tw, bh, td, x, oben + bh / 2 + 0.6, z,
          pick([0xc8402f, 0x2f6fc8, 0xe0b23a, 0x35a06a]));
     deko(quer ? bw : 0.5, 0.5, quer ? 0.5 : bw, x, oben + 0.3, z, 0x3a3f47);
+    /* Die Tafel hatte kein Hindernis – man lief einfach hindurch. Jetzt
+       ist sie fest: man kann sich davorstellen und daran hochklettern,
+       aber nicht mehr durch sie durchspazieren. Die Fläche ist dünn, der
+       Netzanker soll sie deshalb nicht als Haus behandeln ("klein"). */
+    addCollider({ x0: x - tw / 2, x1: x + tw / 2, z0: z - td / 2, z1: z + td / 2,
+                  h: oben + bh + 0.6, y0: oben + 0.05, klein: true });
   }
 }
 
@@ -1073,10 +1080,21 @@ function bauePark(cx, cz, size) {
 /* ---- U-Bahn-Eingang ----
    Treppenschacht mit Geländer und beleuchtetem Schild. */
 function baueUBahn(x, z) {
-  deko(4.6, 0.3, 3.0, x, SLAB_H - 0.1, z, 0x1b1e24);            // Schachtöffnung
-  for (let i = 0; i < 5; i++) {                                  // Stufen
-    deko(4.0, 0.16, 0.5, x, SLAB_H - 0.06 - i * 0.05, z - 1.1 + i * 0.5, 0x555b63);
+  /* Der Schacht war 30 cm flach – man sah eine dunkle Platte mit fünf
+     Strichen darauf und konnte nicht erkennen, ob das eine Haltestelle
+     oder eine Treppe sein soll. Jetzt geht er sichtbar in die Tiefe:
+     dunkler Schacht, acht Stufen, die wirklich absteigen, und unten eine
+     schwach beleuchtete Wand. */
+  deko(4.6, 3.2, 3.2, x, SLAB_H - 1.6, z, 0x0d0f13);            // Schacht
+  for (let i = 0; i < 8; i++) {
+    const y = SLAB_H - 0.12 - i * 0.26;
+    const zz = z - 1.35 + i * 0.34;
+    deko(4.0, 0.1, 0.34, x, y, zz, 0x6a7078);                    // Trittfläche
+    deko(4.0, 0.26, 0.08, x, y - 0.13, zz + 0.17, 0x3c4249);     // Setzstufe
   }
+  /* Wand am Fuß der Treppe mit Leuchtstreifen – gibt dem Schacht Tiefe. */
+  deko(4.0, 1.4, 0.12, x, SLAB_H - 2.1, z + 1.45, 0x1a2028);
+  deko(3.2, 0.16, 0.16, x, SLAB_H - 1.75, z + 1.36, 0xdfe9c8);
   for (const s of [-1, 1]) {
     deko(0.12, 1.1, 3.0, x + s * 2.2, SLAB_H + 0.55, z, 0x2e3238);   // Geländer
     deko(0.2, 0.1, 3.0, x + s * 2.2, SLAB_H + 1.12, z, 0xb9c0c8);
@@ -1084,8 +1102,18 @@ function baueUBahn(x, z) {
   deko(0.2, 2.6, 0.2, x - 2.6, SLAB_H + 1.3, z, 0x2e3238);           // Mast
   deko(1.5, 0.9, 0.12, x - 2.6, SLAB_H + 2.7, z, 0x1b8f4a);          // Schild
   deko(1.2, 0.6, 0.14, x - 2.6, SLAB_H + 2.7, z, 0xf2f6f0);
-  addCollider({ x0: x - 2.4, x1: x + 2.4, z0: z - 1.6, z1: z + 1.6,
-                h: SLAB_H + 1.2, y0: SLAB_H + 0.2, klein: true });
+  /* Vorher lag EIN Block über dem ganzen Eingang – man konnte weder
+     hineingehen noch darüber laufen, sondern kletterte daran hoch wie an
+     einem Haus. Jetzt sind nur die beiden Geländer fest; dazwischen führt
+     die Treppe nach unten, und die ist begehbar. */
+  for (const s2 of [-1, 1]) {
+    addCollider({ x0: x + s2 * 2.2 - 0.12, x1: x + s2 * 2.2 + 0.12,
+                  z0: z - 1.5, z1: z + 1.5,
+                  h: SLAB_H + 1.15, klein: true });
+  }
+  /* Der Mast des Schildes. */
+  addCollider({ x0: x - 2.72, x1: x - 2.48, z0: z - 0.12, z1: z + 0.12,
+                h: SLAB_H + 2.6, klein: true });
 }
 
 /* ---- Häuser als Sammel-Mesh ----
@@ -2514,13 +2542,17 @@ function makeGlbVisual(m) {
     poseSchwung(zielWelt, seite, t, bogen, neigung, beide) {
       const gross = seite === 'L' ? 'leftarm' : 'rightarm';
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
+      const hand = seite === 'L' ? 'lefthand' : 'righthand';
       const andere = seite === 'L' ? 'rightarm' : 'leftarm';
       const andereK = seite === 'L' ? 'rightforearm' : 'leftforearm';
+      const andereH = seite === 'L' ? 'righthand' : 'lefthand';
       /* Nur der Netzarm wird geführt. Die Beine überlässt der Schwung der
          laufenden Animation – eigene Beinposen haben gegen sie gearbeitet
          und zu zuckenden Beinen geführt. */
+      /* Auch der Netzarm zeigt mit BEIDEN Gliedern zum Anker, sonst knickt
+         der Unterarm weg und die Hand sitzt neben dem Faden. */
       zieleKnochen(knochen[gross], knochen[klein], zielWelt, 1);
-      drehe(knochen[klein], -0.12, 0, 0, 1);
+      zieleKnochen(knochen[klein], knochen[hand], zielWelt, 1);
       const wiegen = Math.sin((t || 0) * 1.6) * 0.1;
       drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5);
       drehe(knochen[andereK], -0.5, 0, 0, 0.5);
@@ -2599,8 +2631,12 @@ function makeGlbVisual(m) {
          der freie Arm gestreckt nach hinten – vorher stand er wie
          vergessen in der Luft. */
       if (beide) {
-        zieleKnochen(knochen[andere], knochen[andereK], zielWelt, 0.9);
-        drehe(knochen[andereK], -0.18, 0, 0, 0.9);
+        /* Beide Glieder des freien Arms zielen auf den Anker – erst dann
+           liegt die zweite Hand wirklich am Faden. Vorher wurde nur der
+           Oberarm gezielt und der Unterarm gebeugt: die Hand griff daneben
+           und man sah weiter nur eine Hand am Netz. */
+        zieleKnochen(knochen[andere], knochen[andereK], zielWelt, 0.95);
+        zieleKnochen(knochen[andereK], knochen[andereH], zielWelt, 0.95);
         faust(seite === 'L' ? 'right' : 'left', 1);
       } else {
         /* Nach hinten ausgestreckt in Flugrichtung – wie ein Ruder. */
@@ -2733,26 +2769,46 @@ function makeGlbVisual(m) {
       /* Oberarm zielt auf den Ellbogen, Unterarm auf die Hand. Beide Ziele
          liegen auf der Fassade, dadurch stehen die Ellbogen nach außen wie
          bei einer Spinne und die Hände liegen wirklich an der Wand. */
-      punkt(_vw3, -0.66, 1.48 + g * 0.10, 0.06);          // linker Ellbogen
+      punkt(_vw3, -0.52, 1.50 + g * 0.10, 0.06);          // linker Ellbogen
       zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
-      punkt(_vw3, -0.30, 2.12 + g * 0.34, 0.13);          // linke Hand
+      punkt(_vw3, -0.27, 2.14 + g * 0.34, 0.13);          // linke Hand
       zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
-      punkt(_vw4, 0.66, 1.48 - g * 0.10, 0.06);
+      punkt(_vw4, 0.52, 1.50 - g * 0.10, 0.06);
       zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
-      punkt(_vw4, 0.30, 2.12 - g * 0.34, 0.13);
+      punkt(_vw4, 0.27, 2.14 - g * 0.34, 0.13);
       zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
 
-      // Knie seitlich nach außen, Füße darunter an der Wand
-      /* Knie und Füße dichter am Körper – vorher stand die Figur im
-         Spagat an der Wand statt zu kriechen. */
-      punkt(_vw3, -0.42, 0.72 - g * 0.14, -0.02);
+      /* ---- Beine ----
+         Die Knie standen 0,79 m auseinander und die Füße 0,73 m: das ist
+         kein Kriechen mehr, das ist ein Spagat an der Wand. Ein Mensch hat
+         rund 0,3 m zwischen den Hüftgelenken – etwas breiter als das darf
+         eine Spinnenhaltung sein, aber nicht doppelt so breit.
+         Zusätzlich hingen die Füße direkt unter den Knien, die Beine waren
+         also stark zusammengefaltet. Gemessen: Knie 0,79 m und Füße 0,73 m
+         auseinander. Mit den Werten unten sind es 0,48 m und 0,31 m – etwas
+         breiter als die Hüfte (0,14 m), wie es sich für eine Spinnen-
+         haltung gehört, aber kein Spagat mehr. */
+      punkt(_vw3, -0.14, 0.80 - g * 0.10, -0.02);
       zieleKnochen(knochen.leftupleg, knochen.leftleg, _vw3, k);
-      punkt(_vw3, -0.26, 0.18 - g * 0.20, 0.13);
+      punkt(_vw3, -0.09, 0.04 - g * 0.16, 0.11);
       zieleKnochen(knochen.leftleg, knochen.leftfoot, _vw3, k);
-      punkt(_vw4, 0.42, 0.72 + g * 0.14, -0.02);
+      punkt(_vw4, 0.14, 0.80 + g * 0.10, -0.02);
       zieleKnochen(knochen.rightupleg, knochen.rightleg, _vw4, k);
-      punkt(_vw4, 0.26, 0.18 + g * 0.20, 0.13);
+      punkt(_vw4, 0.09, 0.04 + g * 0.16, 0.11);
       zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
+      /* ---- Füße ----
+         Der Knöchel wurde gar nicht geführt: die Sohlen zeigten dorthin,
+         wohin die Leiter-Bewegung sie zufällig stellte, meist schräg von
+         der Wand weg. Die Zehen zielen jetzt auf einen Punkt AUF der
+         Fassade, schräg nach außen – damit liegt die Sohle an der Wand. */
+      if (knochen.lefttoebase) {
+        punkt(_vw3, -0.18, 0.02 - g * 0.16, 0.13);
+        zieleKnochen(knochen.leftfoot, knochen.lefttoebase, _vw3, k * 0.9);
+      }
+      if (knochen.righttoebase) {
+        punkt(_vw4, 0.18, 0.02 + g * 0.16, 0.13);
+        zieleKnochen(knochen.rightfoot, knochen.righttoebase, _vw4, k * 0.9);
+      }
       /* Handflächen flach auf die Fassade, Finger nach oben-außen. */
       _vw3.copy(rein);
       setzeHand('left', _fh.set(0, 1, 0).addScaledVector(rechts, -0.26), _vw3, 0.9);
@@ -4189,9 +4245,20 @@ function updateCamera(dt) {
 }
 
 /* ======================= Kollision Figur <-> Welt ======================= */
-function collideBody(body, prevY) {
+/* Zusätzlicher Abstand zur Wand, solange die Figur schnell durch die Luft
+   fliegt. Der Kollisionsradius von 45 cm passt zu einer stehenden Figur;
+   beim Anfliegen eines Hauses sind Arme und Schultern aber weit
+   ausgestreckt und steckten sichtbar in der Fassade. Am Boden bleibt es
+   beim alten Wert, sonst käme man nicht mehr dicht an Wände heran. */
+function wandPuffer() {
+  if (player.onGround || player.state === 'climb' || player.state === 'kante') return 0;
+  const v = Math.hypot(player.vel.x, player.vel.z);
+  return clamp((v - 6) / 20, 0, 1) * 0.25;
+}
+
+function collideBody(body, prevY, radiusExtra) {
   // body: {pos, vel, radius, onGround, wall, platform}
-  const p = body.pos, r = body.radius;
+  const p = body.pos, r = body.radius + (radiusExtra || 0);
   body.wall = null;
   const cols = collidersNear(p.x, p.z);
   for (const c of cols) {
@@ -5396,7 +5463,29 @@ function updatePlayer(dt) {
   }
 
   const prevY = player.pos.y;
-  player.pos.addScaledVector(player.vel, dt);
+  /* ---- Bewegung in Teilschritten ----
+     Bei 30 m/s legt die Figur in einem Bild einen halben Meter zurück. Sie
+     stand damit schon tief in der Fassade, bevor die Kollision überhaupt
+     geprüft wurde – das war das Hineinbuggen beim Anfliegen eines Hauses.
+     Bei hohem Tempo wird der Weg deshalb in mehrere Teilschritte zerlegt
+     und nach jedem geprüft. */
+  const wegProBild = player.vel.length() * dt;
+  const teile = wegProBild > 0.35 ? Math.min(6, Math.ceil(wegProBild / 0.3)) : 1;
+  if (teile > 1) {
+    /* Zusätzlicher Puffer: der sichtbare Körper ist breiter als der
+       Kollisionsradius – Schultern und Arme steckten sonst in der Wand. */
+    const puffer = wandPuffer();
+    const tdt = dt / teile;
+    for (let i = 0; i < teile - 1; i++) {
+      const vy = player.pos.y;
+      player.pos.addScaledVector(player.vel, tdt);
+      collideBody(player, vy, puffer);
+      if (player.wall) break;      // angekommen – der Rest wird oben erledigt
+    }
+    player.pos.addScaledVector(player.vel, tdt);
+  } else {
+    player.pos.addScaledVector(player.vel, dt);
+  }
 
   /* ---- Seil ----
      Das Seil wird in mehreren Teilschritten gelöst. Ein einziger Schritt pro
@@ -5484,7 +5573,7 @@ function updatePlayer(dt) {
   const fallTempo = -player.vel.y;          // für die Landeanimation
   player.onGround = false;
   player.platform = null;
-  collideBody(player, prevY);
+  collideBody(player, prevY, wandPuffer());
   collidePlayerCars(prevY);
   collidePlayerHelis(prevY);
 
@@ -5726,7 +5815,11 @@ function updateHeroVisual(dt) {
       heroVisual.bodenAusgleich(1);
     } else if (player.state === 'swing' && player.swing) {
       /* Beim Pumpen greift die zweite Hand mit an den Faden. */
-      const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4);
+      /* Beide Hände beim Pumpen UND im Absinken – dort zieht man sich am
+         Faden hoch, genau wie im Vorbild. Vorher nur beim Pumpen, deshalb
+         sah man die zweite Hand im normalen Schwung fast nie. */
+      const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4 ||
+                             player.vel.y < -2);
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
                              clamp(player.vel.y * 0.09, -1, 1), r.rotation.x, beideHaende);
     } else if (player.dreiPunktT > 0) {
@@ -7434,7 +7527,7 @@ function spawnGang(cx, cz, n) {
       staggerT: 0, webT: 0, webStufe: 0,
       dead: false, deadT: 0,
       gang,
-      onGround: true, wall: null,
+      onGround: true, wall: null, liegt: false, blendMats: null,
     };
     gang.enemies.push(e);
     enemies.push(e);
@@ -7589,7 +7682,45 @@ function updateEnemies(dtBild) {
     if (fern && ((taktBild + i) % 3)) continue;
     const dt = fern ? dtBild * 3 : dtBild;
     if (e.dead) {
-      e.deadT -= dt;
+      /* ---- Der Körper fällt zu Ende ----
+         Vorher wurde e.pos beim Tod nicht mehr angefasst: wer in der Luft
+         starb – vom Aufwärtshaken, geworfen, im Sprung – blieb dort
+         schweben und verschwand nach zweieinhalb Sekunden aus der Luft.
+         Jetzt wirkt die Schwerkraft weiter, bis er wirklich liegt, und
+         die Uhr läuft erst dann richtig los. */
+      if (!e.liegt) {
+        e.vel.y -= CFG.gravity * dt;
+        e.pos.x += e.vel.x * dt;
+        e.pos.y += e.vel.y * dt;
+        e.pos.z += e.vel.z * dt;
+        const bremse = Math.max(0, 1 - dt * 2.5);
+        e.vel.x *= bremse; e.vel.z *= bremse;
+        const gy = groundY(e.pos.x, e.pos.z);
+        if (e.pos.y <= gy) {
+          e.pos.y = gy;
+          e.vel.set(0, 0, 0);
+          e.liegt = true;
+          staubWolke(e.pos, 0.8);
+        }
+        /* Sicherheitsnetz: falls er über dem Wasser oder außerhalb der
+           Karte stirbt, nicht endlos fallen lassen. */
+        if (e.pos.y < -30) { e.liegt = true; e.deadT = Math.min(e.deadT, 0.3); }
+      }
+      e.deadT -= e.liegt ? dt : dt * 0.3;
+      /* Zum Schluss ausblenden statt einfach verschwinden. */
+      if (e.deadT < 0.6) {
+        const a = clamp(e.deadT / 0.6, 0, 1);
+        if (!e.blendMats) {
+          e.blendMats = [];
+          e.visual.root.traverse((o) => {
+            if (!o.isMesh && !o.isSkinnedMesh) return;
+            for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+              if (m && e.blendMats.indexOf(m) < 0) { m.transparent = true; e.blendMats.push(m); }
+            }
+          });
+        }
+        for (const m of e.blendMats) m.opacity = a;
+      }
       /* Die Umfall-Bewegung legt die Figur selbst waagerecht hin. Die
          zusätzliche Vierteldrehung der ganzen Figur hat sie zusätzlich
          gekippt – die Füße steckten dadurch bis zu 30 cm im Asphalt.
@@ -8746,7 +8877,7 @@ if (window.__WEBHERO_TEST__ === true) {
     get mission() { return MISSION; },
     get stufe() { return stufe; },
     get ruf() { return ruf; },
-    addScore, hurtCivilian, ersteHilfe,
+    addScore, hurtCivilian, ersteHilfe, damageEnemy,
     musikStart() { MUSIK.starte(); },
     get istTouch() { return istTouch; },
     get touchAktiv() { return touchAktiv; },
