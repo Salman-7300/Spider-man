@@ -768,11 +768,11 @@ const UB_DECKE = UB_TIEF + 5.0;
 /* Der Schacht liegt vollstaendig im Gehwegstreifen (z 31..35). Die erste
    Fassung reichte bis z 31,2 an die Bordsteinkante - die Schachtwand stand
    damit auf der Fahrbahn. */
-const UB_SCHACHT_Z0 = 31.6, UB_SCHACHT_Z1 = 34.7;
+const UB_SCHACHT_Z0 = 31.7, UB_SCHACHT_Z1 = 34.3;
 const UB_TR_X0 = 2.0;                     // Fuss, relativ zur Stationsmitte
-const UB_TR_X1 = 19.0;                    // Kopf an der Oberflaeche
+const UB_TR_X1 = 15.0;                    // Kopf an der Oberflaeche
 const UB_TREPPE = UB_TR_X1 - UB_TR_X0;
-const UB_STUFEN = 42;
+const UB_STUFEN = 38;
 
 const UB_X0 = UB_STAT_X[0] - UB_HALLE_X / 2;                       // Linienanfang
 const UB_X1 = UB_STAT_X[UB_STAT_X.length - 1] + UB_HALLE_X / 2;    // Linienende
@@ -830,10 +830,10 @@ function ubahnLochFuerBlock(cx, cz) {
    ZUEGE entsteht spaeter im Ablauf, deshalb die Existenzpruefung. */
 function zugBoden(x, z, yRef) {
   if (typeof ZUEGE === 'undefined' || !ZUEGE.length) return null;
-  if (yRef === undefined || yRef > UB_TIEF || yRef < UB_GLEIS_TIEF + 0.1) return null;
+  if (yRef === undefined || yRef > UB_TIEF + 3.0 || yRef < UB_TIEF - 1.4) return null;
   for (const t of ZUEGE) {
     if (Math.abs(x - t.x) < ZUG_LANG / 2 - 0.3 &&
-        Math.abs(z - t.z) < ZUG_BREIT / 2 - 0.15) return UB_GLEIS_TIEF + 0.45;
+        Math.abs(z - t.z) < ZUG_BREIT / 2 - 0.15) return UB_TIEF;
   }
   return null;
 }
@@ -948,6 +948,108 @@ function verschmelzeBoxen(teile) {
   g.setIndex(new THREE.BufferAttribute(indizes, 1));
   g.computeBoundingSphere();
   return g;
+}
+
+/* Farbpaletten fuer Menschen. Stehen hier oben, weil schon die Stadt beim
+   Aufbau sitzende Figuren in Zuege und Fahrzeuge setzt. */
+const SKINS = ['#e8b48c', '#d29b6e', '#a86e4b', '#7c4f33', '#f0c9a0'];
+const SHIRTS = ['#c0554e', '#4d7dc4', '#58a15c', '#c9a23f', '#8e5fae', '#d97c33', '#4ea9a5', '#c45a8c', '#e6e2d8'];
+const PANTS = ['#2f3b52', '#4a4a4a', '#5b4632', '#31543c', '#233042', '#6b6560'];
+const HAIRS = ['#2a2119', '#4d3521', '#7a5a35', '#1b1b1e', '#8a8a8a', '#b06c34'];
+
+/* Beliebige Teile zu EINER Geometrie verschmelzen. Anders als
+   verschmelzeBoxen darf jedes Teil eine eigene Grundform haben - so lassen
+   sich Kisten, Zylinder und Kugeln mischen und trotzdem in einem einzigen
+   Zeichenaufruf darstellen. Teil: { geo, x,y,z, rx,ry,rz, sx,sy,sz, farbe } */
+function verschmelzeTeile(teile) {
+  const roh = teile.map((t) => {
+    const g = t.geo.index ? t.geo.toNonIndexed() : t.geo;
+    return { t, g, n: g.attributes.position.count };
+  });
+  const gesamt = roh.reduce((a, r) => a + r.n, 0);
+  const positionen = new Float32Array(gesamt * 3);
+  const normalen = new Float32Array(gesamt * 3);
+  const farben = new Float32Array(gesamt * 3);
+  const m = new THREE.Matrix4(), nm = new THREE.Matrix3();
+  const eul = new THREE.Euler(), q = new THREE.Quaternion();
+  const pos = new THREE.Vector3(), skal = new THREE.Vector3();
+  const v = new THREE.Vector3(), farbe = new THREE.Color();
+  let o = 0;
+  for (const { t, g, n } of roh) {
+    eul.set(t.rx || 0, t.ry || 0, t.rz || 0);
+    m.compose(pos.set(t.x || 0, t.y || 0, t.z || 0), q.setFromEuler(eul),
+              skal.set(t.sx === undefined ? 1 : t.sx,
+                       t.sy === undefined ? 1 : t.sy,
+                       t.sz === undefined ? 1 : t.sz));
+    nm.getNormalMatrix(m);
+    farbe.set(t.farbe);
+    const bp = g.attributes.position, bn = g.attributes.normal;
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(bp, i).applyMatrix4(m);
+      positionen[(o + i) * 3] = v.x; positionen[(o + i) * 3 + 1] = v.y; positionen[(o + i) * 3 + 2] = v.z;
+      v.fromBufferAttribute(bn, i).applyMatrix3(nm).normalize();
+      normalen[(o + i) * 3] = v.x; normalen[(o + i) * 3 + 1] = v.y; normalen[(o + i) * 3 + 2] = v.z;
+      farben[(o + i) * 3] = farbe.r; farben[(o + i) * 3 + 1] = farbe.g; farben[(o + i) * 3 + 2] = farbe.b;
+    }
+    o += n;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positionen, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normalen, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+/* ---- Sitzender Mensch ----
+   Bisher sassen in Autos, Bussen und Zuegen zwei Kisten: eine fuer die
+   Schultern, eine fuer den Kopf. Das sah aus wie Fracht, nicht wie
+   Fahrgaeste. Hier entsteht eine richtige Figur - Kopf, Haare, Rumpf, Arme,
+   Ober- und Unterschenkel, Schuhe - in denselben Farben wie die Zivilisten
+   auf der Strasse. Rueckgabe sind Teile fuer verschmelzeTeile, damit ein
+   ganzer Wagen voller Leute trotzdem ein einziger Zeichenaufruf bleibt.
+   Blickrichtung +Z, Ursprung auf der Sitzflaeche. */
+const _sitzGeo = {};
+function sitzForm(art, a, b, c) {
+  const key = art + a + '_' + b + '_' + c;
+  if (_sitzGeo[key]) return _sitzGeo[key];
+  const g = art === 'box' ? new THREE.BoxGeometry(a, b, c)
+          : art === 'zyl' ? new THREE.CylinderGeometry(a, b, c, 7)
+                          : new THREE.SphereGeometry(a, 9, 7);
+  _sitzGeo[key] = g;
+  return g;
+}
+function sitzMensch(x, y, z, ry, groesse, seed) {
+  const g = groesse === undefined ? 1 : groesse;
+  const haut = pick(SKINS), hemd = pick(SHIRTS), hose = pick(PANTS), haar = pick(HAIRS);
+  const teile = [];
+  const cos = Math.cos(ry || 0), sin = Math.sin(ry || 0);
+  const setze = (geo, lx, ly, lz, farbe, rx) => {
+    teile.push({ geo, farbe, rx: rx || 0, ry: ry || 0,
+                 x: x + (lx * cos + lz * sin) * g,
+                 y: y + ly * g,
+                 z: z + (-lx * sin + lz * cos) * g,
+                 sx: g, sy: g, sz: g });
+  };
+  /* Becken und Rumpf */
+  setze(sitzForm('box', 0.34, 0.20, 0.28), 0, 0.10, -0.02, hose);
+  setze(sitzForm('box', 0.42, 0.50, 0.26), 0, 0.45, -0.04, hemd);
+  /* Hals, Kopf, Haare */
+  setze(sitzForm('zyl', 0.055, 0.055, 0.09), 0, 0.74, -0.02, haut);
+  setze(sitzForm('kugel', 0.15, 0, 0), 0, 0.88, 0, haut);
+  setze(sitzForm('kugel', 0.157, 0, 0), 0, 0.92, -0.015, haar);
+  /* Arme: Oberarm haengt, Unterarm liegt auf dem Schoss */
+  for (const s2 of [-1, 1]) {
+    setze(sitzForm('zyl', 0.055, 0.05, 0.30), s2 * 0.245, 0.50, -0.03, hemd);
+    setze(sitzForm('zyl', 0.05, 0.045, 0.28), s2 * 0.235, 0.30, 0.10, haut, Math.PI / 2.2);
+  }
+  /* Beine: Oberschenkel waagerecht, Unterschenkel senkrecht */
+  for (const s2 of [-1, 1]) {
+    setze(sitzForm('zyl', 0.085, 0.075, 0.44), s2 * 0.115, 0.06, 0.19, hose, Math.PI / 2);
+    setze(sitzForm('zyl', 0.07, 0.055, 0.42), s2 * 0.115, -0.19, 0.38, hose);
+    setze(sitzForm('box', 0.11, 0.09, 0.25), s2 * 0.115, -0.42, 0.44, 0x26262a);
+  }
+  return teile;
 }
 
 function baueDekoMesh() {
@@ -1301,7 +1403,10 @@ function baueUBahn(x) {
      reichte bis SLAB_H + 1,1 - das war die Mauer quer ueber die Fahrbahn,
      an der die Autos haengen blieben und aus der man nur noch heraus-
      springen konnte. */
-  const wandOben = SLAB_H, wandUnten = UB_TIEF - 0.6;
+  /* Oberkante bewusst 4 cm UNTER dem Gehweg: lag sie genau auf SLAB_H,
+     kaempften Wandoberseite und Gehwegoberflaeche um dieselbe Ebene - das
+     war das Flimmern und der weisse Fleck am Eingang. */
+  const wandOben = SLAB_H - 0.04, wandUnten = UB_TIEF - 0.6;
   for (const s2 of [-1, 1]) {
     const wz = s2 < 0 ? UB_SCHACHT_Z0 - 0.25 : UB_SCHACHT_Z1 + 0.25;
     deko(UB_TREPPE + 0.9, wandOben - wandUnten, 0.5, x + (UB_TR_X0 + UB_TR_X1) / 2,
@@ -1474,62 +1579,90 @@ const ZUEGE = [];
 const ZUG_WAGEN = 3;                        // Wagen je Zug
 const ZUG_WLANG = 17.5, ZUG_LUECKE = 0.9;   // Laenge eines Wagens, Abstand
 const ZUG_LANG = ZUG_WAGEN * ZUG_WLANG + (ZUG_WAGEN - 1) * ZUG_LUECKE;   // 53,3 m
-const ZUG_BREIT = 2.4, ZUG_HOCH = 3.0;
-const ZUG_HALT = 6.0;                       // Sekunden Aufenthalt je Station
+const ZUG_BREIT = 2.6, ZUG_HOCH = 3.5;
+/* Wagenboden auf Bahnsteighoehe - so steigt man eben ein, statt einen
+   Dreivierteilmeter hinunterzuklettern. Gemessen vom Gleisbett aus. */
+const ZUG_BODEN = UB_TIEF - UB_GLEIS_TIEF;   // 1,2 m ueber der Schiene
+const ZUG_HALT = 6.0;                        // Sekunden Aufenthalt je Station
+const ZUG_TUER_X = [-4.6, 4.6];              // Tuerpaare je Wagen
+const ZUG_TUER_B = 1.35;                     // Breite eines Tuerfluegels
 /* Zwei Gleise nebeneinander im gemeinsamen Trog. */
 const ZUG_Z = [UB_GLEIS_A, UB_GLEIS_B];
 
-/* Ein Zug aus mehreren Wagen. Alles wird zu einer Geometrie verschmolzen -
-   die Farbe steckt in den Eckpunkten, also reicht ein Zeichenaufruf je Zug.
-   In den Fenstern sitzen Fahrgaeste: Kopf und Schultern, leicht versetzt,
-   damit es nicht nach Reihe aussieht. */
+/* Ein Zug aus mehreren Wagen. Wagenkasten, Fenster, Boden und die
+   sitzenden Fahrgaeste werden zu einer Geometrie verschmolzen; nur die
+   Tuerfluegel bleiben beweglich (zwei Meshes je Zug, eins je
+   Schieberichtung). */
 function baueZug(farbe) {
-  const t = [];
-  const boden = 0.45;                       // Unterkante ueber der Schiene
+  const fest = [];
+  const tuerL = [], tuerR = [];
+  const boxG = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const kiste = (liste, w, h, d, x, y, z, f) =>
+    liste.push({ geo: boxG(w, h, d), x, y, z, farbe: f });
+
   for (let w = 0; w < ZUG_WAGEN; w++) {
     const wx = (w - (ZUG_WAGEN - 1) / 2) * (ZUG_WLANG + ZUG_LUECKE);
-    /* Wagenkasten, oben abgesetztes Dach. */
-    t.push({ w: ZUG_WLANG, h: ZUG_HOCH, d: ZUG_BREIT, x: wx, y: boden + ZUG_HOCH / 2, z: 0, farbe });
-    t.push({ w: ZUG_WLANG - 0.5, h: 0.18, d: ZUG_BREIT + 0.12, x: wx,
-             y: boden + ZUG_HOCH - 0.06, z: 0, farbe: 0x3a3f46 });
+    /* Wagenkasten: Boden, Dach, Stirnwaende, Seitenwaende ueber und unter
+       dem Fensterband. Der Kasten ist HOHL - vorher war es ein voller
+       Block, deshalb sah man beim Mitfahren durch den Boden auf die
+       Schienen. */
+    kiste(fest, ZUG_WLANG, 0.22, ZUG_BREIT, wx, ZUG_BODEN - 0.11, 0, 0x3a3f46);   // Boden
+    kiste(fest, ZUG_WLANG, 0.2, ZUG_BREIT + 0.12, wx, ZUG_BODEN + ZUG_HOCH - 0.1, 0, 0x3a3f46);
+    /* Deckenlicht: ohne das war der Innenraum eine schwarze Roehre. */
+    kiste(fest, ZUG_WLANG - 1.2, 0.1, 0.55, wx, ZUG_BODEN + ZUG_HOCH - 0.24, 0, 0xfdfbf0);
+    kiste(fest, ZUG_WLANG - 1.2, 0.16, 1.7, wx, ZUG_BODEN + ZUG_HOCH - 0.3, 0, 0xd8dde4);
+    for (const s2 of [-1, 1]) {
+      const zs = s2 * (ZUG_BREIT / 2 - 0.05);
+      kiste(fest, ZUG_WLANG, 0.95, 0.1, wx, ZUG_BODEN + 0.48, zs, farbe);          // Bruestung
+      kiste(fest, ZUG_WLANG, 0.85, 0.1, wx, ZUG_BODEN + ZUG_HOCH - 0.62, zs, farbe); // ueber dem Fenster
+      kiste(fest, ZUG_WLANG - 2.4, 1.2, 0.06, wx, ZUG_BODEN + 1.55, zs, 0xcfe4f4);  // Fensterband
+      /* Tuerrahmen und -fluegel */
+      for (const tx of ZUG_TUER_X) {
+        kiste(fest, 0.14, 2.35, 0.14, wx + tx - ZUG_TUER_B, ZUG_BODEN + 1.18, zs, 0x8fa6bc);
+        kiste(fest, 0.14, 2.35, 0.14, wx + tx + ZUG_TUER_B, ZUG_BODEN + 1.18, zs, 0x8fa6bc);
+        kiste(tuerL, ZUG_TUER_B, 2.3, 0.09, wx + tx - ZUG_TUER_B / 2, ZUG_BODEN + 1.18, zs, 0x2b3a48);
+        kiste(tuerR, ZUG_TUER_B, 2.3, 0.09, wx + tx + ZUG_TUER_B / 2, ZUG_BODEN + 1.18, zs, 0x2b3a48);
+      }
+      /* Stirnwaende nur aussen. */
+      if (w === 0 || w === ZUG_WAGEN - 1) {
+        const sx = w === 0 ? -1 : 1;
+        kiste(fest, 0.16, ZUG_HOCH, ZUG_BREIT, wx + sx * (ZUG_WLANG / 2 - 0.08),
+              ZUG_BODEN + ZUG_HOCH / 2, 0, farbe);
+        kiste(fest, 0.1, 1.0, ZUG_BREIT - 0.7, wx + sx * (ZUG_WLANG / 2 + 0.02),
+              ZUG_BODEN + 2.2, 0, 0x0f1620);                                   // Frontscheibe
+        kiste(fest, 0.1, 0.34, 1.5, wx + sx * (ZUG_WLANG / 2 + 0.02),
+              ZUG_BODEN + 0.7, 0, 0xfff3c4);                                   // Scheinwerfer
+      } else {
+        kiste(fest, 0.16, ZUG_HOCH, ZUG_BREIT, wx + (w % 2 ? 1 : -1) * (ZUG_WLANG / 2 - 0.08),
+              ZUG_BODEN + ZUG_HOCH / 2, 0, farbe);
+      }
+    }
     /* Drehgestelle. */
     for (const s2 of [-1, 1]) {
-      t.push({ w: 2.6, h: 0.5, d: ZUG_BREIT - 0.5, x: wx + s2 * (ZUG_WLANG / 2 - 2.4),
-               y: boden - 0.2, z: 0, farbe: 0x1d2126 });
+      kiste(fest, 2.8, 0.7, ZUG_BREIT - 0.5, wx + s2 * (ZUG_WLANG / 2 - 2.4),
+            ZUG_BODEN - 0.55, 0, 0x1d2126);
     }
-    /* Fensterband und Tueren auf beiden Seiten. */
+    /* Sitzbaenke laengs an den Waenden, darauf echte Fahrgaeste. */
     for (const s2 of [-1, 1]) {
-      const zs = s2 * (ZUG_BREIT / 2 + 0.03);
-      t.push({ w: ZUG_WLANG - 2.6, h: 1.0, d: 0.08, x: wx, y: boden + 1.85, z: zs,
-               farbe: 0xdce9f5 });
-      /* Zwei Tueren je Wagen und Seite. */
-      for (const d2 of [-1, 1]) {
-        t.push({ w: 1.3, h: 2.1, d: 0.1, x: wx + d2 * 4.4, y: boden + 1.15, z: zs,
-                 farbe: 0x27333f });
-        t.push({ w: 0.06, h: 2.1, d: 0.12, x: wx + d2 * 4.4, y: boden + 1.15, z: zs,
-                 farbe: 0x8fa6bc });
-      }
-      /* Fahrgaeste hinter den Fenstern: Kopf und Schultern. */
+      const zs = s2 * (ZUG_BREIT / 2 - 0.34);
+      kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + 0.42, zs, 0x37414d);
       for (let p = 0; p < 5; p++) {
-        const px = wx - (ZUG_WLANG - 4.5) / 2 + p * ((ZUG_WLANG - 4.5) / 4);
-        const zi = s2 * (ZUG_BREIT / 2 - 0.34);
-        const kopf = 0xc9a07a - (p % 3) * 0x101010;
-        t.push({ w: 0.5, h: 0.52, d: 0.34, x: px, y: boden + 1.62, z: zi,
-                 farbe: [0x2e3a5c, 0x5c2e2e, 0x2e5c3a, 0x4a4a52][p % 4] });   // Schultern
-        t.push({ w: 0.26, h: 0.28, d: 0.24, x: px, y: boden + 2.02, z: zi, farbe: kopf });
+        if (Math.random() < 0.25) continue;
+        const px = wx - (ZUG_WLANG - 5.0) / 2 + p * ((ZUG_WLANG - 5.0) / 4);
+        /* Blick zur Wagenmitte. */
+        for (const t of sitzMensch(px, ZUG_BODEN + 0.48, zs, s2 < 0 ? 0 : Math.PI, 0.92))
+          fest.push(t);
       }
-    }
-    /* Stirnseiten: Scheinwerfer nur ganz vorn und ganz hinten. */
-    if (w === 0 || w === ZUG_WAGEN - 1) {
-      const sx = w === 0 ? -1 : 1;
-      t.push({ w: 0.1, h: 0.32, d: 1.5, x: wx + sx * (ZUG_WLANG / 2 + 0.02),
-               y: boden + 0.85, z: 0, farbe: 0xfff3c4 });
-      t.push({ w: 0.1, h: 0.9, d: ZUG_BREIT - 0.7, x: wx + sx * (ZUG_WLANG / 2 + 0.02),
-               y: boden + 2.05, z: 0, farbe: 0x0f1620 });                     // Frontscheibe
     }
   }
-  const g = new THREE.Mesh(verschmelzeBoxen(t),
-                           new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const g = new THREE.Group();
+  const kasten = new THREE.Mesh(verschmelzeTeile(fest), mat);
+  const links = new THREE.Mesh(verschmelzeTeile(tuerL), mat);
+  const rechts = new THREE.Mesh(verschmelzeTeile(tuerR), mat);
+  g.add(kasten); g.add(links); g.add(rechts);
+  g.userData.tuerL = links;
+  g.userData.tuerR = rechts;
   g.visible = false;
   scene.add(g);
   return g;
@@ -1547,6 +1680,7 @@ function baueZuege() {
       warten: 2 + i * 5,
       haltCd: 0,
       haelt: true,
+      tuer: 0,          // 0 = zu, 1 = ganz offen
     });
   }
 }
@@ -1580,6 +1714,26 @@ function updateZug(dt) {
       if (t.x < UB_X0 + ZUG_LANG / 2) { t.x = UB_X0 + ZUG_LANG / 2; t.richtung = 1; t.warten = 4; }
     }
     t.mesh.position.set(t.x, UB_GLEIS_TIEF, t.z);
+    /* Tueren: im Halt gehen sie auf, vor der Abfahrt wieder zu. Die
+       Fluegel schieben sich dabei auseinander. */
+    const tuerZiel = t.haelt && t.warten > 0.9 ? 1 : 0;
+    t.tuer = lerp(t.tuer, tuerZiel, Math.min(1, dt * 3.5));
+    if (t.mesh.userData.tuerL) {
+      const weg = t.tuer * (ZUG_TUER_B - 0.16);
+      t.mesh.userData.tuerL.position.x = -weg;
+      t.mesh.userData.tuerR.position.x = weg;
+    }
+    /* Wer am Bahnsteig wartet, steigt bei offener Tuer ein. */
+    if (t.haelt && t.tuer > 0.7) {
+      for (const c of civilians) {
+        if (!c.bahnsteig || c.eingestiegen > 0) continue;
+        if (Math.abs(c.pos.x - t.x) > ZUG_LANG / 2) continue;
+        if (Math.abs(c.pos.z - t.z) > 5.5) continue;
+        if (Math.random() > dt * 0.9) continue;        // nach und nach
+        c.eingestiegen = rand(14, 30);
+        c.visual.root.visible = false;
+      }
+    }
     if (!untenDrin) continue;
 
     const dx = Math.abs(player.pos.x - t.x);
@@ -1587,7 +1741,7 @@ function updateZug(dt) {
     /* Mitfahren: wer beim Losfahren im Wagen steht, faehrt mit. */
     const imWagen = dx < ZUG_LANG / 2 - 0.4 &&
                     Math.abs(player.pos.z - t.z) < ZUG_BREIT / 2 &&
-                    player.pos.y > UB_GLEIS_TIEF && player.pos.y < UB_GLEIS_TIEF + 3.2;
+                    player.pos.y > UB_TIEF - 0.5 && player.pos.y < UB_TIEF + 3.2;
     if (imWagen && player.zug !== t) {
       player.zug = t;
       popupScreen('🚇 Mitfahren – springen zum Aussteigen');
@@ -4129,10 +4283,6 @@ function makeCharacterVisual(kind, cfg) {
 }
 
 /* ======================= Menschen-Baukasten ======================= */
-const SKINS = ['#e8b48c', '#d29b6e', '#a86e4b', '#7c4f33', '#f0c9a0'];
-const SHIRTS = ['#c0554e', '#4d7dc4', '#58a15c', '#c9a23f', '#8e5fae', '#d97c33', '#4ea9a5', '#c45a8c', '#e6e2d8'];
-const PANTS = ['#2f3b52', '#4a4a4a', '#5b4632', '#31543c', '#233042', '#6b6560'];
-const HAIRS = ['#2a2119', '#4d3521', '#7a5a35', '#1b1b1e', '#8a8a8a', '#b06c34'];
 
 function limb(mat, r0, r1, len) {
   const g = new THREE.Group();
@@ -7621,20 +7771,19 @@ function makeCarMesh(color) {
       g.add(holm);
     }
   }
-  /* Insassen: Schultern und Kopf, leicht versetzt, damit es nicht nach
-     Zwillingen aussieht. */
-  const HAUT = [0xc9a07a, 0x8d6547, 0xe0b894, 0x6f4a30];
-  const KLEID = [0x2e3a5c, 0x5c2e2e, 0x2e5c3a, 0x4a4a52, 0x6b5730];
+  /* Insassen: richtige sitzende Menschen, nicht zwei Kisten. Alle zusammen
+     in einer Geometrie, damit ein Auto ein Zeichenaufruf mehr bleibt. */
+  const leute = [];
   for (const sx of [-1, 1]) {
     if (sx > 0 && Math.random() < 0.35) continue;        // mal faehrt jemand allein
-    const koerper = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.34, 0.3),
-      new THREE.MeshLambertMaterial({ color: pick(KLEID) }));
-    koerper.position.set(sx * 0.44, 1.10, 0.15);
-    g.add(koerper);
-    const kopf = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.25, 0.21),
-      new THREE.MeshLambertMaterial({ color: pick(HAUT) }));
-    kopf.position.set(sx * 0.44, 1.38, 0.15 + (sx < 0 ? 0.03 : -0.03));
-    g.add(kopf);
+    for (const t of sitzMensch(sx * 0.42, 0.82, 0.12, 0, 0.66)) leute.push(t);
+  }
+  if (Math.random() < 0.3) {                             // manchmal jemand hinten
+    for (const t of sitzMensch(rand(-0.4, 0.4), 0.82, -0.95, 0, 0.66)) leute.push(t);
+  }
+  if (leute.length) {
+    g.add(new THREE.Mesh(verschmelzeTeile(leute),
+                         new THREE.MeshLambertMaterial({ vertexColors: true })));
   }
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.25, 10);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x17181c });
@@ -7686,6 +7835,14 @@ function makeHeliMesh() {
   kanzel.scale.set(0.95, 0.8, 1.1);
   kanzel.position.set(0, 0.25, 2.1);
   g.add(kanzel);
+  /* Pilot und Beobachter in der Kanzel - vorher flogen die Hubschrauber
+     unbemannt ueber die Stadt. Das Glas wird dafuer halbdurchsichtig. */
+  glas.transparent = true; glas.opacity = 0.45; glas.depthWrite = false;
+  const besatzung = [];
+  for (const sx of [-1, 1])
+    for (const t of sitzMensch(sx * 0.42, -0.28, 1.85, 0, 0.8)) besatzung.push(t);
+  g.add(new THREE.Mesh(verschmelzeTeile(besatzung),
+                       new THREE.MeshLambertMaterial({ vertexColors: true })));
   const heck = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 3.6), lack);
   heck.position.set(0, 0.55, -3.4); heck.castShadow = true;
   g.add(heck);
@@ -7940,35 +8097,38 @@ function makeFahrzeugMesh(typ, farbe) {
     }
     const front = new THREE.Mesh(new THREE.BoxGeometry(B - 0.15, 1.0, 0.08), glas);
     front.position.set(0, 1.9, L / 2 - 0.02); g.add(front);
-    /* Fahrgaeste hinter den Scheiben - ein leerer Bus sieht aus wie Kulisse. */
-    const HAUT = [0xc9a07a, 0x8d6547, 0xe0b894, 0x6f4a30];
-    const KLEID = [0x2e3a5c, 0x5c2e2e, 0x2e5c3a, 0x4a4a52, 0x6b5730];
+    /* Fahrgaeste hinter den Scheiben - ein leerer Bus sieht aus wie Kulisse.
+       Alle in einer Geometrie, damit der Bus nicht 30 Zeichenaufrufe kostet. */
+    const leute = [];
     for (const sx of [-1, 1]) {
       for (let i = 0; i < 4; i++) {
         if (Math.random() < 0.28) continue;
-        const pz = -L / 2 + 2.2 + i * ((L - 4.4) / 3);
-        const px = sx * (B / 2 - 0.42);
-        const koerper = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.36, 0.3),
-          new THREE.MeshLambertMaterial({ color: pick(KLEID) }));
-        koerper.position.set(px, 1.72, pz); g.add(koerper);
-        const kopf = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.2),
-          new THREE.MeshLambertMaterial({ color: pick(HAUT) }));
-        kopf.position.set(px, 2.0, pz); g.add(kopf);
+        const pz = -L / 2 + 2.6 + i * ((L - 5.2) / 3);
+        for (const t of sitzMensch(sx * (B / 2 - 0.5), 1.42, pz, 0, 0.8)) leute.push(t);
       }
     }
-    /* Fahrer am Steuer. */
-    const fahrer = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.36, 0.3),
-      new THREE.MeshLambertMaterial({ color: 0x30364a }));
-    fahrer.position.set(-(B / 2 - 0.5), 1.72, L / 2 - 0.9); g.add(fahrer);
-    const fkopf = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.2),
-      new THREE.MeshLambertMaterial({ color: 0xc9a07a }));
-    fkopf.position.set(-(B / 2 - 0.5), 2.0, L / 2 - 0.9); g.add(fkopf);
+    /* Fahrer am Steuer, Blick nach vorn. */
+    for (const t of sitzMensch(-(B / 2 - 0.55), 1.42, L / 2 - 1.3, 0, 0.8)) leute.push(t);
+    g.add(new THREE.Mesh(verschmelzeTeile(leute),
+                         new THREE.MeshLambertMaterial({ vertexColors: true })));
     raeder([[-1, L / 2 - 1.3], [1, L / 2 - 1.3], [-1, -L / 2 + 1.6], [1, -L / 2 + 1.6]]);
   } else {                                            // LKW
     const kabine = new THREE.Mesh(new THREE.BoxGeometry(B, 1.9, 2.3), lack);
     kabine.position.set(0, 1.35, L / 2 - 1.15); kabine.castShadow = true; g.add(kabine);
     const scheibe = new THREE.Mesh(new THREE.BoxGeometry(B - 0.2, 0.75, 0.08), glas);
     scheibe.position.set(0, 1.75, L / 2 - 0.02); g.add(scheibe);
+    /* Seitenscheiben - sonst sah man von der Seite nie jemanden im LKW. */
+    for (const sx of [-1, 1]) {
+      const seite = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, 1.2), glas);
+      seite.position.set(sx * (B / 2 - 0.02), 1.72, L / 2 - 1.15); g.add(seite);
+    }
+    /* Fahrer und manchmal ein Beifahrer. */
+    const leute = [];
+    for (const t of sitzMensch(-(B / 2 - 0.55), 1.25, L / 2 - 1.5, 0, 0.78)) leute.push(t);
+    if (Math.random() < 0.5)
+      for (const t of sitzMensch((B / 2 - 0.55), 1.25, L / 2 - 1.5, 0, 0.78)) leute.push(t);
+    g.add(new THREE.Mesh(verschmelzeTeile(leute),
+                         new THREE.MeshLambertMaterial({ vertexColors: true })));
     const kasten = new THREE.Mesh(new THREE.BoxGeometry(B + 0.1, 2.3, L - 2.6),
       new THREE.MeshLambertMaterial({ color: 0xd9dbe0 }));
     kasten.position.set(0, 1.6, -1.3); kasten.castShadow = true; g.add(kasten);
@@ -8242,6 +8402,31 @@ function spawnCivilian() {
   });
 }
 
+/* ---- Wartende am Bahnsteig ----
+   Sie laufen denselben Weg-Punkt-Kreis wie alle anderen, nur liegt der auf
+   dem Bahnsteig. Dadurch gilt fuer sie die gesamte vorhandene Logik -
+   Stehenbleiben, Umschauen, Handy - ohne Sonderfall. */
+function spawnBahnsteigZivi(sx) {
+  const z0 = UB_STEIG_Z0 + 1.6, z1 = UB_STEIG_Z1 - 2.2;
+  const a = sx + rand(-11, 2), b = a + rand(4, 9);
+  const loop = [V3(a, UB_TIEF, z0), V3(b, UB_TIEF, z0),
+                V3(b, UB_TIEF, z1), V3(a, UB_TIEF, z1)];
+  const visual = makeCharacterVisual('civilian', {});
+  civilians.push({
+    visual, loop, wp: randi(0, 3), bahnsteig: sx,
+    pos: V3(a, UB_TIEF, rand(z0, z1)),
+    vel: V3(0, 0, 0),
+    radius: 0.35,
+    facing: rand(0, TAU),
+    phase: rand(0, TAU),
+    speed: rand(0.9, 1.6),
+    state: 'walk',
+    fleeT: 0, hurtT: 0, hp: 20,
+    savedCd: 0,
+    onGround: true, wall: null,
+  });
+}
+
 function nearestThreatTo(pos, maxDist) {
   let best = null, bestD = maxDist;
   for (const e of enemies) {
@@ -8352,6 +8537,17 @@ function updateCivilians(dtBild) {
        der nur bei manchen Figuren hochgezählt wird, verteilt die Bilder
        ungleich – einzelne Zivilisten kamen dann kaum noch dran und
        standen scheinbar still. */
+    /* Eingestiegen: waehrend der Fahrt unsichtbar, danach wieder am
+       Bahnsteig. So fuellt und leert sich die Station wirklich. */
+    if (c.eingestiegen > 0) {
+      c.eingestiegen -= dtBild;
+      if (c.eingestiegen <= 0) {
+        c.visual.root.visible = true;
+        const p = c.loop[c.wp];
+        c.pos.set(p.x, UB_TIEF, p.z);
+      }
+      continue;
+    }
     const fern = Math.abs(c.pos.x - player.pos.x) + Math.abs(c.pos.z - player.pos.z) > FERN;
     if (fern && ((taktBild + ci) % 3)) {
       if (c.state === 'hurt' && c.hilfeBar) liegen++;
@@ -8477,8 +8673,11 @@ function updateCivilians(dtBild) {
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
     c.pos.x += c.vel.x * dt; c.pos.z += c.vel.z * dt;
     collideBody(c);
-    c.pos.y = lerp(c.pos.y, groundY(c.pos.x, c.pos.z), Math.min(1, dt * 12));
-    c.pos.y = Math.max(c.pos.y, groundY(c.pos.x, c.pos.z) - 0.02);
+    /* Die eigene Hoehe zaehlt mit: sonst zieht es die Wartenden auf dem
+       Bahnsteig durch die Decke auf die Strasse. */
+    const cGrund = groundY(c.pos.x, c.pos.z, c.pos.y);
+    c.pos.y = lerp(c.pos.y, cGrund, Math.min(1, dt * 12));
+    c.pos.y = Math.max(c.pos.y, cGrund - 0.02);
     if (speed > 0.1) {
       c.facing = dampAngle(c.facing, Math.atan2(dirX, dirZ), dt * 8);
       c.phase += dt * (4 + speed * 1.6);
@@ -10228,6 +10427,8 @@ let actorsReady = false;
 function initActors() {
   heroVisual = makeCharacterVisual('hero', { hero: true });
   for (let i = 0; i < CFG.civCount; i++) spawnCivilian();
+  /* Zwei bis vier Wartende je U-Bahn-Station. */
+  for (const u of UBAHNEN) for (let i = 0; i < randi(2, 4); i++) spawnBahnsteigZivi(u.x);
   // Startgangs (auf Gehwegen, mit Abstand zum Startpunkt)
   spawnGangAwayFromPlayer();
   spawnGangAwayFromPlayer();
