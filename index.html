@@ -20,18 +20,54 @@
     border-radius:50%; background:rgba(255,255,255,.10); border:2px solid rgba(255,255,255,.28); }
   #tstickKnopf { position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px 0 0 -25px;
     border-radius:50%; background:rgba(255,255,255,.42); box-shadow:0 2px 10px rgba(0,0,0,.4); }
-  #tknoepfe { position:absolute; right:12px; bottom:16px; display:flex; flex-direction:column;
-    align-items:flex-end; gap:6px; }
-  #tknoepfe .treihe { display:flex; gap:6px; }
-  #tknoepfe .tgross { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  #touch button { font:inherit; color:#fff; background:rgba(20,24,34,.55);
-    border:2px solid rgba(255,255,255,.3); border-radius:12px; padding:9px 10px;
-    font-size:12px; font-weight:700; min-width:60px; backdrop-filter:blur(3px); }
-  #touch button:active { background:rgba(227,33,45,.75); }
-  #touch button.tklein { width:46px; height:46px; min-width:0; padding:0; font-size:14px;
-    border-radius:50%; display:flex; align-items:center; justify-content:center; }
-  #tknoepfe > .tklein { align-self:flex-end; }
+  /* Die Knoepfe baut game.js aus TOUCH_AKTIONEN, damit eine neue Faehigkeit
+     nur einen Eintrag braucht und sofort auch auf dem Handy liegt.
+     Die Reihen sind unterschiedlich gross: was man staendig braucht
+     (Reihe 3) ist am groessten, Selteneres (Reihe 2) am kleinsten. */
+  #tknoepfe { position:absolute; display:flex; flex-direction:column;
+    align-items:flex-end; gap:6px;
+    right:calc(8px + env(safe-area-inset-right, 0px));
+    bottom:calc(10px + env(safe-area-inset-bottom, 0px)); }
+  #tknoepfe .treihe { display:flex; gap:6px; align-items:flex-end; }
+  /* Menue und Hilfe liegen links neben der Minikarte, nicht darunter. */
+  #toben { position:absolute; display:flex; gap:6px;
+    top:calc(8px + env(safe-area-inset-top, 0px));
+    right:calc(122px + env(safe-area-inset-right, 0px)); }
+  body.touch #minimap { width:104px; height:104px; top:8px; right:8px; }
+  #touch button { font:inherit; color:#fff; background:rgba(16,20,30,.42);
+    border:2px solid rgba(255,255,255,.34); border-radius:50%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:1px; line-height:1; padding:0; backdrop-filter:blur(3px);
+    text-shadow:0 1px 3px rgba(0,0,0,.8);
+    width:50px; height:50px; font-size:17px; font-weight:700; }
+  #touch button .tbez { font-size:8px; font-weight:700; opacity:.85; letter-spacing:.2px; }
+  #touch .r2 button { width:46px; height:46px; font-size:15px; }
+  #touch .r2 button .tbez { font-size:7.5px; }
+  #touch button.tgross { width:68px; height:68px; font-size:22px; }
+  #touch button.tgross .tbez { font-size:9.5px; }
+  #touch button.tklein { width:42px; height:42px; font-size:15px; }
+  #touch button:active, #touch button.tan { background:rgba(227,33,45,.8);
+    border-color:rgba(255,255,255,.8); }
+  /* Was gerade nicht geht (zu niedrige Stufe, falscher Zustand), bleibt
+     sichtbar, aber blass - so lernt man die Steuerung, statt sie zu suchen. */
+  #touch button.taus { opacity:.26; }
+  #touch button.tweg { display:none; }
+  #tstick { left:calc(14px + env(safe-area-inset-left, 0px)); }
   body.touch #hint, body.touch #help { display:none; }
+
+  /* Kurze Steuerungsuebersicht fuer Touch (Knopf "?") */
+  #thilfe { position:fixed; inset:0; z-index:14; display:none; align-items:center;
+    justify-content:center; background:rgba(6,8,14,.82); padding:18px; }
+  #thilfe .box { max-width:460px; max-height:82vh; overflow:auto; background:#141824;
+    border:2px solid rgba(255,255,255,.22); border-radius:14px; padding:16px 18px; font-size:13px; }
+  #thilfe h2 { margin:0 0 10px; font-size:16px; }
+  #thilfe .z { display:flex; gap:10px; padding:5px 0; border-top:1px solid rgba(255,255,255,.09); }
+  #thilfe .z:first-of-type { border-top:0; }
+  #thilfe .s { flex:0 0 30px; font-size:17px; text-align:center; }
+  #thilfe .t b { display:block; }
+  #thilfe .t span { opacity:.72; }
+  #thilfe button { margin-top:12px; width:100%; padding:11px; border:0; border-radius:10px;
+    background:#e3212d; color:#fff; font:inherit; font-weight:700; }
   @media (max-width:760px) {
     #topleft { transform:scale(.85); transform-origin:top left; }
   }
@@ -216,44 +252,33 @@
     <br>
     <b>Gamepad</b> A Sprung · X Schlag · Y Tritt · B Rolle<br>
     <b>Gamepad</b> LB Netz · RB Zip · LT Haken · RT Schwung · R3 Wurf<br>
-    <b>Gamepad</b> L3 sprinten / in der Luft gleiten · Y Katapult
+    <b>Gamepad</b> L3 sprinten / in der Luft gleiten · Y Katapult<br>
+    <b>Gamepad-Stick</b> bis 55 % gehen · bis 85 % laufen · darüber sprinten<br>
+    <br>
+    <b>Kamera</b> zieht auf Wunsch von allein hinter die Flugrichtung –
+    im Menü (Esc) unter „Kamera folgt".
   </div>
   <div id="vignette"></div>
 </div>
 
-<!-- Steuerung für Handy und Tablet – wird nur auf Touchgeräten sichtbar -->
+<!-- Steuerung für Handy und Tablet – wird nur auf Touchgeräten sichtbar.
+     Die Knöpfe selbst erzeugt game.js aus der Liste TOUCH_AKTIONEN. -->
 <div id="touch">
   <div id="tstick"><div id="tstickKnopf"></div></div>
-  <div id="tknoepfe">
-    <button id="tMenue" class="tklein">☰</button>
-    <button id="tHilfe" class="tklein">✚</button>
-    <div class="treihe">
-      <button id="tNetz" class="tklein">🕸</button>
-      <button id="tZip" class="tklein">➤</button>
-      <button id="tRolle" class="tklein">↻</button>
-    </div>
-    <div class="treihe">
-      <button id="tHaken" class="tklein">↑✊</button>
-      <button id="tWurf" class="tklein">✊➜</button>
-    </div>
-    <div class="treihe">
-      <button id="tGleiten" class="tklein">🪂</button>
-      <button id="tDucken" class="tklein">🦵</button>
-      <button id="tKlettern" class="tklein">🧗</button>
-    </div>
-    <div class="tgross">
-      <button id="tTritt">Tritt</button>
-      <button id="tSchlag">Schlag</button>
-      <button id="tSprung">Sprung</button>
-      <button id="tSchwung">Schwung</button>
-    </div>
-  </div>
+  <div id="toben"></div>
+  <div id="tknoepfe"></div>
 </div>
+
+<div id="thilfe"><div class="box">
+  <h2>Steuerung auf Handy und Tablet</h2>
+  <div id="thilfeListe"></div>
+  <button id="thilfeZu">Weiter spielen</button>
+</div></div>
 
 <div id="settings">
   <div class="box">
     <h2>Einstellungen</h2>
-    <div class="zeile"><span>Mausempfindlichkeit</span>
+    <div class="zeile"><span id="lblMaus">Mausempfindlichkeit</span>
       <input id="setMaus" type="range" min="30" max="260" step="5"><span class="wert" id="wMaus"></span></div>
     <div class="zeile"><span>Lautstärke</span>
       <input id="setTon" type="range" min="0" max="100" step="5"><span class="wert" id="wTon"></span></div>
@@ -262,6 +287,13 @@
         <option value="an">An – Stadtklang und Musik</option>
         <option value="stadt">Nur Stadtklang</option>
         <option value="aus">Aus</option>
+      </select></div>
+    <div class="zeile"><span>Kamera folgt</span>
+      <select id="setAutokam">
+        <option value="an">Immer – auch beim Laufen</option>
+        <option value="schwung">Schwingen, Gleiten und Katapult</option>
+        <option value="gleiten">Nur beim Gleiten</option>
+        <option value="aus">Aus – Kamera nur von Hand</option>
       </select></div>
     <div class="zeile"><span>Minikarte</span>
       <select id="setKarte">
@@ -284,7 +316,7 @@
 
 <div id="msg">
   <h1>K.O.!</h1>
-  <p>Drücke <b>Enter</b>, um weiterzumachen.</p>
+  <p id="msgText">Drücke <b>Enter</b>, um weiterzumachen.</p>
 </div>
 
 <div id="loaderr">

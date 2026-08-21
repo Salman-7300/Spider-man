@@ -4171,7 +4171,7 @@ const player = {
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
-  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, wandVersatz: 0,
+  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, wandVersatz: 0, katFlug: 0,
   haltenT: 0, duckt: false, duckMisch: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
@@ -4233,6 +4233,14 @@ overlay.addEventListener('click', () => {
     overlay.style.display = 'none';
     hud.style.display = 'block';
     baueTouch();
+    /* Beim ersten Mal einmal zeigen, wo was liegt – vorher musste man die
+       Knöpfe raten, weil die Tastaturhilfe auf dem Handy ausgeblendet ist. */
+    try {
+      if (!localStorage.getItem('webhero_touchhilfe')) {
+        zeigeTouchHilfe(true);
+        localStorage.setItem('webhero_touchhilfe', '1');
+      }
+    } catch (e) {}
     /* Vollbild: sonst frisst die Adressleiste ein Fünftel des Bildes und
        ein Wisch nach oben wirft einen aus dem Spiel. */
     const el = document.documentElement;
@@ -4312,8 +4320,13 @@ function inputDir() {
   if (keys['KeyD'] || keys['ArrowRight']) fx += 1;
   if (!fx && !fz) { fx = stick.x; fz = stick.z; }
   if (!fx && !fz) return null;
+  /* Immer auf Länge 1 bringen – auch bei halb ausgelenktem Knüppel.
+     Vorher ging die Auslenkung direkt ins Tempo: bei 30 % Ausschlag lief
+     die Figur mit 0,8 m/s statt der 2,8 m/s einer Gehstufe, und keine der
+     vier Gangarten war auf dem Handy sauber erreichbar. Wie weit man
+     drückt, wählt jetzt die Gangart (siehe gangTempo), nicht das Tempo. */
   const len = Math.hypot(fx, fz);
-  if (len > 1) { fx /= len; fz /= len; }
+  if (len > 0.0001) { fx /= len; fz /= len; }
   const sin = Math.sin(camYaw), cos = Math.cos(camYaw);
   return { x: fz * -sin + fx * cos, z: fz * -cos - fx * sin };
 }
@@ -4380,7 +4393,8 @@ const istTouch = (typeof window !== 'undefined') &&
   (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 1) &&
   window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 let touchSprint = false, touchAktiv = false, touchKleben = false, touchGleiten = false;
-let touchDucken = false;
+let touchDucken = false, touchSprintKnopf = false;
+const touchKnoepfe = [];      // { a, el, erlaubt } je Knopf, für die Zustandsanzeige
 let zeigerStick = false;   // wahr, solange ein Finger den Knüppel hält
 
 function baueTouch() {
@@ -4416,7 +4430,7 @@ function baueTouch() {
 
   wrap.addEventListener('touchstart', (ev) => {
     for (const t of ev.changedTouches) {
-      if (t.target.closest && t.target.closest('#tknoepfe')) continue;
+      if (t.target.closest && t.target.closest('#tknoepfe, #toben')) continue;
       if (stickId === null && t.clientX < window.innerWidth * 0.45) { stickStart(t); continue; }
       if (kamId === null) { kamId = t.identifier; kx = t.clientX; ky = t.clientY; }
     }
@@ -4427,8 +4441,10 @@ function baueTouch() {
     for (const t of ev.changedTouches) {
       if (t.identifier === stickId) stickBewegen(t);
       else if (t.identifier === kamId) {
-        const emp = 1.5 * (EINST.maus / 100);
-        mouseDX += (t.clientX - kx) * emp; mouseDY += (t.clientY - ky) * emp;
+        /* Die Empfindlichkeit steckt schon in updateCamera – hier nur der
+           feste Faktor für den Wisch. Vorher ging der Regler doppelt ein und
+           wirkte auf dem Handy quadratisch. */
+        mouseDX += (t.clientX - kx) * 1.5; mouseDY += (t.clientY - ky) * 1.5;
         kx = t.clientX; ky = t.clientY;
       }
     }
@@ -4444,69 +4460,175 @@ function baueTouch() {
   wrap.addEventListener('touchend', ende);
   wrap.addEventListener('touchcancel', ende);
 
-  /* --- Knöpfe --- */
-  const TASTEN = {
-    tSchlag: () => tryAttack('punch'),
-    tTritt: () => tryAttack('kick'),
-    tSprung: () => tryJump(),
-    tNetz: () => webShot(),
-    tZip: () => webZip(),
-    tRolle: () => dodge(),
-    tHaken: () => uppercut(),
-    tWurf: () => packenUndWerfen(),
-    tHilfe: () => { if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); },
-  };
-  for (const id in TASTEN) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    el.addEventListener('touchstart', (ev) => { ev.preventDefault(); ev.stopPropagation(); TASTEN[id](); });
-  }
-  /* Gleiten: gedrückt halten, dann tragen die Netzflügel. */
-  const gleiten = document.getElementById('tGleiten');
-  if (gleiten) {
-    const an = (ev) => { ev.preventDefault(); ev.stopPropagation(); touchGleiten = true; };
-    const aus = () => { touchGleiten = false; };
-    gleiten.addEventListener('touchstart', an);
-    gleiten.addEventListener('touchend', aus);
-    gleiten.addEventListener('touchcancel', aus);
+  /* ======================= Knöpfe =======================
+     Alle Fähigkeiten stehen in einer einzigen Liste. Daraus baut sich das
+     Knopffeld, daraus baut sich die Hilfe, und daraus prüft jedes Bild, was
+     gerade benutzbar ist. Eine neue Fähigkeit braucht damit genau einen
+     Eintrag – und liegt sofort auch auf Handy und Tablet.
+
+     art:  'tipp'   – einmal antippen
+           'halten' – solange der Finger liegt (tun/los)
+     reihe: 0 = obere Ecke (Menü, Hilfe), 1..3 = Kränze von oben nach unten
+     kann():  false -> Knopf wird blass, löst aber trotzdem aus. Das ist der
+              Zustand des Spiels ("gerade nicht in der Luft") – ihn zu sperren
+              würde einen Druck verschlucken, der einen Sekundenbruchteil zu
+              früh kommt, und genau das fühlt sich auf dem Handy kaputt an.
+     frei():  false -> Knopf ist wirklich gesperrt (Fähigkeit noch nicht
+              freigespielt) und sagt beim Antippen, woran es liegt.
+     zeig():  false -> Knopf wird ausgeblendet (nur für Sonderfälle) */
+  const TOUCH_AKTIONEN = [
+    { id: 'tMenue', sym: '☰', bez: 'Menü', reihe: 0, klein: true, art: 'tipp',
+      hilfe: 'Einstellungen, Lautstärke, Grafik, Kamera',
+      tun: () => zeigeEinstellungen(settingsEl.style.display !== 'flex') },
+    { id: 'tFrage', sym: '?', bez: 'Hilfe', reihe: 0, klein: true, art: 'tipp',
+      hilfe: 'Diese Übersicht', tun: () => zeigeTouchHilfe(true) },
+
+    { id: 'tSprint', sym: '»', bez: 'Sprint', reihe: 1, art: 'halten',
+      hilfe: 'Halten: rennen (11 m/s). Am Boden gegen eine Hauswand rennen = Wandlauf. In der Luft = Gleitflug.',
+      tun: () => { touchSprintKnopf = true; }, los: () => { touchSprintKnopf = false; } },
+    { id: 'tGleiten', sym: '🪂', bez: 'Gleiten', reihe: 1, art: 'halten',
+      hilfe: 'In der Luft halten: Netzflügel tragen dich weit',
+      kann: () => !player.onGround,
+      tun: () => { touchGleiten = true; }, los: () => { touchGleiten = false; } },
+    { id: 'tKatapult', sym: '⇈', bez: 'Katapult', reihe: 1, art: 'halten',
+      hilfe: 'Auf einem Dach halten: zwei Netze spannen, loslassen = Riesensprung',
+      kann: () => player.onGround && !player.dead,
+      tun: () => katapultStart(), los: () => katapultLos() },
+    { id: 'tDucken', sym: '🦵', bez: 'Ducken', reihe: 1, art: 'halten',
+      hilfe: 'Halten: schleichen (2,2 m/s)',
+      kann: () => player.onGround,
+      tun: () => { touchDucken = true; }, los: () => { touchDucken = false; } },
+    { id: 'tKlettern', sym: '🧗', bez: 'Halten', reihe: 1, art: 'halten',
+      hilfe: 'An einer Wand halten: kleben bleiben statt abzurutschen',
+      kann: () => !player.onGround,
+      tun: () => { touchKleben = true; }, los: () => { touchKleben = false; } },
+
+    { id: 'tNetz', sym: '🕸', bez: 'Netz', reihe: 2, art: 'tipp',
+      hilfe: 'Netzschuss – wickelt einen Gegner ein', tun: () => webShot() },
+    { id: 'tZip', sym: '➤', bez: 'Zip', reihe: 2, art: 'tipp',
+      hilfe: 'Netz-Zip nach vorn oder zu einem Gegner', tun: () => webZip() },
+    { id: 'tHaken', sym: '↑✊', bez: 'Haken', reihe: 2, art: 'tipp',
+      hilfe: 'Aufwärtshaken – schleudert Gegner hoch (ab Stufe 2)',
+      frei: () => stufeFrei('uppercut'), gesperrtText: 'Aufwärtshaken gibt es ab Stufe 2',
+      tun: () => uppercut() },
+    { id: 'tWurf', sym: '✊➜', bez: 'Wurf', reihe: 2, art: 'tipp',
+      hilfe: 'Packen und werfen (ab Stufe 3)',
+      frei: () => stufeFrei('wurf'), gesperrtText: 'Packen und Werfen gibt es ab Stufe 3',
+      tun: () => packenUndWerfen() },
+    { id: 'tRolle', sym: '↻', bez: 'Rolle', reihe: 2, art: 'tipp',
+      hilfe: 'Ausweichrolle – im richtigen Moment gibt es einen Konter', tun: () => dodge() },
+    { id: 'tHilfeC', sym: '✚', bez: '1. Hilfe', reihe: 2, art: 'tipp',
+      hilfe: 'Verletzten am roten Kreuz helfen',
+      tun: () => { if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); } },
+
+    { id: 'tTritt', sym: '🦶', bez: 'Tritt', reihe: 3, gross: true, art: 'tipp',
+      hilfe: 'Tritt – mehr Schaden als der Schlag', tun: () => tryAttack('kick') },
+    { id: 'tSchlag', sym: '👊', bez: 'Schlag', reihe: 3, gross: true, art: 'tipp',
+      hilfe: 'Schlag-Kombo', tun: () => tryAttack('punch') },
+    { id: 'tSprung', sym: '⤒', bez: 'Sprung', reihe: 3, gross: true, art: 'tipp',
+      hilfe: 'Springen, in der Luft noch einmal für den Doppelsprung',
+      tun: () => tryJump() },
+    { id: 'tSchwung', sym: '🕷', bez: 'Schwung', reihe: 3, gross: true, art: 'halten',
+      hilfe: 'In der Luft halten: Netzschwung. Kurz tippen bleibt ein Sprung.',
+      tun: () => { swingHeld = true; }, los: () => { swingHeld = false; } },
+    { id: 'tNeu', sym: '↺', bez: 'Weiter', reihe: 3, gross: true, art: 'tipp',
+      hilfe: 'Nach einem K.o. zurück zum Startpunkt',
+      zeig: () => player.dead, tun: () => respawn() },
+  ];
+
+  const oben = document.getElementById('toben');
+  const unten = document.getElementById('tknoepfe');
+  touchKnoepfe.length = 0;
+  const reihen = {};
+  for (const a of TOUCH_AKTIONEN) {
+    if (!reihen[a.reihe]) {
+      const d = document.createElement('div');
+      d.className = 'treihe r' + a.reihe;
+      (a.reihe === 0 ? oben : unten).appendChild(d);
+      reihen[a.reihe] = d;
+    }
+    const el = document.createElement('button');
+    el.id = a.id;
+    el.className = a.klein ? 'tklein' : (a.gross ? 'tgross' : '');
+    el.innerHTML = `<span>${a.sym}</span>` +
+                   (a.klein ? '' : `<span class="tbez">${a.bez}</span>`);
+    reihen[a.reihe].appendChild(el);
+
+    /* Gesperrt ist nur, was noch nicht freigespielt ist – dann sagt der
+       Knopf auch, woran es liegt. Alles andere löst immer aus, selbst wenn
+       es blass ist: sonst verschluckt ein Druck kurz vor dem Absprung die
+       Eingabe, und das fühlt sich kaputt an. */
+    const erlaubt = () => (!a.frei || a.frei()) && (!a.zeig || a.zeig());
+    const runter = (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      if (!erlaubt()) {
+        popupScreen(a.gesperrtText || (a.bez + ' geht gerade nicht'));
+        return;
+      }
+      el.classList.add('tan');
+      a.tun();
+    };
+    const hoch = (ev) => {
+      if (ev) ev.stopPropagation();
+      el.classList.remove('tan');
+      if (a.los) a.los();
+    };
+    el.addEventListener('touchstart', runter, { passive: false });
+    el.addEventListener('touchend', hoch);
+    el.addEventListener('touchcancel', hoch);
+    /* Wandert der Finger vom Knopf herunter, gilt das ebenfalls als
+       Loslassen – sonst bliebe zum Beispiel der Schwung hängen. */
+    if (a.art === 'halten') el.addEventListener('touchmove', (ev) => {
+      const t = ev.changedTouches[0];
+      if (!t) return;
+      const b = el.getBoundingClientRect();
+      if (t.clientX < b.left - 24 || t.clientX > b.right + 24 ||
+          t.clientY < b.top - 24 || t.clientY > b.bottom + 24) hoch(ev);
+    }, { passive: false });
+
+    touchKnoepfe.push({ a, el, erlaubt });
   }
 
-  /* Ducken: gedrückt halten. */
-  const ducken = document.getElementById('tDucken');
-  if (ducken) {
-    const an = (ev) => { ev.preventDefault(); ev.stopPropagation(); touchDucken = true; };
-    const aus = () => { touchDucken = false; };
-    ducken.addEventListener('touchstart', an);
-    ducken.addEventListener('touchend', aus);
-    ducken.addEventListener('touchcancel', aus);
+  /* --- Hilfeblatt aus derselben Liste --- */
+  const liste = document.getElementById('thilfeListe');
+  if (liste) {
+    let html = '<div class="z"><div class="s">◉</div><div class="t">' +
+               '<b>Knüppel links</b><span>Laufen, klettern. Leicht auslenken = gehen, ' +
+               'ganz auslenken = sprinten.</span></div></div>' +
+               '<div class="z"><div class="s">✋</div><div class="t">' +
+               '<b>Rechte Bildhälfte wischen</b><span>Kamera drehen. Sie zieht auch von ' +
+               'allein mit – im Menü unter „Kamera folgt" einstellbar.</span></div></div>';
+    for (const a of TOUCH_AKTIONEN) {
+      if (a.reihe === 0) continue;
+      html += `<div class="z"><div class="s">${a.sym}</div><div class="t">` +
+              `<b>${a.bez}</b><span>${a.hilfe}</span></div></div>`;
+    }
+    liste.innerHTML = html;
   }
+  const zu = document.getElementById('thilfeZu');
+  if (zu) zu.addEventListener('click', () => zeigeTouchHilfe(false));
 
-  /* Klettern: gedrückt halten, um an der Wand zu bleiben. */
-  const klettern = document.getElementById('tKlettern');
-  if (klettern) {
-    const an = (ev) => { ev.preventDefault(); ev.stopPropagation(); touchKleben = true; };
-    const aus = () => { touchKleben = false; };
-    klettern.addEventListener('touchstart', an);
-    klettern.addEventListener('touchend', aus);
-    klettern.addEventListener('touchcancel', aus);
-  }
+  aktualisiereTouchKnoepfe();
+}
 
-  /* Netzschwung: gedrückt halten. */
-  const schwung = document.getElementById('tSchwung');
-  if (schwung) {
-    schwung.addEventListener('touchstart', (ev) => { ev.preventDefault(); ev.stopPropagation(); swingHeld = true; });
-    schwung.addEventListener('touchend', () => { swingHeld = false; });
-    schwung.addEventListener('touchcancel', () => { swingHeld = false; });
+/* Blende die Knöpfe nach Lage: was gerade nicht geht, wird blass. */
+function aktualisiereTouchKnoepfe() {
+  if (!touchKnoepfe.length) return;
+  for (const k of touchKnoepfe) {
+    const zeigen = !k.a.zeig || k.a.zeig();
+    k.el.classList.toggle('tweg', !zeigen);
+    const nutzbar = (!k.a.kann || k.a.kann()) && (!k.a.frei || k.a.frei());
+    k.el.classList.toggle('taus', zeigen && !nutzbar);
   }
-  const menue = document.getElementById('tMenue');
-  if (menue) menue.addEventListener('touchstart', (ev) => {
-    ev.preventDefault(); ev.stopPropagation();
-    zeigeEinstellungen(settingsEl.style.display !== 'flex');
-  });
+}
+
+function zeigeTouchHilfe(an) {
+  const el = document.getElementById('thilfe');
+  if (el) el.style.display = an ? 'flex' : 'none';
 }
 
 /* Sprint kommt von Shift, vom Gamepad oder vom Sprintknopf am Bildschirm. */
-function sprintAn() { return !!(keys['ShiftLeft'] || keys['ShiftRight'] || padSprint || touchSprint); }
+function sprintAn() { return !!(keys['ShiftLeft'] || keys['ShiftRight'] || padSprint || touchSprint || touchSprintKnopf); }
 
 /* ---- Vier Gangarten ----
    Vorher gab es nur zwei Geschwindigkeiten und beide sahen gleich aus.
@@ -4522,11 +4644,22 @@ function duckenAn() {
   return !!(keys['KeyX'] || touchDucken) && player.onGround &&
          player.state !== 'climb' && player.rollT <= 0 && !player.attack;
 }
+/* Wie weit ist der Daumenknüppel bzw. der Gamepad-Stick ausgelenkt?
+   -1 heißt: die Richtung kommt von der Tastatur, dort gibt es nur ganz
+   oder gar nicht. */
+function stickStaerke() {
+  if (keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD'] ||
+      keys['ArrowUp'] || keys['ArrowDown'] || keys['ArrowLeft'] || keys['ArrowRight']) return -1;
+  return clamp(Math.hypot(stick.x, stick.z), 0, 1);
+}
+/* Vier Gangarten, auf jedem Gerät dieselben Geschwindigkeiten.
+   Tastatur: X ducken, Alt gehen, nichts laufen, Shift sprinten.
+   Knüppel/Stick: bis 55 % gehen, bis 85 % laufen, darüber sprinten. */
 function gangTempo() {
   if (duckenAn()) return CFG.duckSpeed;
-  if (sprintAn()) return CFG.sprintSpeed;
-  const stick01 = Math.hypot(stick.x, stick.z);
-  if (geheAn() || (stick01 > 0.05 && stick01 < 0.55)) return CFG.walkSpeed;
+  const s = stickStaerke();
+  if (sprintAn() || s > 0.85) return CFG.sprintSpeed;
+  if (geheAn() || (s > 0.05 && s < 0.55)) return CFG.walkSpeed;
   return CFG.runSpeed;
 }
 
@@ -4540,6 +4673,7 @@ function camForward() {
 
 let camRoll = 0;
 let mausRuhe = 0;
+let flugGlatt = 0;   // geglättete Flugrichtung für die mitziehende Kamera
 function updateCamera(dt) {
   const emp = 0.0023 * (EINST.maus / 100);
   const mausAktiv = Math.abs(mouseDX) > 0.5 || Math.abs(mouseDY) > 0.5;
@@ -4556,15 +4690,41 @@ function updateCamera(dt) {
      die Maus einen Moment ruhen lässt, wandert sie sanft hinter die
      Flugrichtung – man sieht, wohin es geht, ohne dauernd nachziehen zu
      müssen. Jede Mausbewegung übernimmt sofort wieder das Kommando. */
-  /* Beim Schwingen zieht die Kamera NICHT mehr mit: die Flugrichtung ist
-     dort ständig in Bewegung, die Kamera lief mit und man hatte den
-     Eindruck, das Spiel lenke von allein. Beim Gleiten bleibt es. */
-  if (player.gleiten && speed > 6 && mausRuhe > 0.35) {
-    const flug = Math.atan2(player.vel.x, player.vel.z);
+  /* Wie weit die Kamera von allein mitzieht, hängt an der Einstellung
+     "Kamera folgt". Auf dem Handy hat man beim Schwingen keinen Daumen frei
+     zum Wischen, dort steht sie deshalb ab Werk auf "immer". Am Rechner
+     bleibt es bei "nur beim Gleiten": beim Schwingen fühlte es sich sonst
+     an, als lenke das Spiel selbst. Jede Wisch- oder Mausbewegung übernimmt
+     sofort wieder das Kommando. */
+  const AUTOKAM_STUFE = { aus: 0, gleiten: 1, schwung: 2, an: 3 };
+  const autoStufe = AUTOKAM_STUFE[EINST.autokam] !== undefined
+    ? AUTOKAM_STUFE[EINST.autokam] : 1;
+  let autoKraft = 0, autoRuhe = 0.35;
+  if (autoStufe >= 1 && player.gleiten && speed > 6) autoKraft = 1.5;
+  else if (autoStufe >= 2 && speed > 6 &&
+           (player.state === 'swing' || player.state === 'zip' || KAT.aktiv ||
+            (!player.onGround && player.katFlug > 0))) autoKraft = touchAktiv ? 1.5 : 1.0;
+  else if (autoStufe >= 3 && player.onGround && speed > 3.2 && !player.attack) {
+    /* Am Boden schwächer und träger – sonst dreht sich die Kamera schon
+       bei jedem kleinen Richtungswechsel um die eigene Achse. */
+    autoKraft = 0.55; autoRuhe = 0.8;
+  }
+  /* Die Kamera folgt nicht der Momentanrichtung, sondern einer geglätteten:
+     beim Schwingen pendelt die Flugrichtung im Bogen hin und her, und eine
+     Kamera, die das mitmacht, macht seekrank. Geglättet zeigt sie ruhig
+     dorthin, wo es insgesamt hingeht. */
+  const flugRoh = Math.atan2(player.vel.x, player.vel.z);
+  if (speed > 2) flugGlatt = dampAngle(flugGlatt, flugRoh, Math.min(0.4, dt * 2.2));
+  if (autoKraft > 0 && mausRuhe > autoRuhe) {
     /* camYaw ist die Richtung, aus der die Kamera schaut – also gegenüber. */
-    const zielYaw = flug + Math.PI;
-    const staerke = clamp((mausRuhe - 0.35) * 1.2, 0, 1) * (player.gleiten ? 1.5 : 1.0);
+    const zielYaw = flugGlatt + Math.PI;
+    const staerke = clamp((mausRuhe - autoRuhe) * 1.2, 0, 1) * autoKraft;
     camYaw = dampAngle(camYaw, zielYaw, Math.min(0.3, dt * 1.5 * staerke));
+    /* Der Blickwinkel wandert dabei in eine bequeme Höhe zurück: beim
+       Schwingen schaut man leicht von oben mit, statt in den Himmel oder
+       in den Asphalt zu starren. */
+    const zielPitch = player.onGround ? 0.2 : 0.12;
+    camPitch = lerp(camPitch, zielPitch, Math.min(0.25, dt * 0.9 * staerke));
   }
 
   /* Am Tiefpunkt des Bogens geht die Kamera weiter auf: dort ist man am
@@ -5417,6 +5577,10 @@ function damagePlayer(dmg, srcPos) {
   if (player.hp <= 0) {
     player.hp = 0; player.dead = true;
     document.getElementById('msg').style.display = 'flex';
+    /* Auf dem Handy gibt es keine Eingabetaste – dort steht der Knopf
+       "Weiter" unten rechts im Knopffeld. */
+    const mt = document.getElementById('msgText');
+    if (mt && touchAktiv) mt.innerHTML = 'Tippe unten rechts auf <b>↺ Weiter</b>.';
     SFX.ko();
   }
   updateHUD();
@@ -6589,6 +6753,9 @@ function katapultLos() {
   player.onGround = false;
   player.state = 'air';
   player.jumps = 1;
+  /* Merker für die Kamera: solange der Katapultflug läuft, darf sie hinter
+     die Flugrichtung ziehen, ohne dass man wischen muss. */
+  player.katFlug = 2.2;
   camShake = Math.max(camShake, 0.22 * t);
   staubWolke(player.pos, 1.2 + t);
   SFX.zip(); SFX.swoosh();
@@ -6597,6 +6764,7 @@ function katapultLos() {
 }
 
 function updateKatapult(dt) {
+  if (player.katFlug > 0) player.katFlug = player.onGround ? 0 : player.katFlug - dt;
   if (!KAT.aktiv) return;
   /* Loslassen oder Zustandswechsel beendet die Spannung. */
   if (player.dead || !player.onGround || player.state === 'swing') { katapultLos(); return; }
@@ -9075,7 +9243,7 @@ function updateMission(dt) {
 /* ======================= Einstellungen =======================
    Mausempfindlichkeit, Lautstärke und Grafikstufe waren fest verdrahtet.
    Alles ist jetzt über Esc erreichbar und wird im Browser gespeichert. */
-const EINST = { maus: 100, ton: 70, grafik: 'hoch', musik: 'an', karte: 'an' };
+const EINST = { maus: 100, ton: 70, grafik: 'hoch', musik: 'an', karte: 'an', autokam: 'gleiten' };
 try {
   const g = JSON.parse(localStorage.getItem('webhero_einst') || 'null');
   if (g) Object.assign(EINST, g);
@@ -9083,6 +9251,11 @@ try {
      am meisten. Wer es anders will, stellt es einmal um; die Wahl bleibt
      dann gespeichert. */
   else if (istTouch) EINST.grafik = 'mittel';
+  /* Auf dem Handy hat man beim Schwingen keine Hand frei, um die Kamera zu
+     wischen. Dort zieht sie deshalb von sich aus mit, sobald der Daumen
+     einen Moment ruht. Am Rechner bleibt es bei "nur beim Schwingen und
+     Gleiten", weil die Maus dort ohnehin immer greifbar ist. */
+  if (!g && istTouch) EINST.autokam = 'an';
 } catch (e) {}
 
 const settingsEl = document.getElementById('settings');
@@ -9120,12 +9293,17 @@ function zeigeEinstellungen(an) {
   const graf = document.getElementById('setGrafik');
   const mus = document.getElementById('setMusik');
   const kar = document.getElementById('setKarte');
+  const akam = document.getElementById('setAutokam');
   const wMaus = document.getElementById('wMaus');
   const wTon = document.getElementById('wTon');
   if (!maus) return;
   maus.value = EINST.maus; ton.value = EINST.ton; graf.value = EINST.grafik;
   if (mus) mus.value = EINST.musik;
   if (kar) kar.value = EINST.karte;
+  if (akam) akam.value = EINST.autokam;
+  /* Auf dem Handy heißt der Regler nach dem, was man dort tut. */
+  const lbl = document.getElementById('lblMaus');
+  if (lbl && istTouch) lbl.textContent = 'Wischempfindlichkeit';
   const zeige = () => { wMaus.textContent = EINST.maus + '%'; wTon.textContent = EINST.ton + '%'; };
   zeige();
   maus.addEventListener('input', () => { EINST.maus = +maus.value; zeige(); einstSpeichern(); });
@@ -9133,6 +9311,7 @@ function zeigeEinstellungen(an) {
   graf.addEventListener('change', () => { EINST.grafik = graf.value; wendeGrafikAn(); einstSpeichern(); });
   if (mus) mus.addEventListener('change', () => { EINST.musik = mus.value; wendeTonAn(); einstSpeichern(); });
   if (kar) kar.addEventListener('change', () => { EINST.karte = kar.value; wendeKarteAn(); einstSpeichern(); });
+  if (akam) akam.addEventListener('change', () => { EINST.autokam = akam.value; einstSpeichern(); });
   document.getElementById('setZu').addEventListener('click', () => zeigeEinstellungen(false));
   document.getElementById('setReset').addEventListener('click', () => {
     try { localStorage.removeItem('webhero_stand'); localStorage.removeItem('webhero_best'); } catch (e) {}
@@ -9507,6 +9686,7 @@ function regleQualitaet(msJetzt) {
   }
 }
 
+let knopfCd = 0;
 function animate() {
   requestAnimationFrame(animate);
   let dt = Math.min(clock.getDelta(), 0.05);
@@ -9569,6 +9749,12 @@ function simuliere(dt) {
   updateKlang(dt);
   updateDampf(dt);
   updateSpritzer(dt);
+  /* Die Touch-Knöpfe zeigen an, was gerade geht. Das ändert sich nicht von
+     Bild zu Bild – fünfmal je Sekunde reicht und kostet nichts. */
+  if (touchAktiv) {
+    knopfCd -= dt;
+    if (knopfCd <= 0) { knopfCd = 0.2; aktualisiereTouchKnoepfe(); }
+  }
   updateVoegel(dt);
 
   // Wasser-Animation
@@ -9611,13 +9797,32 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeKamYaw(v) { camYaw = v; },
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
     schritt(dt, n) { for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60); },
+    /* Nur die Kamera rechnen – so lässt sich das Mitziehen an einem
+       vorgegebenen Flug messen, ohne dass die Spielphysik dazwischenfunkt. */
+    kamSchritt(dt) { updateCamera(dt || 1 / 60); },
     get mission() { return MISSION; },
     get stufe() { return stufe; },
     get ruf() { return ruf; },
-    addScore, hurtCivilian, ersteHilfe, damageEnemy,
+    addScore, hurtCivilian, ersteHilfe, damageEnemy, damagePlayer, respawn,
     musikStart() { MUSIK.starte(); },
     get istTouch() { return istTouch; },
     get touchAktiv() { return touchAktiv; },
+    get swingHeld() { return swingHeld; },
+    sprintAn, geheAn, duckenAn, gangTempo,
+    setzePos(x, y, z) { player.pos.set(x, y, z); player.vel.set(0, 0, 0); },
+    get camYaw() { return camYaw; },
+    get camPitch() { return camPitch; },
+    touchKnopf(id, phase) {
+      const el = document.getElementById(id);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      const t = new Touch({ identifier: 91, target: el,
+                            clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+      el.dispatchEvent(new TouchEvent(phase, { bubbles: true, cancelable: true,
+        touches: phase === 'touchend' ? [] : [t], changedTouches: [t],
+        targetTouches: phase === 'touchend' ? [] : [t] }));
+      return true;
+    },
     stick,
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
