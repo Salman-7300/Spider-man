@@ -696,7 +696,11 @@ function inWater(x, z) {
    einzelne Kiste und sahen aus wie ein hingelegter Balken.
    richtung: 0 = Bank steht quer zur x-Achse (Sitzfläche lang in x),
              1 = lang in z. */
-function baueBank(x, y, z, laengsZ, holz) {
+function baueBank(x, y, z, laengsZ, holz, rueck) {
+  /* rueck = +1 dreht die Lehne auf die andere Seite. Auf dem Bahnsteig
+     standen die Baenke sonst mit der Lehne zum Gleis und dem Gesicht zur
+     Wand - genau das sah verkehrt herum aus. */
+  const rs = rueck === undefined ? -1 : (rueck >= 0 ? 1 : -1);
   const H = holz === undefined ? 0x6b4a2c : holz;
   const L = 2.2;                                  // Länge
   const lx = laengsZ ? 0.62 : L, lz = laengsZ ? L : 0.62;
@@ -720,14 +724,14 @@ function baueBank(x, y, z, laengsZ, holz) {
   /* Lehne: zwei Latten, leicht nach hinten versetzt */
   for (let i = 0; i < 2; i++) {
     const hy = sitzY + 0.26 + i * 0.2;
-    const back = -0.24 - i * 0.05;
+    const back = rs * (0.24 + i * 0.05);
     deko(laengsZ ? 0.14 : lx, 0.14, laengsZ ? lz : 0.14,
          x + (laengsZ ? back : 0), hy, z + (laengsZ ? 0 : back), H);
   }
   /* Lehnenstützen */
   for (const s2 of [-1, 1]) {
-    const ox = laengsZ ? -0.26 : s2 * (L / 2 - 0.22);
-    const oz = laengsZ ? s2 * (L / 2 - 0.22) : -0.26;
+    const ox = laengsZ ? rs * 0.26 : s2 * (L / 2 - 0.22);
+    const oz = laengsZ ? s2 * (L / 2 - 0.22) : rs * 0.26;
     deko(0.09, 0.62, 0.09, x + ox, sitzY + 0.3, z + oz, 0x33383e);
   }
   addCollider({ x0: x - lx / 2, x1: x + lx / 2, z0: z - lz / 2, z1: z + lz / 2,
@@ -746,7 +750,7 @@ function baueBank(x, y, z, laengsZ, holz) {
    naechsten Station versetzt hat. Auf dem Gleis fahren zwei Zuege, einer
    je Richtung. */
 const UBAHNEN = [];                       // gebaute Stationen, { x }
-const UB_TIEF = -9.5;                     // Bahnsteighoehe, tief unter der Strasse
+const UB_TIEF = -12.0;                    // Bahnsteighoehe, tief unter der Strasse
 const UB_GLEIS_TIEF = UB_TIEF - 1.2;      // Sohle des Gleistrogs
 const UB_Z = 25;                          // die Linie folgt dieser Strassenachse
 const UB_STAT_X = [-150, -50, 50, 150];   // Stationen (Blockmitten)
@@ -757,15 +761,18 @@ const UB_GLEIS_Z0 = 23.0, UB_GLEIS_Z1 = 27.8;    // Gleistrog (zwei Gleise)
 const UB_GLEIS_A = UB_GLEIS_Z0 + 1.25;           // Gleis Richtung +x
 const UB_GLEIS_B = UB_GLEIS_Z1 - 1.25;           // Gleis Richtung -x
 const UB_STEIG_Z0 = 27.8, UB_STEIG_Z1 = 34.8;    // Bahnsteig / Gehweg
-const UB_DECKE = UB_TIEF + 4.4;
+const UB_DECKE = UB_TIEF + 5.0;
 
 /* Treppenschacht: liegt im Randstreifen des Gehwegs (z 31..35), wo keine
    Haeuser stehen, und laeuft in x-Richtung. Kopf aussen, Fuss innen. */
-const UB_SCHACHT_Z0 = 31.2, UB_SCHACHT_Z1 = 34.8;
+/* Der Schacht liegt vollstaendig im Gehwegstreifen (z 31..35). Die erste
+   Fassung reichte bis z 31,2 an die Bordsteinkante - die Schachtwand stand
+   damit auf der Fahrbahn. */
+const UB_SCHACHT_Z0 = 31.6, UB_SCHACHT_Z1 = 34.7;
 const UB_TR_X0 = 2.0;                     // Fuss, relativ zur Stationsmitte
-const UB_TR_X1 = 15.4;                    // Kopf an der Oberflaeche
+const UB_TR_X1 = 19.0;                    // Kopf an der Oberflaeche
 const UB_TREPPE = UB_TR_X1 - UB_TR_X0;
-const UB_STUFEN = 34;
+const UB_STUFEN = 42;
 
 const UB_X0 = UB_STAT_X[0] - UB_HALLE_X / 2;                       // Linienanfang
 const UB_X1 = UB_STAT_X[UB_STAT_X.length - 1] + UB_HALLE_X / 2;    // Linienende
@@ -773,6 +780,38 @@ const UB_X1 = UB_STAT_X[UB_STAT_X.length - 1] + UB_HALLE_X / 2;    // Linienende
 /* Hat dieser Block einen U-Bahn-Eingang? Dann bekommt der Gehwegsockel ein
    Loch, sonst sieht man von oben nur eine geschlossene Flaeche - genau das
    war der Grund, warum man den Eingang nicht gefunden hat. */
+/* Alle Schachtoeffnungen der Linie als Rechtecke. */
+function ubahnLoecher() {
+  return UB_STAT_X.map((sx) => ({
+    x0: sx + UB_TR_X0, x1: sx + UB_TR_X1,
+    z0: UB_SCHACHT_Z0, z1: UB_SCHACHT_Z1,
+  }));
+}
+
+/* Eine Rechteckflaeche in Streifen zerlegen, so dass die angegebenen
+   Loecher frei bleiben. Alle Loecher liegen im selben z-Band (die Linie
+   verlaeuft in x), deshalb reichen drei Baender. */
+function flaecheMitLoechern(x0, x1, z0, z1, loecher) {
+  const teile = [];
+  const rechteck = (a, b, c, d) => {
+    if (b - a > 0.05 && d - c > 0.05)
+      teile.push({ x: (a + b) / 2, z: (c + d) / 2, w: b - a, d: d - c });
+  };
+  if (!loecher || !loecher.length) { rechteck(x0, x1, z0, z1); return teile; }
+  const bz0 = Math.max(z0, Math.min(...loecher.map((l) => l.z0)));
+  const bz1 = Math.min(z1, Math.max(...loecher.map((l) => l.z1)));
+  rechteck(x0, x1, z0, bz0);
+  rechteck(x0, x1, bz1, z1);
+  const sortiert = loecher.slice().sort((a, b) => a.x0 - b.x0);
+  let x = x0;
+  for (const l of sortiert) {
+    rechteck(x, Math.max(x, Math.min(l.x0, x1)), bz0, bz1);
+    x = Math.max(x, Math.min(l.x1, x1));
+  }
+  rechteck(x, x1, bz0, bz1);
+  return teile;
+}
+
 function ubahnLochFuerBlock(cx, cz) {
   if (Math.abs(cz - 50) > 1) return null;
   for (const sx of UB_STAT_X) {
@@ -782,6 +821,19 @@ function ubahnLochFuerBlock(cx, cz) {
       return { x0: sx + UB_TR_X0, x1: sx + UB_TR_X1,
                z0: UB_SCHACHT_Z0, z1: UB_SCHACHT_Z1, sx };
     }
+  }
+  return null;
+}
+
+/* Boden im fahrenden Wagen. Wird von groundY zuerst gefragt, damit man im
+   Zug auf dem Wagenboden steht und nicht durch ihn hindurch im Gleisbett.
+   ZUEGE entsteht spaeter im Ablauf, deshalb die Existenzpruefung. */
+function zugBoden(x, z, yRef) {
+  if (typeof ZUEGE === 'undefined' || !ZUEGE.length) return null;
+  if (yRef === undefined || yRef > UB_TIEF || yRef < UB_GLEIS_TIEF + 0.1) return null;
+  for (const t of ZUEGE) {
+    if (Math.abs(x - t.x) < ZUG_LANG / 2 - 0.3 &&
+        Math.abs(z - t.z) < ZUG_BREIT / 2 - 0.15) return UB_GLEIS_TIEF + 0.45;
   }
   return null;
 }
@@ -814,6 +866,9 @@ function ubahnBoden(x, z, yRef) {
 }
 
 function groundY(x, z, yRef) {
+  /* Im Wagen steht man auf dem Zugboden, nicht im Schotter. */
+  const zb = zugBoden(x, z, yRef);
+  if (zb !== null) return zb;
   const ub = ubahnBoden(x, z, yRef);
   if (ub !== null) return ub;
   if (x >= SHORE_X1 || x <= -195 || Math.abs(z) >= 195) return 0;
@@ -855,11 +910,13 @@ function deko(w, h, d, x, y, z, farbe, ry) {
   dekoTeile.push({ w, h, d, x, y, z, farbe, ry: ry || 0 });
 }
 
-function baueDekoMesh() {
-  if (!dekoTeile.length) return;
+/* Eine Liste von Kisten {w,h,d,x,y,z,farbe,ry} zu EINER Geometrie
+   verschmelzen. Die Farbe steckt danach in den Eckpunkten, deshalb reicht
+   ein einziges Material und ein einziger Zeichenaufruf. */
+function verschmelzeBoxen(teile) {
   const basis = new THREE.BoxGeometry(1, 1, 1);
   const bp = basis.attributes.position, bn = basis.attributes.normal, bi = basis.index;
-  const anzahl = dekoTeile.length;
+  const anzahl = teile.length;
   const positionen = new Float32Array(anzahl * bp.count * 3);
   const normalen = new Float32Array(anzahl * bp.count * 3);
   const farben = new Float32Array(anzahl * bp.count * 3);
@@ -869,8 +926,8 @@ function baueDekoMesh() {
   const skal = new THREE.Vector3(), eul = new THREE.Euler();
   const v = new THREE.Vector3(), farbe = new THREE.Color();
   let vo = 0, io = 0;
-  for (const t of dekoTeile) {
-    eul.set(0, t.ry, 0);
+  for (const t of teile) {
+    eul.set(0, t.ry || 0, 0);
     m.compose(pos.set(t.x, t.y, t.z), quat.setFromEuler(eul), skal.set(t.w, t.h, t.d));
     nm.getNormalMatrix(m);
     farbe.set(t.farbe);
@@ -890,7 +947,13 @@ function baueDekoMesh() {
   g.setAttribute('color', new THREE.BufferAttribute(farben, 3));
   g.setIndex(new THREE.BufferAttribute(indizes, 1));
   g.computeBoundingSphere();
-  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  return g;
+}
+
+function baueDekoMesh() {
+  if (!dekoTeile.length) return;
+  const mesh = new THREE.Mesh(verschmelzeBoxen(dekoTeile),
+                              new THREE.MeshLambertMaterial({ vertexColors: true }));
   mesh.castShadow = true; mesh.receiveShadow = true;
   cityGroup.add(mesh);
   dekoTeile.length = 0;
@@ -1008,16 +1071,20 @@ function schmueckeHaus(w, h, d, x, z) {
 }
 
 function buildCity() {
-  // Boden (Asphalt) – Stadtseite
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(400, 400),
-    new THREE.MeshLambertMaterial({ map: asphaltTex })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(-7, 0, 0);
-  ground.receiveShadow = true;
-  cityGroup.add(ground);
-  strassenMat = ground.material;
+  /* Boden (Asphalt) – Stadtseite.
+     Nicht als eine geschlossene Platte: ueber jedem U-Bahn-Schacht bleibt
+     ein Loch. Vorher war der Gehwegsockel zwar ausgespart, darunter lag
+     aber weiterhin diese 400x400-Platte - von oben sah man deshalb Asphalt
+     statt der Treppe. */
+  const bodenMat = new THREE.MeshLambertMaterial({ map: asphaltTex });
+  for (const t of flaecheMitLoechern(-207, 193, -200, 200, ubahnLoecher())) {
+    const g = new THREE.Mesh(new THREE.PlaneGeometry(t.w, t.d), bodenMat);
+    g.rotation.x = -Math.PI / 2;
+    g.position.set(t.x, 0, t.z);
+    g.receiveShadow = true;
+    cityGroup.add(g);
+  }
+  strassenMat = bodenMat;
 
   /* Fahrbahnmarkierungen. Sie gehen ins gemeinsame Sammel-Mesh: einzeln
      gezeichnet waren das über 500 Zeichenaufrufe allein für die Striche –
@@ -1056,21 +1123,8 @@ function buildCity() {
      ausgespart bleibt (Treppenschacht der U-Bahn). Ohne Loch bleibt es bei
      einer einzigen Platte. */
   function sockelTeile(cx, cz, size, loch) {
-    const x0 = cx - size / 2, x1 = cx + size / 2;
-    const z0 = cz - size / 2, z1 = cz + size / 2;
-    if (!loch) return [{ x: cx, z: cz, w: size, d: size }];
-    const lx0 = clamp(loch.x0, x0, x1), lx1 = clamp(loch.x1, x0, x1);
-    const lz0 = clamp(loch.z0, z0, z1), lz1 = clamp(loch.z1, z0, z1);
-    const teile = [];
-    const rechteck = (a, b, c, d) => {
-      if (b - a > 0.02 && d - c > 0.02)
-        teile.push({ x: (a + b) / 2, z: (c + d) / 2, w: b - a, d: d - c });
-    };
-    rechteck(x0, x1, z0, lz0);        // vor dem Loch
-    rechteck(x0, x1, lz1, z1);        // hinter dem Loch
-    rechteck(x0, lx0, lz0, lz1);      // links daneben
-    rechteck(lx1, x1, lz0, lz1);      // rechts daneben
-    return teile;
+    return flaecheMitLoechern(cx - size / 2, cx + size / 2,
+                              cz - size / 2, cz + size / 2, loch ? [loch] : null);
   }
   const slabMat = new THREE.MeshLambertMaterial({ map: sidewalkTex });
   for (let bi = 0; bi < BLOCKS; bi++) {
@@ -1241,36 +1295,35 @@ function baueUBahn(x) {
     deko(0.09, 0.035, UB_SCHACHT_Z1 - UB_SCHACHT_Z0 - 0.2, xx + stufeT / 2 - 0.06,
          y1 + 0.11, (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0xe8e4c8);
   }
-  /* Schachtwaende laengs, dazu Leuchtbaender. */
+  /* Schachtwaende laengs, dazu Leuchtbaender.
+     WICHTIG: die Oberkante endet buendig mit dem Gehweg. In der ersten
+     Fassung ragten die Waende 1,25 m ueber die Strasse und der Koerper
+     reichte bis SLAB_H + 1,1 - das war die Mauer quer ueber die Fahrbahn,
+     an der die Autos haengen blieben und aus der man nur noch heraus-
+     springen konnte. */
+  const wandOben = SLAB_H, wandUnten = UB_TIEF - 0.6;
   for (const s2 of [-1, 1]) {
     const wz = s2 < 0 ? UB_SCHACHT_Z0 - 0.25 : UB_SCHACHT_Z1 + 0.25;
-    deko(UB_TREPPE + 0.9, 11.0, 0.5, x + (UB_TR_X0 + UB_TR_X1) / 2,
-         UB_TIEF + 5.5, wz, 0x4e565f);
+    deko(UB_TREPPE + 0.9, wandOben - wandUnten, 0.5, x + (UB_TR_X0 + UB_TR_X1) / 2,
+         (wandOben + wandUnten) / 2, wz, 0x4e565f);
+    /* Sperrt nur UNTER dem Gehweg: wer oben laeuft, wird nicht gebremst. */
     addCollider({ x0: x + UB_TR_X0 - 0.45, x1: x + UB_TR_X1 + 0.45,
-                  z0: wz - 0.25, z1: wz + 0.25, h: SLAB_H + 1.1,
-                  y0: UB_TIEF - 0.4, keinKlettern: true });
-    for (let i = 0; i < 5; i++) {
-      const t = (i + 0.5) / 5;
+                  z0: wz - 0.25, z1: wz + 0.25, h: SLAB_H - 0.03,
+                  y0: wandUnten, keinKlettern: true });
+    for (let i = 0; i < 6; i++) {
+      const t = (i + 0.5) / 6;
       deko(1.3, 0.16, 0.1, x + UB_TR_X1 - t * UB_TREPPE,
            lerp(SLAB_H, UB_TIEF, t) + 2.2, wz + (s2 < 0 ? 0.2 : -0.2), 0xf4f0d8);
     }
   }
-  /* Der Treppenkopf bleibt offen: von dort geht man hinein. Eine Wand an
-     dieser Stelle hat den Eingang komplett verriegelt - genau das war beim
-     alten Schacht der Fehler. Am unteren Ende steht dafuer ein Gelaender,
-     damit man von der Strasse nicht in den Schacht faellt. */
-  const gx = x + UB_TR_X0 - 0.3;
-  deko(0.2, 1.1, UB_SCHACHT_Z1 - UB_SCHACHT_Z0 + 0.9, gx, SLAB_H + 0.55,
-       (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0x2e3238);
-  addCollider({ x0: gx - 0.12, x1: gx + 0.12, z0: UB_SCHACHT_Z0 - 0.45,
-                z1: UB_SCHACHT_Z1 + 0.45, h: SLAB_H + 1.0, y0: SLAB_H - 0.1,
-                keinKlettern: true });
-  /* Gelaender laengs an beiden Schachtkanten, damit das Loch von oben
-     sichtbar eingefasst ist. */
+  /* Beide Enden des Schachts bleiben offen: oben geht man hinein, unten
+     kommt man auf den Bahnsteig. Kein Gelaender - das war die Wand, ueber
+     die man nicht mehr hinauslaufen konnte. Statt dessen ein flacher
+     Randstein, der das Loch sichtbar einfasst, ohne zu sperren. */
   for (const s2 of [-1, 1]) {
-    const wz = s2 < 0 ? UB_SCHACHT_Z0 - 0.3 : UB_SCHACHT_Z1 + 0.3;
-    deko(UB_TREPPE * 0.9, 1.0, 0.12, x + (UB_TR_X0 + UB_TR_X1) / 2,
-         SLAB_H + 0.5, wz, 0x2e3238);
+    const wz = s2 < 0 ? UB_SCHACHT_Z0 - 0.28 : UB_SCHACHT_Z1 + 0.28;
+    deko(UB_TREPPE + 0.9, 0.14, 0.34, x + (UB_TR_X0 + UB_TR_X1) / 2,
+         SLAB_H + 0.06, wz, 0xd8c24a);
   }
 
   /* ---- Bahnsteighalle ---- */
@@ -1278,13 +1331,13 @@ function baueUBahn(x) {
   deko(hx, 0.4, gleisT, x, UB_GLEIS_TIEF - 0.2, gleisM, 0x1a1d21);    // Gleissohle
   /* Decke: mit Aussparung dort, wo der Treppenschacht durchstoesst. */
   deko(hx, 0.4, UB_STEIG_Z1 - UB_GLEIS_Z0 - (UB_SCHACHT_Z1 - UB_SCHACHT_Z0),
-       x, UB_DECKE, (UB_GLEIS_Z0 + UB_SCHACHT_Z0) / 2, 0x353b42);
+       x, UB_DECKE, (UB_GLEIS_Z0 + UB_SCHACHT_Z0) / 2, 0x454c55);
   for (const seite of [-1, 1]) {
     const bx = seite < 0 ? (x - hx / 2 + (UB_TR_X0 + hx / 2) / 2)
                          : (x + UB_TR_X1 + (hx / 2 - UB_TR_X1) / 2 + 0.2);
     const bw = seite < 0 ? (UB_TR_X0 + hx / 2) : Math.max(0.4, hx / 2 - UB_TR_X1);
     if (bw > 0.5) deko(bw, 0.4, UB_SCHACHT_Z1 - UB_SCHACHT_Z0, bx, UB_DECKE,
-                       (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0x353b42);
+                       (UB_SCHACHT_Z0 + UB_SCHACHT_Z1) / 2, 0x454c55);
   }
   /* Rueckwand des Bahnsteigs, mit Loch fuer die Treppe. */
   for (const seite of [-1, 1]) {
@@ -1313,7 +1366,8 @@ function baueUBahn(x) {
   deko(hx - 4, 0.16, 0.6, x, UB_DECKE - 0.3, (UB_GLEIS_Z0 + UB_GLEIS_Z1) / 2, 0xf2f6e8);
   deko(3.4, 1.1, 0.14, x, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.2, 0x1b8f4a);
   deko(3.0, 0.8, 0.16, x, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.22, 0xf2f6f0);
-  for (const s2 of [-1, 1]) baueBank(x + s2 * 8, UB_TIEF, UB_STEIG_Z1 - 1.6, false);
+  /* Lehne zur Rueckwand, Blick aufs Gleis. */
+  for (const s2 of [-1, 1]) baueBank(x + s2 * 8, UB_TIEF, UB_STEIG_Z1 - 1.5, false, undefined, 1);
 
   /* ---- Oben: Mast und Schild neben dem Loch ---- */
   const mx = x + UB_TR_X1 + 1.6;
@@ -1341,8 +1395,10 @@ function baueUBahnLinie() {
     const laenge = b - a, mitte = (a + b) / 2;
     deko(laenge, 0.4, steigT, mitte, UB_TIEF - 0.2, steigM, 0x2b2f34);        // Gehweg
     deko(laenge, 0.4, gleisT, mitte, UB_GLEIS_TIEF - 0.2, gleisM, 0x16191d);  // Gleissohle
-    deko(laenge, 0.4, UB_STEIG_Z1 - UB_GLEIS_Z0, mitte, UB_DECKE - 0.8,
-         (UB_GLEIS_Z0 + UB_STEIG_Z1) / 2, 0x33383e);                          // Decke
+    /* Decke auf derselben Hoehe wie in der Halle - sonst blieb zwischen
+       Tunneldecke und Erdreich ein Schlitz, durch den man in den Himmel sah. */
+    deko(laenge, 0.4, UB_STEIG_Z1 - UB_GLEIS_Z0 + 1.6, mitte, UB_DECKE,
+         (UB_GLEIS_Z0 + UB_STEIG_Z1) / 2, 0x3d434b);                          // Decke
     /* Heller als die erste Fassung: unter Tage gibt es nur Umgebungslicht,
        und dunkelgraue Waende wurden dort zu einer schwarzen Wand. */
     deko(laenge, 5.6, 0.5, mitte, UB_TIEF + 2.8, UB_STEIG_Z1 + 0.25, 0x555c66);
@@ -1358,8 +1414,8 @@ function baueUBahnLinie() {
     const n = Math.max(3, Math.round(laenge / 7));
     for (let i = 0; i < n; i++) {
       const lx = a + (i + 0.5) * (laenge / n);
-      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 1.15, steigM, 0xffffff);
-      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 1.15, (UB_GLEIS_Z0 + UB_GLEIS_Z1) / 2, 0xf2f6e8);
+      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 0.4, steigM, 0xffffff);
+      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 0.4, (UB_GLEIS_Z0 + UB_GLEIS_Z1) / 2, 0xf2f6e8);
       if (i % 2 === 0)
         deko(0.28, 5.4, 0.28, lx, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.6, 0x3c434c);  // Stuetze
     }
@@ -1375,6 +1431,30 @@ function baueUBahnLinie() {
       deko(0.3, 0.1, 2.0, sx, UB_GLEIS_TIEF + 0.02, gz, 0x3a3128);
     }
   }
+  /* ---- Erdreich zwischen Tunneldecke und Strasse ----
+     Von unten sah man an den Raendern der Decke vorbei bis in den Himmel,
+     obwohl man unter der Erde steht. Ueber der ganzen Linie liegt jetzt
+     eine geschlossene Schicht - ausgespart nur dort, wo ein Treppenschacht
+     durchstoesst. */
+  /* Unterkante bewusst IN die Decke hinein: eine Fuge waere ein Sehschlitz. */
+  const erdeUnten = UB_DECKE - 0.1, erdeOben = -0.5;
+  const erdeH = erdeOben - erdeUnten, erdeY = (erdeOben + erdeUnten) / 2;
+  const erde = (x0, x1, z0, z1) => {
+    if (x1 - x0 < 0.05 || z1 - z0 < 0.05) return;
+    deko(x1 - x0, erdeH, z1 - z0, (x0 + x1) / 2, erdeY, (z0 + z1) / 2, 0x2a2620);
+  };
+  if (erdeH > 0.2) {
+    erde(UB_X0 - 0.5, UB_X1 + 0.5, UB_GLEIS_Z0 - 0.8, UB_SCHACHT_Z0);
+    erde(UB_X0 - 0.5, UB_X1 + 0.5, UB_SCHACHT_Z1, UB_STEIG_Z1 + 0.8);
+    /* Der Streifen mit den Schaechten: nur zwischen den Schaechten. */
+    let x = UB_X0 - 0.5;
+    for (const sx of UB_STAT_X) {
+      erde(x, sx + UB_TR_X0, UB_SCHACHT_Z0, UB_SCHACHT_Z1);
+      x = sx + UB_TR_X1;
+    }
+    erde(x, UB_X1 + 0.5, UB_SCHACHT_Z0, UB_SCHACHT_Z1);
+  }
+
   /* Enden der Linie zumauern. */
   for (const ex of [UB_X0 - 0.25, UB_X1 + 0.25]) {
     deko(0.5, 12.0, UB_STEIG_Z1 - UB_GLEIS_Z0 + 1, ex, UB_GLEIS_TIEF + 6.0,
@@ -1391,29 +1471,65 @@ function baueUBahnLinie() {
    auf den Bahnsteig geschoben und bekommt einen Treffer - deshalb blinkt
    vorher der Bahnsteig und man hoert das Rollen naeher kommen. */
 const ZUEGE = [];
-const ZUG_LANG = 26, ZUG_BREIT = 2.3, ZUG_HOCH = 2.9;
+const ZUG_WAGEN = 3;                        // Wagen je Zug
+const ZUG_WLANG = 17.5, ZUG_LUECKE = 0.9;   // Laenge eines Wagens, Abstand
+const ZUG_LANG = ZUG_WAGEN * ZUG_WLANG + (ZUG_WAGEN - 1) * ZUG_LUECKE;   // 53,3 m
+const ZUG_BREIT = 2.4, ZUG_HOCH = 3.0;
+const ZUG_HALT = 6.0;                       // Sekunden Aufenthalt je Station
 /* Zwei Gleise nebeneinander im gemeinsamen Trog. */
 const ZUG_Z = [UB_GLEIS_A, UB_GLEIS_B];
 
+/* Ein Zug aus mehreren Wagen. Alles wird zu einer Geometrie verschmolzen -
+   die Farbe steckt in den Eckpunkten, also reicht ein Zeichenaufruf je Zug.
+   In den Fenstern sitzen Fahrgaeste: Kopf und Schultern, leicht versetzt,
+   damit es nicht nach Reihe aussieht. */
 function baueZug(farbe) {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshLambertMaterial({ color: farbe });
-  const fenster = new THREE.MeshBasicMaterial({ color: 0xd8ecff });
-  const kasten = new THREE.Mesh(new THREE.BoxGeometry(ZUG_LANG, ZUG_HOCH, ZUG_BREIT), mat);
-  kasten.position.y = ZUG_HOCH / 2 + 0.35;
-  g.add(kasten);
-  /* Fensterbaender links und rechts, dazu ein heller Streifen. */
-  for (const s2 of [-1, 1]) {
-    const f = new THREE.Mesh(new THREE.BoxGeometry(ZUG_LANG - 3, 0.85, 0.06), fenster);
-    f.position.set(0, ZUG_HOCH * 0.62 + 0.35, s2 * (ZUG_BREIT / 2 + 0.02));
-    g.add(f);
+  const t = [];
+  const boden = 0.45;                       // Unterkante ueber der Schiene
+  for (let w = 0; w < ZUG_WAGEN; w++) {
+    const wx = (w - (ZUG_WAGEN - 1) / 2) * (ZUG_WLANG + ZUG_LUECKE);
+    /* Wagenkasten, oben abgesetztes Dach. */
+    t.push({ w: ZUG_WLANG, h: ZUG_HOCH, d: ZUG_BREIT, x: wx, y: boden + ZUG_HOCH / 2, z: 0, farbe });
+    t.push({ w: ZUG_WLANG - 0.5, h: 0.18, d: ZUG_BREIT + 0.12, x: wx,
+             y: boden + ZUG_HOCH - 0.06, z: 0, farbe: 0x3a3f46 });
+    /* Drehgestelle. */
+    for (const s2 of [-1, 1]) {
+      t.push({ w: 2.6, h: 0.5, d: ZUG_BREIT - 0.5, x: wx + s2 * (ZUG_WLANG / 2 - 2.4),
+               y: boden - 0.2, z: 0, farbe: 0x1d2126 });
+    }
+    /* Fensterband und Tueren auf beiden Seiten. */
+    for (const s2 of [-1, 1]) {
+      const zs = s2 * (ZUG_BREIT / 2 + 0.03);
+      t.push({ w: ZUG_WLANG - 2.6, h: 1.0, d: 0.08, x: wx, y: boden + 1.85, z: zs,
+               farbe: 0xdce9f5 });
+      /* Zwei Tueren je Wagen und Seite. */
+      for (const d2 of [-1, 1]) {
+        t.push({ w: 1.3, h: 2.1, d: 0.1, x: wx + d2 * 4.4, y: boden + 1.15, z: zs,
+                 farbe: 0x27333f });
+        t.push({ w: 0.06, h: 2.1, d: 0.12, x: wx + d2 * 4.4, y: boden + 1.15, z: zs,
+                 farbe: 0x8fa6bc });
+      }
+      /* Fahrgaeste hinter den Fenstern: Kopf und Schultern. */
+      for (let p = 0; p < 5; p++) {
+        const px = wx - (ZUG_WLANG - 4.5) / 2 + p * ((ZUG_WLANG - 4.5) / 4);
+        const zi = s2 * (ZUG_BREIT / 2 - 0.34);
+        const kopf = 0xc9a07a - (p % 3) * 0x101010;
+        t.push({ w: 0.5, h: 0.52, d: 0.34, x: px, y: boden + 1.62, z: zi,
+                 farbe: [0x2e3a5c, 0x5c2e2e, 0x2e5c3a, 0x4a4a52][p % 4] });   // Schultern
+        t.push({ w: 0.26, h: 0.28, d: 0.24, x: px, y: boden + 2.02, z: zi, farbe: kopf });
+      }
+    }
+    /* Stirnseiten: Scheinwerfer nur ganz vorn und ganz hinten. */
+    if (w === 0 || w === ZUG_WAGEN - 1) {
+      const sx = w === 0 ? -1 : 1;
+      t.push({ w: 0.1, h: 0.32, d: 1.5, x: wx + sx * (ZUG_WLANG / 2 + 0.02),
+               y: boden + 0.85, z: 0, farbe: 0xfff3c4 });
+      t.push({ w: 0.1, h: 0.9, d: ZUG_BREIT - 0.7, x: wx + sx * (ZUG_WLANG / 2 + 0.02),
+               y: boden + 2.05, z: 0, farbe: 0x0f1620 });                     // Frontscheibe
+    }
   }
-  /* Scheinwerfer vorn und hinten. */
-  for (const s2 of [-1, 1]) {
-    const l = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.35, 1.3), fenster);
-    l.position.set(s2 * (ZUG_LANG / 2 + 0.02), 1.0, 0);
-    g.add(l);
-  }
+  const g = new THREE.Mesh(verschmelzeBoxen(t),
+                           new THREE.MeshLambertMaterial({ vertexColors: true }));
   g.visible = false;
   scene.add(g);
   return g;
@@ -1425,11 +1541,12 @@ function baueZuege() {
     ZUEGE.push({
       mesh: baueZug(i === 0 ? 0xb8352f : 0x2f5fb8),
       z: ZUG_Z[i],
-      x: i === 0 ? UB_X0 + 40 : UB_X1 - 40,
+      x: i === 0 ? UB_STAT_X[0] : UB_STAT_X[UB_STAT_X.length - 1],
       richtung: i === 0 ? 1 : -1,
-      tempo: 21 + i * 3,
-      warten: i * 5,
+      tempo: 19 + i * 3,
+      warten: 2 + i * 5,
       haltCd: 0,
+      haelt: true,
     });
   }
 }
@@ -1438,32 +1555,48 @@ let zugKlangCd = 0;
 function updateZug(dt) {
   if (!ZUEGE.length) return;
   /* Unter Tage sichtbar, darueber nicht - spart Zeichenaufrufe. */
-  const untenDrin = player.pos.y < SLAB_H && Math.abs(player.pos.z - UB_Z) < 60;
+  const untenDrin = player.pos.y < SLAB_H && Math.abs(player.pos.z - UB_Z) < 70;
   let naehe = 0;
   for (const t of ZUEGE) {
-    if (t.warten > 0) { t.warten -= dt; t.mesh.visible = false; continue; }
-    t.x += t.richtung * t.tempo * dt;
-    /* Halt an jeder Station - so sieht man den Zug wirklich einfahren,
-       statt ihn nur vorbeirauschen zu hoeren. */
-    if (t.haltCd > 0) t.haltCd -= dt;
-    else for (const sx of UB_STAT_X) {
-      if (Math.abs(t.x - sx) < t.tempo * dt + 0.2) {
-        t.x = sx; t.warten = 3.5; t.haltCd = 2.5; break;
-      }
-    }
-    /* Am Ende der Linie umkehren und kurz warten. */
-    if (t.x > UB_X1 - ZUG_LANG / 2) { t.x = UB_X1 - ZUG_LANG / 2; t.richtung = -1; t.warten = 4; }
-    if (t.x < UB_X0 + ZUG_LANG / 2) { t.x = UB_X0 + ZUG_LANG / 2; t.richtung = 1; t.warten = 4; }
-    t.mesh.position.set(t.x, UB_GLEIS_TIEF, t.z);
+    /* Sichtbarkeit haengt NUR daran, ob man unter Tage ist. In der ersten
+       Fassung wurde der Zug waehrend des Halts unsichtbar geschaltet - er
+       verschwand also genau dann vor der Nase, wenn er im Bahnhof stand. */
     t.mesh.visible = untenDrin;
+    if (t.warten > 0) {
+      t.warten -= dt;
+      t.haelt = true;
+      if (t.warten <= 0) t.haelt = false;
+    } else {
+      t.x += t.richtung * t.tempo * dt;
+      /* Halt an jeder Station - so kann man wirklich einsteigen. */
+      if (t.haltCd > 0) t.haltCd -= dt;
+      else for (const sx of UB_STAT_X) {
+        if (Math.abs(t.x - sx) < t.tempo * dt + 0.2) {
+          t.x = sx; t.warten = ZUG_HALT; t.haltCd = 3.0; break;
+        }
+      }
+      /* Am Ende der Linie umkehren. */
+      if (t.x > UB_X1 - ZUG_LANG / 2) { t.x = UB_X1 - ZUG_LANG / 2; t.richtung = -1; t.warten = 4; }
+      if (t.x < UB_X0 + ZUG_LANG / 2) { t.x = UB_X0 + ZUG_LANG / 2; t.richtung = 1; t.warten = 4; }
+    }
+    t.mesh.position.set(t.x, UB_GLEIS_TIEF, t.z);
     if (!untenDrin) continue;
 
     const dx = Math.abs(player.pos.x - t.x);
     naehe = Math.max(naehe, clamp(1 - (dx - ZUG_LANG / 2) / 45, 0, 1));
-    /* Treffer nur, wenn man wirklich im Trog steht. */
+    /* Mitfahren: wer beim Losfahren im Wagen steht, faehrt mit. */
+    const imWagen = dx < ZUG_LANG / 2 - 0.4 &&
+                    Math.abs(player.pos.z - t.z) < ZUG_BREIT / 2 &&
+                    player.pos.y > UB_GLEIS_TIEF && player.pos.y < UB_GLEIS_TIEF + 3.2;
+    if (imWagen && player.zug !== t) {
+      player.zug = t;
+      popupScreen('🚇 Mitfahren – springen zum Aussteigen');
+    }
+    /* Treffer nur, wenn man neben dem Zug im Trog steht. */
     const imTrog = player.pos.z > UB_GLEIS_Z0 && player.pos.z < UB_GLEIS_Z1 &&
                    player.pos.y < UB_TIEF - 0.2 && player.pos.y > UB_GLEIS_TIEF - 1;
-    if (imTrog && dx < ZUG_LANG / 2 + 0.8 && Math.abs(player.pos.z - t.z) < ZUG_BREIT / 2 + 0.6) {
+    if (!t.haelt && player.zug !== t && imTrog && dx < ZUG_LANG / 2 + 0.8 &&
+        Math.abs(player.pos.z - t.z) < ZUG_BREIT / 2 + 0.6) {
       /* Auf den Bahnsteig schieben statt zu ueberfahren. */
       player.pos.z = UB_STEIG_Z0 + 1.4;
       player.pos.y = UB_TIEF + 0.1;
@@ -1472,6 +1605,15 @@ function updateZug(dt) {
       camShake = Math.max(camShake, 0.3);
       popupScreen('🚇 Weg vom Gleis!');
     }
+  }
+  /* Mitfahrt: die Figur haengt am Wagen, bis sie springt oder aussteigt. */
+  if (player.zug) {
+    const t = player.zug;
+    const raus = !untenDrin || player.dead || !player.onGround ||
+                 Math.abs(player.pos.x - t.x) > ZUG_LANG / 2 ||
+                 Math.abs(player.pos.z - t.z) > ZUG_BREIT / 2 + 0.6;
+    if (raus) player.zug = null;
+    else if (!t.haelt) player.pos.x += t.richtung * t.tempo * dt;
   }
   if (untenDrin && naehe > 0.05) {
     zugKlangCd -= dt;
@@ -4508,7 +4650,7 @@ const player = {
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
-  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, katFlug: 0,
+  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, katFlug: 0, zug: null,
   haltenT: 0, duckt: false, duckMisch: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
@@ -7455,13 +7597,45 @@ function makeCarMesh(color) {
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.6, 4.4), bodyMat);
   body.position.y = 0.62; body.castShadow = true;
   g.add(body);
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.55, 2.2), bodyMat);
-  cab.position.set(0, 1.15, -0.2); cab.castShadow = true;
+  /* ---- Fahrgastzelle als Glaskasten ----
+     Vorher war das Dach ein undurchsichtiger Klotz mit einer einzigen
+     Frontscheibe - in den Autos sass niemand und man sah auch nirgendwo
+     hinein. Jetzt ist die Zelle rundum verglast, darauf ein Dachblech in
+     Wagenfarbe, und drinnen sitzen Fahrer und Beifahrer. */
+  /* Dunkler und weniger deckend als der erste Versuch: mit hellem Blau bei
+     0,42 verschwanden die Insassen im Glanz der Scheibe. */
+  const glasMat = new THREE.MeshLambertMaterial({
+    color: 0x5c7f96, transparent: true, opacity: 0.34, depthWrite: false });
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.62, 2.2), glasMat);
+  cab.position.set(0, 1.16, -0.2);
   g.add(cab);
-  const glassMat = new THREE.MeshLambertMaterial({ color: 0x9fd2e8 });
-  const wind = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.4, 0.08), glassMat);
-  wind.position.set(0, 1.15, 0.95); wind.rotation.x = -0.35;
-  g.add(wind);
+  const dach = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.1, 2.26), bodyMat);
+  dach.position.set(0, 1.52, -0.2); dach.castShadow = true;
+  g.add(dach);
+  /* Dachholme, damit die Zelle nicht wie eine Schneekugel wirkt. */
+  const holmMat = new THREE.MeshLambertMaterial({ color: 0x2a2e34 });
+  for (const sx of [-1, 1]) {
+    for (const sz of [0.92, -1.32]) {
+      const holm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.62, 0.09), holmMat);
+      holm.position.set(sx * 0.82, 1.16, sz);
+      g.add(holm);
+    }
+  }
+  /* Insassen: Schultern und Kopf, leicht versetzt, damit es nicht nach
+     Zwillingen aussieht. */
+  const HAUT = [0xc9a07a, 0x8d6547, 0xe0b894, 0x6f4a30];
+  const KLEID = [0x2e3a5c, 0x5c2e2e, 0x2e5c3a, 0x4a4a52, 0x6b5730];
+  for (const sx of [-1, 1]) {
+    if (sx > 0 && Math.random() < 0.35) continue;        // mal faehrt jemand allein
+    const koerper = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.34, 0.3),
+      new THREE.MeshLambertMaterial({ color: pick(KLEID) }));
+    koerper.position.set(sx * 0.44, 1.10, 0.15);
+    g.add(koerper);
+    const kopf = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.25, 0.21),
+      new THREE.MeshLambertMaterial({ color: pick(HAUT) }));
+    kopf.position.set(sx * 0.44, 1.38, 0.15 + (sx < 0 ? 0.03 : -0.03));
+    g.add(kopf);
+  }
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.25, 10);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x17181c });
   for (const [sx, sz] of [[-1, 1.35], [1, 1.35], [-1, -1.35], [1, -1.35]]) {
@@ -7470,10 +7644,24 @@ function makeCarMesh(color) {
     w.position.set(sx * 0.95, 0.34, sz);
     g.add(w);
   }
+  /* Stossfaenger vorn und hinten. */
+  const stossMat = new THREE.MeshLambertMaterial({ color: 0x30343a });
+  for (const sz of [1, -1]) {
+    const st = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.18, 0.16), stossMat);
+    st.position.set(0, 0.45, sz * 2.22);
+    g.add(st);
+  }
   const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff4c0 });
   for (const sx of [-1, 1]) {
     const l = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.08), lightMat);
     l.position.set(sx * 0.6, 0.7, 2.2);
+    g.add(l);
+  }
+  /* Rueckleuchten. */
+  const rotMat = new THREE.MeshBasicMaterial({ color: 0xd83a2a });
+  for (const sx of [-1, 1]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.08), rotMat);
+    l.position.set(sx * 0.62, 0.74, -2.22);
     g.add(l);
   }
   scene.add(g);
@@ -7695,7 +7883,9 @@ function makeFahrzeugMesh(typ, farbe) {
   const L = typ.laenge, B = typ.breite;
   const lack = new THREE.MeshLambertMaterial({ color: farbe });
   const dunkel = new THREE.MeshLambertMaterial({ color: 0x17181c });
-  const glas = new THREE.MeshLambertMaterial({ color: 0x9fd2e8 });
+  /* Halbdurchsichtig: sonst sieht man die Fahrgaeste dahinter nicht. */
+  const glas = new THREE.MeshLambertMaterial({
+    color: 0x5c7f96, transparent: true, opacity: 0.34, depthWrite: false });
 
   if (typ.art === 'taxi') {
     const auto = makeCarMesh(0xf2c12e);
@@ -7750,6 +7940,29 @@ function makeFahrzeugMesh(typ, farbe) {
     }
     const front = new THREE.Mesh(new THREE.BoxGeometry(B - 0.15, 1.0, 0.08), glas);
     front.position.set(0, 1.9, L / 2 - 0.02); g.add(front);
+    /* Fahrgaeste hinter den Scheiben - ein leerer Bus sieht aus wie Kulisse. */
+    const HAUT = [0xc9a07a, 0x8d6547, 0xe0b894, 0x6f4a30];
+    const KLEID = [0x2e3a5c, 0x5c2e2e, 0x2e5c3a, 0x4a4a52, 0x6b5730];
+    for (const sx of [-1, 1]) {
+      for (let i = 0; i < 4; i++) {
+        if (Math.random() < 0.28) continue;
+        const pz = -L / 2 + 2.2 + i * ((L - 4.4) / 3);
+        const px = sx * (B / 2 - 0.42);
+        const koerper = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.36, 0.3),
+          new THREE.MeshLambertMaterial({ color: pick(KLEID) }));
+        koerper.position.set(px, 1.72, pz); g.add(koerper);
+        const kopf = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.2),
+          new THREE.MeshLambertMaterial({ color: pick(HAUT) }));
+        kopf.position.set(px, 2.0, pz); g.add(kopf);
+      }
+    }
+    /* Fahrer am Steuer. */
+    const fahrer = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.36, 0.3),
+      new THREE.MeshLambertMaterial({ color: 0x30364a }));
+    fahrer.position.set(-(B / 2 - 0.5), 1.72, L / 2 - 0.9); g.add(fahrer);
+    const fkopf = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.2),
+      new THREE.MeshLambertMaterial({ color: 0xc9a07a }));
+    fkopf.position.set(-(B / 2 - 0.5), 2.0, L / 2 - 0.9); g.add(fkopf);
     raeder([[-1, L / 2 - 1.3], [1, L / 2 - 1.3], [-1, -L / 2 + 1.6], [1, -L / 2 + 1.6]]);
   } else {                                            // LKW
     const kabine = new THREE.Mesh(new THREE.BoxGeometry(B, 1.9, 2.3), lack);
@@ -10207,7 +10420,8 @@ if (window.__WEBHERO_TEST__ === true) {
     groundYAt: groundY,
     ubahnen() { return UBAHNEN; },
     zuege() { return ZUEGE.map(t => ({ x: +t.x.toFixed(1), z: t.z, r: t.richtung,
-                                       sichtbar: t.mesh.visible })); },
+                                       haelt: t.haelt, sichtbar: t.mesh.visible })); },
+    zuegeRoh() { return ZUEGE; },
     katStand() { return { aktiv: KAT.aktiv, ladung: KAT.ladung }; },
     bodenFuss: bodenHoeheFuerFuss,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
