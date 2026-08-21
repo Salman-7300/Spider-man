@@ -10,6 +10,8 @@ if (typeof THREE === 'undefined') return;
 const CFG = {
   gravity: 30,
   swingGravity: 24,
+  duckSpeed: 2.2,
+  walkSpeed: 2.8,
   runSpeed: 7,
   sprintSpeed: 11,
   airAccel: 10,
@@ -3310,6 +3312,23 @@ function makeGlbVisual(m) {
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.35));
       inner.position.y = basisY + bodenKorrektur;
     },
+    /* Ducken: tief in die Knie, Rumpf nach vorn, Arme angelegt. Die
+       Laufbewegung liefert weiter den Takt, diese Pose legt sich darüber –
+       so braucht es keine eigene Bewegungsdatei. */
+    poseDucken(k, tempo01) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      const tief = 0.55 + (1 - clamp(tempo01 || 0, 0, 1)) * 0.2;
+      for (const p of ['left', 'right']) {
+        drehZuRuhe(knochen[p + 'upleg'], 0.62 * w * tief, 0, 0.1 * w, w * 0.8);
+        drehZuRuhe(knochen[p + 'leg'], 0.95 * w * tief, 0, 0, w * 0.8);
+        if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.3 * w, 0, 0, w * 0.6);
+      }
+      drehe(knochen.spine1, 0.3 * w, 0, 0, w * 0.7);
+      drehe(knochen.spine, 0.16 * w, 0, 0, w * 0.6);
+      drehZuRuhe(knochen.head, -0.35 * w, 0, 0, w * 0.7);
+      /* Der ganze Körper sinkt ab – sonst schweben die Füße über dem Boden. */
+      inner.position.y = basisY + bodenKorrektur - 0.34 * w;
+    },
     /* Kopf ruhig halten: Beim Laufen nickt der ganze Körper mit, und mit
        der neuen Vorlage schaut die Figur sonst auf den Asphalt. Kopf und
        Hals nehmen die Neigung des Körpers zum Teil zurück, dadurch bleibt
@@ -4153,6 +4172,7 @@ const player = {
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
   altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, wandVersatz: 0,
+  haltenT: 0, duckt: false, duckMisch: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
@@ -4360,6 +4380,7 @@ const istTouch = (typeof window !== 'undefined') &&
   (('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 1) &&
   window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 let touchSprint = false, touchAktiv = false, touchKleben = false, touchGleiten = false;
+let touchDucken = false;
 let zeigerStick = false;   // wahr, solange ein Finger den Knüppel hält
 
 function baueTouch() {
@@ -4450,6 +4471,16 @@ function baueTouch() {
     gleiten.addEventListener('touchcancel', aus);
   }
 
+  /* Ducken: gedrückt halten. */
+  const ducken = document.getElementById('tDucken');
+  if (ducken) {
+    const an = (ev) => { ev.preventDefault(); ev.stopPropagation(); touchDucken = true; };
+    const aus = () => { touchDucken = false; };
+    ducken.addEventListener('touchstart', an);
+    ducken.addEventListener('touchend', aus);
+    ducken.addEventListener('touchcancel', aus);
+  }
+
   /* Klettern: gedrückt halten, um an der Wand zu bleiben. */
   const klettern = document.getElementById('tKlettern');
   if (klettern) {
@@ -4476,6 +4507,28 @@ function baueTouch() {
 
 /* Sprint kommt von Shift, vom Gamepad oder vom Sprintknopf am Bildschirm. */
 function sprintAn() { return !!(keys['ShiftLeft'] || keys['ShiftRight'] || padSprint || touchSprint); }
+
+/* ---- Vier Gangarten ----
+   Vorher gab es nur zwei Geschwindigkeiten und beide sahen gleich aus.
+   Jetzt sieht man auf einen Blick, was die Figur gerade tut:
+     ducken   (X)      2,2 m/s  – tief in den Knien, Schleichschritt
+     gehen    (Alt)    2,8 m/s  – Gehbewegung
+     laufen   (nichts) 7,0 m/s  – Laufbewegung
+     sprinten (Shift) 11,0 m/s  – Laufbewegung, lange Schritte
+   Am Gamepad und auf dem Handy entscheidet zusätzlich der Ausschlag des
+   Sticks: leicht gedrückt heißt gehen. */
+function geheAn() { return !!(keys['AltLeft'] || keys['AltRight']); }
+function duckenAn() {
+  return !!(keys['KeyX'] || touchDucken) && player.onGround &&
+         player.state !== 'climb' && player.rollT <= 0 && !player.attack;
+}
+function gangTempo() {
+  if (duckenAn()) return CFG.duckSpeed;
+  if (sprintAn()) return CFG.sprintSpeed;
+  const stick01 = Math.hypot(stick.x, stick.z);
+  if (geheAn() || (stick01 > 0.05 && stick01 < 0.55)) return CFG.walkSpeed;
+  return CFG.runSpeed;
+}
 
 /* ======================= Kamera ======================= */
 let camYaw = Math.PI * 0.85, camPitch = 0.22, camDist = 5.6, camShake = 0;
@@ -4918,9 +4971,12 @@ function tryJump() {
     player.onGround = false;
     player.state = 'air';
     player.jumps = 1;
-    /* Leertaste gedrückt halten soll direkt in den Schwung übergehen –
-       ohne diese Freigabe müsste man erst loslassen und neu drücken. */
-    player.swingLock = false;
+    /* Die Sperre bleibt zunächst bestehen. Wurde sie hier sofort gelöst,
+       war ein einzelner Tastendruck Sprung UND Schwung im selben Bild –
+       man kam gar nicht mehr zum Springen. Wer die Taste GEDRÜCKT HÄLT,
+       geht nach einem Moment trotzdem in den Schwung über. */
+    player.swingLock = true;
+    player.haltenT = 0;
   } else if (player.jumps < 2) {
     player.vel.y = CFG.jumpVel * 0.92;
     player.jumps = 2;
@@ -5725,7 +5781,13 @@ function updatePlayer(dt) {
       }
     }
   }
-  if (!keys['Space'] && !swingHeld) player.swingLock = false;
+  /* Gehaltene Sprungtaste: nach einem kurzen Moment in der Luft gibt sie
+     den Schwung frei. Losgelassen wird die Sperre sofort aufgehoben. */
+  if (!keys['Space'] && !swingHeld) { player.swingLock = false; player.haltenT = 0; }
+  else if (player.swingLock && !player.onGround) {
+    player.haltenT = (player.haltenT || 0) + dt;
+    if (player.haltenT > 0.26) player.swingLock = false;
+  }
 
   /* ---- Gleiten mit den Netzflügeln ----
      Zwischen Armen und Rumpf spannt sich eine Netzhaut. Hoch über der
@@ -5764,8 +5826,7 @@ function updatePlayer(dt) {
   player.vel.y -= grav * dt;
 
   if (player.onGround && player.state !== 'swing') {
-    const sprint = sprintAn();
-    const speed = sprint ? CFG.sprintSpeed : CFG.runSpeed;
+    const speed = gangTempo();
     if (player.dodgeT > 0) {
       player.dodgeT -= dt;
       /* Die Rolle läuft aus, statt mit vollem Tempo abzubrechen. */
@@ -5866,6 +5927,20 @@ function updatePlayer(dt) {
   }
 
   const prevY = player.pos.y;
+  /* Zustand VOR der Bewegung sichern. Die Teilschritte unten rufen selbst
+     collideBody auf und setzen dabei onGround und vel.y – wer das erst
+     danach abfragt, sieht die Landung nie und bekommt deshalb weder
+     Landeanimation noch Abrollen. Genau daran lag das kurze Einsinken
+     beim Aufkommen auf einem Dach. */
+  const wasOnGround = player.onGround;
+  const fallTempo = -player.vel.y;
+  /* Ab hier gilt "in der Luft", bis irgendeine Kollisionsprüfung dieses
+     Bildes etwas anderes sagt – auch eine aus den Teilschritten. Vorher
+     wurde das Ergebnis der Teilschritte gleich wieder verworfen: die
+     Landung fiel dadurch ein Bild später auf, und da war die
+     Fallgeschwindigkeit längst weg. Deshalb blieb die Landeanimation aus
+     und die Beine schnappten einfach nach unten. */
+  player.onGround = false;
   /* ---- Bewegung in Teilschritten ----
      Bei 30 m/s legt die Figur in einem Bild einen halben Meter zurück. Sie
      stand damit schon tief in der Fassade, bevor die Kollision überhaupt
@@ -5987,9 +6062,6 @@ function updatePlayer(dt) {
   }
 
   /* ---- Kollisionen ---- */
-  const wasOnGround = player.onGround;
-  const fallTempo = -player.vel.y;          // für die Landeanimation
-  player.onGround = false;
   player.platform = null;
   collideBody(player, prevY, wandPuffer());
   collidePlayerCars(prevY);
@@ -6144,6 +6216,10 @@ function updatePlayer(dt) {
 
   /* ---- Animation wählen ---- */
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
+  /* Geduckt: weich ein- und ausblenden, damit es nicht umspringt. */
+  player.duckt = duckenAn();
+  player.duckMisch = lerp(player.duckMisch || 0, player.duckt ? 1 : 0,
+                          Math.min(1, dt * 9));
   if (player.landT > 0) player.landT -= dt;
   if (player.hartLandung > 0) player.hartLandung -= dt;
   if (player.dreiPunktT > 0) {
@@ -6175,6 +6251,7 @@ function updatePlayer(dt) {
   else if (player.dreiPunktT > 0) player.anim = 'land';
   else if (player.hartLandung > 0) player.anim = 'fallrolle';
   else if (player.landT > 0) player.anim = 'land';
+  else if (player.duckMisch > 0.3 && hSpeed <= 0.4) player.anim = 'idle';
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
        sonst „läuft" die Figur beim Ausrollen weiter, obwohl man steht. */
@@ -6360,6 +6437,11 @@ function updateHeroVisual(dt) {
                           Math.sin(player.facing), Math.cos(player.facing));
       }
       if (heroVisual.kopfStabil) heroVisual.kopfStabil(r.rotation.x, 0.55);
+      /* Geduckt zum Schluss: die Pose muss über der Laufbewegung liegen. */
+      if (player.duckMisch > 0.02 && heroVisual.poseDucken) {
+        heroVisual.poseDucken(clamp(player.duckMisch, 0, 1),
+                              clamp(hSpeed / CFG.duckSpeed, 0, 1));
+      }
     }
   }
 
