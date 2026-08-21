@@ -300,7 +300,12 @@ window.addEventListener('resize', () => {
 
 const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+/* 2048er Schattenkarte war bei einem Ausschnitt von 180 m Kantenlänge
+   deutlich feiner, als man je sieht – kostet aber viermal so viele Pixel
+   wie 1024. 1536 trifft die Mitte. */
+sun.shadow.mapSize.set(1536, 1536);
+sun.shadow.autoUpdate = false;
+sun.shadow.needsUpdate = true;
 sun.shadow.camera.near = 10; sun.shadow.camera.far = 400;
 sun.shadow.camera.left = -90; sun.shadow.camera.right = 90;
 sun.shadow.camera.top = 90; sun.shadow.camera.bottom = -90;
@@ -2219,7 +2224,7 @@ function makeGlbVisual(m) {
   const alleKnochen = [];
   inner.traverse((o) => { if (o.isBone) alleKnochen.push(o); });
   const basisY = inner.position.y;
-  let fussRuhe = null, bodenKorrektur = 0;
+  let fussRuhe = null, bodenKorrektur = 0, schattenAn = true;
   /* Ruhehöhe der Füße JETZT aus der Bindehaltung messen – noch bevor
      irgendeine Bewegung läuft. Früher wurde sie beim ersten Bildaufbau
      genommen; fiel die Figur da gerade (angezogene Beine), merkte sich der
@@ -2316,6 +2321,28 @@ function makeGlbVisual(m) {
         const s = staerke * (f === 'thumb' ? 0.45 : 1) * (g === 1 ? 0.65 : 1);
         drehZuRuhe(b, s, 0, 0, 0.85);
       }
+    }
+  }
+
+  /* Faust um einen Gegenstand: Finger fest eingerollt, der Daumen legt
+     sich quer darüber. Die Fingerspuren sind aus den Bewegungsdateien
+     entfernt, deshalb bleiben die Finger sonst offen stehen – Handy und
+     Regenschirm schwebten dadurch in einer flachen Hand. */
+  function faust(seite, staerke) {
+    const k = staerke === undefined ? 1 : staerke;
+    for (const f of ['index', 'middle', 'ring', 'pinky']) {
+      for (let g = 1; g <= 3; g++) {
+        const b = knochen[seite + 'hand' + f + g];
+        if (!b) continue;
+        /* Das erste Glied klappt am weitesten, die Spitzen legen sich an. */
+        drehZuRuhe(b, (g === 1 ? 1.15 : g === 2 ? 1.35 : 1.0) * k, 0, 0, 0.9);
+      }
+    }
+    for (let g = 1; g <= 3; g++) {
+      const b = knochen[seite + 'handthumb' + g];
+      if (!b) continue;
+      /* Der Daumen liegt quer über den Fingern, nicht in derselben Achse. */
+      drehZuRuhe(b, 0.35 * k, g === 1 ? -0.5 * k : 0, (g === 1 ? 0.55 : 0.75) * k, 0.9);
     }
   }
 
@@ -2640,7 +2667,7 @@ function makeGlbVisual(m) {
        Netzhaut – dafür müssen die Arme wirklich weg vom Körper stehen. */
     poseGleiten(nase, kurve, t, k) {
       const w = k === undefined ? 0.9 : k;
-      const flattern = Math.sin((t || 0) * 5.5) * 0.045;
+      const flattern = Math.sin((t || 0) * 2.4) * 0.03;
       /* Arme: fast waagerecht zur Seite, minimal nach vorn. Die Kurve
          senkt den inneren und hebt den äußeren Arm. */
       const roll = (kurve || 0) * 0.3;
@@ -2654,10 +2681,10 @@ function makeGlbVisual(m) {
       _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();  // rechts
       _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();  // vorn
       for (const seite of ['left', 'right']) {
-        /* Achtung: Im Modellraum liegt der Knochen "leftarm" auf der
-           +X-Seite – das Modell ist um 180° gedreht. Mit der naheliegenden
-           Zuordnung kreuzten die Arme vor dem Körper, statt sich zu
-           spreizen, und die Netzhaut blieb zusammengefaltet. */
+        /* Achtung: Das Skelett ist gespiegelt benannt – der Knochen
+           "leftarm" liegt auf der rechten Körperseite (+X, während die
+           Figur nach +Z schaut). Mit der naheliegenden Zuordnung kreuzten
+           die Arme vor dem Körper, statt sich zu spreizen. */
         const vz = seite === 'left' ? 1 : -1;
         const arm = knochen[seite + 'arm'], unter = knochen[seite + 'forearm'];
         const hand = knochen[seite + 'hand'];
@@ -2697,6 +2724,18 @@ function makeGlbVisual(m) {
       drehZuRuhe(knochen.head, -0.30, (kurve || 0) * 0.2, 0, 0.8);
       drehZuRuhe(knochen.neck, -0.18, 0, 0, 0.75);
     },
+    /* Den freien Arm hängen lassen. Beim Schirmhalten stand der zweite Arm
+       mit offener Hand ebenfalls in der Luft – das sah aus, als würde die
+       Figur jubeln, statt sich vor dem Regen zu schützen. */
+    armRuhe(seite, k) {
+      const p = seite === 'L' ? 'left' : 'right';
+      const w = k === undefined ? 0.5 : k;
+      drehZuRuhe(knochen[p + 'arm'], 0, 0, 0, w);
+      drehZuRuhe(knochen[p + 'forearm'], 0.12, 0, 0, w);
+      if (knochen[p + 'shoulder']) drehZuRuhe(knochen[p + 'shoulder'], 0, 0, 0, w * 0.6);
+    },
+    /* Faust schließen – für Gegenstände, die gehalten werden. */
+    faust(seite, k) { faust(seite === 'L' ? 'left' : 'right', k); },
     /* Weltpositionen der Knochen, die die Netzhaut aufspannen. */
     fluegelPunkte(seite, out) {
       const p = seite === 'L' ? 'left' : 'right';
@@ -2715,6 +2754,31 @@ function makeGlbVisual(m) {
       _q2.setFromRotationMatrix(_mA.extractRotation(obj.parent.matrixWorld));
       obj.quaternion.copy(_q2.invert());
       if (neigung) obj.rotateX(neigung);
+    },
+    /* Wie haltAufrecht, aber zusätzlich um die Hochachse gedreht: der
+       Gegenstand steht senkrecht UND zeigt in eine bestimmte Richtung –
+       etwa das Handy mit dem Bildschirm zum Gesicht. */
+    haltAusgerichtet(obj, gier, neigung, versatzWelt) {
+      if (!obj.parent) return;
+      obj.parent.updateWorldMatrix(true, false);
+      _q2.setFromRotationMatrix(_mA.extractRotation(obj.parent.matrixWorld));
+      _q2.invert();
+      /* Die gewünschte WELTdrehung wird direkt berechnet und dann in den
+         Knochenraum umgerechnet. Object3D.rotateOnWorldAxis setzt einen
+         nicht gedrehten Elternknoten voraus – am stark gedrehten
+         Handknochen kippte das Handy dadurch quer. */
+      _ed.set(neigung || 0, gier || 0, 0, 'YXZ');
+      _qd.setFromEuler(_ed);
+      obj.quaternion.copy(_q2).multiply(_qd);
+      /* Der Versatz wird in WELTKOORDINATEN angegeben (z. B. "neun
+         Zentimeter über der Faust"). In Knochenkoordinaten hing er von der
+         gerade laufenden Bewegung ab – das Handy steckte deshalb mal in
+         der Hand und mal daneben. */
+      if (versatzWelt) {
+        _va.setFromMatrixScale(obj.parent.matrixWorld);
+        const f = _va.x > 1e-4 ? 1 / _va.x : 1;
+        obj.position.copy(versatzWelt).applyQuaternion(_q2).multiplyScalar(f);
+      }
     },
     /* Weltposition einer Hand – für den Netzfaden */
     handPos(seite, out) {
@@ -2761,7 +2825,11 @@ function makeGlbVisual(m) {
       let tiefster = Infinity;
       for (const bn of alleKnochen) { bn.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
       if (!isFinite(tiefster)) return;
-      const ueber = tiefster - root.position.y - 0.11;      // so hoch schwebt er noch
+      /* Der tiefste Knochen liegt bei einem liegenden Körper mitten im
+         Rumpf bzw. Oberarm – die Haut reicht rund fünf Zentimeter tiefer.
+         Mit den früheren elf Zentimetern schwebte die Figur sichtbar über
+         der Straße. */
+      const ueber = tiefster - root.position.y - 0.05;      // Restluft
       const ziel = clamp(bodenKorrektur - ueber, -1.6, 0.35);
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.25 : k, 0, 1));
       inner.position.y = basisY + bodenKorrektur;
@@ -2775,6 +2843,14 @@ function makeGlbVisual(m) {
       const dist2 = root.position.distanceToSquared(player.pos);
       if (dist2 > LOD_WEITE * LOD_WEITE) { root.visible = false; return; }
       root.visible = true;
+      /* Jede schattenwerfende Figur wird ein zweites Mal gezeichnet, für
+         die Schattenkarte. Weit entfernte Figuren sind auf dem Bild ein
+         paar Pixel groß – dort lohnt der zweite Durchgang nicht. */
+      const willSchatten = dist2 < 46 * 46;
+      if (willSchatten !== schattenAn) {
+        schattenAn = willSchatten;
+        for (const o of originale) o.castShadow = willSchatten;
+      }
       /* Läuft gerade ein Angriff, hat der Vorrang vor Laufen/Stehen */
       if (angriff) {
         angriffT -= dt;
@@ -2862,6 +2938,16 @@ function makeGlbVisual(m) {
       angriffT = zielDauer ? Math.min(zielDauer, d / v) : d / v;
       return angriffT;
     },
+    /* Eine laufende Einmal-Bewegung sofort abbrechen. Nötig, wenn die
+       Figur mitten in der Landerolle wieder den Boden verlässt – sonst
+       rollt sie frei schwebend in der Luft weiter. */
+    brichOneShot(blende) {
+      if (!angriff) return false;
+      angriff.fadeOut(blende === undefined ? 0.14 : blende);
+      angriff = null; angriffT = 0; current = null;
+      return true;
+    },
+    get einmalLaeuft() { return !!angriff; },
     /* Ausweichrolle: die Datei ist 2,4 s lang, im Spiel darf das Ausweichen
        aber nur einen knappen Satz dauern. Sie wird deshalb beschleunigt
        abgespielt, damit die Rolle wirklich zu Ende geht, statt mittendrin
@@ -2908,6 +2994,8 @@ function makeProceduralVisual(cfg) {
     root: human.root, procedural: true, human,
     play(key, p, dt) { poseHuman(human, key, p, dt); },
     attackOneShot() {},
+    brichOneShot() { return false; },
+    get einmalLaeuft() { return false; },
     rolleOneShot() { return 0; },
     clipDauer() { return 0; },
     legeHin() {},
@@ -3450,6 +3538,8 @@ const player = {
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
+  anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
+  gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
   schussT: 0, schussZiel: V3(0, 0, 0),
@@ -4357,14 +4447,46 @@ function tryAttack(type) {
        wurde nur bis 1,7 m herangezogen – auf die Entfernung berührt man
        sich beim Schlagen überhaupt nicht, der Treffer war reine Zahlen-
        sache. Jetzt geht die Figur so weit ran, dass die Faust ankommt. */
-    if (d > NAHKAMPF) {
-      const noetig = Math.min(14, (d - NAHKAMPF * 0.9) / Math.max(0.12, dauer * 0.28));
-      player.vel.x = (dx / d) * noetig;
-      player.vel.z = (dz / d) * noetig;
-    } else {
-      player.vel.x *= 0.2; player.vel.z *= 0.2;
+    /* Kein Sofort-Stoß mehr. Früher wurde player.vel in EINEM Bild auf bis
+       zu 14 m/s gesetzt – beim Wechsel auf den nächsten Gegner sah das aus,
+       als würde die Figur hinüberspringen und dabei hängenbleiben. Jetzt
+       läuft ein Anlauf über die erste Hälfte der Schlagbewegung, der Tempo
+       und Blickrichtung weich nachführt. */
+    player.anlaufZiel = target;
+    player.anlaufT = dauer * 0.55;
+    /* Über zweieinhalb Meter wird der Anlauf zu einem echten Satz. */
+    if (d > 2.6 && player.onGround) {
+      player.vel.y = 4.6;
+      player.onGround = false;
+      player.state = 'air';
+      player.anlaufSatz = true;
     }
-    player.facing = Math.atan2(dx, dz);
+  }
+}
+
+/* Anlauf zum gebundenen Gegner – weich beschleunigt statt gesetzt. */
+function updateAnlauf(dt) {
+  if (!(player.anlaufT > 0)) { player.anlaufSatz = false; return; }
+  const z = player.anlaufZiel;
+  player.anlaufT -= dt;
+  if (!z || z.dead || player.dead || player.state === 'climb' || player.state === 'swing') {
+    player.anlaufT = 0; player.anlaufSatz = false; return;
+  }
+  const dx = z.pos.x - player.pos.x, dz = z.pos.z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  player.facing = dampAngle(player.facing, Math.atan2(dx, dz), Math.min(1, dt * 11));
+  if (d > NAHKAMPF) {
+    /* So schnell, dass der Weg in der verbleibenden Zeit reicht – aber
+       gedeckelt und weich angefahren. */
+    const wunsch = clamp((d - NAHKAMPF * 0.9) / Math.max(0.1, player.anlaufT), 0, 12);
+    const k = Math.min(1, dt * 16);
+    player.vel.x = lerp(player.vel.x, (dx / d) * wunsch, k);
+    player.vel.z = lerp(player.vel.z, (dz / d) * wunsch, k);
+  } else {
+    /* Angekommen: abbremsen und den Satz beenden. */
+    const b = Math.max(0, 1 - dt * 12);
+    player.vel.x *= b; player.vel.z *= b;
+    player.anlaufT = 0; player.anlaufSatz = false;
   }
 }
 
@@ -4888,8 +5010,18 @@ function updatePlayer(dt) {
     SFX.web();
   } else if (!willGleiten && player.gleiten) {
     player.gleiten = false;
+    /* Nachlauf: die Haltung wird ausgeblendet statt hart umzuschalten.
+       Der Wechsel vom Gleiten in den Netzschwung sah sonst aus, als würde
+       die Figur in einem einzigen Bild die Pose tauschen. */
+    player.gleitAus = 0.4;
   }
   if (player.gleiten) player.gleitT += dt;
+  if (player.gleitAus > 0) player.gleitAus -= dt;
+  /* Weich einblenden: in einer Viertelsekunde von der Fallhaltung in die
+     ausgebreitete Gleithaltung. */
+  const gleitZiel = player.gleiten ? 1 : 0;
+  player.gleitMisch = lerp(player.gleitMisch || 0, gleitZiel,
+                           Math.min(1, dt * (gleitZiel ? 6 : 4)));
 
   /* ---- Physik ---- */
   let grav = player.state === 'swing' ? CFG.swingGravity : CFG.gravity;
@@ -4947,10 +5079,13 @@ function updatePlayer(dt) {
     const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
     /* Aus Sinken wird Vortrieb: je steiler, desto schneller. */
     const zielTempo = 15 + player.gleitNase * 11;         // 4 … 26 m/s
-    const hs = Math.hypot(player.vel.x, player.vel.z);
-    const neuTempo = lerp(hs, zielTempo, Math.min(1, dt * 1.6));
-    player.vel.x = f.x * neuTempo;
-    player.vel.z = f.z * neuTempo;
+    /* Der ganze Geschwindigkeitsvektor wird weich auf sein Ziel gezogen –
+       eine einzige Zeitkonstante für Tempo UND Richtung. Vorher wurde die
+       Richtung in jedem Bild hart auf die Blickrichtung gesetzt; das war
+       das Ruckeln in der Kurve. */
+    const k = Math.min(1, dt * 2.2);
+    player.vel.x = lerp(player.vel.x, f.x * zielTempo, k);
+    player.vel.z = lerp(player.vel.z, f.z * zielTempo, k);
   } else {
     // Luftsteuerung
     if (player.dodgeT > 0) player.dodgeT -= dt;
@@ -4962,6 +5097,10 @@ function updatePlayer(dt) {
       if (hs > maxH) { player.vel.x *= maxH / hs; player.vel.z *= maxH / hs; }
     }
   }
+
+  /* Der Anlauf überschreibt die normale Steuerung – er ist eine geführte
+     Bewegung, kein Ergebnis der Eingabe. */
+  updateAnlauf(dt);
 
   // Plattform (Autodach) mitbewegen
   if (player.platform && player.onGround) {
@@ -5134,6 +5273,14 @@ function updatePlayer(dt) {
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   if (player.landT > 0) player.landT -= dt;
   if (player.hartLandung > 0) player.hartLandung -= dt;
+  /* Rollen gehören auf den Boden. Verlässt die Figur ihn mitten in der
+     Landerolle wieder – über eine Dachkante, von einem Autodach, durch
+     einen Treffer –, lief die Bewegung frei schwebend weiter und sah aus
+     wie ein Purzelbaum in der Luft. */
+  if (!player.onGround && (player.hartLandung > 0 || player.landT > 0 || player.rollT > 0)) {
+    player.hartLandung = 0; player.landT = 0; player.rollT = 0;
+    if (heroVisual.brichOneShot) heroVisual.brichOneShot(0.16);
+  }
   if (player.hitT > 0) player.hitT -= dt;
   /* Verliert man mitten in der Rolle den Boden (Bordstein, Kante), wird
      sie abgebrochen – sonst rollt die Figur im Fallen weiter. */
@@ -5201,7 +5348,7 @@ function updateHeroVisual(dt) {
     } else if (player.gleiten) {
       /* Im Gleitflug liegt der Körper flach in der Luft, Kopf voran – wie
          im Wingsuit. Aufrecht stehend sähe die Netzhaut sinnlos aus. */
-      tilt = 0.62 + (player.gleitNase || 0) * 0.42;
+      tilt = (0.62 + (player.gleitNase || 0) * 0.42) * clamp(player.gleitMisch || 0, 0, 1);
       r.rotation.z = lerp(r.rotation.z, clamp(-(player.gleitKurve || 0) * 0.5, -0.5, 0.5),
                           Math.min(1, dt * 5));
     } else {
@@ -5236,7 +5383,8 @@ function updateHeroVisual(dt) {
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
                              clamp(player.vel.y * 0.09, -1, 1), r.rotation.x);
     } else if (player.gleiten) {
-      heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed, 0.9);
+      heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
+                             0.9 * clamp(player.gleitMisch || 0, 0, 1));
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
@@ -5265,6 +5413,15 @@ function updateHeroVisual(dt) {
                  : (player.anim === 'land' || player.anim === 'roll') ? 12 : 5;
       heroVisual.bodenAusgleich(Math.min(0.35, dt * zaeh));
     }
+  }
+
+  /* Nach dem Gleiten wird die Gleithaltung noch kurz mit abnehmender
+     Stärke daraufgelegt – dadurch geht sie in die Schwung- oder
+     Fallhaltung über, statt umzuspringen. */
+  if (!player.gleiten && player.gleitAus > 0 && !heroVisual.procedural &&
+      heroVisual.poseGleiten && !player.attack) {
+    heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
+                           0.75 * clamp(player.gleitAus / 0.4, 0, 1));
   }
 
   updateNetzFluegel(dt);
@@ -5374,7 +5531,7 @@ function updateNetzFluegel(dt) {
   if (!fluegelL) baueNetzFluegel();
   /* Ein- und Ausblenden, damit die Häute nicht schlagartig erscheinen. */
   const ziel = player.gleiten ? 1 : 0;
-  fluegelSicht = lerp(fluegelSicht, ziel, Math.min(1, dt * (ziel > 0 ? 14 : 9)));
+  fluegelSicht = lerp(fluegelSicht, ziel, Math.min(1, dt * (ziel > 0 ? 10 : 4)));
   if (fluegelSicht < 0.02) {
     fluegelL.visible = fluegelR.visible = false;
     return;
@@ -6223,16 +6380,35 @@ function updateCivilians(dt) {
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
     /* Beim Filmen wird der Arm mit dem Handy zum Helden gestreckt –
        vorher hing der Arm herunter und das Handy schwebte davor. */
-    if (c.handy.visible && c.visual.poseSchuss) {
+    /* Die Feinarbeit an Handy und Schirm (Arm ausrichten, Faust schließen,
+       Gegenstand ausrichten) kostet je Figur rund zwanzig Knochendrehungen.
+       Auf 30 m Entfernung sieht man davon nichts mehr. */
+    const nah = dHeld < 30 && Math.abs(player.pos.y - c.pos.y) < 14;
+    if (nah && c.handy.visible && c.visual.poseSchuss) {
       _v3.set(player.pos.x, player.pos.y + 1.2, player.pos.z);
       c.visual.poseSchuss(_v3, 'R', 0.85);
+      /* Die Finger schließen sich um das Gerät. Ohne das lag das Handy in
+         einer flachen, offenen Hand und sah aus, als würde es schweben. */
+      if (c.visual.faust) c.visual.faust('R', 0.8);
+      /* Das Gerät steht senkrecht in der Faust, Bildschirm zum Gesicht –
+         unabhängig davon, wie die Hand gerade gedreht ist. */
+      if (c.visual.haltAusgerichtet) {
+        c.visual.haltAusgerichtet(c.handy, c.facing + Math.PI, 0.25,
+          _v2.set(0, 0.03, 0));     // Gerät sitzt in der Faust
+      }
     }
     /* Der Schirm wird über den Kopf gehalten, nicht am Bein baumeln lassen.
        Der Stock bleibt dabei senkrecht, egal wie die Hand steht. */
-    if (c.schirm && c.schirm.visible && c.visual.poseSchuss) {
+    if (nah && c.schirm && c.schirm.visible && c.visual.poseSchuss) {
       _v3.set(c.pos.x, c.pos.y + 3.4, c.pos.z);
       c.visual.poseSchuss(_v3, 'L', 0.9);
-      if (c.visual.haltAufrecht) c.visual.haltAufrecht(c.schirm, 0.12);
+      /* Um den Griff schließt sich eine richtige Faust. */
+      if (c.visual.faust) c.visual.faust('L', 1);
+      if (c.visual.armRuhe) c.visual.armRuhe('R', 0.55);
+      /* Der Stock steht senkrecht und läuft mitten durch die Faust. */
+      if (c.visual.haltAusgerichtet) {
+        c.visual.haltAusgerichtet(c.schirm, c.facing, 0.1, _v2.set(0, 0, 0));
+      } else if (c.visual.haltAufrecht) c.visual.haltAufrecht(c.schirm, 0.12);
     }
     if (haltenImGebiet(c.pos)) c.waypoint = null;
     if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
@@ -6784,17 +6960,27 @@ function applyWeb(e) {
   else { e.vel.multiplyScalar(0.3); e.staggerT = Math.max(e.staggerT, 0.35); }
 }
 
+/* Die ganze Gang in der Nähe auf den Helden umschalten – unabhängig davon,
+   was sie gerade tut. Vorher wurden nur patrouillierende Kumpels alarmiert;
+   wer hinter einem Zivilisten her war, machte einfach weiter, und man musste
+   jeden Ganoven einzeln anschlagen. */
+function alarmiereGang(e, umkreis) {
+  if (!e.gang) return;
+  for (const o of e.gang.enemies) {
+    if (o.dead || o === e || o.target === 'player') continue;
+    /* Bewacher einer Geisel und fliehende Diebe behalten ihre Aufgabe. */
+    if (o.bewacht || o.dieb) continue;
+    if (Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) > umkreis) continue;
+    o.state = 'chase'; o.target = 'player';
+  }
+}
+
 function damageEnemy(e, dmg, kind) {
   if (e.dead) return;
   e.hp -= dmg;
   e.target = 'player';
   e.state = 'chase';
-  // Kumpels alarmieren
-  for (const o of e.gang.enemies) {
-    if (!o.dead && o.state === 'patrol' && Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) < 20) {
-      o.state = 'chase'; o.target = 'player';
-    }
-  }
+  alarmiereGang(e, 20);
   if (e.hp <= 0) {
     e.dead = true; e.deadT = 2.5;
     e.webT = 0; e.cocoon.visible = false;
@@ -6929,6 +7115,16 @@ function updateEnemies(dt) {
 
     const dp = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
     const dpy = Math.abs(player.pos.y - e.pos.y);
+
+    /* Wer den Helden direkt neben sich hat, lässt den Zivilisten los.
+       Vorher galt das nur beim Patrouillieren: Ganoven, die hinter einem
+       Passanten herliefen, rannten an einem danebenstehenden Spider-Man
+       vorbei, bis man sie einzeln anschlug. */
+    if (!player.dead && e.target !== 'player' && !e.bewacht && !e.dieb &&
+        dp < 9 && dpy < 3 && e.betaeubtT <= 0) {
+      e.state = 'chase'; e.target = 'player';
+      alarmiereGang(e, 14);
+    }
 
     /* Zielwahl */
     if (e.state === 'patrol') {
@@ -7853,12 +8049,45 @@ const clock = new THREE.Clock();
 let elapsed = 0;
 
 let karteCd = 0;
+/* ---- Bildrate halten ----
+   Die Schattenkarte ist mit Abstand der teuerste Posten: sie zeichnet in
+   jedem Bild die halbe Stadt ein zweites Mal. Sie wird deshalb nur noch
+   jedes zweite Bild neu berechnet – bewegte Schatten hinken dadurch
+   höchstens ein Bild hinterher, was man nicht sieht.
+   Zusätzlich regelt sich die Auflösung selbst herunter, wenn es klemmt:
+   auf einem hochauflösenden Bildschirm ist das der wirksamste Hebel. */
+let schattenBild = 0;
+let bildZeit = 16.7, letzteMessung = 0, pixelStufe = 1, regelCd = 90;
+
+function regleQualitaet(msJetzt) {
+  if (letzteMessung) {
+    const roh = msJetzt - letzteMessung;
+    /* Gleitender Mittelwert – einzelne Ausreißer sollen nichts umstellen. */
+    if (roh > 0 && roh < 200) bildZeit = bildZeit * 0.9 + roh * 0.1;
+  }
+  letzteMessung = msJetzt;
+  if (--regelCd > 0) return;
+  regelCd = 90;
+  const max = Math.min(window.devicePixelRatio || 1, 2);
+  let neu = pixelStufe;
+  if (bildZeit > 23 && pixelStufe > 0.65) neu = Math.max(0.65, pixelStufe - 0.2);
+  else if (bildZeit < 13.5 && pixelStufe < 1) neu = Math.min(1, pixelStufe + 0.1);
+  if (neu !== pixelStufe) {
+    pixelStufe = neu;
+    renderer.setPixelRatio(max * pixelStufe);
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   let dt = Math.min(clock.getDelta(), 0.05);
   if (!isActive() || !actorsReady) { renderer.render(scene, camera); return; }
   simuliere(dt);
+  if (sun && sun.shadow && !sun.shadow.autoUpdate) {
+    sun.shadow.needsUpdate = (++schattenBild & 1) === 0;
+  }
   renderer.render(scene, camera);
+  regleQualitaet(performance.now());
   /* Die Minikarte braucht keine 60 Bilder je Sekunde. */
   karteCd -= dt;
   if (karteCd <= 0) { karteCd = 0.05; updateKarte(); }
@@ -7942,7 +8171,7 @@ animate();
 // Nur für automatisierte Tests sichtbar
 if (window.__WEBHERO_TEST__ === true) {
   window.__dbg = {
-    player, enemies, civilians, cars, glbModels, camera,
+    player, enemies, civilians, cars, glbModels, camera, gangs,
     get actorsReady() { return actorsReady; },
     get heroVisual() { return heroVisual; },
     colliders,
@@ -7959,6 +8188,11 @@ if (window.__WEBHERO_TEST__ === true) {
     stick,
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
+    groundYAt: groundY,
+    setzeRegen(v) { REGEN.an = v > 0; REGEN.staerke = v; REGEN.naechsterWechsel = 9999; },
+    regenStaerke() { return +REGEN.staerke.toFixed(2); },
+    zeichne() { renderer.render(scene, camera); },
+    setSchatten(an) { renderer.shadowMap.enabled = an; if (sun) sun.castShadow = an; },
     fluegelObj() { return fluegelL ? { L: fluegelL, R: fluegelR } : null; },
     voegelDa() { return voegel ? voegel.count : 0; },
     dampfDa() { return dampfPunkte; },
