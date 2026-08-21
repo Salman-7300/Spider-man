@@ -683,6 +683,49 @@ function onBridge(x, z) {
 function inWater(x, z) {
   return x > RIVER_X0 && x < RIVER_X1 && !onBridge(x, z);
 }
+/* Eine ordentliche Bank: zwei gusseiserne Wangen, drei Sitzlatten, eine
+   geneigte Rückenlehne auf zwei Stützen. Die frühen "Bänke" waren eine
+   einzelne Kiste und sahen aus wie ein hingelegter Balken.
+   richtung: 0 = Bank steht quer zur x-Achse (Sitzfläche lang in x),
+             1 = lang in z. */
+function baueBank(x, y, z, laengsZ, holz) {
+  const H = holz === undefined ? 0x6b4a2c : holz;
+  const L = 2.2;                                  // Länge
+  const lx = laengsZ ? 0.62 : L, lz = laengsZ ? L : 0.62;
+  const sitzY = y + 0.44;
+  /* Wangen */
+  for (const s2 of [-1, 1]) {
+    const ox = laengsZ ? 0 : s2 * (L / 2 - 0.22);
+    const oz = laengsZ ? s2 * (L / 2 - 0.22) : 0;
+    deko(laengsZ ? 0.56 : 0.1, 0.44, laengsZ ? 0.1 : 0.56,
+         x + ox, y + 0.22, z + oz, 0x33383e);
+    /* Fuß am Boden, damit sie nicht schwebt */
+    deko(laengsZ ? 0.62 : 0.16, 0.06, laengsZ ? 0.16 : 0.62,
+         x + ox, y + 0.03, z + oz, 0x2a2e33);
+  }
+  /* Sitzlatten */
+  for (let i = 0; i < 3; i++) {
+    const o = (i - 1) * 0.2;
+    deko(laengsZ ? 0.17 : lx, 0.055, laengsZ ? lz : 0.17,
+         x + (laengsZ ? o : 0), sitzY, z + (laengsZ ? 0 : o), H);
+  }
+  /* Lehne: zwei Latten, leicht nach hinten versetzt */
+  for (let i = 0; i < 2; i++) {
+    const hy = sitzY + 0.26 + i * 0.2;
+    const back = -0.24 - i * 0.05;
+    deko(laengsZ ? 0.14 : lx, 0.14, laengsZ ? lz : 0.14,
+         x + (laengsZ ? back : 0), hy, z + (laengsZ ? 0 : back), H);
+  }
+  /* Lehnenstützen */
+  for (const s2 of [-1, 1]) {
+    const ox = laengsZ ? -0.26 : s2 * (L / 2 - 0.22);
+    const oz = laengsZ ? s2 * (L / 2 - 0.22) : -0.26;
+    deko(0.09, 0.62, 0.09, x + ox, sitzY + 0.3, z + oz, 0x33383e);
+  }
+  addCollider({ x0: x - lx / 2, x1: x + lx / 2, z0: z - lz / 2, z1: z + lz / 2,
+                h: sitzY + 0.03, klein: true });
+}
+
 /* ---- U-Bahn-Stationen ----
    Jeder Eingang gehört zu einem echten begehbaren Schacht: Treppe nach
    unten, darunter ein Bahnsteig mit Gleis. Damit man wirklich hinunterlaufen
@@ -1072,42 +1115,13 @@ function bauePark(cx, cz, size) {
                   h: SLAB_H + 3.4, klein: true });
   }
 
-  /* Bänke entlang der Wege – mit Beinen, sonst schwebt die Sitzfläche. */
-  for (const [bx, bz, quer] of [[cx - 7, cz + 2.4, true], [cx + 7, cz + 2.4, true],
-                                [cx + 2.4, cz - 7, false], [cx + 2.4, cz + 7, false]]) {
-    const w = quer ? 2.2 : 0.6, d = quer ? 0.6 : 2.2;
-    const sitzY = SLAB_H + 0.45;
-    // Zwei gusseiserne Wangen tragen die Bank bis auf den Boden
-    for (const s2 of [-1, 1]) {
-      const ox = quer ? s2 * (w / 2 - 0.22) : 0;
-      const oz = quer ? 0 : s2 * (d / 2 - 0.22);
-      deko(quer ? 0.12 : 0.5, 0.45, quer ? 0.5 : 0.12,
-           bx + ox, SLAB_H + 0.225, bz + oz, 0x3a3f45);
-    }
-    // Sitzlatten
-    for (let i = 0; i < 3; i++) {
-      const o = (i - 1) * 0.19;
-      deko(quer ? w : 0.16, 0.06, quer ? 0.16 : d,
-           bx + (quer ? 0 : o), sitzY, bz + (quer ? o : 0), 0x7a5636);
-    }
-    // Rückenlehne, leicht nach hinten geneigt
-    for (let i = 0; i < 2; i++) {
-      const hy = sitzY + 0.28 + i * 0.22;
-      const o = quer ? -0.28 - i * 0.06 : 0;
-      const o2 = quer ? 0 : -0.28 - i * 0.06;
-      deko(quer ? w : 0.14, 0.15, quer ? 0.14 : d,
-           bx + o2, hy, bz + o, 0x7a5636);
-    }
-    // Lehnenstützen
-    for (const s2 of [-1, 1]) {
-      const ox = quer ? s2 * (w / 2 - 0.22) : -0.3;
-      const oz = quer ? -0.3 : s2 * (d / 2 - 0.22);
-      deko(0.1, 0.62, 0.1, bx + ox, sitzY + 0.31, bz + oz, 0x3a3f45);
-    }
-    addCollider({ x0: bx - w / 2, x1: bx + w / 2, z0: bz - d / 2, z1: bz + d / 2,
-                  h: sitzY + 0.03, klein: true });
+  /* Bänke entlang der Wege. */
+  for (const [bx, bz, laengs] of [[cx - 7, cz + 2.4, false], [cx + 7, cz + 2.4, false],
+                                  [cx + 2.4, cz - 7, true], [cx + 2.4, cz + 7, true]]) {
+    baueBank(bx, SLAB_H, bz, laengs);
   }
 }
+
 
 /* ---- U-Bahn-Eingang ----
    Treppenschacht mit Geländer und beleuchtetem Schild. */
@@ -1124,6 +1138,17 @@ function baueUBahn(x, z) {
     const tiefe = UB_TREPPE / UB_STUFEN;
     deko(UB_BREIT, 0.1, tiefe, x, y1 + 0.05, zz, 0x6a7078);          // Trittfläche
     deko(UB_BREIT, y0 - y1, 0.08, x, (y0 + y1) / 2, zz - tiefe / 2, 0x3c4249);  // Setzstufe
+    /* Heller Streifen auf jeder Stufenkante. Von oben sah man vorher nur
+       ein schwarzes Loch und konnte nicht erkennen, dass es hinuntergeht. */
+    deko(UB_BREIT - 0.2, 0.035, 0.09, x, y1 + 0.11, zz - tiefe / 2 + 0.06, 0xe8e4c8);
+  }
+  /* Licht im Treppenschacht: zwei Leuchtbänder an den Seitenwänden. */
+  for (const s2 of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      const t = (i + 0.5) / 3;
+      deko(0.1, 0.16, 1.1, x + s2 * (UB_BREIT / 2 + 0.05),
+           lerp(SLAB_H, UB_TIEF, t) + 2.0, z + t * UB_TREPPE, 0xf4f0d8);
+    }
   }
   /* Seitenwände der Treppe – und Geländer oben. */
   for (const s2 of [-1, 1]) {
@@ -1132,7 +1157,8 @@ function baueUBahn(x, z) {
     deko(0.12, 1.0, UB_TREPPE * 0.5, x + s2 * (UB_BREIT / 2 + 0.1),
          SLAB_H + 0.5, z + UB_TREPPE * 0.25, 0x2e3238);
     addCollider({ x0: wx - 0.25, x1: wx + 0.25, z0: z - 0.3,
-                  z1: z + UB_TREPPE + 0.3, h: SLAB_H + 1.1, y0: UB_TIEF - 0.4 });
+                  z1: z + UB_TREPPE + 0.3, h: SLAB_H + 1.1, y0: UB_TIEF - 0.4,
+                  keinKlettern: true });
   }
   /* Der Treppenkopf bleibt offen: von dort geht man hinein. (Eine Wand an
      dieser Stelle hat den Eingang komplett verriegelt.) */
@@ -1148,13 +1174,17 @@ function baueUBahn(x, z) {
     /* Die Wand reicht bis auf Straßenniveau. Endete sie an der Decke,
        war ihre Oberkante ein Sims, an dem sich die Figur aus der Station
        heraus nach oben zog. */
+    /* Oberkante UNTER der Fahrbahn: mit h = SLAB_H ragte die Wand in die
+       Straße darüber und war dort eine unsichtbare Sperre. */
     addCollider({ x0: wx - 0.2, x1: wx + 0.2, z0: hallenMitteZ - hz / 2,
-                  z1: hallenMitteZ + hz / 2, h: SLAB_H, y0: UB_TIEF - 0.4 });
+                  z1: hallenMitteZ + hz / 2, h: -0.12, y0: UB_TIEF - 0.4,
+                  keinKlettern: true });
   }
   /* Rückwand mit Gleis davor. */
   deko(hx, 3.9, 0.4, x, UB_TIEF + 1.95, hallenMitteZ + hz / 2, 0x3a4048);
   addCollider({ x0: x - hx / 2, x1: x + hx / 2, z0: hallenMitteZ + hz / 2 - 0.2,
-                z1: hallenMitteZ + hz / 2 + 0.2, h: SLAB_H, y0: UB_TIEF - 0.4 });
+                z1: hallenMitteZ + hz / 2 + 0.2, h: -0.12, y0: UB_TIEF - 0.4,
+                keinKlettern: true });
   /* Vorderwand links und rechts der Treppe. */
   for (const s2 of [-1, 1]) {
     const bx = (hx / 2 - UB_BREIT / 2 - 0.5) / 2 + (UB_BREIT / 2 + 0.5) / 2;
@@ -1162,7 +1192,17 @@ function baueUBahn(x, z) {
     const breite = hx / 2 - UB_BREIT / 2 - 0.5;
     deko(breite, 3.9, 0.4, mitte, UB_TIEF + 1.95, zU, 0x3a4048);
     addCollider({ x0: mitte - breite / 2, x1: mitte + breite / 2,
-                  z0: zU - 0.2, z1: zU + 0.2, h: SLAB_H, y0: UB_TIEF - 0.4 });
+                  z0: zU - 0.2, z1: zU + 0.2, h: -0.12, y0: UB_TIEF - 0.4,
+                  keinKlettern: true });
+  }
+
+  /* Tunnelmünder an beiden Enden des Gleises. Wer hineingeht, fährt zur
+     nächsten Station – so kommt man unterirdisch durch die ganze Stadt. */
+  const gleisZt = hallenMitteZ + hz / 2 - 1.9;
+  for (const s2 of [-1, 1]) {
+    const tx = x + s2 * (hx / 2 - 0.2);
+    deko(1.2, 2.6, 3.4, tx, UB_TIEF + 0.9, gleisZt, 0x07090c);      // dunkles Loch
+    deko(1.5, 0.3, 3.8, tx, UB_TIEF + 2.3, gleisZt, 0x4a5058);      // Sturz
   }
 
   /* Gleisbett: der Boden fällt hinter der Bahnsteigkante ab. */
@@ -1181,13 +1221,7 @@ function baueUBahn(x, z) {
   deko(3.0, 1.0, 0.12, x, UB_TIEF + 2.6, hallenMitteZ + hz / 2 - 0.3, 0x1b8f4a);
   deko(2.6, 0.7, 0.14, x, UB_TIEF + 2.6, hallenMitteZ + hz / 2 - 0.3, 0xf2f6f0);
   /* Zwei Bänke auf dem Bahnsteig. */
-  for (const s2 of [-1, 1]) {
-    const bx = x + s2 * 6;
-    deko(2.2, 0.1, 0.55, bx, UB_TIEF + 0.45, zU + 1.3, 0x7a5636);
-    deko(2.2, 0.5, 0.12, bx, UB_TIEF + 0.72, zU + 1.05, 0x7a5636);
-    addCollider({ x0: bx - 1.1, x1: bx + 1.1, z0: zU + 1.0, z1: zU + 1.6,
-                  h: UB_TIEF + 0.5, klein: true });
-  }
+  for (const s2 of [-1, 1]) baueBank(x + s2 * 6, UB_TIEF, zU + 1.4, false);
 
   /* ---- Oben: Geländer und Schild ---- */
   deko(0.2, 2.6, 0.2, x - UB_BREIT / 2 - 1.1, SLAB_H + 1.3, z, 0x2e3238);   // Mast
@@ -1557,17 +1591,7 @@ function buildRiverAndBridge() {
       addCollider({ x0: bx - 0.4, x1: bx + 0.4, z0: bz - 0.4, z1: bz + 0.4,
                     h: SLAB_H + 3.2, klein: true });
     } else if (takt === 1) {
-      /* Bank mit Blick aufs Wasser. */
-      const bx = PROM_X1 - 3.2, bz = z + 3.5;
-      for (const s2 of [-1, 1]) {
-        deko(0.5, 0.45, 0.12, bx, SLAB_H + 0.225, bz + s2 * 0.9, 0x3a3f45);
-      }
-      for (let i = 0; i < 3; i++) {
-        deko(0.16, 0.06, 2.2, bx + (i - 1) * 0.19, SLAB_H + 0.45, bz, 0x7a5636);
-      }
-      deko(0.14, 0.5, 2.2, bx + 0.3, SLAB_H + 0.72, bz, 0x7a5636);
-      addCollider({ x0: bx - 0.4, x1: bx + 0.4, z0: bz - 1.1, z1: bz + 1.1,
-                    h: SLAB_H + 0.48, klein: true });
+      baueBank(PROM_X1 - 3.2, SLAB_H, z + 3.5, true);      // Blick aufs Wasser
     } else {
       addLamp(PROM_X0 + 2.0, z + 3.5);
     }
@@ -4128,7 +4152,7 @@ const player = {
   hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
-  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0,
+  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, wandVersatz: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
@@ -4244,12 +4268,16 @@ document.addEventListener('keydown', (e) => {
     case 'Escape': zeigeEinstellungen(settingsEl.style.display !== 'flex'); break;
     case 'KeyR': uppercut(); break;
     case 'KeyG': packenUndWerfen(); break;
+    case 'KeyV': katapultStart(); break;
     case 'KeyC': if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); break;
     case 'Enter': if (player.dead) respawn(); break;
   }
   if (e.code === 'Space') e.preventDefault();
 });
-document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+document.addEventListener('keyup', (e) => {
+  keys[e.code] = false;
+  if (e.code === 'KeyV') katapultLos();
+});
 
 /* Bewegung kann von drei Quellen kommen: Tastatur, Gamepad-Stick und
    dem Daumenknüppel auf dem Handy. Alle schreiben in dieselbe Achse. */
@@ -4278,7 +4306,7 @@ const PAD_TASTEN = {
   0: () => tryJump(),
   1: () => dodge(),
   2: () => tryAttack('punch'),
-  3: () => tryAttack('kick'),
+  3: () => katapultStart(),
   4: () => webShot(),
   5: () => webZip(),
   6: () => uppercut(),
@@ -4316,6 +4344,7 @@ function updateGamepad() {
     padVorher[i] = jetzt;
   }
   /* Gehaltene Tasten: RT = Netzschwung, L3 = Sprint. */
+  if (!gedrueckt(3) && KAT.aktiv) katapultLos();
   swingHeld = swingHeld || gedrueckt(7);
   if (!gedrueckt(7) && padSchwang) swingHeld = false;
   padSchwang = gedrueckt(7);
@@ -4626,7 +4655,10 @@ function collideBody(body, prevY, radiusExtra) {
       else { p.z = c.z1 + r; nz = 1; }
       const into = body.vel.x * -nx + body.vel.z * -nz;
       if (into > 0) { body.vel.x += nx * into; body.vel.z += nz * into; }
-      body.wall = { col: c, nx, nz };
+      /* An manchen Wänden gibt es nichts zu klettern – etwa an den
+         Innenwänden der U-Bahn-Station. Sonst zieht sich die Figur daran
+         aus dem Untergeschoss ans Tageslicht. */
+      if (!c.keinKlettern) body.wall = { col: c, nx, nz };
     }
   }
   // Boden
@@ -5621,7 +5653,7 @@ function updatePlayer(dt) {
        beiden Fällen darüber. */
     const seitlich = Math.abs(side) > Math.abs(up);
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
-                : sprintWand ? 'wandlauf'             // die Wand hochlaufen
+                : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
                 : seitlich ? 'klettern_seit'          // seitlich hangeln
                 : 'climb';                            // senkrecht hoch/runter
     updateHeroVisual(dt);
@@ -6161,12 +6193,34 @@ function updateHeroVisual(dt) {
   if (!heroVisual) return;
   const r = heroVisual.root;
   r.position.copy(player.pos);
+  /* Beim Wandlauf liegt der Körper waagerecht. Weil er um den Fußpunkt
+     kippt, schwingen die Füße dabei rund einen halben Meter von der Wand
+     weg – die Figur lief in der Luft neben dem Haus. Der ganze Körper wird
+     deshalb zur Fassade hin verschoben, bis die Füße wirklich aufsetzen. */
+  {
+    const wl = player.state === 'climb' && player.wandlauf && player.wallInfo;
+    player.wandVersatz = lerp(player.wandVersatz || 0, wl ? 0.62 : 0,
+                              Math.min(1, dt * 8));
+    if (player.wandVersatz > 0.01 && player.wallInfo) {
+      r.position.x -= player.wallInfo.nx * player.wandVersatz;
+      r.position.z -= player.wallInfo.nz * player.wandVersatz;
+      /* Und ein Stück höher, damit der Körper nicht in der Wand liegt. */
+      r.position.y += player.wandVersatz * 0.45;
+    }
+  }
   r.rotation.y = player.facing;
 
   /* Beim Klettern lehnt der Körper leicht zur Wand – das liest sich sofort
      als Kleben statt als Hochlaufen. */
   if (player.state === 'climb') {
-    r.rotation.x = lerp(r.rotation.x, 0.13, Math.min(1, dt * 10));
+    /* ---- Wandlauf: der Körper legt sich waagerecht an die Fassade ----
+       Vorher lief nur dieselbe Kletterbewegung schneller ab – es sah aus,
+       als würde die Figur die Wand hochkriechen, nicht hochrennen.
+       Jetzt wird der Körper um gut 80 Grad zurückgekippt: die Füße zeigen
+       zur Wand, der Kopf nach außen, und die Laufbewegung zeigt genau nach
+       oben. Das ist die Haltung, in der man eine Wand hochläuft. */
+    const zielX = player.wandlauf ? -1.42 : 0.13;
+    r.rotation.x = lerp(r.rotation.x, zielX, Math.min(1, dt * (player.wandlauf ? 7 : 10)));
   } else
   /* Ausweichen: schneller Satz mit Vorlage – bewusst OHNE Überschlag.
      Die frühere Rolle drehte den Körper um die Füße, dadurch verschwand die
@@ -6186,7 +6240,10 @@ function updateHeroVisual(dt) {
          schneller desto flacher. Genau das ist der Unterschied zwischen
          "hängt an einem Faden" und "schwingt". */
       const hs = Math.hypot(player.vel.x, player.vel.z);
-      tilt = clamp(0.3 + hs * 0.05, 0.3, 1.15);
+      /* Deutlich flacher als vorher: im Vorbild fliegt Spider-Man am Netz
+         nahezu waagerecht, Kopf voran. Mit 0,3 als Untergrenze hing er
+         auch im schnellen Bogen noch fast senkrecht am Faden. */
+      tilt = clamp(0.62 + hs * 0.042, 0.62, 1.32);
       // Kurvenlage: seitlich in den Bogen legen
       const a = player.swing.anchor;
       const rx = Math.cos(player.facing), rz = -Math.sin(player.facing);
@@ -6340,6 +6397,140 @@ function updateHeroVisual(dt) {
                 player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
   }
+}
+
+/* ---- Fahrt durch den Tunnel ----
+   Am Gleisende führt der Tunnel weiter. Wer hineingeht, kommt an der
+   nächsten Station wieder heraus. Damit ist der Untergrund kein
+   Sackgassen-Raum mehr, sondern ein zweiter Weg durch die Stadt. */
+let tunnelCd = 0;
+function updateTunnel(dt) {
+  if (tunnelCd > 0) { tunnelCd -= dt; return; }
+  if (!player.onGround || player.pos.y > -2) return;
+  for (let i = 0; i < UBAHNEN.length; i++) {
+    const u = UBAHNEN[i];
+    const zU = u.z + UB_TREPPE;
+    const hallenMitteZ = zU + UB_HALLE_Z / 2;
+    const gleisZ = hallenMitteZ + UB_HALLE_Z / 2 - 1.9;
+    if (Math.abs(player.pos.z - gleisZ) > 1.7) continue;
+    const dx = player.pos.x - u.x;
+    if (Math.abs(dx) < UB_HALLE_X / 2 - 1.1) continue;
+    if (Math.abs(dx) > UB_HALLE_X / 2 + 1.0) continue;
+    /* Ziel: die nächste Station in der Liste (in der Richtung, in die man
+       geht). */
+    const richtung = dx > 0 ? 1 : -1;
+    const ziel = UBAHNEN[(i + (richtung > 0 ? 1 : UBAHNEN.length - 1)) % UBAHNEN.length];
+    if (!ziel || ziel === u) return;
+    const zZ = ziel.z + UB_TREPPE + UB_HALLE_Z / 2;
+    player.pos.set(ziel.x - richtung * (UB_HALLE_X / 2 - 2.5), UB_TIEF,
+                   zZ + UB_HALLE_Z / 2 - 3.4);
+    player.vel.set(0, 0, 0);
+    tunnelCd = 1.6;
+    camShake = Math.max(camShake, 0.12);
+    SFX.zip();
+    popupScreen('🚇 Nächste Station');
+    return;
+  }
+}
+
+/* ======================= Netz-Katapult =======================
+   Zwei Netze nach hinten, spannen, loslassen – und die Figur wird wie aus
+   einer Schleuder nach vorn geschossen. Auf einem Dach ist das der schnelle
+   Weg zum nächsten Häuserblock, ohne erst einen Bogen aufbauen zu müssen.
+   Taste V (Gamepad: Y), gedrückt halten zum Spannen. */
+const KAT = { aktiv: false, ladung: 0, anker: [null, null], strang: [null, null] };
+const KAT_MAX = 1.0;              // volle Spannung nach einer Sekunde
+
+function katapultStrang(i) {
+  if (!KAT.strang[i]) {
+    KAT.strang[i] = makeWebStrand();
+    KAT.strang[i].visible = false;
+  }
+  return KAT.strang[i];
+}
+
+/* Zwei Ankerpunkte schräg hinter der Figur suchen. */
+function katapultAnker() {
+  const hinten = _v1.set(-Math.sin(player.facing), 0, -Math.cos(player.facing));
+  const rechts = _v2.set(hinten.z, 0, -hinten.x);
+  const gefunden = [null, null];
+  for (let seite = 0; seite < 2; seite++) {
+    const vz = seite === 0 ? -1 : 1;
+    let best = null, bestWert = -1e9;
+    for (const c of colliders) {
+      /* Der Anker darf auch tiefer liegen als die Figur – vom Hochhausdach
+         aus gibt es sonst fast nie zwei Häuser, die noch höher sind. */
+      if (c.klein || c.h < player.pos.y - 8) continue;
+      const cx = clamp(player.pos.x, c.x0, c.x1);
+      const cz = clamp(player.pos.z, c.z0, c.z1);
+      const dx = cx - player.pos.x, dz = cz - player.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 4 || d > 60) continue;
+      const nachHinten = (dx * hinten.x + dz * hinten.z) / d;
+      const nachSeite = (dx * rechts.x + dz * rechts.z) / d * vz;
+      if (nachHinten < 0.05 || nachSeite < 0.1) continue;
+      /* Möglichst hoch und möglichst weit hinten. */
+      const wert = nachHinten * 2 + nachSeite - d * 0.02 + Math.min(c.h, 90) * 0.02;
+      if (wert > bestWert) {
+        bestWert = wert;
+        best = V3(cx, Math.min(c.h - 0.4, player.pos.y + rand(4, 12)), cz);
+      }
+    }
+    gefunden[seite] = best;
+  }
+  return gefunden;
+}
+
+function katapultStart() {
+  if (player.dead || player.state === 'swing' || player.state === 'climb') return;
+  if (!player.onGround) { popupScreen('Katapult geht nur vom Boden'); return; }
+  const anker = katapultAnker();
+  if (!anker[0] || !anker[1]) { popupScreen('Keine zwei Ankerpunkte in Reichweite'); return; }
+  KAT.aktiv = true; KAT.ladung = 0;
+  KAT.anker[0] = anker[0]; KAT.anker[1] = anker[1];
+  SFX.thwip(); SFX.web();
+}
+
+function katapultLos() {
+  if (!KAT.aktiv) return;
+  const t = clamp(KAT.ladung / KAT_MAX, 0, 1);
+  KAT.aktiv = false;
+  KAT.strang[0].visible = false;
+  KAT.strang[1].visible = false;
+  /* Unter einem Drittel Spannung passiert nichts – so kann man abbrechen. */
+  if (t < 0.3) { popupScreen('Zu wenig Spannung'); return; }
+  const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+  const tempo = lerp(16, 34, t);
+  player.vel.x = f.x * tempo;
+  player.vel.z = f.z * tempo;
+  player.vel.y = lerp(7, 15, t);
+  player.onGround = false;
+  player.state = 'air';
+  player.jumps = 1;
+  camShake = Math.max(camShake, 0.22 * t);
+  staubWolke(player.pos, 1.2 + t);
+  SFX.zip(); SFX.swoosh();
+  popupWorld('Katapult!', player.pos, '#bfe8ff');
+  addScore(Math.round(20 * t), '', player.pos);
+}
+
+function updateKatapult(dt) {
+  if (!KAT.aktiv) return;
+  /* Loslassen oder Zustandswechsel beendet die Spannung. */
+  if (player.dead || !player.onGround || player.state === 'swing') { katapultLos(); return; }
+  KAT.ladung = Math.min(KAT_MAX * 1.15, KAT.ladung + dt);
+  const t = clamp(KAT.ladung / KAT_MAX, 0, 1);
+  /* Die Figur geht in die Hocke und lehnt sich gegen den Zug. */
+  player.vel.x *= 0.6; player.vel.z *= 0.6;
+  heroVisual.root.updateMatrixWorld(true);
+  for (let i = 0; i < 2; i++) {
+    const m = katapultStrang(i);
+    const hand = heroHandPos(_v3, i === 0 ? 'L' : 'R');
+    placeStrand(m, hand, KAT.anker[i], 0.02 * (1 - t) + 0.004);
+    m.visible = true;
+  }
+  /* Bei voller Spannung schießt es von allein los. */
+  if (KAT.ladung >= KAT_MAX * 1.12) katapultLos();
 }
 
 /* ======================= Ankerzeichen =======================
@@ -9289,6 +9480,8 @@ function simuliere(dt) {
   updateCamera(dt);
   updateEffekte(dt);
   updateKlatscher(dt);
+  updateTunnel(dt);
+  updateKatapult(dt);
   updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
   updateKlang(dt);
@@ -9348,6 +9541,7 @@ if (window.__WEBHERO_TEST__ === true) {
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
     ubahnen() { return UBAHNEN; },
+    katStand() { return { aktiv: KAT.aktiv, ladung: KAT.ladung }; },
     bodenFuss: bodenHoeheFuerFuss,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
     sinnObj() { return sinnBoegen; },
