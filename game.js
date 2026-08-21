@@ -118,6 +118,12 @@ const SFX = (() => {
     zip() { tone(500, 0.22, 'sine', 0.08, 2.2); },
     splash() { noise(0.4, 0.2, 200); },
     hupe() { tone(430, 0.28, 'square', 0.07); setTimeout(() => tone(360, 0.22, 'square', 0.06), 60); },
+    /* Spinnensinn: ein feines, schnell aufsteigendes Kribbeln. */
+    sinn() {
+      tone(1750, 0.07, 'sine', 0.05, 1.5);
+      setTimeout(() => tone(2300, 0.06, 'sine', 0.045, 1.4), 55);
+      setTimeout(() => tone(2900, 0.05, 'sine', 0.035, 1.3), 105);
+    },
   };
 })();
 
@@ -2399,13 +2405,15 @@ function makeGlbVisual(m) {
 
   let current = null;
   let lodAcc = 0, lodFrame = 0;
+  let vGlatt = 0, geht = true;
+  let letzterTakt = null;
   let angriff = null, angriffT = 0;
   return {
     root, procedural: false, mixer,
     /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen.
        Die Beine werden vollständig gesetzt (nicht angenähert) – sonst kämpft
        die laufende Geh-Animation dagegen an und die Beine zappeln. */
-    poseSchwung(zielWelt, seite, t, bogen, neigung) {
+    poseSchwung(zielWelt, seite, t, bogen, neigung, beide) {
       const gross = seite === 'L' ? 'leftarm' : 'rightarm';
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
       const andere = seite === 'L' ? 'rightarm' : 'leftarm';
@@ -2457,18 +2465,27 @@ function makeGlbVisual(m) {
 
       /* Das Knie beugt nur in eine Richtung – ein negativer Wert würde das
          Bein nach vorn überstrecken. */
-      const knieL = Math.max(0.12, knie + 0.22 - takt2 * 0.46);
-      const knieR = Math.max(0.12, knie - 0.24 + takt2 * 0.46);
+      /* Auch das Knie hat eine Grenze: rund 140° (2,4 rad) sind das
+         Äußerste, davor liegt die Ferse am Gesäß. */
+      const knieL = clamp(knie + 0.22 - takt2 * 0.46, 0.12, 2.2);
+      const knieR = clamp(knie - 0.24 + takt2 * 0.46, 0.12, 2.2);
       drehZuRuhe(knochen.leftleg,  knieL, 0, 0, k);
       drehZuRuhe(knochen.rightleg, knieR, 0, 0, k);
 
       /* Knöchel: je stärker das Knie gebeugt ist, desto mehr zeigt der Fuß
-         nach hinten weg – so hängen die Füße nicht mehr starr im Raum. */
+         nach hinten weg – aber nur so weit, wie ein Fuß das kann.
+         Vorher wurde die Kniebeugung ungebremst aufaddiert; bei stark
+         angezogenen Beinen kam der Knöchel auf über 90° und der Fuß knickte
+         Richtung Schienbein. Ein Fuß streckt sich rund 50° (Spann) und
+         beugt sich rund 20° zurück. */
+      const KNOECHEL_MAX = 0.85, KNOECHEL_MIN = -0.3;
       if (knochen.leftfoot) {
-        drehZuRuhe(knochen.leftfoot,  0.34 + knieL * 0.55 + takt3 * 0.22, 0, 0, k * 0.9);
+        drehZuRuhe(knochen.leftfoot,
+          clamp(0.2 + knieL * 0.3 + takt3 * 0.16, KNOECHEL_MIN, KNOECHEL_MAX), 0, 0, k * 0.9);
       }
       if (knochen.rightfoot) {
-        drehZuRuhe(knochen.rightfoot, 0.34 + knieR * 0.55 - takt3 * 0.22, 0, 0, k * 0.9);
+        drehZuRuhe(knochen.rightfoot,
+          clamp(0.2 + knieR * 0.3 - takt3 * 0.16, KNOECHEL_MIN, KNOECHEL_MAX), 0, 0, k * 0.9);
       }
       if (knochen.lefttoebase) drehZuRuhe(knochen.lefttoebase, 0.22, 0, 0, k * 0.7);
       if (knochen.righttoebase) drehZuRuhe(knochen.righttoebase, 0.22, 0, 0, k * 0.7);
@@ -2477,10 +2494,25 @@ function makeGlbVisual(m) {
       drehe(knochen.spine1, -0.06 + anziehen * 0.16 - strecken * 0.12,
             (seite === 'L' ? 0.12 : -0.12) + takt * 0.05, 0, 0.5);
       drehe(knochen.spine, -0.04 + anziehen * 0.08, seite === 'L' ? 0.08 : -0.08, 0, 0.4);
-      /* Der freie Arm schwingt weit aus – nicht angelegt wie im Stillstand. */
-      drehe(knochen[andere], -0.55 + wiegen * 2.2 - strecken * 0.5, 0,
-            seite === 'L' ? -0.95 : 0.95, 0.7);
-      drehe(knochen[andereK], -0.35 - anziehen * 0.5, 0, 0, 0.7);
+      /* Beide Hände am Netz oder nur eine?
+         Im Vorbild hängt Spider-Man meist an EINER Hand; mit beiden greift
+         er zu, wenn er sich kräftig hochzieht. Genau so ist es hier: beim
+         Pumpen (W) fasst die zweite Hand an denselben Faden, sonst zieht
+         der freie Arm gestreckt nach hinten – vorher stand er wie
+         vergessen in der Luft. */
+      if (beide) {
+        zieleKnochen(knochen[andere], knochen[andereK], zielWelt, 0.9);
+        drehe(knochen[andereK], -0.18, 0, 0, 0.9);
+        faust(seite === 'L' ? 'right' : 'left', 1);
+      } else {
+        /* Nach hinten ausgestreckt in Flugrichtung – wie ein Ruder. */
+        drehe(knochen[andere], -0.15 + wiegen * 1.4 - strecken * 0.25, 0,
+              seite === 'L' ? -0.55 : 0.55, 0.75);
+        drehe(knochen[andereK], -0.12 - anziehen * 0.25, 0, 0, 0.75);
+        faust(seite === 'L' ? 'right' : 'left', 0.55);
+      }
+      /* Die Netzhand ist eine feste Faust um den Faden. */
+      faust(seite === 'L' ? 'left' : 'right', 1);
       /* Der Kopf hält gegen die Vorlage, damit der Blick nach vorn geht
          und nicht auf den Asphalt. */
       /* Bei 66° Vorlage muss der Blick um denselben Betrag zurückgenommen
@@ -2780,6 +2812,15 @@ function makeGlbVisual(m) {
         obj.position.copy(versatzWelt).applyQuaternion(_q2).multiplyScalar(f);
       }
     },
+    /* Nur für Messungen: passt die Schrittweite zum echten Tempo? */
+    laufInfo() { return letzterTakt; },
+    /* Weltposition des Kopfes – für den Spinnensinn. */
+    kopfPos(out) {
+      const b = knochen.head || knochen.neck;
+      if (!b) return null;
+      root.updateMatrixWorld(true);
+      return b.getWorldPosition(out);
+    },
     /* Weltposition einer Hand – für den Netzfaden */
     handPos(seite, out) {
       const bone = haende[seite] || haende.R || haende.L;
@@ -2878,10 +2919,32 @@ function makeGlbVisual(m) {
       /* Umschalten nach echtem Tempo, nicht nach einem Anteil der
          Höchstgeschwindigkeit: sonst wurde beim Anlaufen ein stark
          beschleunigter Gehschritt gezeigt. */
-      const vBoden = p.speed === undefined ? (p.speed01 || 0) * CFG.sprintSpeed : p.speed;
-      if (key === 'run' && vBoden < 2.9 && findClip(m.clips, 'walk')) want = 'walk';
+      const vRoh = p.speed === undefined ? (p.speed01 || 0) * CFG.sprintSpeed : p.speed;
+      /* Das Tempo wird geglättet. Roh schwankt es von Bild zu Bild (Stöße,
+         Kollisionen, Richtungswechsel) und die Schrittfrequenz zappelte
+         entsprechend mit. */
+      vGlatt += (vRoh - vGlatt) * Math.min(1, dt * 9);
+      const vBoden = vGlatt;
+      /* Hysterese am Übergang Gehen/Laufen: mit einer einzigen Schwelle
+         sprang die Figur bei knapp drei Metern je Sekunde ständig zwischen
+         beiden Bewegungen hin und her. */
+      if (key === 'run' && findClip(m.clips, 'walk')) {
+        if (geht && vBoden > 3.2) geht = false;
+        else if (!geht && vBoden < 2.5) geht = true;
+        if (geht) want = 'walk';
+      }
       const a = actionFor(want) || actionFor('idle');
       if (a && a !== current) {
+        /* Beim Wechsel zwischen Gehen und Laufen die Schrittphase
+           mitnehmen: sonst fängt der neue Takt bei null an und die Beine
+           machen mitten im Schritt einen Satz. */
+        const beideLauf = (want === 'run' || want === 'walk') &&
+                          current && (current === actions.run || current === actions.walk);
+        let phase = 0;
+        if (beideLauf) {
+          const cd = current.getClip().duration || 1;
+          phase = (current.time % cd) / cd;
+        }
         if (current) current.fadeOut(0.22);
         /* Umfallen und Liegenbleiben laufen genau einmal und bleiben im
            letzten Bild stehen – sonst fällt die Figur endlos immer wieder. */
@@ -2889,6 +2952,7 @@ function makeGlbVisual(m) {
         a.setLoop(einmal ? THREE.LoopOnce : THREE.LoopRepeat, einmal ? 1 : Infinity);
         a.clampWhenFinished = einmal;
         a.reset().fadeIn(0.22).play();
+        if (beideLauf) a.time = phase * (a.getClip().duration || 1);
         current = a;
       }
       /* Schrittlänge an das echte Tempo koppeln: die Mixamo-Läufe legen bei
@@ -2897,9 +2961,15 @@ function makeGlbVisual(m) {
          die Füße am Boden stehen, statt zu rutschen – genau das hat das
          Laufen bisher unruhig wirken lassen. */
       if (current && (want === 'run' || want === 'walk')) {
-        const v = p.speed === undefined ? (p.speed01 || 0) * CFG.sprintSpeed : p.speed;
         const ref = want === 'walk' ? 1.45 : 4.2;
-        current.timeScale = clamp(v / ref, 0.7, 2.6);
+        /* Unten weiter aufgemacht (0,45 statt 0,7): wer langsam schleicht,
+           bewegte die Beine sonst schneller als er vorankam – genau das
+           war das Rutschen über den Asphalt. */
+        /* Obergrenze so hoch, dass auch der volle Sprint noch passt:
+           bei 11 m/s braucht der Lauf-Clip (4,2 m/s) Faktor 2,6. Mit der
+           früheren Deckelung auf 2,4 rutschte die Figur im Sprint. */
+        current.timeScale = clamp(vGlatt / ref, 0.45, 3.0);
+        letzterTakt = { was: want, faktor: current.timeScale, ref, v: vGlatt };
       } else if (current && (want === 'climb' || want === 'klettern_frei' || want === 'klettern_seit')) {
         /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
            kraxelte die Figur auf der Stelle weiter. */
@@ -5380,8 +5450,10 @@ function updateHeroVisual(dt) {
          haben hier wiederholt für schiefe Haltungen gesorgt. */
       heroVisual.bodenAusgleich(1);
     } else if (player.state === 'swing' && player.swing) {
+      /* Beim Pumpen greift die zweite Hand mit an den Faden. */
+      const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4);
       heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
-                             clamp(player.vel.y * 0.09, -1, 1), r.rotation.x);
+                             clamp(player.vel.y * 0.09, -1, 1), r.rotation.x, beideHaende);
     } else if (player.gleiten) {
       heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
                              0.9 * clamp(player.gleitMisch || 0, 0, 1));
@@ -5436,6 +5508,119 @@ function updateHeroVisual(dt) {
     placeStrand(swingStrand, heroHandPos(_v3, player.fadenHand), player.fadenZiel,
                 player.state === 'swing' ? 0.014 : 0.004);
     player.fadenZiel = null;
+  }
+}
+
+/* ======================= Spinnensinn =======================
+   Das Kribbeln im Nacken: kündigt Gefahr an, BEVOR sie eintrifft – auch
+   aus dem Rücken, wo man den Gegner gar nicht sieht. Drei Teile:
+   die Bögen über dem Kopf, ein Zeiger am Bildrand in Richtung der Gefahr
+   und ein kurzer Ton. Leuchtet er weiß, ist das Konterfenster offen. */
+let sinnStaerke = 0, sinnKonter = 0, sinnTonCd = 0;
+const sinnRichtung = new THREE.Vector3();
+let sinnBoegen = null, sinnZeigerEl = null;
+
+function baueSinnBoegen() {
+  sinnBoegen = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    /* Klein und dicht am Kopf – größere Bögen sahen aus wie ein Heiligen-
+       schein statt wie das Kribbeln im Nacken. */
+    const r = 0.17 + i * 0.10;
+    const g = new THREE.RingGeometry(r, r + 0.022, 16, 1, Math.PI * 0.2, Math.PI * 0.55);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+      color: 0xdff3ff, transparent: true, opacity: 0, depthTest: false,
+      side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    m.renderOrder = 30;
+    sinnBoegen.add(m);
+    /* Gespiegelt auf die andere Seite – zusammen ergibt das die typischen
+       Wellen links und rechts des Kopfes. */
+    const m2 = m.clone();
+    m2.material = m.material;
+    m2.scale.x = -1;
+    sinnBoegen.add(m2);
+  }
+  sinnBoegen.visible = false;
+  scene.add(sinnBoegen);
+}
+
+/* Stärkste Gefahr suchen: ausholende Gegner und schnelle Autos. */
+function findeGefahr() {
+  let best = 0, wo = null, konter = 0;
+  for (const e of enemies) {
+    if (e.dead || e.warnT <= 0) continue;
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    if (d > 13 || Math.abs(e.pos.y - player.pos.y) > 4) continue;
+    /* Je näher der Schlag, desto stärker das Kribbeln. */
+    const s = clamp(1 - e.warnT / 0.95, 0.25, 1) * clamp(1 - (d - 2) / 12, 0.35, 1);
+    if (s > best) { best = s; wo = e.pos; }
+    if (e.warnT <= 0.42 && d < 3.6) konter = 1;
+  }
+  for (const car of cars) {
+    if (car.aus) continue;
+    const p = car.mesh.position;
+    const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+    if (d > 14 || Math.abs(p.y - player.pos.y) > 3) continue;
+    /* Nur wenn das Auto auch auf einen zufährt. */
+    const zu = ((player.pos.x - p.x) * car.vx + (player.pos.z - p.z) * car.vz);
+    const tempo = Math.hypot(car.vx, car.vz);
+    if (zu <= 0 || tempo < 7) continue;
+    const s = clamp(1 - (d - 3) / 11, 0, 1) * 0.85;
+    if (s > best) { best = s; wo = p; }
+  }
+  if (wo) sinnRichtung.copy(wo);
+  return { staerke: best, konter };
+}
+
+function updateSpinnenSinn(dt) {
+  if (!sinnBoegen) baueSinnBoegen();
+  if (!sinnZeigerEl) sinnZeigerEl = document.getElementById('sinn');
+  const g = player.dead ? { staerke: 0, konter: 0 } : findeGefahr();
+  const vorher = sinnStaerke;
+  sinnStaerke = lerp(sinnStaerke, g.staerke, Math.min(1, dt * (g.staerke > sinnStaerke ? 16 : 7)));
+  sinnKonter = lerp(sinnKonter, g.konter, Math.min(1, dt * 12));
+
+  /* Ton nur beim Anspringen, nicht dauerhaft. */
+  if (sinnTonCd > 0) sinnTonCd -= dt;
+  if (g.staerke > 0.3 && vorher < 0.12 && sinnTonCd <= 0) {
+    sinnTonCd = 0.7;
+    SFX.sinn && SFX.sinn();
+  }
+
+  if (sinnStaerke < 0.03) {
+    sinnBoegen.visible = false;
+    if (sinnZeigerEl) sinnZeigerEl.style.opacity = 0;
+    return;
+  }
+
+  /* Bögen über dem Kopf, immer zur Kamera gedreht. */
+  sinnBoegen.visible = true;
+  const kopf = heroVisual && heroVisual.kopfPos ? heroVisual.kopfPos(_v1) : null;
+  if (kopf) sinnBoegen.position.copy(kopf).setY(kopf.y + 0.18);
+  else sinnBoegen.position.set(player.pos.x, player.pos.y + 1.75, player.pos.z);
+  sinnBoegen.quaternion.copy(camera.quaternion);
+  const puls = 0.6 + 0.4 * Math.sin(elapsed * 22);
+  for (let i = 0; i < sinnBoegen.children.length; i += 2) {
+    const m = sinnBoegen.children[i].material;
+    /* Die Bögen laufen versetzt nach außen – das ergibt das Wandern. */
+    const phase = (elapsed * 3.2 + i * 0.33) % 1;
+    m.opacity = sinnStaerke * puls * (1 - phase) * 1.1;
+    m.color.setHex(sinnKonter > 0.5 ? 0xffffff : 0xa8e4ff);
+    const sk = 1 + phase * 0.35;
+    sinnBoegen.children[i].scale.set(sk, sk, sk);
+    sinnBoegen.children[i + 1].scale.set(-sk, sk, sk);
+  }
+
+  /* Zeiger am Bildrand: in welche Richtung liegt die Gefahr? */
+  if (sinnZeigerEl) {
+    const dx = sinnRichtung.x - player.pos.x, dz = sinnRichtung.z - player.pos.z;
+    /* Winkel relativ zur Blickrichtung der Kamera, 0 = geradeaus. */
+    const welt = Math.atan2(dx, dz);
+    let rel = welt - camYaw + Math.PI;
+    while (rel > Math.PI) rel -= TAU;
+    while (rel < -Math.PI) rel += TAU;
+    sinnZeigerEl.style.opacity = (sinnStaerke * 0.85).toFixed(2);
+    sinnZeigerEl.style.transform = `rotate(${(-rel * 180 / Math.PI).toFixed(1)}deg)`;
+    sinnZeigerEl.style.setProperty('--sinnfarbe', sinnKonter > 0.5 ? '#ffffff' : '#7fd4ff');
   }
 }
 
@@ -6230,12 +6415,33 @@ function updateVoegel(dt) {
   voegel.instanceMatrix.needsUpdate = true;
 }
 
-function updateCivilians(dt) {
-  if (rufMeldungCd > 0) rufMeldungCd -= dt;
+/* ---- Gestaffelte Aktualisierung ----
+   Zivilisten und Ganoven waren zusammen fast die gesamte Rechenzeit der
+   Simulation (1,6 von 1,8 ms). Der Großteil steht dabei irgendwo am
+   anderen Ende der Stadt. Weit entfernte Figuren werden deshalb nur noch
+   in jedem dritten Bild gerechnet – dafür mit dreifachem Zeitschritt, so
+   dass sie genauso weit laufen wie vorher. */
+let taktBild = 0;
+const FERN = 60;
+
+function updateCivilians(dtBild) {
+  taktBild++;
+  if (rufMeldungCd > 0) rufMeldungCd -= dtBild;
   /* Wie viele Verletzte gerade unversorgt herumliegen – davon hängt ab,
      ob der Ruf sinkt oder sich langsam wieder erholt. */
   let liegen = 0;
-  for (const c of civilians) {
+  for (let ci = 0; ci < civilians.length; ci++) {
+    const c = civilians[ci];
+    /* Der Zähler muss FEST an der Figur hängen. Ein mitlaufender Zähler,
+       der nur bei manchen Figuren hochgezählt wird, verteilt die Bilder
+       ungleich – einzelne Zivilisten kamen dann kaum noch dran und
+       standen scheinbar still. */
+    const fern = Math.abs(c.pos.x - player.pos.x) + Math.abs(c.pos.z - player.pos.z) > FERN;
+    if (fern && ((taktBild + ci) % 3)) {
+      if (c.state === 'hurt' && c.hilfeBar) liegen++;
+      continue;
+    }
+    const dt = fern ? dtBild * 3 : dtBild;
     if (c.savedCd > 0) c.savedCd -= dt;
     if (c.state === 'hurt') {
       c.hurtT -= dt;
@@ -6377,7 +6583,8 @@ function updateCivilians(dt) {
     else if (speed > 0.1) zAnim = 'run';
     else zAnim = c.ruhePose || 'idle';
     c.visual.play(zAnim,
-      { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), t: elapsed + c.phase }, dt);
+      { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), speed,
+        t: elapsed + c.phase }, dt);
     /* Beim Filmen wird der Arm mit dem Handy zum Helden gestreckt –
        vorher hing der Arm herunter und das Handy schwebte davor. */
     /* Die Feinarbeit an Handy und Schirm (Arm ausrichten, Faust schließen,
@@ -6419,7 +6626,7 @@ function updateCivilians(dt) {
      man sich mit Rettungen und erledigten Aufträgen verdienen. */
   /* Erholung läuft auch dann weiter, wenn jemand liegt – nur langsamer.
      Sonst bleibt der Ruf in einer belebten Stadt dauerhaft am Boden. */
-  if (ruf < 65) setzeRuf(Math.min(0.9, 65 - ruf) * dt * (liegen === 0 ? 0.25 : 0.06));
+  if (ruf < 65) setzeRuf(Math.min(0.9, 65 - ruf) * dtBild * (liegen === 0 ? 0.25 : 0.06));
 }
 
 function hurtCivilian(c, attacker) {
@@ -7021,11 +7228,18 @@ function checkCivilianSaved(deadEnemy) {
   }
 }
 
-function updateEnemies(dt) {
+function updateEnemies(dtBild) {
   /* Der Klingenbogen gehört immer nur zum gerade laufenden Hieb. */
   if (klingenBogen) klingenBogen.visible = false;
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
+    /* Ganoven weit weg vom Helden ebenfalls nur jedes dritte Bild. Wer
+       gerade ausholt oder zuschlägt, wird immer gerechnet – sonst
+       verschiebt sich die Vorwarnzeit und der Konter passt nicht mehr. */
+    const fern = Math.abs(e.pos.x - player.pos.x) + Math.abs(e.pos.z - player.pos.z) > FERN
+                 && !e.attack && e.warnT <= 0;
+    if (fern && ((taktBild + i) % 3)) continue;
+    const dt = fern ? dtBild * 3 : dtBild;
     if (e.dead) {
       e.deadT -= dt;
       /* Die Umfall-Bewegung legt die Figur selbst waagerecht hin. Die
@@ -7388,7 +7602,8 @@ function updateEnemies(dt) {
     if (e.blockT > 0 && e.visual.hatClip && e.visual.hatClip('block')) ganovAnim = 'block';
     else if (e.warnT > 0 && e.visual.hatClip && e.visual.hatClip('taunt')) ganovAnim = 'taunt';
     e.visual.play(ganovAnim,
-      { phase: e.phase, speed01: clamp(speed / 5, 0, 1), t: elapsed + e.phase }, dt);
+      { phase: e.phase, speed01: clamp(speed / 5, 0, 1), speed,
+        t: elapsed + e.phase }, dt);
     if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
     else if (e.visual.bodenAusgleich) e.visual.bodenAusgleich(Math.min(1, dt * 12));
     // HP-Balken zur Kamera & ausblenden wenn voll
@@ -7397,13 +7612,13 @@ function updateEnemies(dt) {
 
   /* Nachschub */
   const alive = enemies.filter((e) => !e.dead).length;
-  gangRespawnT -= dt;
+  gangRespawnT -= dtBild;
   if (alive < CFG.maxEnemies - 3 && gangRespawnT <= 0) {
     spawnGangAwayFromPlayer();
     gangRespawnT = 12;
   }
 
-  updateMission(dt);
+  updateMission(dtBild);
 }
 
 let gangRespawnT = 8;
@@ -7934,7 +8149,6 @@ function updateKarte() {
 const hpbarEl = document.getElementById('hpbar');
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
-const speedEl = document.getElementById('speed');
 const comboEl = document.getElementById('combo');
 const comboNEl = document.getElementById('comboN');
 const objectiveEl = document.getElementById('objective');
@@ -8133,6 +8347,7 @@ function simuliere(dt) {
   updateCamera(dt);
   updateEffekte(dt);
   updateKlatscher(dt);
+  updateSpinnenSinn(dt);
   updateKlang(dt);
   updateDampf(dt);
   updateSpritzer(dt);
@@ -8154,11 +8369,10 @@ function simuliere(dt) {
   }
   if (player.state !== 'swing' && player.state !== 'zip') swingStrand.visible = false;
 
-  /* Tempogefühl: Linien, Sichtfeld und ein Windgeräusch wachsen mit der
-     Geschwindigkeit. Vorher fühlten sich 30 m/s genauso an wie 5. */
+  /* Tempogefühl kommt jetzt allein aus Sichtfeld und Windgeräusch. Die
+     Linien über dem ganzen Bild haben mehr verdeckt als sie beigetragen
+     haben – gerade beim Schwingen, wo man die Häuser sehen muss. */
   const tempo = player.vel.length();
-  const linien = clamp((tempo - 15) / 22, 0, 1);
-  if (speedEl) speedEl.style.opacity = (linien * 0.5).toFixed(2);
   if (tempo > 20 && !player.dead) {
     windCd -= dt;
     if (windCd <= 0) { SFX.swoosh(); windCd = rand(0.5, 0.9); }
@@ -8189,6 +8403,22 @@ if (window.__WEBHERO_TEST__ === true) {
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
+    sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
+    sinnObj() { return sinnBoegen; },
+    profil(n) {
+      const teile = { updatePlayer, updateWetter, updateTagNacht, updateCars, updateHelis,
+                      updateCivilians, updateEnemies, updateCamera, updateEffekte,
+                      updateKlatscher, updateSpinnenSinn, updateKlang, updateVoegel, updateMission };
+      const out = {};
+      for (const name in teile) {
+        const f = teile[name];
+        if (typeof f !== 'function') continue;
+        const t0 = performance.now();
+        for (let i = 0; i < n; i++) f(1 / 60);
+        out[name] = +((performance.now() - t0) / n).toFixed(4);
+      }
+      return out;
+    },
     setzeRegen(v) { REGEN.an = v > 0; REGEN.staerke = v; REGEN.naechsterWechsel = 9999; },
     regenStaerke() { return +REGEN.staerke.toFixed(2); },
     zeichne() { renderer.render(scene, camera); },

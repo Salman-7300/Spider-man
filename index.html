@@ -95,16 +95,18 @@
   #crosshair { position:absolute; left:50%; top:50%; width:14px; height:14px; margin:-7px;
     border-radius:50%; border:1.5px solid rgba(255,255,255,.7);
     box-shadow:0 0 4px rgba(0,0,0,.9), inset 0 0 4px rgba(0,0,0,.6); }
-  /* Tempolinien: legen sich bei hohem Tempo über das Bild und geben dem
-     Netzschwung Wucht, ohne die Bildrate zu kosten. */
-  #speed { position:absolute; inset:0; pointer-events:none; opacity:0;
-    transition:opacity .12s linear; mix-blend-mode:screen;
-    background:
-      repeating-conic-gradient(from 0deg at 50% 50%,
-        rgba(255,255,255,0) 0deg, rgba(255,255,255,.5) .5deg, rgba(255,255,255,0) 2.4deg),
-      radial-gradient(circle at 50% 50%, rgba(0,0,0,1) 22%, rgba(0,0,0,0) 62%);
-    -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 24%, black 68%);
-    mask-image: radial-gradient(circle at 50% 50%, transparent 24%, black 68%); }
+  /* Spinnensinn: ein Bogen um die Bildmitte, der in Richtung der Gefahr
+     zeigt. Er dreht sich mit der Kamera mit, deshalb weiss man auch bei
+     Gefahr im Ruecken, wohin man sich drehen muss. */
+  #sinn { position:absolute; left:50%; top:50%; width:min(52vmin,420px); height:min(52vmin,420px);
+    margin:calc(min(52vmin,420px) / -2) 0 0 calc(min(52vmin,420px) / -2);
+    pointer-events:none; opacity:0; transition:opacity .1s linear;
+    --sinnfarbe:#7fd4ff; }
+  #sinn::before { content:''; position:absolute; inset:0; border-radius:50%;
+    background: conic-gradient(from -26deg,
+      var(--sinnfarbe) 0deg, rgba(0,0,0,0) 30deg, rgba(0,0,0,0) 360deg);
+    -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 70%, black 80%, transparent 88%);
+    mask-image: radial-gradient(circle at 50% 50%, transparent 70%, black 80%, transparent 88%); }
   #crosshair::after { content:''; position:absolute; left:50%; top:50%; width:2px; height:2px;
     margin:-1px; border-radius:50%; background:rgba(255,255,255,.9); }
 
@@ -187,8 +189,9 @@
   <div id="minimap"><canvas id="minimapC" width="360" height="360"></canvas>
     <div id="minimapN">N</div></div>
   <div id="objective"></div>
+  <!-- Spinnensinn: Zeiger in Richtung der Gefahr, auch wenn sie im Ruecken liegt -->
+  <div id="sinn"></div>
   <div id="crosshair"></div>
-  <div id="speed"></div>
   <div id="hint">H – Hilfe · C – Erste Hilfe · M – Ton · Esc – Einstellungen</div>
   <div id="help">
     <b>W A S D</b> Laufen / Klettern<br>
