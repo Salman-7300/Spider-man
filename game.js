@@ -3983,6 +3983,8 @@ function makeGlbVisual(m) {
   let lodAcc = 0, lodFrame = 0;
   let vGlatt = 0, geht = true;
   let letzterTakt = null;
+  /* Geglaettete Lage im Netzbogen und der zuletzt gespielte Zustand. */
+  let bogenGlatt = 0, letzterKey = null;
   let angriff = null, angriffT = 0;
   return {
     root, procedural: false, mixer,
@@ -4328,17 +4330,20 @@ function makeGlbVisual(m) {
         .copy(m).addScaledVector(rechts, seite).addScaledVector(rein, tiefe)
         .setY(m.y + hoehe);
 
-      /* ---- Arme: greifen abwechselnd weit nach oben ----
-         Die Ellbogen bleiben dicht am Koerper (nicht spinnenartig
-         abgespreizt), damit es nach Zug am Arm aussieht und nicht nach
-         Kriechen. */
-      punkt(_vw3, -0.30, 1.44 + g * 0.16, -0.10);            // linker Ellbogen
+      /* ---- Arme: Laufschwung VOR der Brust, nicht an der Wand ----
+         Hier griffen beide Haende flach an die Fassade, mit Krallen. Damit
+         sah der Wandlauf aus wie schnelles Klettern mit Haenden und
+         Fuessen - genau das war die Beschwerde. Beim Hochrennen tragen die
+         Beine, die Arme pendeln wie beim Laufen: Ellbogen angewinkelt,
+         Haende vor dem Koerper, abwechselnd hoch und runter.
+         Negative Tiefe heisst WEG von der Wand. */
+      punkt(_vw3, -0.26, 1.30 + g * 0.14, -0.16);            // linker Ellbogen
       zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
-      punkt(_vw3, -0.24, 2.10 + g * 0.46, 0.02);             // linke Hand
+      punkt(_vw3, -0.20, 1.62 + g * 0.34, -0.36);            // linke Hand
       zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
-      punkt(_vw4, 0.30, 1.44 - g * 0.16, -0.10);
+      punkt(_vw4, 0.26, 1.30 - g * 0.14, -0.16);
       zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
-      punkt(_vw4, 0.24, 2.10 - g * 0.46, 0.02);
+      punkt(_vw4, 0.20, 1.62 - g * 0.34, -0.36);
       zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
 
       /* ---- Beine: lange Schritte ----
@@ -4360,12 +4365,10 @@ function makeGlbVisual(m) {
       setzeFuss('left', _fh, _vw3, k * 0.95);
       _fh.set(0, 1, 0).addScaledVector(rechts, 0.18);
       setzeFuss('right', _fh, _vw3, k * 0.95);
-      /* Handflaechen flach auf die Fassade, Finger nach oben. */
-      _vw3.copy(rein);
-      setzeHand('left', _fh.set(0, 1, 0).addScaledVector(rechts, -0.14), _vw3, 0.9);
-      setzeHand('right', _fh.set(0, 1, 0).addScaledVector(rechts, 0.14), _vw3, 0.9);
-      krallen('left', 0.28);
-      krallen('right', 0.28);
+      /* Die Haende fassen NICHTS an - sie sind locker zur Faust geballt,
+         wie beim Laufen. Frueher lagen sie flach mit Krallen an der Wand. */
+      krallen('left', 0.55);
+      krallen('right', 0.55);
       /* Blick nach oben, dorthin, wo es hingeht. */
       drehZuRuhe(knochen.head, -0.42, 0, 0, k * 0.8);
     },
@@ -7328,17 +7331,19 @@ function updatePlayer(dt) {
     const tx = w.nz, tz = -w.nx;
     /* Wandlauf: mit Shift geht es die Fassade richtig hinauf statt zu
        kriechen – dafür gibt es seit mixamo-7 eine eigene Bewegung. */
-    const sprintWand = sprintAn() && up > 0 && stufeFrei('wandlauf');
-    /* Der Anlaufschwung läuft in gut einer Sekunde aus – danach klettert
-       die Figur ganz normal weiter. Ein Wandlauf ohne Ende sähe falsch
-       aus, und man soll oben ankommen, nicht dauerhaft rennen. */
+    /* ---- Wandlauf: rennen, langsamer werden, klettern ----
+       Frueher hielt gedrueckter Sprint den Wandlauf UNBEGRENZT: man rannte
+       die Fassade beliebig weit hinauf, immer gleich schnell. Jetzt traegt
+       nur der Schwung, und der laeuft aus. Sprint verzoegert das nur.
+       Aus 13 m/s Anlauf werden so knapp drei Sekunden Wandlauf und rund
+       zwanzig Meter, danach klettert die Figur ganz normal weiter. */
     if (player.wandSchwung > 0) {
-      player.wandSchwung -= dt * (sprintAn() ? 6.5 : 11);
+      player.wandSchwung -= dt * (sprintAn() && up > 0 ? 4.0 : 11);
       if (player.wandSchwung < 0) player.wandSchwung = 0;
     }
-    const kTempo = CFG.climbSpeed * (sprintWand ? 2.7 : 1);
+    const kTempo = CFG.climbSpeed;
     const hoch = up * kTempo + Math.max(0, player.wandSchwung);
-    player.wandlauf = sprintWand || player.wandSchwung > 1.5;
+    player.wandlauf = player.wandSchwung > 1.5;
     player.vel.set(tx * side * kTempo, hoch, tz * side * kTempo);
     player.pos.addScaledVector(player.vel, dt);
     /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
@@ -8369,7 +8374,8 @@ function wandFreiraum() {
    einer Schleuder nach vorn geschossen. Auf einem Dach ist das der schnelle
    Weg zum nächsten Häuserblock, ohne erst einen Bogen aufbauen zu müssen.
    Taste V (Gamepad: Y), gedrückt halten zum Spannen. */
-const KAT = { aktiv: false, ladung: 0, anker: [null, null], strang: [null, null] };
+const KAT = { aktiv: false, ladung: 0, anker: [null, null], strang: [null, null],
+              zeichen: [null, null] };
 const KAT_MAX = 1.0;              // volle Spannung nach einer Sekunde
 
 function katapultStrang(i) {
@@ -8380,18 +8386,38 @@ function katapultStrang(i) {
   return KAT.strang[i];
 }
 
+/* Sichtbarer Klebepunkt an der Fassade - ohne ihn sieht man nicht, WORAN
+   das Netz haengt, und das Katapult wirkt wie Zauberei. */
+function katapultZeichen(i) {
+  if (!KAT.zeichen[i]) {
+    const g = new THREE.SphereGeometry(0.34, 10, 8);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+      color: 0xdfefff, transparent: true, opacity: 0.85, depthWrite: false }));
+    m.renderOrder = 4;
+    m.visible = false;
+    scene.add(m);
+    KAT.zeichen[i] = m;
+  }
+  return KAT.zeichen[i];
+}
+
 /* Zwei Ankerpunkte schräg hinter der Figur suchen. */
 function katapultAnker() {
   const hinten = _v1.set(-Math.sin(player.facing), 0, -Math.cos(player.facing));
   const rechts = _v2.set(hinten.z, 0, -hinten.x);
   const gefunden = [null, null];
+  /* Das Netz soll wirklich an ZWEI Dingen haengen. Ohne diese Sperre
+     konnten beide Faeden am selben Haus kleben - dann zog nichts
+     gegeneinander und es sah aus wie ein einzelner Faden. */
+  let schonBenutzt = null;
   for (let seite = 0; seite < 2; seite++) {
     const vz = seite === 0 ? -1 : 1;
-    let best = null, bestWert = -1e9;
+    let best = null, bestWert = -1e9, bestCol = null;
     for (const c of colliders) {
       /* Der Anker darf auch tiefer liegen als die Figur – vom Hochhausdach
          aus gibt es sonst fast nie zwei Häuser, die noch höher sind. */
       if (c.klein || c.h < player.pos.y - 8) continue;
+      if (c === schonBenutzt) continue;
       const cx = clamp(player.pos.x, c.x0, c.x1);
       const cz = clamp(player.pos.z, c.z0, c.z1);
       const dx = cx - player.pos.x, dz = cz - player.pos.z;
@@ -8404,10 +8430,12 @@ function katapultAnker() {
       const wert = nachHinten * 2 + nachSeite - d * 0.02 + Math.min(c.h, 90) * 0.02;
       if (wert > bestWert) {
         bestWert = wert;
+        bestCol = c;
         best = V3(cx, Math.min(c.h - 0.4, player.pos.y + rand(4, 12)), cz);
       }
     }
     gefunden[seite] = best;
+    schonBenutzt = bestCol;
   }
   return gefunden;
 }
@@ -8428,6 +8456,8 @@ function katapultLos() {
   KAT.aktiv = false;
   KAT.strang[0].visible = false;
   KAT.strang[1].visible = false;
+  if (KAT.zeichen[0]) KAT.zeichen[0].visible = false;
+  if (KAT.zeichen[1]) KAT.zeichen[1].visible = false;
   /* Unter einem Drittel Spannung passiert nichts – so kann man abbrechen. */
   if (t < 0.3) { popupScreen('Zu wenig Spannung'); return; }
   const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
@@ -8453,7 +8483,10 @@ function updateKatapult(dt) {
   if (!KAT.aktiv) return;
   /* Loslassen oder Zustandswechsel beendet die Spannung. */
   if (player.dead || !player.onGround || player.state === 'swing') { katapultLos(); return; }
-  KAT.ladung = Math.min(KAT_MAX * 1.15, KAT.ladung + dt);
+  /* Die Spannung bleibt bei voll STEHEN. Frueher schoss es bei 1,12 von
+     allein los - man hielt die Taste, und noch bevor man losliess, war man
+     schon unterwegs. Genau deshalb wirkte das Katapult unkontrollierbar. */
+  KAT.ladung = Math.min(KAT_MAX, KAT.ladung + dt);
   const t = clamp(KAT.ladung / KAT_MAX, 0, 1);
   /* Die Figur geht in die Hocke und lehnt sich gegen den Zug. */
   player.vel.x *= 0.6; player.vel.z *= 0.6;
@@ -8461,11 +8494,25 @@ function updateKatapult(dt) {
   for (let i = 0; i < 2; i++) {
     const m = katapultStrang(i);
     const hand = heroHandPos(_v3, i === 0 ? 'L' : 'R');
-    placeStrand(m, hand, KAT.anker[i], 0.02 * (1 - t) + 0.004);
+    /* Ohne Hand keine Linie - dann lieber die Schulter nehmen als gar
+       nichts zu zeigen. Vorher blieb der Strang in dem Fall unsichtbar,
+       und man sah beim Spannen ueberhaupt kein Netz. */
+    const von = hand || _v3.set(player.pos.x, player.pos.y + 1.4, player.pos.z);
+    placeStrand(m, von, KAT.anker[i], 0.02 * (1 - t) + 0.004);
+    /* Beim Spannen wird der Faden dicker und heller - man soll sehen,
+       wie die Spannung steigt. */
+    m.scale.setScalar(1 + t * 0.9);
+    if (m.material && m.material.color) {
+      const hell = 0.75 + t * 0.25;
+      m.material.color.setRGB(hell, hell, 1);
+    }
     m.visible = true;
+    /* Punkt an der Fassade, wo das Netz klebt. */
+    const z = katapultZeichen(i);
+    z.position.copy(KAT.anker[i]);
+    z.scale.setScalar(0.5 + t * 0.5);
+    z.visible = true;
   }
-  /* Bei voller Spannung schießt es von allein los. */
-  if (KAT.ladung >= KAT_MAX * 1.12) katapultLos();
 }
 
 /* ======================= Ankerzeichen =======================
@@ -11927,7 +11974,11 @@ if (window.__WEBHERO_TEST__ === true) {
     zuege() { return ZUEGE.map(t => ({ x: +t.x.toFixed(1), z: t.z, r: t.richtung,
                                        haelt: t.haelt, sichtbar: t.mesh.visible })); },
     zuegeRoh() { return ZUEGE; },
-    katStand() { return { aktiv: KAT.aktiv, ladung: KAT.ladung }; },
+    katStand() {
+      return { aktiv: KAT.aktiv, ladung: KAT.ladung,
+        anker: KAT.anker.map((a) => a ? [+a.x.toFixed(1), +a.y.toFixed(1), +a.z.toFixed(1)] : null),
+        straenge: KAT.strang.map((m) => m ? { sicht: m.visible, s: +m.scale.x.toFixed(2) } : null) };
+    },
     bodenFuss: bodenHoeheFuerFuss,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
     sinnObj() { return sinnBoegen; },
