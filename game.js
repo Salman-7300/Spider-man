@@ -915,11 +915,33 @@ suitTex.repeat.set(2, 2);
    Small_1 +x 2740 gegen +z 296, Medium +z 11058 gegen -z 1393,
    Large +z 19173 gegen +x 2531. Frei in den Block gestellt zeigte
    deshalb regelmaessig eine kahle Wand zur Strasse. */
+/* Die Masse sind ABGEMESSEN, und zwar als Von-Bis: die Modelle sind NICHT
+   auf ihren Ursprung zentriert. Building_Large_2 liegt in z zwischen
+   -16,32 und +0,32, seine Mitte also acht Meter neben dem Setzpunkt. Mit
+   einem mittig gesetzten Hindernis stand rings um das Haus eine
+   unsichtbare Wand, und auf dem Dach fehlte der Boden - man fiel hinein.
+   Genau das war der Fehler. */
 const KIT_HAEUSER = [
-  { name: 'Building_Small_1',      w: 12.5, h: 17.0, d: 14.5, dreh: -Math.PI / 2 },
-  { name: 'Building_Medium_2_001', w: 15.1, h: 25.0, d: 13.1, dreh: 0 },
-  { name: 'Building_Large_2',      w: 20.6, h: 28.0, d: 16.6, dreh: 0 },
+  { name: 'Building_Small_1',      x0: -7.23, x1: 5.23, z0: -12.23, z1: 2.31,
+    h: 17.0, dreh: -Math.PI / 2 },
+  { name: 'Building_Medium_2_001', x0: -7.53, x1: 7.53, z0: -12.49, z1: 0.57,
+    h: 25.0, dreh: 0 },
+  { name: 'Building_Large_2',      x0: -9.32, x1: 11.32, z0: -16.32, z1: 0.32,
+    h: 28.0, dreh: 0 },
 ];
+/* Das gedrehte Rechteck eines Hauses in Weltkoordinaten. Die Drehung ist
+   immer ein Vielfaches von 90 Grad, deshalb reicht es, die vier Ecken zu
+   drehen und Kleinstes und Groesstes zu nehmen. */
+function kitKasten(t, x, z, ry) {
+  const c = Math.cos(ry), si = Math.sin(ry);
+  let ax0 = Infinity, ax1 = -Infinity, az0 = Infinity, az1 = -Infinity;
+  for (const [lx, lz] of [[t.x0, t.z0], [t.x1, t.z0], [t.x1, t.z1], [t.x0, t.z1]]) {
+    const wx = lx * c + lz * si, wz = -lx * si + lz * c;
+    ax0 = Math.min(ax0, wx); ax1 = Math.max(ax1, wx);
+    az0 = Math.min(az0, wz); az1 = Math.max(az1, wz);
+  }
+  return { x0: x + ax0, x1: x + ax1, z0: z + az0, z1: z + az1 };
+}
 /* Welche Blocks bekommen Altbauten? Vier Stueck - genug fuer eine eigene
    Gegend, wenig genug, dass die Dreiecke im Rahmen bleiben. */
 const KIT_BLOCKS = [[1, 4], [4, 1], [5, 5], [2, 6]];
@@ -1782,17 +1804,11 @@ function baueUBahn(x) {
                     x1: x + Math.max(sch.xFuss, sch.xKopf) + 0.45,
                     z0: wz - 0.25, z1: wz + 0.25, h: SLAB_H - 0.03,
                     y0: wandUnten, keinKlettern: true });
-      /* Lampen an der Schachtwand. Sie hingen 2,2 m ueber der jeweiligen
-         Stufe - bei den obersten Stufen liegt das ueber dem Gehweg, und
-         genau das waren die zwei hellen Platten, die frei ueber dem
-         Buergersteig schwebten. Sie beginnen jetzt erst dort, wo sie
-         mindestens 1,4 m UNTER dem Gehweg haengen. */
-      const tMin = (SLAB_H - 1.4 - 2.2 - SLAB_H) / (UB_TIEF - SLAB_H);
-      for (let i = 0; i < 5; i++) {
-        const t = tMin + (i + 0.5) / 5 * (0.95 - tMin);
-        deko(1.3, 0.16, 0.1, x + sch.xKopf + richtung * t * UB_TREPPE,
-             lerp(SLAB_H, UB_TIEF, t) + 2.2, wz + (s2 < 0 ? 0.2 : -0.2), 0xf4f0d8);
-      }
+      /* Hier hingen Lampen an der Schachtwand. Sie sind ersatzlos weg:
+         als fast weisse Platten von 1,3 m Laenge waren sie im engen Schacht
+         riesige leuchtende Bloecke, und mehr als Licht sah man von ihnen
+         nicht. Die Beleuchtung unter der Erde kommt ohnehin von der Lampe,
+         die der Figur folgt (untenLicht). */
     }
     /* Kein Randstein mehr rings um das Loch - die beiden Balken schwebten
        einen Zentimeter ueber dem Gehweg und flackerten dagegen. */
@@ -2470,25 +2486,30 @@ function baueAltbauBlock(cx, cz, size) {
     const t = pick(KIT_HAEUSER);
     const k = kanten[versuch % kanten.length];
     const ry = k.ry + t.dreh;
-    /* Bei 90 und 270 Grad tauschen Breite und Tiefe die Rolle. */
-    const quer = Math.abs(Math.sin(ry)) > 0.5;
-    const bw = quer ? t.d : t.w, bd = quer ? t.w : t.d;
-    /* An die Kante ruecken, laengs davon zufaellig verschieben. */
+    /* Erst den gedrehten Kasten um den Ursprung bestimmen, dann so
+       verschieben, dass er innen an der Blockkante sitzt. */
+    const roh = kitKasten(t, 0, 0, ry);
+    const bw = roh.x1 - roh.x0, bd = roh.z1 - roh.z0;
     const laengs = rand(-halb + Math.max(bw, bd) / 2, halb - Math.max(bw, bd) / 2);
-    const x = k.nx ? cx + k.nx * (halb - bw / 2 - 0.4) : cx + laengs;
-    const z = k.nz ? cz + k.nz * (halb - bd / 2 - 0.4) : cz + laengs;
-    if (gesetzt.some((r) => Math.abs(x - r.x) < (bw + r.w) / 2 + 1.2 &&
-                            Math.abs(z - r.z) < (bd + r.d) / 2 + 1.2)) continue;
-    gesetzt.push({ x, z, w: bw, d: bd });
+    /* nx/nz zeigt nach aussen: die Aussenkante des Hauses soll dort liegen. */
+    const x = k.nx ? cx + k.nx * (halb - 0.4) - (k.nx > 0 ? roh.x1 : roh.x0)
+                   : cx + laengs - (roh.x0 + roh.x1) / 2;
+    const z = k.nz ? cz + k.nz * (halb - 0.4) - (k.nz > 0 ? roh.z1 : roh.z0)
+                   : cz + laengs - (roh.z0 + roh.z1) / 2;
+    const kasten = kitKasten(t, x, z, ry);
+    if (gesetzt.some((r) => kasten.x1 > r.x0 - 1.2 && kasten.x0 < r.x1 + 1.2 &&
+                            kasten.z1 > r.z0 - 1.2 && kasten.z0 < r.z1 + 1.2)) continue;
+    gesetzt.push(kasten);
     merkeHaus(t.name, x, SLAB_H, z, ry);
-    /* Das Modell bringt kein Hindernis mit - der Quader aus den gemessenen
-       Massen ist genau genug, um daran zu klettern und zu schwingen. */
-    addCollider({ x0: x - bw / 2, x1: x + bw / 2, z0: z - bd / 2, z1: z + bd / 2,
+    /* Das Modell bringt kein Hindernis mit. Der Quader kommt aus den
+       gemessenen Grenzen des GEDREHTEN Modells - nicht aus Breite und
+       Tiefe um den Setzpunkt herum. */
+    addCollider({ x0: kasten.x0, x1: kasten.x1, z0: kasten.z0, z1: kasten.z1,
                   h: SLAB_H + t.h, y0: -1.0 });
     /* Dachaufbauten wie bei den anderen Haeusern. */
     if (Math.random() < 0.6) {
-      merkeTeil('Prop_ACUnit', x + rand(-bw / 3, bw / 3), SLAB_H + t.h,
-                z + rand(-bd / 3, bd / 3), rand(0, TAU));
+      merkeTeil('Prop_ACUnit', rand(kasten.x0 + 1.5, kasten.x1 - 1.5), SLAB_H + t.h,
+                rand(kasten.z0 + 1.5, kasten.z1 - 1.5), rand(0, TAU));
     }
   }
 }
@@ -2871,7 +2892,14 @@ function messeModell(scene) {
   scene.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(scene);
   let h = box.max.y - box.min.y;
-  if (h > 0.05) return { minY: box.min.y, maxY: box.max.y, quelle: 'netz' };
+  /* Auch die WAAGERECHTE Mitte messen. Manche Rigs haben die Huefte weit
+     vom Ursprung der Figur weg (im Heldenmodell steht sie auf
+     z = -13889 Modelleinheiten) - die Figur stand dadurch fast einen Meter
+     neben ihrem eigenen Kollisionspunkt. Sichtbar wurde das erst mit dem
+     Kontaktschatten: der Fleck lag neben den Fuessen. */
+  if (h > 0.05) return { minY: box.min.y, maxY: box.max.y, quelle: 'netz',
+                         mitteX: (box.min.x + box.max.x) / 2,
+                         mitteZ: (box.min.z + box.max.z) / 2 };
 
   const p = new THREE.Vector3();
   let lo = Infinity, hi = -Infinity;
@@ -2886,7 +2914,13 @@ function messeModell(scene) {
   /* Knochen enden im Fuß bzw. im Scheitelknochen – Sohle und Kopfoberkante
      liegen etwas außerhalb. Ein kleiner Zuschlag gleicht das aus. */
   const rand = h * 0.03;
-  return { minY: lo - rand, maxY: hi + rand, quelle: 'knochen' };
+  let sx = 0, sz = 0, n = 0;
+  scene.traverse((o) => {
+    if (!o.isBone) return;
+    o.getWorldPosition(p); sx += p.x; sz += p.z; n++;
+  });
+  return { minY: lo - rand, maxY: hi + rand, quelle: 'knochen',
+           mitteX: n ? sx / n : 0, mitteZ: n ? sz / n : 0 };
 }
 
 /* Ladefortschritt fürs Startbild: vorher hing das Bild ohne Rückmeldung,
@@ -2935,6 +2969,8 @@ function loadGlbAssets(done) {
           clips: (gltf.animations || []).slice(),
           scale: h > 0.01 ? 1.76 / h : 1,
           yOffset: -mass.minY,
+          xOffset: -(mass.mitteX || 0),
+          zOffset: -(mass.mitteZ || 0),
           yaw: GLB_YAW[slot] || 0,
           aufhellen: slot === 'hero',
         };
@@ -3645,6 +3681,14 @@ function makeGlbVisual(m) {
   inner.scale.setScalar(m.scale);
   inner.position.y = m.yOffset * m.scale;
   inner.rotation.y = m.yaw;
+  /* Die Figur waagerecht ueber ihren Punkt schieben. Der Versatz wird
+     mitgedreht, weil inner selbst um yaw gedreht ist. */
+  const gvSin = Math.sin(m.yaw || 0), gvCos = Math.cos(m.yaw || 0);
+  const gvX = (m.xOffset || 0) * m.scale, gvZ = (m.zOffset || 0) * m.scale;
+  const grundX = gvX * gvCos + gvZ * gvSin;
+  const grundZ = -gvX * gvSin + gvZ * gvCos;
+  inner.position.x = grundX;
+  inner.position.z = grundZ;
   const bbox = new THREE.Box3().setFromObject(m.scene);
   const originale = [];
   inner.traverse((o) => {
@@ -4349,9 +4393,13 @@ function makeGlbVisual(m) {
     },
     /* Nach dem Klettern den Wandversatz wieder abbauen. */
     versatzAus(k) {
-      if (Math.abs(inner.position.x) < 0.001 && Math.abs(inner.position.z) < 0.001) return;
-      inner.position.x = lerp(inner.position.x, 0, k);
-      inner.position.z = lerp(inner.position.z, 0, k);
+      /* Zurueck auf den GRUNDVERSATZ, nicht auf null: der haelt die Figur
+         ueber ihrem Punkt. Frueher lief er auf null und schob die Figur
+         wieder zurueck neben sich selbst. */
+      if (Math.abs(inner.position.x - grundX) < 0.001 &&
+          Math.abs(inner.position.z - grundZ) < 0.001) return;
+      inner.position.x = lerp(inner.position.x, grundX, k);
+      inner.position.z = lerp(inner.position.z, grundZ, k);
     },
     /* Netzschuss-Pose: Arm nach vorn strecken */
     poseSchuss(zielWelt, seite, k) {
@@ -8597,6 +8645,80 @@ function updateSpinnenSinn(dt) {
   }
 }
 
+/* ======================= Kontaktschatten =======================
+   Auf den Grafikstufen "mittel" und "niedrig" ist die Schattenkarte aus -
+   dann wirft keine Figur mehr einen Schatten, und ohne Schatten unter den
+   Fuessen sieht JEDE Figur aus, als schwebte sie ueber der Strasse. Genau
+   das war der Eindruck, und gemessen stimmte er nicht: der tiefste Fuss
+   stand hoechstens 9 cm ueber dem Boden.
+   Der Fleck hier ist kein echter Schatten, sondern eine dunkle Scheibe am
+   Boden unter der Figur. Alle Figuren zusammen kosten EINEN Zeichenaufruf,
+   und er verblasst mit der Hoehe ueber dem Boden - dadurch sieht man beim
+   Springen und Schwingen auch, wie hoch man ist. */
+let fleckMesh = null;
+const FLECK_MAX = 48;             // so viele Figuren bekommen einen Fleck
+const _flM = new THREE.Matrix4(), _flP = new THREE.Vector3();
+const _flQ = new THREE.Quaternion(), _flS = new THREE.Vector3();
+
+function baueFlecken() {
+  const tex = canvasTex(64, 64, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    const gr = g.createRadialGradient(w / 2, h / 2, 1, w / 2, h / 2, w / 2);
+    gr.addColorStop(0, 'rgba(0,0,0,0.72)');
+    gr.addColorStop(0.55, 'rgba(0,0,0,0.42)');
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  });
+  const geo = new THREE.PlaneGeometry(1, 1);
+  geo.rotateX(-Math.PI / 2);
+  fleckMesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, depthWrite: false, opacity: 1,
+  }), FLECK_MAX);
+  fleckMesh.renderOrder = 2;
+  fleckMesh.frustumCulled = false;
+  fleckMesh.count = 0;
+  scene.add(fleckMesh);
+}
+
+function updateFlecken() {
+  if (!fleckMesh) baueFlecken();
+  /* Bei voller Grafik gibt es echte Schatten - dann waere der Fleck
+     doppelt gemoppelt und wuerde unter der Figur dunkel durchschlagen. */
+  if (renderer.shadowMap.enabled) { fleckMesh.count = 0; return; }
+  let n = 0;
+  const setze = (pos, breite) => {
+    if (n >= FLECK_MAX) return;
+    const boden = groundY(pos.x, pos.z, pos.y);
+    const hoch = pos.y - boden;
+    if (hoch < -0.5 || hoch > 12) return;          // zu tief oder zu hoch
+    /* Je hoeher, desto groesser und blasser - wie ein echter Schatten. */
+    const t = clamp(hoch / 12, 0, 1);
+    const gr = breite * (1 + t * 1.6);
+    _flP.set(pos.x, boden + 0.03, pos.z);
+    _flQ.set(0, 0, 0, 1);
+    _flS.set(gr, 1, gr * 0.78);
+    _flM.compose(_flP, _flQ, _flS);
+    fleckMesh.setMatrixAt(n, _flM);
+    n++;
+  };
+  /* Die Stelle kommt aus der FIGUR, nicht aus dem Spielerpunkt: die
+     Darstellung sitzt nicht immer genau darauf (Wandpose, Versatz beim
+     Angriff), und ein Fleck neben den Fuessen ist schlimmer als keiner. */
+  setze(heroVisual && heroVisual.root ? heroVisual.root.position : player.pos, 1.15);
+  for (const e of enemies) {
+    if (e.dead) continue;
+    if (Math.abs(e.pos.x - player.pos.x) + Math.abs(e.pos.z - player.pos.z) > 55) continue;
+    setze(e.visual && e.visual.root ? e.visual.root.position : e.pos, 1.05);
+  }
+  for (const c of civilians) {
+    if (c.eingestiegen > 0) continue;
+    if (Math.abs(c.pos.x - player.pos.x) + Math.abs(c.pos.z - player.pos.z) > 45) continue;
+    setze(c.visual && c.visual.root ? c.visual.root.position : c.pos, 0.95);
+  }
+  fleckMesh.count = n;
+  fleckMesh.instanceMatrix.needsUpdate = true;
+}
+
 /* ======================= Netzflügel =======================
    Die Häute zwischen Arm und Rumpf. Sie sind keine starre Geometrie,
    sondern werden in jedem Bild aus den Weltpositionen von Hand, Ellbogen,
@@ -11716,6 +11838,7 @@ function simuliere(dt) {
   updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
   updateSymbiont(dt);
+  updateFlecken();
   updateKlang(dt);
   updateDampf(dt);
   updateSpritzer(dt);
