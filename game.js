@@ -1396,7 +1396,9 @@ function baueDekoMesh() {
 
 /* Ladenzeile, Gesims, Feuerleiter und Dachaufbauten für ein Haus. */
 const MARKISEN = [0x7d3029, 0x2e4f3c, 0x2b3f5e, 0x6b5730, 0x4f3350];
-function schmueckeHaus(w, h, d, x, z) {
+/* frei = Grundflaeche des Staffelturms, der spaeter aus diesem Dach
+   waechst (oder null). Alles, was aufs Dach kommt, muss aussen herum. */
+function schmueckeHaus(w, h, d, x, z, frei) {
   const unten = SLAB_H, oben = SLAB_H + h;
 
   /* Erdgeschoss: dunkler Sockel mit Schaufensterband und Vordach.
@@ -1506,22 +1508,38 @@ function schmueckeHaus(w, h, d, x, z) {
     deko(0.35, rand(1.2, 2.4), 0.35, x + rand(-w / 3, w / 3), oben + 1.0,
          z + rand(-d / 3, d / 3), 0x555b63);
   }
+  /* Freien Platz auf dem Dach suchen: nicht unter dem Staffelturm. */
+  const dachFrei = (px, pz, halbW, halbD) => !frei ||
+    Math.abs(px - x) > frei.w / 2 + halbW || Math.abs(pz - z) > frei.d / 2 + halbD;
   if (Math.random() < 0.45) {                       // Antennenmast
     const ah = rand(4, 9);
-    deko(0.22, ah, 0.22, x + rand(-w / 4, w / 4), oben + ah / 2, z + rand(-d / 4, d / 4), 0x484d55);
+    const ax = x + rand(-w / 4, w / 4), az = z + rand(-d / 4, d / 4);
+    if (dachFrei(ax, az, 0.3, 0.3)) deko(0.22, ah, 0.22, ax, oben + ah / 2, az, 0x484d55);
   }
   if (h > 30 && Math.random() < 0.3) {              // Reklametafel
     const bw = Math.min(w * 0.9, 10), bh = rand(3, 5);
     const quer = Math.random() < 0.5;
     const tw = quer ? bw : 0.3, td = quer ? 0.3 : bw;
-    deko(tw, bh, td, x, oben + bh / 2 + 0.6, z,
+    /* Die Tafel stand IMMER genau in der Dachmitte - dort, wo bei hohen
+       Haeusern der Staffelturm hochkommt. Sie wird deshalb an den Rand
+       gerueckt, sobald ein Turm folgt: sie steht dann quer vor der
+       Turmwand, so wie eine Reklametafel wirklich steht. */
+    let tx = x, tz = z;
+    if (frei) {
+      const seite = Math.random() < 0.5 ? 1 : -1;
+      if (quer) tz = z + seite * Math.min(d / 2 - td / 2 - 0.6, frei.d / 2 + td / 2 + 1.4);
+      else      tx = x + seite * Math.min(w / 2 - tw / 2 - 0.6, frei.w / 2 + tw / 2 + 1.4);
+      /* Passt die Tafel gar nicht mehr aufs Dach, faellt sie weg. */
+      if (Math.abs(tx - x) + tw / 2 > w / 2 || Math.abs(tz - z) + td / 2 > d / 2) return;
+    }
+    deko(tw, bh, td, tx, oben + bh / 2 + 0.6, tz,
          pick([0xc8402f, 0x2f6fc8, 0xe0b23a, 0x35a06a]));
-    deko(quer ? bw : 0.5, 0.5, quer ? 0.5 : bw, x, oben + 0.3, z, 0x3a3f47);
+    deko(quer ? bw : 0.5, 0.5, quer ? 0.5 : bw, tx, oben + 0.3, tz, 0x3a3f47);
     /* Die Tafel hatte kein Hindernis – man lief einfach hindurch. Jetzt
        ist sie fest: man kann sich davorstellen und daran hochklettern,
        aber nicht mehr durch sie durchspazieren. Die Fläche ist dünn, der
        Netzanker soll sie deshalb nicht als Haus behandeln ("klein"). */
-    addCollider({ x0: x - tw / 2, x1: x + tw / 2, z0: z - td / 2, z1: z + td / 2,
+    addCollider({ x0: tx - tw / 2, x1: tx + tw / 2, z0: tz - td / 2, z1: tz + td / 2,
                   h: oben + bh + 0.6, y0: oben + 0.05, klein: true });
   }
 }
@@ -1875,15 +1893,32 @@ function baueUBahn(x) {
 
   /* Beleuchtung, Schilder, Baenke - auf beiden Bahnsteigen. */
   for (const [zm, zw, rueck] of [[steigA, UB_STEIG_Z1, 1], [steigB, UB_STEIG2_Z0, -1]]) {
-    for (let i = -1; i <= 1; i++) {
-      deko(hx - 6, 0.16, 0.6, x, UB_DECKE - 0.3, zm + i * 2.4, 0xffffff);
+    /* Hier lagen drei durchgehende, reinweisse Baender von 24 m Laenge und
+       60 cm Breite je Bahnsteig - zusammen mit dem warmen Licht unter Tage
+       sahen sie aus wie beige Landebahnen quer ueber die ganze Decke.
+       Genau das war "was soll dieses Licht?".
+       Jetzt eine Reihe einzelner Lampen: alle 4,5 m ein 1,7 m langes Feld
+       in einem dunklen Gehaeuse, wie in einer echten Station. */
+    const lampen = Math.max(3, Math.round((hx - 6) / 4.5));
+    for (let i = 0; i < lampen; i++) {
+      const lx = x - (hx - 6) / 2 + (i + 0.5) * ((hx - 6) / lampen);
+      deko(1.9, 0.22, 0.5, lx, UB_DECKE - 0.24, zm, 0x363b42);      // Gehaeuse
+      deko(1.7, 0.1, 0.34, lx, UB_DECKE - 0.4, zm, 0xf4f2e6);       // Leuchtfeld
     }
     deko(3.4, 1.1, 0.14, x, UB_TIEF + 2.7, zw - rueck * 0.35, 0x1b8f4a);
     deko(3.0, 0.8, 0.16, x, UB_TIEF + 2.7, zw - rueck * 0.38, 0xf2f6f0);
     for (const s2 of [-1, 1])
       baueBank(x + s2 * 8, UB_TIEF, zw - rueck * 1.5, false, undefined, rueck);
   }
-  deko(hx - 4, 0.16, 0.6, x, UB_DECKE - 0.3, gleisM, 0xf2f6e8);
+  /* Ueber dem Gleis dasselbe: einzelne Lampen statt eines 26-m-Bandes. */
+  {
+    const lampen = Math.max(3, Math.round((hx - 4) / 5.5));
+    for (let i = 0; i < lampen; i++) {
+      const lx = x - (hx - 4) / 2 + (i + 0.5) * ((hx - 4) / lampen);
+      deko(1.5, 0.2, 0.44, lx, UB_DECKE - 0.26, gleisM, 0x363b42);
+      deko(1.3, 0.1, 0.3, lx, UB_DECKE - 0.4, gleisM, 0xeceadd);
+    }
+  }
 
   /* ---- Oben: Mast und Schild neben jedem Loch ---- */
   for (const sch of UB_SCHAECHTE) {
@@ -1930,9 +1965,10 @@ function baueUBahnLinie() {
     const n = Math.max(3, Math.round(laenge / 7));
     for (let i = 0; i < n; i++) {
       const lx = a + (i + 0.5) * (laenge / n);
-      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 0.4, steigA, 0xffffff);
-      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 0.4, steigB, 0xffffff);
-      deko(2.2, 0.14, 0.5, lx, UB_DECKE - 0.4, gleisM, 0xf2f6e8);
+      for (const [lz, farbe] of [[steigA, 0xf4f2e6], [steigB, 0xf4f2e6], [gleisM, 0xeceadd]]) {
+        deko(1.6, 0.2, 0.44, lx, UB_DECKE - 0.26, lz, 0x363b42);   // Gehaeuse
+        deko(1.4, 0.1, 0.3, lx, UB_DECKE - 0.4, lz, farbe);        // Leuchtfeld
+      }
       if (i % 2 === 0) {
         deko(0.28, 5.4, 0.28, lx, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.6, 0x3c434c);
         deko(0.28, 5.4, 0.28, lx, UB_TIEF + 2.7, UB_STEIG2_Z0 + 0.6, 0x3c434c);
@@ -2350,16 +2386,32 @@ function makeBuildingMesh(w, h, d, x, z) {
      daran wieder ans Tageslicht. */
   addCollider({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
                 h: SLAB_H + h, y0: -1.0 });
-  schmueckeHaus(w, h, d, x, z);
   /* Hohe Häuser bekommen Staffelgeschosse: Der Turm wird nach oben
      schmaler, statt als glatter Quader zu enden. Jede Stufe ist ein
-     eigenes Hindernis, an dem man auch klettern kann. */
-  if (h > 45) {
-    let sw = w, sd = d, sy = SLAB_H + h;
+     eigenes Hindernis, an dem man auch klettern kann.
+     WICHTIG: die Masse werden VOR dem Schmuecken bestimmt. Vorher setzte
+     schmueckeHaus() Reklametafel, Antenne und Klimageraete in die Mitte
+     des Daches - und genau dort wuchs anschliessend der Staffelturm aus
+     dem Dach. Gemessen steckten 10 von 34 Tafeln im eigenen Turm; auf dem
+     Bild ragte eine gruene Tafel mitten durch die Fassade. Jetzt kennt
+     das Schmuecken die Grundflaeche des Turms und laesst sie frei. */
+  const staffel = h > 45 ? (() => {
     const stufen = h > 75 ? 2 : 1;
+    const masse = [];
+    let sw = w, sd = d;
     for (let i = 0; i < stufen; i++) {
       sw *= rand(0.62, 0.78); sd *= rand(0.62, 0.78);
-      const sh = rand(6, 14);
+      masse.push({ sw, sd, sh: rand(6, 14) });
+    }
+    return masse;
+  })() : null;
+  /* Die unterste Stufe ist die groesste - sie bestimmt die Sperrflaeche. */
+  const frei = staffel ? { w: staffel[0].sw, d: staffel[0].sd } : null;
+  schmueckeHaus(w, h, d, x, z, frei);
+  if (staffel) {
+    let sy = SLAB_H + h;
+    for (const st of staffel) {
+      const sw = st.sw, sd = st.sd, sh = st.sh;
       sammleHausBox(sw, sh, sd, x, sy + sh / 2, z, texIdx);
       addCollider({ x0: x - sw / 2, x1: x + sw / 2, z0: z - sd / 2, z1: z + sd / 2,
                     h: sy + sh, y0: -1.0 });
@@ -2367,25 +2419,37 @@ function makeBuildingMesh(w, h, d, x, z) {
       sy += sh;
     }
   }
+  /* Einen Platz auf dem Dach suchen, der NICHT unter dem Staffelturm
+     liegt. Gibt es keinen Staffelturm, ist das ganze Dach frei. */
+  const dachPlatz = (rand2, breite) => {
+    for (let versuch = 0; versuch < 12; versuch++) {
+      const px = x + rand(-w / 2 + rand2, w / 2 - rand2);
+      const pz = z + rand(-d / 2 + rand2, d / 2 - rand2);
+      if (!frei || Math.abs(px - x) > frei.w / 2 + breite ||
+                   Math.abs(pz - z) > frei.d / 2 + breite) return { px, pz };
+    }
+    return null;
+  };
   // Dachaufbauten – gehen ins gemeinsame Deko-Mesh
   if (Math.random() < 0.6) {
     const bh = rand(1, 2);
-    deko(rand(1.5, 3), bh, rand(1.5, 3),
-      x + rand(-w / 4, w / 4), SLAB_H + h + bh / 2, z + rand(-d / 4, d / 4), 0x777d84);
+    const pl = dachPlatz(2.0, 1.6);
+    if (pl) deko(rand(1.5, 3), bh, rand(1.5, 3), pl.px, SLAB_H + h + bh / 2, pl.pz, 0x777d84);
   }
   /* Ein paar echte Klimageraete auf dem Dach - beim Schwingen sieht man
      jedes Dach von oben, dort stand bisher nur ein Kasten. */
   if (Math.random() < 0.7) {
     const n = randi(1, 3);
     for (let i = 0; i < n; i++) {
-      merkeTeil('Prop_ACUnit', x + rand(-w / 2 + 1, w / 2 - 1), SLAB_H + h,
-                z + rand(-d / 2 + 1, d / 2 - 1), rand(0, TAU));
+      const pl = dachPlatz(1.0, 0.8);
+      if (pl) merkeTeil('Prop_ACUnit', pl.px, SLAB_H + h, pl.pz, rand(0, TAU));
     }
   }
   if (h > 55 && Math.random() < 0.5) {
     /* Wasserturm: alle Türme teilen sich eine Geometrie und werden als
        Instanzen gezeichnet – das kostet zusammen einen Zeichenaufruf. */
-    wassertuerme.push({ x: x + rand(-w / 5, w / 5), y: SLAB_H + h, z: z + rand(-d / 5, d / 5) });
+    const pl = dachPlatz(2.2, 1.5);
+    if (pl) wassertuerme.push({ x: pl.px, y: SLAB_H + h, z: pl.pz });
   }
 }
 
@@ -3306,6 +3370,17 @@ function findClip(clips, key) {
 /* ---- Netz-Kostüm: färbt ein Menschmodell zum Helden um ----
    Rot am Oberkörper, Blau an Beinen und Oberarmen, dunkle Netzlinien –
    alles über Vertexfarben, damit es ohne passende Textur funktioniert. */
+/* Dreieckwelle 0..1 aus einer Zahl. WICHTIG: JavaScript liefert bei
+   negativen Zahlen einen negativen Rest - "(-2.3) % 1" ist -0.3, nicht
+   0.7. Der Speichenwinkel laeuft aber von -PI bis +PI, und dadurch kam
+   auf der einen Koerperhaelfte ein Wert bis 3 heraus statt bis 1: jede
+   Schwelle war dort erfuellt, die halbe Figur war deshalb flaechig hell
+   statt fein genetzt. Genau so sah der Symbiontenanzug aus. */
+function welle(v) {
+  const f = v - Math.floor(v);
+  return Math.abs(f - 0.5) * 2;
+}
+
 const SUIT_ROT = new THREE.Color(0xc8102e);
 const SUIT_BLAU = new THREE.Color(0x1b3fa0);
 const SUIT_NETZ = new THREE.Color(0x2a0409);
@@ -3325,6 +3400,70 @@ function partieFuerKnochen(name) {
   return 'rot';                                // Rumpf, Kopf, Schultern
 }
 
+/* ---- Symbiontenanzug fuer ein fertiges, texturiertes Modell ----
+   Das Muster wird in der RUHEPOSE gerechnet: die Ringe liegen dann fest
+   auf dem Koerper und wandern beim Bewegen mit, statt im Raum zu stehen.
+   Als Bezug dient die Huelle ALLER Netze der Figur zusammen - sonst
+   bekaeme jedes Teilnetz eigene Ringe und sie passten nicht aneinander. */
+const _symHuelle = new WeakMap();
+function symHuelleVon(mesh) {
+  /* Die Wurzel der Figur suchen und ihre Gesamthuelle einmal messen. */
+  let root = mesh;
+  while (root.parent && !root.parent.isScene) root = root.parent;
+  let h = _symHuelle.get(root);
+  if (h) return h;
+  const box = new THREE.Box3();
+  let leer = true;
+  root.traverse((o) => {
+    if (!o.isMesh && !o.isSkinnedMesh) return;
+    if (!o.geometry || !o.geometry.attributes.position) return;
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    box.union(o.geometry.boundingBox);
+    leer = false;
+  });
+  if (leer) return null;
+  h = { minY: box.min.y, hoehe: (box.max.y - box.min.y) || 1,
+        mitteX: (box.max.x + box.min.x) / 2, mitteZ: (box.max.z + box.min.z) / 2 };
+  _symHuelle.set(root, h);
+  return h;
+}
+
+function baueSymbiontFuerModell(o) {
+  const geo = o.geometry;
+  const pos = geo && geo.attributes.position;
+  if (!pos || !pos.count) return;
+  const h = symHuelleVon(o);
+  if (!h) return;
+  const farben = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const t = (y - h.minY) / h.hoehe;
+    const winkel = Math.atan2(x - h.mitteX, z - h.mitteZ);
+    /* Eckpunktfarben koennen nur so fein sein wie das Netz selbst. Mit 26
+       Ringen und Schwelle 0,90 lagen gemessen 59 % aller Punkte auf einer
+       Linie - der Anzug waere hell statt schwarz gewesen. Weniger Ringe,
+       engere Schwelle: rund ein Sechstel der Flaeche. */
+    const ring = welle(t * 15);
+    const speiche = welle((winkel / Math.PI) * 7);
+    c.copy(SYM_SCHWARZ);
+    if (ring > 0.955 || speiche > 0.955) c.lerp(SYM_NETZ, 0.85);
+    /* Die grosse helle Spinne vorn auf der Brust. */
+    if (z > h.mitteZ) {
+      const dy = t - 0.74, dx = (x - h.mitteX) / h.hoehe;
+      if ((Math.abs(dx) < 0.030 && dy > -0.090 && dy < 0.032) ||
+          (Math.abs(dy + 0.032) < 0.014 && Math.abs(dx) < 0.090)) c.setHex(0xe8eaf2);
+    }
+    farben[i * 3] = c.r; farben[i * 3 + 1] = c.g; farben[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  o.userData.normalMat = o.material;
+  o.userData.symMat = new THREE.MeshPhongMaterial({
+    vertexColors: true, skinning: !!o.isSkinnedMesh,
+    shininess: 85, specular: 0x9aa0b0,
+  });
+}
+
 function faerbeAlsKostuem(mesh, bbox) {
   const geo = mesh.geometry;
   const pos = geo.attributes.position;
@@ -3337,7 +3476,8 @@ function faerbeAlsKostuem(mesh, bbox) {
   const mitteX = (bbox.max.x + bbox.min.x) / 2;
   const mitteZ = (bbox.max.z + bbox.min.z) / 2;
   const farben = new Float32Array(pos.count * 3);
-  const c = new THREE.Color();
+  const symFarben = new Float32Array(pos.count * 3);
+  const c = new THREE.Color(), cs = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     let rot = true;
     if (knochenNamen && skinIndex && skinWeight) {
@@ -3351,19 +3491,43 @@ function faerbeAlsKostuem(mesh, bbox) {
     } else {
       rot = (pos.getY(i) - bbox.min.y) / hoehe > 0.52;   // Notfall ohne Skelett
     }
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const t = (y - bbox.min.y) / hoehe;
+    const winkel = Math.atan2(x - mitteX, z - mitteZ);
+    const ring = welle(t * 20);
+    const speiche = welle((winkel / Math.PI) * 7);
+    const imNetz = ring > 0.92 || speiche > 0.94;
+
     c.copy(rot ? SUIT_ROT : SUIT_BLAU);
     /* Feines Netzmuster nur auf Rot – Ringe und Speichen um die Körperachse */
-    if (rot) {
-      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-      const t = (y - bbox.min.y) / hoehe;
-      const winkel = Math.atan2(x - mitteX, z - mitteZ);
-      const ring = Math.abs(((t * 20) % 1) - 0.5) * 2;
-      const speiche = Math.abs((((winkel / Math.PI) * 7) % 1) - 0.5) * 2;
-      if (ring > 0.92 || speiche > 0.94) c.lerp(SUIT_NETZ, 0.55);
-    }
+    if (rot && imNetz) c.lerp(SUIT_NETZ, 0.55);
     farben[i * 3] = c.r; farben[i * 3 + 1] = c.g; farben[i * 3 + 2] = c.b;
+
+    /* ---- Zweite Farbreihe: der Symbiontenanzug ----
+       Bisher lag sie nur beim selbstgebauten Anzug bereit. Der Held traegt
+       aber ein fertiges Modell, und fuer das blieb nur "Materialfarbe auf
+       fast schwarz setzen" - deshalb war die Figur mit T einfach eine
+       schwarze Silhouette ohne jedes Netz. Genau das war die Beschwerde.
+       Jetzt entsteht die Symbiontenfaerbung hier gleich mit: schwarz, das
+       Netz hell UND auf dem ganzen Koerper (nicht nur auf Rot), dazu die
+       grosse helle Spinne ueber der Brust. */
+    cs.copy(SYM_SCHWARZ);
+    if (imNetz) cs.lerp(SYM_NETZ, 0.8);
+    /* Spinne: senkrechter Leib plus ausgestellte Beine, vorn auf der
+       Brust. Die Masse sind Bruchteile der Koerperhoehe, damit sie zu
+       jedem Modell passen. */
+    if (z > mitteZ) {
+      const dy = t - 0.74, dx = (x - mitteX) / hoehe;
+      const leib = Math.abs(dx) < 0.028 && dy > -0.085 && dy < 0.030;
+      const beine = Math.abs(dy + 0.030) < 0.013 && Math.abs(dx) < 0.085;
+      if (leib || beine) cs.setHex(0xe8eaf2);
+    }
+    symFarben[i * 3] = cs.r; symFarben[i * 3 + 1] = cs.g; symFarben[i * 3 + 2] = cs.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  /* Beide Reihen bleiben liegen - der Wechsel ist dann nur ein Kopieren. */
+  geo.userData.anzugFarben = farben;
+  geo.userData.symbiontFarben = symFarben;
   /* Leicht glänzend, damit es nach Anzugstoff aussieht und nicht nach Hemd.
      skinning muss in Three.js r128 ausdrücklich an sein. */
   mesh.material = new THREE.MeshPhongMaterial({
@@ -3444,8 +3608,8 @@ function baueAnzugKoerper(quelle, einheit) {
     if (sym || partie !== 'blau') {
       const t = (punkt.y - minY) / hoehe;
       const winkel = Math.atan2(punkt.x, punkt.z);
-      const ring = Math.abs(((t * 30) % 1) - 0.5) * 2;
-      const speiche = Math.abs((((winkel / Math.PI) * 9) % 1) - 0.5) * 2;
+      const ring = welle(t * 30);
+      const speiche = welle((winkel / Math.PI) * 9);
       if (ring > 0.9 || speiche > 0.92) c.lerp(sym ? SYM_NETZ : SUIT_NETZ, sym ? 0.85 : 0.65);
     }
     if (brust && punkt.z > brust.z) {   // Spinnenzeichen auf der Brust
@@ -4244,7 +4408,12 @@ function makeGlbVisual(m) {
            wandFreiraum() ihn gleichzeitig herausschiebt - zwei Regler auf
            dieselbe Groesse, und der Koerper pendelt zwischen ihnen. */
         const kk = clamp(k === undefined ? 1 : k, 0, 1);
-        inner.position.z = clamp(inner.position.z + (-0.24 - tiefe) * 0.35 * kk, -1.2, 1.2);
+        /* Der Zielabstand des Beckens war -0,24. Gemessen stand das Becken
+           damit 45 bis 56 cm vor der Fassade und alle Glieder hingen mit
+           in der Luft - naeher gesetzte Ziele fuer Haende und Fuesse
+           schoben nur das Becken weiter heraus, weil diese Nachfuehrung
+           dagegenhielt. Mit -0,10 kommt der ganze Koerper an die Wand. */
+        inner.position.z = clamp(inner.position.z + (-0.10 - tiefe) * 0.35 * kk, -1.2, 1.2);
         /* Achtung beim Vorzeichen: die lokale X-Achse der Wurzel zeigt nach
            LINKS, also entgegen "rechts". Mit dem falschen Vorzeichen war es
            eine Mitkopplung – der Körper wanderte bis an den Anschlag von
@@ -4271,13 +4440,18 @@ function makeGlbVisual(m) {
          abgeschnittenes Stück Fuß und dachte, er sei vom Bein gelöst.
          Die Haut ist rund 5 cm dick, deshalb braucht jedes Glied etwas
          Luft. (tiefe wird Richtung Wand gemessen: kleiner = weiter weg.) */
-      punkt(_vw3, -0.52, 1.50 + g * 0.10, -0.04);         // linker Ellbogen
+      /* Nachgemessen am Collider der Hauswand: Haende lagen im Mittel 16
+         bis 25 cm, Fuesse 17 bis 29 cm VOR der Fassade. Die Figur klebte
+         also nicht, sie schwebte davor - genau der Eindruck "das Klettern
+         ist verbuggt". Die Zielpunkte liegen deshalb 12 cm naeher an der
+         Wand als zuvor; kein Glied kam dabei in die Fassade hinein. */
+      punkt(_vw3, -0.52, 1.50 + g * 0.10, 0.08);          // linker Ellbogen
       zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
-      punkt(_vw3, -0.27, 2.14 + g * 0.34, 0.02);          // linke Hand
+      punkt(_vw3, -0.27, 2.14 + g * 0.34, 0.14);          // linke Hand
       zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
-      punkt(_vw4, 0.52, 1.50 - g * 0.10, -0.04);
+      punkt(_vw4, 0.52, 1.50 - g * 0.10, 0.08);
       zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
-      punkt(_vw4, 0.27, 2.14 - g * 0.34, 0.02);
+      punkt(_vw4, 0.27, 2.14 - g * 0.34, 0.14);
       zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
 
       /* ---- Beine ----
@@ -4290,13 +4464,13 @@ function makeGlbVisual(m) {
          auseinander. Mit den Werten unten sind es 0,48 m und 0,31 m – etwas
          breiter als die Hüfte (0,14 m), wie es sich für eine Spinnen-
          haltung gehört, aber kein Spagat mehr. */
-      punkt(_vw3, -0.14, 0.80 - g * 0.10, -0.14);
+      punkt(_vw3, -0.14, 0.80 - g * 0.10, -0.02);
       zieleKnochen(knochen.leftupleg, knochen.leftleg, _vw3, k);
-      punkt(_vw3, -0.09, 0.04 - g * 0.16, -0.01);
+      punkt(_vw3, -0.09, 0.04 - g * 0.16, 0.11);
       zieleKnochen(knochen.leftleg, knochen.leftfoot, _vw3, k);
-      punkt(_vw4, 0.14, 0.80 + g * 0.10, -0.14);
+      punkt(_vw4, 0.14, 0.80 + g * 0.10, -0.02);
       zieleKnochen(knochen.rightupleg, knochen.rightleg, _vw4, k);
-      punkt(_vw4, 0.09, 0.04 + g * 0.16, -0.01);
+      punkt(_vw4, 0.09, 0.04 + g * 0.16, 0.11);
       zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
       /* ---- Füße ----
          Der Knöchel wurde gar nicht geführt: die Sohlen zeigten dorthin,
@@ -5093,11 +5267,23 @@ function makeGlbVisual(m) {
           attr.needsUpdate = true;
           return;
         }
-        /* Weg 2: fertiges Modell mit eigenen Texturen - hier gibt es keine
-           Eckpunktfarben zum Tauschen. Stattdessen wird die Grundfarbe des
-           Materials abgedunkelt; die Textur wird damit multipliziert, das
-           Muster bleibt also erhalten und der Anzug wird schwarz und
-           glaenzend statt rot und blau. */
+        /* Weg 2: fertiges Modell mit eigenen Texturen.
+           Hier stand vorher nur "Materialfarbe auf 0x14141b setzen". Die
+           Textur wird damit multipliziert - und weil die Netzlinien des
+           roten Anzugs DUNKLER sind als die Flaeche, verschwanden sie
+           dabei vollstaendig. Ergebnis: eine gleichmaessig schwarze
+           Silhouette ohne jedes Muster. Genau so sah es im Spiel aus.
+           Jetzt bekommt das Modell beim ersten Zuschalten eine eigene
+           Farbreihe auf die Eckpunkte gerechnet - schwarzer Grund, helle
+           Netzringe und -speichen, grosse helle Spinne auf der Brust - und
+           das Material wird gegen eines OHNE Textur getauscht. Der
+           Rechenaufwand faellt genau einmal an. */
+        if (!o.userData.symMat) baueSymbiontFuerModell(o);
+        if (o.userData.symMat) {
+          o.material = an ? o.userData.symMat : o.userData.normalMat;
+          return;
+        }
+        /* Notnagel, falls die Geometrie keine Punkte hergibt. */
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const m2 of mats) {
           if (!m2 || !m2.color) continue;
@@ -6312,9 +6498,11 @@ function updateCamera(dt) {
     Math.cos(camYaw) * Math.cos(camPitch)
   );
   // Kamerakollision mit Gebäuden (abtasten)
+  /* Zehn Schritte auf bis zu 10,6 m sind Schritte von ueber einem Meter -
+     eine Hausecke passt bequem dazwischen. Sechzehn sind rund 65 cm. */
   let d = camDist;
-  for (let i = 1; i <= 10; i++) {
-    const t = (camDist * i) / 10;
+  for (let i = 1; i <= 16; i++) {
+    const t = (camDist * i) / 16;
     const px = target.x + dir.x * t, py = target.y + dir.y * t, pz = target.z + dir.z * t;
     let blocked = py < groundY(px, pz, py) + 0.3;
     /* Steht die Figur auf einem Dach und man schaut nach unten, rutschte
@@ -6331,7 +6519,12 @@ function updateCamera(dt) {
         if (px > c.x0 - 0.3 && px < c.x1 + 0.3 && pz > c.z0 - 0.3 && pz < c.z1 + 0.3 && py < c.h + 0.2) { blocked = true; break; }
       }
     }
-    if (blocked) { d = Math.max(1.2, t - 0.5); break; }
+    /* Hier stand Math.max(1.2, t - 0.5). Blockte etwas schon bei 1,0 m,
+       kam 1,2 heraus - die Kamera wurde also HINTER das Hindernis gesetzt
+       und stand mitten in der Fassade. Beim Schwingen dicht an Haeusern
+       vorbei fuellte dann eine dunkle Wand das ganze Bild.
+       Jetzt wird nie weiter gerueckt als bis kurz vor den Treffer. */
+    if (blocked) { d = Math.max(0.55, t - 0.55); break; }
   }
   const desired = _v3.copy(target).addScaledVector(dir, d);
   camPos.lerp(desired, Math.min(1, dt * 12));
@@ -7366,7 +7559,14 @@ function updatePlayer(dt) {
        Aus 13 m/s Anlauf werden so knapp drei Sekunden Wandlauf und rund
        zwanzig Meter, danach klettert die Figur ganz normal weiter. */
     if (player.wandSchwung > 0) {
-      player.wandSchwung -= dt * (sprintAn() && up > 0 ? 4.0 : 11);
+      /* Die Bremse stand auf 11 je Sekunde. Aus dem normalen Lauf (7 m/s)
+         ergab das einen Schwung von 6,3 - also 0,57 s und ganze DREI Meter
+         Wandlauf, danach sofort Klettern mit Haenden und Fuessen. Genau so
+         sah es aus: "ich klettere hoch statt zu rennen".
+         Gemessen ist die Steighoehe v0^2/(2a). Mit 3,2 werden aus dem Lauf
+         rund 10 m in 2,5 s, aus dem Sprint (12,7) rund 37 m in 5,8 s - man
+         rennt sichtbar hoch, wird langsamer und klettert dann weiter. */
+      player.wandSchwung -= dt * (sprintAn() && up > 0 ? 2.2 : 3.2);
       if (player.wandSchwung < 0) player.wandSchwung = 0;
     }
     const kTempo = CFG.climbSpeed;
@@ -7931,12 +8131,15 @@ function updatePlayer(dt) {
        Wänden der U-Bahn-Station. Sonst trägt der Anlauf die Figur an einer
        viereinhalb Meter hohen Mauer wieder aus der Station heraus. */
     const hochGenug = w.col && (w.col.h - player.pos.y) > 6 && !w.col.klein;
-    if (rein && hochGenug && tempoRein > 5.5) {
+    /* 5,5 war zu streng: wer leicht schraeg auf die Wand zulaeuft, kommt
+       mit dem Anteil senkrecht zur Wand kaum darueber und blieb einfach
+       stehen. Gehtempo (2,8) loest weiterhin nichts aus. */
+    if (rein && hochGenug && tempoRein > 4.5) {
       player.state = 'climb';
       player.wallInfo = w;
       player.onGround = false;
       /* Der waagerechte Schwung wird in Höhe umgesetzt. */
-      player.wandSchwung = clamp(tempoRein * 0.95, 6, 13);
+      player.wandSchwung = clamp(tempoRein * 1.15, 8, 14);
       player.wandlauf = true;
       player.jumps = 0;
       beendeGleiten();
@@ -8268,8 +8471,11 @@ function updateHeroVisual(dt) {
         /* Haengt man still, fuehrt die Haengebewegung allein: die Pose
            wuerde ihr nur entgegenarbeiten. Sie bleibt schwach dabei, damit
            Haende und Fuesse trotzdem an der Fassade liegen. */
+        /* 0,55 liess der Bewegungsdatei zu viel: sie zog Haende und Fuesse
+           wieder von der Fassade weg. Mit 0,72 bleibt der Rhythmus der
+           Datei erhalten, die Glieder landen aber wirklich an der Wand. */
         heroVisual.poseWandkriechen(w.nx, w.nz, player.phase,
-                                    player.anim === 'haengen' ? 0.2 : 0.55);
+                                    player.anim === 'haengen' ? 0.2 : 0.72);
       } else if (w && player.wandlauf && heroVisual.poseWandlauf) {
         heroVisual.poseWandlauf(w.nx, w.nz, player.phase, 0.9);
       }
@@ -11567,8 +11773,12 @@ function baueDampf() {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  /* Die Groesse stand auf 4,4 - das ist die Breite eines Kleinwagens JE
+     Teilchen, und 26 davon je Gully ergaben eine weisse Wolke, die beim
+     Schwingen ueber die halbe Strasse lag und wie ein Fehler aussah.
+     Gemessen an einer Kanaloeffnung von 60 cm sind 1,3 m das Richtige. */
   dampfPunkte = new THREE.Points(geo, new THREE.PointsMaterial({
-    map: dampfTex, size: 4.4, transparent: true, opacity: 0.5,
+    map: dampfTex, size: 1.3, transparent: true, opacity: 0.34,
     depthWrite: false, sizeAttenuation: true, blending: THREE.NormalBlending }));
   dampfPunkte.frustumCulled = false;
   scene.add(dampfPunkte);
@@ -12040,7 +12250,7 @@ animate();
 // Nur für automatisierte Tests sichtbar
 if (window.__WEBHERO_TEST__ === true) {
   window.__dbg = {
-    player, enemies, civilians, cars, glbModels, camera, gangs,
+    player, enemies, civilians, cars, glbModels, camera, gangs, szene: scene,
     get actorsReady() { return actorsReady; },
     get heroVisual() { return heroVisual; },
     colliders,
@@ -12128,6 +12338,7 @@ if (window.__WEBHERO_TEST__ === true) {
     dampfDa() { return dampfPunkte; },
     regenAn() { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; },
     tippeSprung() { tryJump(); },
+    kitKopien() { return KIT_KOPIEN; },
     renderInfo() { return { calls: renderer.info.render.calls,
       dreiecke: renderer.info.render.triangles,
       programme: renderer.info.programs ? renderer.info.programs.length : -1,

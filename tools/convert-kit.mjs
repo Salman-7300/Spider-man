@@ -50,25 +50,38 @@ const texCache = new Map();
    schnell ein paar hundert.
    Mit --sparsam werden deshalb die Materialien zusammengelegt, die man im
    Spiel ohnehin kaum auseinanderhaelt: die vier "FakeInterior" hinter den
-   Fenstern werden zu einem, und der Innenraum des Erdgeschosses
-   (InteriorFloor, InteriorWall, Glass) faellt ganz weg - man sieht ihn nur
-   durch die Schaufenster, und dort ist er hinter der Scheibe kaum zu
-   erkennen. */
+   Fenstern werden zu einem, und InteriorFloor, InteriorWall und Glass
+   werden zu EINEM dunklen Innenmaterial.
+   Zusammenlegen ja - wegwerfen NICHT. Beim ersten Versuch flogen die drei
+   heraus, und damit war das Haus eine blosse Huelle: durch die Tuer und
+   die Schaufenster sah man quer hindurch auf die Strasse dahinter. Genau
+   das war "man kann durch die Haeuser sehen". MI_InteriorWall ist die
+   Innenschale ueber die volle Hoehe (1950 Dreiecke bei Building_Large_2) -
+   sie ist es, die das Haus schliesst. */
 const sparsam = args.includes('--sparsam');
+const INNEN = 'MI_Innenraum';
 function sparName(name) {
   if (!sparsam) return name;
   if (/FakeInterior/i.test(name)) return 'MI_FakeInterior';
+  if (/Interior(Floor|Wall)|^MI_Glass$/i.test(name)) return INNEN;
   return name;
 }
-function wegwerfen(name) {
-  return sparsam && /Interior(Floor|Wall)|^MI_Glass$/i.test(name);
-}
+function wegwerfen() { return false; }
 
 function holeMaterial(quellMat) {
   const name = sparName(quellMat.getName() || 'material');
   if (matCache.has(name)) return matCache.get(name);
   const m = aus.createMaterial(name);
   m.setRoughnessFactor(1).setMetallicFactor(0);
+  /* Der zusammengelegte Innenraum bekommt eine eigene, dunkle Farbe und
+     gar keine Textur: er ist nur dazu da, das Haus dicht zu machen, und
+     durch Tuer und Scheibe soll man einen dunklen Raum sehen, nicht die
+     Backsteintextur der Aussenwand. */
+  if (name === INNEN) {
+    m.setBaseColorFactor([0.10, 0.10, 0.115, 1]);
+    matCache.set(name, m);
+    return m;
+  }
   m.setBaseColorFactor(quellMat.getBaseColorFactor());
   const t = quellMat.getBaseColorTexture();
   if (t) {
@@ -117,7 +130,7 @@ for (const name of teile) {
   for (const mesh of doc.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
       const qm0 = prim.getMaterial();
-      if (qm0 && wegwerfen(qm0.getName() || '')) continue;
+      if (qm0 && wegwerfen(qm0.getName() || '')) continue;   // derzeit nichts
       const p = aus.createPrimitive();
       /* Nur die Attribute uebernehmen, die das Spiel zeichnet: Lage,
          Normale und die erste UV. TANGENT und die zweiten UV braucht
