@@ -10,7 +10,7 @@ if (typeof THREE === 'undefined') return;
 const CFG = {
   gravity: 30,
   swingGravity: 24,
-  duckSpeed: 2.2, schleichSpeed: 1.4,
+  duckSpeed: 2.2, kriechSpeed: 0.85, schleichSpeed: 1.4,
   walkSpeed: 2.8, symSpeed: 1.2,
   runSpeed: 7,
   sprintSpeed: 11,
@@ -904,6 +904,26 @@ const suitTex = canvasTex(128, 128, (g) => {
 });
 suitTex.repeat.set(2, 2);
 
+/* Die drei fertigen Haeuser aus dem Baukasten, mit ihren gemessenen
+   Massen - daraus entsteht das Hindernis, das Modell selbst bringt keins
+   mit. Sie sind niedrig (17 bis 28 m) und ersetzen deshalb nicht die
+   Tuerme, sondern bilden ein paar Blocks Altbaugegend. */
+/* dreh richtet die SCHAUSEITE nach +z. Die Haeuser sind Reihenhaus-
+   Bausteine: eine Seite hat Fenster, Gesims und Freitreppe, die anderen
+   sind glatte Brandwaende. Abgezaehlt, wie viele Eckpunkte dicht an
+   jeder der vier Seiten liegen - die Front hat ein Vielfaches:
+   Small_1 +x 2740 gegen +z 296, Medium +z 11058 gegen -z 1393,
+   Large +z 19173 gegen +x 2531. Frei in den Block gestellt zeigte
+   deshalb regelmaessig eine kahle Wand zur Strasse. */
+const KIT_HAEUSER = [
+  { name: 'Building_Small_1',      w: 12.5, h: 17.0, d: 14.5, dreh: -Math.PI / 2 },
+  { name: 'Building_Medium_2_001', w: 15.1, h: 25.0, d: 13.1, dreh: 0 },
+  { name: 'Building_Large_2',      w: 20.6, h: 28.0, d: 16.6, dreh: 0 },
+];
+/* Welche Blocks bekommen Altbauten? Vier Stueck - genug fuer eine eigene
+   Gegend, wenig genug, dass die Dreiecke im Rahmen bleiben. */
+const KIT_BLOCKS = [[1, 4], [4, 1], [5, 5], [2, 6]];
+
 /* Stellen fuer Bauteile aus dem Baukasten. Die Liste muss VOR dem
    Stadtbau stehen: gesammelt wird beim Bauen, gesetzt erst, wenn die
    Datei geladen ist (siehe ladeStadtteile weiter unten). */
@@ -912,6 +932,10 @@ function merkeTeil(name, x, y, z, ry, s) {
   if (!TEIL_STELLEN[name]) TEIL_STELLEN[name] = [];
   TEIL_STELLEN[name].push({ x, y, z, ry: ry || 0, s: s === undefined ? 1 : s });
 }
+/* Ganze Haeuser stehen in einer eigenen Liste - sie werden kopiert, nicht
+   als Instanzen gezeichnet. */
+const HAUS_STELLEN = [];
+function merkeHaus(name, x, y, z, ry) { HAUS_STELLEN.push({ name, x, y, z, ry: ry || 0 }); }
 
 /* ======================= Stadt bauen ======================= */
 const colliders = [];          // {x0,x1,z0,z1,h} – Gebäude & Pylonen
@@ -1560,7 +1584,9 @@ function buildCity() {
       /* Kein Park auf einem Block mit U-Bahn-Eingang: der Rasen liegt als
          geschlossene Flaeche ueber dem Treppenloch. */
       if (!loecher.length && ((bi === 2 && bj === 2) || (bi === 5 && bj === 1))) bauePark(cx, cz, size);
-      else buildBlockBuildings(cx, cz, loecher);
+      else if (!loecher.length && KIT_BLOCKS.some(([a3, b3]) => a3 === bi && b3 === bj)) {
+        baueAltbauBlock(cx, cz, size);
+      } else buildBlockBuildings(cx, cz, loecher);
       // Straßenlampen an jeder zweiten Ecke
       if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz - size / 2 + 1);
       /* Poller und Pflanzkuebel am Bordstein. Sie stehen genau dort, wo
@@ -2422,6 +2448,51 @@ function baueWassertuerme() {
   cityGroup.add(mesh);
 }
 
+/* Ein Block aus fertigen Haeusern des Baukastens. Sie werden nicht aus
+   Wandstuecken zusammengesetzt - das waere um ein Vielfaches teurer als
+   die selbstgebauten Quader (gemessen: eine Fassade aus Fensterstuecken
+   kostet rund 45.000 Dreiecke je Haus, ein selbstgebautes ein paar
+   tausend). Die drei fertigen Haeuser sind mit 18.000 bis 45.000
+   Dreiecken der guenstige Weg zu echter Bauform. */
+function baueAltbauBlock(cx, cz, size) {
+  const halb = size / 2;
+  const gesetzt = [];
+  /* An den vier Blockkanten aufgereiht, Schauseite zur Strasse - so sind
+     diese Bausteine gedacht, und so verschwinden die Brandwaende dorthin,
+     wo sie hingehoeren: an den Nachbarn. */
+  const kanten = [
+    { nx: 0, nz: -1, ry: Math.PI },      // Sued
+    { nx: 0, nz: 1, ry: 0 },             // Nord
+    { nx: -1, nz: 0, ry: -Math.PI / 2 }, // West
+    { nx: 1, nz: 0, ry: Math.PI / 2 },   // Ost
+  ];
+  for (let versuch = 0; versuch < 40 && gesetzt.length < 5; versuch++) {
+    const t = pick(KIT_HAEUSER);
+    const k = kanten[versuch % kanten.length];
+    const ry = k.ry + t.dreh;
+    /* Bei 90 und 270 Grad tauschen Breite und Tiefe die Rolle. */
+    const quer = Math.abs(Math.sin(ry)) > 0.5;
+    const bw = quer ? t.d : t.w, bd = quer ? t.w : t.d;
+    /* An die Kante ruecken, laengs davon zufaellig verschieben. */
+    const laengs = rand(-halb + Math.max(bw, bd) / 2, halb - Math.max(bw, bd) / 2);
+    const x = k.nx ? cx + k.nx * (halb - bw / 2 - 0.4) : cx + laengs;
+    const z = k.nz ? cz + k.nz * (halb - bd / 2 - 0.4) : cz + laengs;
+    if (gesetzt.some((r) => Math.abs(x - r.x) < (bw + r.w) / 2 + 1.2 &&
+                            Math.abs(z - r.z) < (bd + r.d) / 2 + 1.2)) continue;
+    gesetzt.push({ x, z, w: bw, d: bd });
+    merkeHaus(t.name, x, SLAB_H, z, ry);
+    /* Das Modell bringt kein Hindernis mit - der Quader aus den gemessenen
+       Massen ist genau genug, um daran zu klettern und zu schwingen. */
+    addCollider({ x0: x - bw / 2, x1: x + bw / 2, z0: z - bd / 2, z1: z + bd / 2,
+                  h: SLAB_H + t.h, y0: -1.0 });
+    /* Dachaufbauten wie bei den anderen Haeusern. */
+    if (Math.random() < 0.6) {
+      merkeTeil('Prop_ACUnit', x + rand(-bw / 3, bw / 3), SLAB_H + t.h,
+                z + rand(-bd / 3, bd / 3), rand(0, TAU));
+    }
+  }
+}
+
 function buildBlockBuildings(cx, cz, loecher) {
   // Höher Richtung Stadtmitte
   const centerBias = 1 - Math.min(1, (Math.abs(cx) + Math.abs(cz)) / 300);
@@ -2741,6 +2812,11 @@ const GLB_YAW = {};
    ueber den Asphalt zu rutschen. Die Werte sind gemessen, nicht geschaetzt
    (siehe Fussrutsch-Messung). */
 const GANG_REF = {
+  /* "Low Crawl": auf allen vieren, Bauch dicht am Boden. Wie die anderen
+     Gangarten abgetastet: bei 0,8 m/s bleibt die Hand praktisch stehen
+     (0,045 m/s Restbewegung), bei 1,2 sind es schon 0,43. 0,85 ist die
+     Grenze, an der es noch sauber aussieht - Kriechen darf langsam sein. */
+  kriechen: 0.85,
   schleichen: 2.0,
   ducken: 1.15,
   walk: 1.45,
@@ -2782,7 +2858,9 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
      fliegende Kniestoss fuer den Symbiontenmodus. "Grab and Slam" und
      "Low Crawl" sind zwar auch brauchbar, haben aber noch keinen Platz im
      Spiel - sie werden erst geladen, wenn sie auch benutzt werden. */
-  'symgang', 'symkombo'];
+  'symgang', 'symkombo',
+  /* "Grab and Slam" als Wurfgriff und "Low Crawl" als Kriechen. */
+  'wurfgriff', 'kriechen'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -2908,7 +2986,7 @@ function loadGlbAssets(done) {
    Bauen ein - die Datei kommt erst spaeter an. */
 function ladeStadtteile(loader) {
   const stellen = Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length);
-  if (!stellen.length) return;
+  if (!stellen.length && !HAUS_STELLEN.length) return;
   loader.load('assets/stadtteile.glb', (gltf) => {
     try { setzeStadtteile(gltf.scene); } catch (e) { /* ohne Requisiten weiter */ }
   }, undefined, () => { /* fehlt die Datei, bleibt die Stadt wie sie ist */ });
@@ -2917,6 +2995,21 @@ function ladeStadtteile(loader) {
 function setzeStadtteile(szene) {
   const _m = new THREE.Matrix4(), _p = new THREE.Vector3();
   const _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+  /* Die fertigen Haeuser werden KOPIERT statt als Instanzen gezeichnet.
+     Jedes besteht aus rund einem Dutzend Teilmeshes; als Instanzen ueber
+     die ganze Stadt verteilt liessen sie sich nicht mehr wegschneiden und
+     alle zwoelf Teile wurden immer gezeichnet (gemessen bis zu 404
+     Zeichenaufrufe). Als einzelne Kopien greift das normale Wegschneiden
+     und es kostet nur, was gerade im Bild ist. */
+  for (const e of HAUS_STELLEN) {
+    const quelle = szene.getObjectByName(e.name);
+    if (!quelle) continue;
+    const kopie = quelle.clone(true);
+    kopie.position.set(e.x, e.y, e.z);
+    kopie.rotation.y = e.ry;
+    kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    cityGroup.add(kopie);
+  }
   for (const [name, liste] of Object.entries(TEIL_STELLEN)) {
     if (!liste.length) continue;
     const quelle = szene.getObjectByName(name);
@@ -3071,6 +3164,7 @@ const GLB_CLIP_PATTERNS = {
   run: [/^run$/i, /run/i, /jog/i],
   sprint: [/^sprint$/i, /sprint/i],
   symgang: [/^symgang$/i], symkombo: [/^symkombo$/i],
+  wurfgriff: [/^wurfgriff$/i], kriechen: [/^kriechen$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
   schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
@@ -5828,7 +5922,8 @@ function baueTouch() {
       kann: () => player.onGround && !player.dead,
       tun: () => katapultStart(), los: () => katapultLos() },
     { id: 'tDucken', sym: '🦵', bez: 'Ducken', reihe: 1, art: 'halten',
-      hilfe: 'Halten: ducken (2,2 m/s). Zusammen mit leicht ausgelenktem Knüppel: schleichen (1,4 m/s).',
+      hilfe: 'Halten: ducken (2,2 m/s). Mit leicht ausgelenktem Knüppel: schleichen (1,4 m/s). ' +
+             'Zusammen mit dem Sprint-Knopf: auf allen vieren kriechen (0,85 m/s).',
       kann: () => player.onGround,
       tun: () => { touchDucken = true; }, los: () => { touchDucken = false; } },
     { id: 'tKlettern', sym: '🧗', bez: 'Halten', reihe: 1, art: 'halten',
@@ -5845,7 +5940,7 @@ function baueTouch() {
       frei: () => stufeFrei('uppercut'), gesperrtText: 'Aufwärtshaken gibt es ab Stufe 2',
       tun: () => uppercut() },
     { id: 'tWurf', sym: '✊➜', bez: 'Wurf', reihe: 2, art: 'tipp',
-      hilfe: 'Packen und werfen (ab Stufe 3)',
+      hilfe: 'Packen, heranziehen und schleudern (ab Stufe 3)',
       frei: () => stufeFrei('wurf'), gesperrtText: 'Packen und Werfen gibt es ab Stufe 3',
       tun: () => packenUndWerfen() },
     { id: 'tRolle', sym: '↻', bez: 'Rolle', reihe: 2, art: 'tipp',
@@ -6019,6 +6114,11 @@ function stickStaerke() {
 function gangArt() {
   if (duckenAn()) {
     const s = stickStaerke();
+    /* Geduckt UND Sprinttaste: kriechen. Die Sprinttaste ist beim Ducken
+       ohnehin unbenutzt - so kommt die dritte Stufe ohne eine neue Taste
+       aus, auf dem Handy einfach beide Knoepfe halten. */
+    if (sprintAn() && heroVisual && heroVisual.hatClip &&
+        heroVisual.hatClip('kriechen')) return 'kriechen';
     return (geheAn() || (s > 0.05 && s < 0.55)) ? 'schleichen' : 'ducken';
   }
   const s = stickStaerke();
@@ -6032,6 +6132,8 @@ function gangTempo() {
      sein, die nie zu sehen ist. */
   if (duckenAn()) {
     const s = stickStaerke();
+    if (sprintAn() && heroVisual && heroVisual.hatClip &&
+        heroVisual.hatClip('kriechen')) return CFG.kriechSpeed;
     return (geheAn() || (s > 0.05 && s < 0.55)) ? CFG.schleichSpeed : CFG.duckSpeed;
   }
   const s = stickStaerke();
@@ -6659,9 +6761,16 @@ function packenUndWerfen() {
   if (player.attackCd > 0.05) return;
   const e = nearestEnemy(2.6, -0.2);
   if (!e) { popupScreen('Niemand zum Packen in Reichweite'); return; }
-  const dauer = heroVisual.attackOneShot(0, 'wurf', 0.75) || 0.75;
+  /* "Grab and Slam" aus animation-1: zupacken, heranziehen, niederschlagen.
+     Das ist genau der Ablauf, den diese Taste seit jeher beschreibt - die
+     alte Bewegung war nur ein Schwung mit dem Arm. Die Datei ist 4,3 s
+     lang; auf 0,95 s gerafft bleibt der Griff lesbar, ohne dass man
+     sekundenlang festhaengt. */
+  const griff = heroVisual.hatClip && heroVisual.hatClip('wurfgriff');
+  const dauer = heroVisual.attackOneShot(0, griff ? 'wurfgriff' : 'wurf',
+                                         griff ? 0.95 : 0.75) || 0.75;
   player.attackCd = dauer * 0.8;
-  player.attack = { type: 'punch', t: 0, arm: 'R', art: 'wurf',
+  player.attack = { type: 'punch', t: 0, arm: 'R', art: griff ? 'wurfgriff' : 'wurf',
                     hitDone: true, finisher: false, stufe: 0, dauer };
   const f = camForward();
   player.facing = Math.atan2(f.x, f.z);
@@ -11745,6 +11854,9 @@ if (window.__WEBHERO_TEST__ === true) {
     /* Nur fuer Messungen: natuerliches Tempo einer Gangart setzen. */
     setzeGangRef(name, v) { GANG_REF[name] = v; },
     setzeTempo(name, v) { CFG[name] = v; },
+    /* Nur fuer Messungen: Punkte gutschreiben, damit sich Stufen pruefen
+       lassen, ohne erst eine halbe Stadt zu befreien. */
+    gibPunkte(n) { addScore(n || 1000, '', player.pos); return stufe; },
     get kamPos() { return camera.position.clone(); },
     starteMission,
   };

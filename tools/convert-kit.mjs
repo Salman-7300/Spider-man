@@ -64,6 +64,15 @@ function holeMaterial(quellMat) {
     if (info) {
       const ni = m.getBaseColorTextureInfo();
       ni.setTexCoord(info.getTexCoord());
+      /* Die Wiederholung MUSS mitkommen. Der Baukasten kachelt seine
+         Texturen (UV bis 1,5 und darueber); ohne das gesetzte
+         Wiederholen klemmt die Kachelung am Rand fest und aus einer
+         Backsteinwand wird eine einfarbig braune Flaeche. Genau so sahen
+         die ersten eingebauten Haeuser aus. */
+      ni.setWrapS(info.getWrapS());
+      ni.setWrapT(info.getWrapT());
+      ni.setMagFilter(info.getMagFilter());
+      ni.setMinFilter(info.getMinFilter());
     }
   }
   matCache.set(name, m);
