@@ -76,6 +76,27 @@ function dampAngle(cur, target, k) {
 /* ======================= Audio (WebAudio, winzig) ======================= */
 const SFX = (() => {
   let ctx = null, muted = false, lautstaerke = 0.7;
+  /* Ausgang aller Effekte. Frueher haben sie einzeln auf den Lautsprecher
+     gezeigt - dadurch klangen sie unter der Erde genau wie oben auf der
+     Strasse: trocken, hell, ohne jeden Raum. Jetzt laufen alle ueber einen
+     gemeinsamen Ausgang mit Tiefpass und einer kurzen Verzoegerung. Im
+     Tunnel macht der Tiefpass zu und die Verzoegerung auf: dumpf mit Hall,
+     wie in einer Roehre. */
+  let aus = null, dumpf = null, hallG = null;
+  function ausgang() {
+    const c = ac(); if (!c) return null;
+    if (aus) return aus;
+    aus = c.createGain();
+    dumpf = c.createBiquadFilter();
+    dumpf.type = 'lowpass'; dumpf.frequency.value = 20000;
+    aus.connect(dumpf); dumpf.connect(c.destination);
+    const verz = c.createDelay(0.5); verz.delayTime.value = 0.135;
+    const rueck = c.createGain(); rueck.gain.value = 0.33;
+    hallG = c.createGain(); hallG.gain.value = 0;
+    aus.connect(verz); verz.connect(rueck); rueck.connect(verz);
+    verz.connect(hallG); hallG.connect(c.destination);
+    return aus;
+  }
   function ac() {
     if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
     if (ctx && ctx.state === 'suspended') ctx.resume();
@@ -88,7 +109,7 @@ const SFX = (() => {
     if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), c.currentTime + dur);
     g.gain.value = Math.max(0.0001, (vol || 0.15) * lautstaerke);
     g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
-    o.connect(g); g.connect(c.destination);
+    o.connect(g); g.connect(ausgang() || c.destination);
     o.start(); o.stop(c.currentTime + dur);
   }
   function noise(dur, vol, hp) {
@@ -100,13 +121,20 @@ const SFX = (() => {
     const s = c.createBufferSource(); s.buffer = buf;
     const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp || 800;
     const g = c.createGain(); g.gain.value = Math.max(0.0001, (vol || 0.12) * lautstaerke);
-    s.connect(f); f.connect(g); g.connect(c.destination); s.start();
+    s.connect(f); f.connect(g); g.connect(ausgang() || c.destination); s.start();
   }
   return {
     init: ac,
     /* Für die Musik: laufender Kontext und die aktuelle Lautstärke. */
     kontext: ac,
     pegel() { return muted ? 0 : lautstaerke; },
+    /* 0 = draussen, 1 = tief im Tunnel. */
+    raum(v) {
+      if (!ausgang()) return;
+      const t = clamp(v, 0, 1);
+      dumpf.frequency.value = 20000 - t * 17200;
+      hallG.gain.value = t * 0.32;
+    },
     setLautstaerke(v) { lautstaerke = clamp(v, 0, 1); },
     toggleMute() { muted = !muted; return muted; },
     thwip() { noise(0.09, 0.1, 1800); tone(900, 0.12, 'square', 0.05, 0.3); },
@@ -143,15 +171,44 @@ const SFX = (() => {
    2. Musik: eine ruhige Schleife beim Streifzug, die im Kampf auf eine
       schnellere Variante mit Schlagzeug umschaltet. */
 const MUSIK = (() => {
-  let c = null, bus = null, musikBus = null, stadtBus = null;
+  let c = null, bus = null, musikBus = null, musikFilter = null, stadtBus = null;
   let rausch = null, rauschFilter = null, wind = null, windFilter = null;
+  let tunnel = null, tunnelG = null;
   let naechsterTakt = 0, takt = 0, an = false;
   let intensitaetZiel = 0, intensitaet = 0;
-  let ereignisCd = 6;
+  let ereignisCd = 6, tunnelCd = 4;
+  let untenAnteil = 0;
 
-  /* a-Moll: ruhig, passt zu einer Stadt bei Regen wie bei Sonne. */
-  const GRUND = [110.00, 130.81, 146.83, 164.81];        // A2 C3 D3 E3
-  const SKALA = [220.00, 261.63, 293.66, 329.63, 392.00, 440.00, 523.25];
+  /* ---- Was hier vorher stand und warum es weg musste ----
+     Die Melodie kam aus (takt*3 + (takt>>3)) % SKALA.length. Das ist keine
+     Melodie, das ist eine Zahlenfolge: die Toene sprangen wahllos durch die
+     Tonleiter, ohne Anfang, ohne Schluss, ohne Wiedererkennung. Dazu lag auf
+     JEDEM Achtel ein Sägezahn-Akkord. Nach einer Minute klang das wie ein
+     haengengebliebener Automat.
+     Jetzt: eine feste Akkordfolge (a-Moll - F - C - G, acht Takte lang),
+     ein Bass, der ihr folgt, ein weicher Flaechenklang und eine
+     GESCHRIEBENE Melodie aus zwei Haelften, die sich wiederholen. Dazu ein
+     Filter ueber der ganzen Musik, das beim Kampf aufmacht. */
+
+  /* Halbtonabstaende ueber A2 (110 Hz). */
+  const HT = (n) => 110 * Math.pow(2, n / 12);
+  /* Akkordfolge: Am - F - C - G. Je zwei Takte, dann von vorn.
+     grund = Halbton des Grundtons, terz/quinte relativ dazu. */
+  const FOLGE = [
+    { grund: 0,  dur: false },   // a-Moll
+    { grund: -4, dur: true  },   // F-Dur
+    { grund: 3,  dur: true  },   // C-Dur
+    { grund: -2, dur: true  },   // G-Dur
+  ];
+  /* Melodie in Stufen der a-Moll-Tonleiter (0 = a). null = Pause.
+     Zwei Haelften zu je 16 Achteln - die zweite antwortet der ersten. */
+  const MELODIE = [
+    0, null, 2, null, 4, null, 2, null,
+    4, null, 5, 4, 2, null, null, null,
+    0, null, 2, null, 4, 5, 7, null,
+    5, null, 4, 2, 0, null, null, null,
+  ];
+  const LEITER = [0, 2, 3, 5, 7, 8, 10, 12];   // natuerliches Moll
 
   function dauerRauschen(sekunden) {
     const n = Math.floor(c.sampleRate * sekunden);
@@ -169,7 +226,14 @@ const MUSIK = (() => {
   function starte() {
     c = SFX.kontext(); if (!c || an) return;
     bus = c.createGain(); bus.gain.value = 0; bus.connect(c.destination);
-    musikBus = c.createGain(); musikBus.gain.value = 0.55; musikBus.connect(bus);
+    /* Tiefpass ueber der ganzen Musik: beim Streifzug gedaempft und weit
+       weg, im Kampf offen und direkt. Das ist der Unterschied zwischen
+       Hintergrund und Vordergrund - vorher war beides gleich schrill. */
+    musikFilter = c.createBiquadFilter();
+    musikFilter.type = 'lowpass'; musikFilter.frequency.value = 900;
+    musikFilter.Q.value = 0.4;
+    musikBus = c.createGain(); musikBus.gain.value = 0.55;
+    musikBus.connect(musikFilter); musikFilter.connect(bus);
     stadtBus = c.createGain(); stadtBus.gain.value = 0.0; stadtBus.connect(bus);
 
     const buf = dauerRauschen(4);
@@ -179,6 +243,7 @@ const MUSIK = (() => {
     const rg = c.createGain(); rg.gain.value = 0.9;
     rausch.connect(rauschFilter); rauschFilter.connect(rg); rg.connect(stadtBus);
     rausch.start();
+    rausch.__g = rg;
 
     wind = c.createBufferSource(); wind.buffer = buf; wind.loop = true;
     windFilter = c.createBiquadFilter();
@@ -188,18 +253,36 @@ const MUSIK = (() => {
     wind.start();
     wind.__g = wg;
 
+    /* Eigene Spur fuer unter der Erde: ein sehr tiefes Grollen. Vorher lief
+       unten derselbe Strassenlaerm weiter, samt Hupen und Sirenen - genau
+       das klang im Tunnel so falsch. */
+    tunnel = c.createBufferSource(); tunnel.buffer = buf; tunnel.loop = true;
+    const tf = c.createBiquadFilter();
+    tf.type = 'lowpass'; tf.frequency.value = 110; tf.Q.value = 0.7;
+    tunnelG = c.createGain(); tunnelG.gain.value = 0;
+    tunnel.connect(tf); tf.connect(tunnelG); tunnelG.connect(stadtBus);
+    tunnel.start();
+
     naechsterTakt = c.currentTime + 0.1;
     an = true;
   }
 
-  function note(freq, zeit, dauer, typ, vol, ziel) {
-    const o = c.createOscillator(), g = c.createGain();
-    o.type = typ; o.frequency.value = freq;
+  /* Ein Ton mit weichem Ein- und Ausschwingen. Zwei leicht verstimmte
+     Oszillatoren geben ihm Breite - ein einzelner klang nackt. */
+  function note(freq, zeit, dauer, typ, vol, ziel, breit) {
+    const g = c.createGain();
     g.gain.setValueAtTime(0.0001, zeit);
-    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), zeit + 0.02);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), zeit + 0.03);
+    g.gain.setValueAtTime(Math.max(0.0002, vol), zeit + dauer * 0.5);
     g.gain.exponentialRampToValueAtTime(0.0001, zeit + dauer);
-    o.connect(g); g.connect(ziel || musikBus);
-    o.start(zeit); o.stop(zeit + dauer + 0.02);
+    g.connect(ziel || musikBus);
+    const stimmen = breit ? [-4, 4] : [0];
+    for (const cent of stimmen) {
+      const o = c.createOscillator();
+      o.type = typ; o.frequency.value = freq * Math.pow(2, cent / 1200);
+      o.connect(g);
+      o.start(zeit); o.stop(zeit + dauer + 0.03);
+    }
   }
 
   function schlag(zeit, hp, vol, dauer) {
@@ -214,25 +297,43 @@ const MUSIK = (() => {
     s.start(zeit);
   }
 
-  /* Ein Achtel pro Schritt; im Kampf schneller. */
+  /* Ein Achtel je Aufruf. 32 Achtel = ein Durchgang der Akkordfolge. */
   function planeTakt(t) {
     const stufe = intensitaet;
-    const akkord = GRUND[(takt >> 3) % GRUND.length];
-    const s16 = takt % 8;
+    const pos = takt % 32;                 // Stelle im Durchgang
+    const akk = FOLGE[Math.floor(pos / 8) % FOLGE.length];
+    const s8 = pos % 8;
 
-    if (s16 === 0) note(akkord * 0.5, t, 0.9, 'triangle', 0.16 + stufe * 0.06);
-    if (s16 === 0 || s16 === 3 || s16 === 6) note(akkord, t, 0.35, 'sawtooth', 0.045 + stufe * 0.03);
+    /* Bass: Grundton auf der Eins, Quinte auf der Fuenf. Ein Ton je halbem
+       Takt reicht - alles dichter macht den Klang matschig. */
+    if (s8 === 0) note(HT(akk.grund - 12), t, 1.15, 'triangle', 0.20 + stufe * 0.05, null, false);
+    if (s8 === 4) note(HT(akk.grund - 5), t, 0.55, 'triangle', 0.12 + stufe * 0.04, null, false);
 
-    /* Melodieton – beim Streifzug nur sparsam, im Kampf auf jedem Achtel. */
-    if (stufe > 0.35 || s16 % 4 === 0) {
-      const idx = (takt * 3 + (takt >> 3)) % SKALA.length;
-      note(SKALA[idx] * (stufe > 0.5 ? 1 : 0.5), t, 0.22, 'square', 0.028 + stufe * 0.022);
+    /* Flaeche: der Dreiklang, nur auf der Eins, lang und leise. Er traegt
+       die Harmonie, ohne im Weg zu stehen. */
+    if (s8 === 0) {
+      const terz = akk.dur ? 4 : 3;
+      for (const ht of [0, terz, 7]) {
+        note(HT(akk.grund + 12 + ht), t, 1.9, 'sine', 0.035 + stufe * 0.015, null, true);
+      }
+    }
+
+    /* Melodie: die geschriebene Folge. Beim Streifzug eine Oktave tiefer
+       und leiser, im Kampf oben und deutlich. */
+    const stufeM = MELODIE[takt % MELODIE.length];
+    if (stufeM !== null && (stufe > 0.3 || (takt >> 1) % 2 === 0)) {
+      const okt = stufe > 0.4 ? 24 : 12;
+      /* Die Melodie bleibt in a-Moll stehen, sie wandert NICHT mit dem
+         Akkord mit. Mitgewandert waere sie eine reine Parallelverschiebung
+         - alle vier Takte klaenge das nach einem Tonartwechsel. */
+      note(HT(okt + LEITER[stufeM]),
+           t, 0.30, 'triangle', 0.055 + stufe * 0.03, null, true);
     }
 
     if (stufe > 0.25) {
-      if (s16 === 0 || s16 === 4) schlag(t, 90, 0.22 * stufe, 0.16);       // Bass
-      if (s16 === 2 || s16 === 6) schlag(t, 900, 0.14 * stufe, 0.12);      // Snare
-      if (stufe > 0.6 && s16 % 2 === 1) schlag(t, 6000, 0.05 * stufe, 0.05); // Hi-Hat
+      if (s8 === 0 || s8 === 4) schlag(t, 90, 0.22 * stufe, 0.16);       // Bass
+      if (s8 === 2 || s8 === 6) schlag(t, 900, 0.14 * stufe, 0.12);      // Snare
+      if (stufe > 0.6 && s8 % 2 === 1) schlag(t, 6000, 0.05 * stufe, 0.05); // Hi-Hat
     }
     takt++;
   }
@@ -245,7 +346,8 @@ const MUSIK = (() => {
     setModus(v) { modus = v || 'an'; },
     status() { return { an, modus, intensitaet: +intensitaet.toFixed(2), takt,
       bus: bus ? +bus.gain.value.toFixed(3) : null,
-      stadt: stadtBus ? +stadtBus.gain.value.toFixed(3) : null }; },
+      stadt: stadtBus ? +stadtBus.gain.value.toFixed(3) : null,
+      unten: +untenAnteil.toFixed(2) }; },
     update(dt, hoehe, tempo01, regen) {
       if (!an || !c) return;
       intensitaet += (intensitaetZiel - intensitaet) * Math.min(1, dt * 1.2);
@@ -253,32 +355,65 @@ const MUSIK = (() => {
       const p = modus === 'aus' ? 0 : SFX.pegel();
       bus.gain.value = p * 0.85;
       musikBus.gain.value = modus === 'an' ? 0.55 : 0;
+      /* Beim Streifzug gedaempft, im Kampf offen. */
+      musikFilter.frequency.value = 850 + intensitaet * 3600;
 
-      /* Stadtklang: unten Verkehr, oben Wind. */
+      /* Wie weit ist die Figur unter der Strasse? */
+      untenAnteil = clamp((-1.0 - hoehe) / 4.0, 0, 1);
+
+      /* Stadtklang: unten Verkehr, oben Wind. Unter der Erde faellt beides
+         weg und es bleibt das Grollen im Tunnel. */
       const obenAnteil = clamp((hoehe - 18) / 45, 0, 1);
       stadtBus.gain.value = 0.55;
-      rauschFilter.frequency.value = 320 - obenAnteil * 200;
+      rauschFilter.frequency.value = (320 - obenAnteil * 200) * (1 - untenAnteil * 0.75);
+      rausch.__g.gain.value = 0.9 * (1 - untenAnteil * 0.8);
       windFilter.frequency.value = 620 + tempo01 * 900;
-      wind.__g.gain.value = obenAnteil * 0.35 + tempo01 * 0.3 + (regen ? 0.12 : 0);
+      wind.__g.gain.value = (obenAnteil * 0.35 + tempo01 * 0.3 + (regen ? 0.12 : 0)) *
+                            (1 - untenAnteil);
+      tunnelG.gain.value = untenAnteil * 0.55;
+      /* Auch die Effekte bekommen den Raum: unten dumpf und mit Hall. */
+      if (SFX.raum) SFX.raum(untenAnteil);
 
-      /* Ferne Geräusche der Stadt. */
+      /* Ferne Geraeusche der Stadt - ueber der Erde Hupen und Sirenen,
+         unten stattdessen ein vorbeifahrender Zug in der Ferne. */
       ereignisCd -= dt;
-      if (ereignisCd <= 0) {
+      if (ereignisCd <= 0 && untenAnteil < 0.5) {
         ereignisCd = rand(7, 20);
         const t = c.currentTime;
         if (Math.random() < 0.55) {
           note(330 + rand(-30, 30), t, 0.3, 'square', 0.02 * (1 - obenAnteil), stadtBus);
         } else {
-          /* Sirene: zwei abwechselnde Töne */
+          /* Sirene: zwei abwechselnde Toene */
           for (let i = 0; i < 6; i++) {
             note(i % 2 ? 760 : 620, t + i * 0.45, 0.4, 'sine', 0.012 * (1 - obenAnteil), stadtBus);
           }
         }
       }
+      tunnelCd -= dt;
+      if (tunnelCd <= 0) {
+        tunnelCd = rand(9, 22);
+        if (untenAnteil > 0.5) {
+          /* Anschwellendes Grollen: ein Zug im Nachbartunnel. */
+          const t = c.currentTime;
+          const g = c.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.09, t + 1.6);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + 4.2);
+          g.connect(stadtBus);
+          const o = c.createOscillator();
+          o.type = 'sawtooth'; o.frequency.setValueAtTime(38, t);
+          o.frequency.linearRampToValueAtTime(52, t + 1.6);
+          o.frequency.linearRampToValueAtTime(30, t + 4.2);
+          const f = c.createBiquadFilter();
+          f.type = 'lowpass'; f.frequency.value = 190;
+          o.connect(f); f.connect(g);
+          o.start(t); o.stop(t + 4.3);
+        }
+      }
 
-      /* Musikschleife im Voraus planen – nur wenn sie auch hörbar ist. */
+      /* Musikschleife im Voraus planen - nur wenn sie auch hoerbar ist. */
       if (modus !== 'an') { naechsterTakt = c.currentTime + 0.1; return; }
-      const schrittDauer = intensitaet > 0.35 ? 0.24 : 0.34;
+      const schrittDauer = intensitaet > 0.35 ? 0.26 : 0.36;
       let schutz = 0;
       while (naechsterTakt < c.currentTime + 0.25 && schutz++ < 16) {
         if (naechsterTakt < c.currentTime) naechsterTakt = c.currentTime + 0.02;
@@ -566,9 +701,18 @@ const asphaltTex = canvasTex(128, 128, (g) => {
 });
 asphaltTex.repeat.set(60, 60);
 
+/* Gehweg. Frueher #9aa0a6 - viel zu hell: die Platten liegen waagerecht,
+   bekommen also Sonne UND das volle Himmelslicht (zusammen gut das
+   Doppelte). Mit dem hellen Grundton lief das ins Weiss, der Gehweg sah
+   aus wie eine leuchtende Flaeche ohne Struktur. Jetzt dunkler, dazu
+   Koernung und Fugen, damit man das Material sieht. */
 const sidewalkTex = canvasTex(64, 64, (g) => {
-  g.fillStyle = '#9aa0a6'; g.fillRect(0, 0, 64, 64);
-  g.strokeStyle = '#82888e'; g.lineWidth = 2;
+  g.fillStyle = '#575c62'; g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 260; i++) {
+    g.fillStyle = Math.random() < 0.5 ? '#60656b' : '#4e5359';
+    g.fillRect(rand(0, 63), rand(0, 63), rand(1, 3), rand(1, 3));
+  }
+  g.strokeStyle = '#474c52'; g.lineWidth = 2;
   g.strokeRect(1, 1, 62, 62);
 });
 
@@ -609,17 +753,34 @@ wegTex.repeat.set(6, 6);
    dahinter – Theke, Regale, Hängelampe, manchmal jemand drin. Auf
    Straßenhöhe steht man direkt davor, dort fällt die fehlende Tiefe am
    meisten auf. Dasselbe Verfahren wie bei den Fassadenfenstern. */
-const ladenTex = canvasTex(256, 128, (g, w, h) => {
-  /* Warmer Innenraum mit Verlauf nach hinten. */
+/* Vier verschiedene Laeden in EINER Textur (2x2). Vorher teilten sich alle
+   Schaufenster der Stadt dasselbe Bild - eine ganze Strasse mit demselben
+   Regal, derselben Lampe, derselben Person dahinter. Ueber die UV bekommt
+   jede Scheibe jetzt eine der vier Kacheln, und es bleibt bei einem
+   einzigen Zeichenaufruf. */
+const LADEN_KACHELN = 2;
+function malLaden(g, x0, y0, w, h) {
+  g.save();
+  g.translate(x0, y0);
+  g.beginPath(); g.rect(0, 0, w, h); g.clip();
+  /* Warmer Innenraum mit Verlauf nach hinten. Die Grundtoene wechseln je
+     Laden, damit eine Zeile Schaufenster nicht wie eine Kette derselben
+     Filiale aussieht. */
+  const toene = [
+    ['#4a3a1e', '#5f4a24', '#241a0e', '#6b5326'],   // warmer Krimskrams
+    ['#1e3242', '#25455c', '#0e1a22', '#3f6b86'],   // kuehler Laden
+    ['#3d1e28', '#582b38', '#1c0e12', '#8a4a5c'],   // Baecker/Blumen
+    ['#2a3320', '#3d4a2e', '#141a0f', '#6a7d4a'],   // Gruenzeug
+  ][Math.floor(Math.random() * 4)];
   const vl = g.createLinearGradient(0, 0, 0, h);
-  vl.addColorStop(0, '#4a3a1e'); vl.addColorStop(0.55, '#5f4a24'); vl.addColorStop(1, '#241a0e');
+  vl.addColorStop(0, toene[0]); vl.addColorStop(0.55, toene[1]); vl.addColorStop(1, toene[2]);
   g.fillStyle = vl; g.fillRect(0, 0, w, h);
   /* Rückwand mit Regalbrettern – die waagerechten Linien geben Tiefe. */
-  g.fillStyle = '#3b2d16';
+  g.fillStyle = 'rgba(0,0,0,0.35)';
   g.fillRect(w * 0.08, h * 0.12, w * 0.84, h * 0.5);
   for (let i = 0; i < 3; i++) {
     const y = h * (0.2 + i * 0.14);
-    g.fillStyle = '#6b5326'; g.fillRect(w * 0.1, y, w * 0.8, 3);
+    g.fillStyle = toene[3]; g.fillRect(w * 0.1, y, w * 0.8, 3);
     /* Ware auf dem Brett. */
     for (let k = 0; k < 9; k++) {
       if (Math.random() < 0.3) continue;
@@ -629,11 +790,11 @@ const ladenTex = canvasTex(256, 128, (g, w, h) => {
     }
   }
   /* Theke vorn – schräg gezeichnet, damit sie nach vorn zu kommen scheint. */
-  g.fillStyle = '#2a2015';
+  g.fillStyle = 'rgba(0,0,0,0.55)';
   g.beginPath();
   g.moveTo(0, h); g.lineTo(w * 0.06, h * 0.72); g.lineTo(w * 0.94, h * 0.72); g.lineTo(w, h);
   g.closePath(); g.fill();
-  g.fillStyle = '#4a3a22'; g.fillRect(w * 0.05, h * 0.7, w * 0.9, 4);
+  g.fillStyle = toene[3]; g.fillRect(w * 0.05, h * 0.7, w * 0.9, 4);
   /* Hängelampe. */
   g.strokeStyle = '#2a2015'; g.lineWidth = 2;
   g.beginPath(); g.moveTo(w * 0.5, 0); g.lineTo(w * 0.5, h * 0.14); g.stroke();
@@ -643,14 +804,26 @@ const ladenTex = canvasTex(256, 128, (g, w, h) => {
   /* Ab und zu jemand hinter der Theke. */
   if (Math.random() < 0.5) {
     g.fillStyle = '#1c1408';
-    g.beginPath(); g.arc(w * 0.7, h * 0.52, 7, 0, TAU); g.fill();
+    g.beginPath(); g.arc(w * (0.3 + Math.random() * 0.5), h * 0.52, 7, 0, TAU); g.fill();
     g.fillRect(w * 0.7 - 8, h * 0.58, 16, h * 0.16);
   }
+  /* Rahmen und ein senkrechter Pfosten in der Mitte: eine Scheibe ohne
+     Teilung sah aus wie ein aufgeklebtes Bild, nicht wie ein Fenster. */
+  g.fillStyle = '#1a1d22';
+  g.fillRect(0, 0, w, h * 0.045); g.fillRect(0, h * 0.955, w, h * 0.045);
+  g.fillRect(0, 0, w * 0.022, h); g.fillRect(w * 0.978, 0, w * 0.022, h);
+  g.fillRect(w * 0.49, 0, w * 0.02, h);
   /* Spiegelung auf der Scheibe – erst dadurch wirkt Glas davor. */
   g.fillStyle = 'rgba(190,215,235,0.14)';
   g.beginPath();
   g.moveTo(0, h * 0.1); g.lineTo(w * 0.42, 0); g.lineTo(w * 0.62, 0); g.lineTo(0, h * 0.52);
   g.closePath(); g.fill();
+  g.restore();
+}
+const ladenTex = canvasTex(512, 256, (g, w, h) => {
+  const kw = w / LADEN_KACHELN, kh = h / LADEN_KACHELN;
+  for (let j = 0; j < LADEN_KACHELN; j++)
+    for (let i = 0; i < LADEN_KACHELN; i++) malLaden(g, i * kw, j * kh, kw, kh);
 });
 
 const waterTex = canvasTex(128, 128, (g) => {
@@ -1091,7 +1264,9 @@ function schmueckeHaus(w, h, d, x, z) {
   /* Erdgeschoss: dunkler Sockel mit Schaufensterband und Vordach.
      Auf Straßenhöhe spielt der Kampf – dort fällt Detail am meisten auf. */
   deko(w + 0.5, 3.0, d + 0.5, x, unten + 1.5, z, 0x23272f);
-  deko(w + 0.62, 0.9, d + 0.62, x, unten + 2.1, z, 0xffe9a8);   // Schaufensterband
+  /* Namensband ueber der Scheibe (2,47 bis 3,09 m). Vorher lag es auf
+     1,65 bis 2,55 m und schnitt damit oben in die Schaufenster. */
+  deko(w + 0.62, 0.62, d + 0.62, x, unten + 2.78, z, 0xe8cf94);  // Namensband
   const markise = pick(MARKISEN);
   deko(w + 1.05, 0.15, d + 1.05, x, unten + 3.2, z, markise);    // Vordach
 
@@ -1110,16 +1285,25 @@ function schmueckeHaus(w, h, d, x, z) {
     deko(bw, 0.7, bd, px, unten + 2.85, pz, pick(LADEN));
     // Türrahmen
     const tw = nx === 0 ? 1.5 : 0.16, td = nx === 0 ? 0.16 : 1.5;
-    deko(tw, 2.3, td, px, unten + 1.15, pz, 0x14171c);
+    deko(tw, 2.42, td, px, unten + 1.21, pz, 0x14171c);
     /* Zwei Schaufenster links und rechts der Tür – mit gemaltem Innenraum
-       statt einer hellen Platte. */
+       statt einer hellen Platte.
+       Frueher waren sie 2,10 x 1,06 m und begannen erst auf 0,80 m: das
+       sah aus wie ein Briefkastenschlitz, nicht wie ein Laden. Und sie
+       ragten 21 cm in das Namensband hinein, weil das Band inzwischen
+       hoeher sitzt als beim ersten Entwurf.
+       Jetzt echte Schaufenstermasse: Sockel bis 0,62 m, Scheibe von dort
+       bis 2,42 m, das Band beginnt darueber. */
+    const sb = Math.min(4.4, laengs * 0.40);
     for (const s2 of [-1, 1]) {
-      const ox = nx === 0 ? s2 * (laengs * 0.22) : 0;
-      const oz = nx === 0 ? 0 : s2 * (laengs * 0.22);
-      /* Unterhalb des Schaufensterbands, damit sich beide nicht
-         überlagern: Band ab 1,65 m, Scheibe von 0,55 bis 1,6 m. */
-      ladenFenster.push({ x: px + ox, y: unten + 1.08, z: pz + oz,
-                          breite: 2.1, hoehe: 1.06, nx, nz });
+      const ox = nx === 0 ? s2 * (laengs * 0.25) : 0;
+      const oz = nx === 0 ? 0 : s2 * (laengs * 0.25);
+      const bx = nx === 0 ? sb : 0.2, bz = nx === 0 ? 0.2 : sb;
+      /* Sockel unter der Scheibe - ohne ihn stand das Glas auf dem Gehweg. */
+      deko(bx, 0.37, bz, px + ox, unten + 0.185, pz + oz, 0x1b1e24);
+      ladenFenster.push({ x: px + ox, y: unten + 1.52, z: pz + oz,
+                          breite: sb, hoehe: 1.80, nx, nz,
+                          zelle: randi(0, LADEN_KACHELN * LADEN_KACHELN - 1) });
     }
   }
   /* Das Vordach ist nur eine 15 cm dicke Platte. Man klettert daran vorbei,
@@ -1216,7 +1400,13 @@ function buildCity() {
     for (const t of teile) {
       const x0 = t.x - t.w / 2, x1 = t.x + t.w / 2;
       const z0 = t.z - t.d / 2, z1 = t.z + t.d / 2;
-      const ecken = [[x0, z0], [x1, z0], [x1, z1], [x0, z0], [x1, z1], [x0, z1]];
+      /* Reihenfolge gegen den Uhrzeigersinn VON OBEN gesehen. Vorher war
+         sie herum: die Normalen im Attribut zeigten zwar nach oben (das
+         Licht stimmte), die Dreiecke selbst aber nach unten. Damit wurde
+         die ganze Fahrbahn von oben weggeschnitten - man sah durch die
+         Strasse hindurch, Markierungen und Autos schwebten, und die Fuesse
+         steckten scheinbar im Boden. */
+      const ecken = [[x0, z0], [x1, z1], [x1, z0], [x0, z0], [x0, z1], [x1, z1]];
       for (let i = 0; i < 6; i++) {
         const [px, pz] = ecken[i];
         pos[(o + i) * 3] = px; pos[(o + i) * 3 + 1] = 0; pos[(o + i) * 3 + 2] = pz;
@@ -1295,7 +1485,7 @@ function buildCity() {
       /* Kein Park auf einem Block mit U-Bahn-Eingang: der Rasen liegt als
          geschlossene Flaeche ueber dem Treppenloch. */
       if (!loecher.length && ((bi === 2 && bj === 2) || (bi === 5 && bj === 1))) bauePark(cx, cz, size);
-      else buildBlockBuildings(cx, cz);
+      else buildBlockBuildings(cx, cz, loecher);
       // Straßenlampen an jeder zweiten Ecke
       if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz - size / 2 + 1);
       /* Die Station gehoert zum noerdlichen Block; der suedliche bekommt
@@ -2000,7 +2190,15 @@ function baueLadenFenster() {
       [-qx, -hy, -qz], [qx, -hy, qz], [qx, hy, qz],
       [-qx, -hy, -qz], [qx, hy, qz], [-qx, hy, -qz],
     ];
-    const uvs = [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]];
+    /* Eine der vier Kacheln der Ladentextur. Der kleine Rand (1/512)
+       verhindert, dass die weiche Filterung die Nachbarkachel anschneidet. */
+    const ku = (f.zelle % LADEN_KACHELN) / LADEN_KACHELN;
+    const kv = Math.floor(f.zelle / LADEN_KACHELN) / LADEN_KACHELN;
+    const ks = 1 / LADEN_KACHELN, rd = 0.002;
+    const kachel = (uu, vv) => [ku + (rd + uu * (1 - 2 * rd)) * ks,
+                                kv + (rd + vv * (1 - 2 * rd)) * ks];
+    const uvs = [kachel(0, 0), kachel(1, 0), kachel(1, 1),
+                 kachel(0, 0), kachel(1, 1), kachel(0, 1)];
     for (let i = 0; i < 6; i++) {
       p[(o + i) * 3] = f.x + ecken[i][0] + ex;
       p[(o + i) * 3 + 1] = f.y + ecken[i][1];
@@ -2073,7 +2271,7 @@ function baueWassertuerme() {
   cityGroup.add(mesh);
 }
 
-function buildBlockBuildings(cx, cz) {
+function buildBlockBuildings(cx, cz, loecher) {
   // Höher Richtung Stadtmitte
   const centerBias = 1 - Math.min(1, (Math.abs(cx) + Math.abs(cz)) / 300);
   const style = Math.random();
@@ -2084,6 +2282,16 @@ function buildBlockBuildings(cx, cz) {
      Jeder Bauplatz wird deshalb gegen die schon gesetzten geprüft und nur
      mit genug Luft bebaut. */
   const gesetzt = [];
+  /* Ein Treppenschacht ist ein besetzter Bauplatz. Vorher wusste der
+     Haeuserbau nichts davon: das Bauband endet auf cz +/- 15, der Schacht
+     beginnt auf 15,6 - zusammen mit dem 53 cm vorstehenden Vordach stand
+     der Laden also praktisch auf der obersten Stufe. Der Schacht wird
+     deshalb mit 1,6 m Zuschlag als belegt eingetragen; mit den 2,6 m
+     Mindestabstand bleiben ueber vier Meter Gehweg vor dem Eingang. */
+  for (const l of (loecher || [])) {
+    gesetzt.push({ x: (l.x0 + l.x1) / 2, z: (l.z0 + l.z1) / 2,
+                   w: l.x1 - l.x0 + 3.2, d: l.z1 - l.z0 + 3.2 });
+  }
   const passt = (w, d, x, z) => {
     const luft = 2.6;
     for (const r of gesetzt) {
@@ -6436,7 +6644,12 @@ function stufeFrei(name) {
   /* Welche Spezialbewegung ist schon verfügbar? */
   if (name === 'uppercut') return stufe >= 1;
   if (name === 'wurf') return stufe >= 2;
-  if (name === 'wandlauf') return stufe >= 3;
+  /* Der Wandlauf war frueher an Stufe 3 gebunden. Das passte nicht zusammen:
+     wer mit Anlauf gegen die Fassade rennt, laeuft sie ohnehin von Anfang an
+     ein Stueck hinauf - nur weiterlaufen durfte er dann nicht und rutschte
+     ins langsame Klettern. Genau das kam als "er rennt nicht die Wand hoch,
+     er klettert nur schnell" an. Jetzt von Anfang an frei. */
+  if (name === 'wandlauf') return true;
   return true;
 }
 
@@ -7288,6 +7501,13 @@ function updateHeroVisual(dt) {
        nicht als Kriechen. */
     const zielX = player.wandlauf ? 0.05 : 0.13;
     r.rotation.x = lerp(r.rotation.x, zielX, Math.min(1, dt * (player.wandlauf ? 8 : 10)));
+    /* Die Seitenneigung MUSS hier zurueckgenommen werden. Sie fehlte, und
+       genau das war das schiefe Kleben an der Fassade: aus dem Gleitflug
+       (bis 0,5 rad Kurvenlage) oder aus dem Netzschwung kam die Figur mit
+       stehengebliebener Rollung an die Wand und klebte dort um bis zu
+       30 Grad verdreht - sah aus wie ein Fehler in der Kollision, war aber
+       nur eine nie geloeschte Drehung. */
+    r.rotation.z = lerp(r.rotation.z, 0, Math.min(1, dt * 9));
   } else
   /* Ausweichen: schneller Satz mit Vorlage – bewusst OHNE Überschlag.
      Die frühere Rolle drehte den Körper um die Füße, dadurch verschwand die
@@ -7467,8 +7687,12 @@ function updateHeroVisual(dt) {
   /* Nach dem Gleiten wird die Gleithaltung noch kurz mit abnehmender
      Stärke daraufgelegt – dadurch geht sie in die Schwung- oder
      Fallhaltung über, statt umzuspringen. */
+  /* An der Wand nicht mehr nachgleiten: die ausklingende Gleithaltung hat
+     sich sonst ueber die Kletterpose gelegt und Arme und Beine von der
+     Fassade weggezogen. */
   if (!player.gleiten && player.gleitAus > 0 && !heroVisual.procedural &&
-      heroVisual.poseGleiten && !player.attack && player.luftSalto <= 0) {
+      heroVisual.poseGleiten && !player.attack && player.luftSalto <= 0 &&
+      player.state !== 'climb' && player.state !== 'kante') {
     heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
                            0.75 * clamp(player.gleitAus / 0.4, 0, 1));
   }
@@ -7708,7 +7932,7 @@ function updateAnkerZeichen(dt) {
    aus dem Rücken, wo man den Gegner gar nicht sieht. Drei Teile:
    die Bögen über dem Kopf, ein Zeiger am Bildrand in Richtung der Gefahr
    und ein kurzer Ton. Leuchtet er weiß, ist das Konterfenster offen. */
-let sinnStaerke = 0, sinnKonter = 0, sinnTonCd = 0;
+let sinnStaerke = 0, sinnKonter = 0, sinnTonCd = 0, sinnArt = 'gegner';
 const sinnRichtung = new THREE.Vector3();
 let sinnBoegen = null, sinnZeigerEl = null;
 
@@ -7737,14 +7961,14 @@ function baueSinnBoegen() {
 
 /* Stärkste Gefahr suchen: ausholende Gegner und schnelle Autos. */
 function findeGefahr() {
-  let best = 0, wo = null, konter = 0;
+  let best = 0, wo = null, konter = 0, art = 'gegner';
   for (const e of enemies) {
     if (e.dead || e.warnT <= 0) continue;
     const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
     if (d > 13 || Math.abs(e.pos.y - player.pos.y) > 4) continue;
     /* Je näher der Schlag, desto stärker das Kribbeln. */
     const s = clamp(1 - e.warnT / 0.95, 0.25, 1) * clamp(1 - (d - 2) / 12, 0.35, 1);
-    if (s > best) { best = s; wo = e.pos; }
+    if (s > best) { best = s; wo = e.pos; art = 'gegner'; }
     if (e.warnT <= 0.42 && d < 3.6) konter = 1;
   }
   for (const car of cars) {
@@ -7757,16 +7981,21 @@ function findeGefahr() {
     const tempo = Math.hypot(car.vx, car.vz);
     if (zu <= 0 || tempo < 7) continue;
     const s = clamp(1 - (d - 3) / 11, 0, 1) * 0.85;
-    if (s > best) { best = s; wo = p; }
+    if (s > best) { best = s; wo = p; art = 'verkehr'; }
   }
   if (wo) sinnRichtung.copy(wo);
-  return { staerke: best, konter };
+  return { staerke: best, konter, art };
 }
 
 function updateSpinnenSinn(dt) {
   if (!sinnBoegen) baueSinnBoegen();
   if (!sinnZeigerEl) sinnZeigerEl = document.getElementById('sinn');
-  const g = player.dead ? { staerke: 0, konter: 0 } : findeGefahr();
+  const g = player.dead ? { staerke: 0, konter: 0, art: 'gegner' } : findeGefahr();
+  /* Woher kommt die Gefahr? Der Sinn schlaegt auch bei heranfahrenden Autos
+     an, nicht nur bei Gegnern - ohne Unterschied im Bild sah das aus wie
+     ein unsichtbarer Gegner. Verkehr ist jetzt bernsteinfarben, ein
+     ausholender Gegner bleibt blauweiss. */
+  if (g.staerke > 0.05) sinnArt = g.art;
   const vorher = sinnStaerke;
   sinnStaerke = lerp(sinnStaerke, g.staerke, Math.min(1, dt * (g.staerke > sinnStaerke ? 16 : 7)));
   sinnKonter = lerp(sinnKonter, g.konter, Math.min(1, dt * 12));
@@ -7796,7 +8025,8 @@ function updateSpinnenSinn(dt) {
     /* Die Bögen laufen versetzt nach außen – das ergibt das Wandern. */
     const phase = (elapsed * 3.2 + i * 0.33) % 1;
     m.opacity = sinnStaerke * puls * (1 - phase) * 1.1;
-    m.color.setHex(sinnKonter > 0.5 ? 0xffffff : 0xa8e4ff);
+    m.color.setHex(sinnKonter > 0.5 ? 0xffffff
+                 : sinnArt === 'verkehr' ? 0xffc766 : 0xa8e4ff);
     const sk = 1 + phase * 0.35;
     sinnBoegen.children[i].scale.set(sk, sk, sk);
     sinnBoegen.children[i + 1].scale.set(-sk, sk, sk);
@@ -7812,7 +8042,8 @@ function updateSpinnenSinn(dt) {
     while (rel < -Math.PI) rel += TAU;
     sinnZeigerEl.style.opacity = (sinnStaerke * 0.85).toFixed(2);
     sinnZeigerEl.style.transform = `rotate(${(-rel * 180 / Math.PI).toFixed(1)}deg)`;
-    sinnZeigerEl.style.setProperty('--sinnfarbe', sinnKonter > 0.5 ? '#ffffff' : '#7fd4ff');
+    sinnZeigerEl.style.setProperty('--sinnfarbe', sinnKonter > 0.5 ? '#ffffff'
+      : sinnArt === 'verkehr' ? '#ffc766' : '#7fd4ff');
   }
 }
 
