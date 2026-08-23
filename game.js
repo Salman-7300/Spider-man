@@ -1280,14 +1280,19 @@ function sitzMensch(x, y, z, ry, groesse, seed) {
   /* Becken und Rumpf */
   setze(sitzForm('box', 0.34, 0.20, 0.28), 0, 0.10, -0.02, hose);
   setze(sitzForm('box', 0.42, 0.50, 0.26), 0, 0.45, -0.04, hemd);
-  /* Hals, Kopf, Haare */
+  /* Hals, Kopf, Haare. Der Kopf ist leicht abgeflacht und bekommt ein
+     dunkles Band auf Augenhoehe - eine glatte Kugel las sich als Ball. */
   setze(sitzForm('zyl', 0.055, 0.055, 0.09), 0, 0.74, -0.02, haut);
-  setze(sitzForm('kugel', 0.15, 0, 0), 0, 0.88, 0, haut);
-  setze(sitzForm('kugel', 0.157, 0, 0), 0, 0.92, -0.015, haar);
-  /* Arme: Oberarm haengt, Unterarm liegt auf dem Schoss */
+  setze(sitzForm('kugel', 0.145, 0, 0), 0, 0.88, 0, haut);
+  setze(sitzForm('box', 0.20, 0.045, 0.10), 0, 0.885, 0.10, 0x2a2118);   // Augenpartie
+  setze(sitzForm('kugel', 0.152, 0, 0), 0, 0.925, -0.02, haar);
+  /* Schultern rund statt eckig. */
+  for (const s2 of [-1, 1]) setze(sitzForm('kugel', 0.075, 0, 0), s2 * 0.20, 0.63, -0.03, hemd);
+  /* Arme: Oberarm haengt, Unterarm liegt auf dem Schoss, dazu eine Hand */
   for (const s2 of [-1, 1]) {
     setze(sitzForm('zyl', 0.055, 0.05, 0.30), s2 * 0.245, 0.50, -0.03, hemd);
     setze(sitzForm('zyl', 0.05, 0.045, 0.28), s2 * 0.235, 0.30, 0.10, haut, Math.PI / 2.2);
+    setze(sitzForm('kugel', 0.055, 0, 0), s2 * 0.235, 0.29, 0.245, haut);
   }
   /* Beine: Oberschenkel waagerecht, Unterschenkel senkrecht */
   for (const s2 of [-1, 1]) {
@@ -1873,6 +1878,10 @@ const ZUG_BREIT = 2.6, ZUG_HOCH = 3.5;
 /* Wagenboden auf Bahnsteighoehe - so steigt man eben ein, statt einen
    Dreivierteilmeter hinunterzuklettern. Gemessen vom Gleisbett aus. */
 const ZUG_BODEN = UB_TIEF - UB_GLEIS_TIEF;   // 1,2 m ueber der Schiene
+/* Sitzhoehe der Baenke. 48 cm waeren normal, aber dann haengen die Fuesse
+   der Figuren 14 cm durch den Wagenboden - ihre Beine sind fuer eine so
+   niedrige Bank zu lang. 58 cm ist der Wert, bei dem beides passt. */
+const ZUG_BANK = 0.58;
 const ZUG_HALT = 6.0;                        // Sekunden Aufenthalt je Station
 const ZUG_TUER_X = [-4.6, 4.6];              // Tuerpaare je Wagen
 const ZUG_TUER_B = 1.35;                     // Breite eines Tuerfluegels
@@ -1885,6 +1894,7 @@ const ZUG_Z = [UB_GLEIS_A, UB_GLEIS_B];
    Schieberichtung). */
 function baueZug(farbe) {
   const fest = [];
+  const frei = [];      // leere Sitzplaetze fuer echte Zivilisten
   const tuerL = [], tuerR = [];
   const boxG = (w, h, d) => new THREE.BoxGeometry(w, h, d);
   const kiste = (liste, w, h, d, x, y, z, f) =>
@@ -1931,16 +1941,19 @@ function baueZug(farbe) {
       kiste(fest, 2.8, 0.7, ZUG_BREIT - 0.5, wx + s2 * (ZUG_WLANG / 2 - 2.4),
             ZUG_BODEN - 0.55, 0, 0x1d2126);
     }
-    /* Sitzbaenke laengs an den Waenden, darauf echte Fahrgaeste. */
+    /* Sitzbaenke laengs an den Waenden. Ein Teil der Plaetze wird mit
+       einfachen Sitzfiguren aufgefuellt, die zum Wagen gehoeren; die
+       uebrigen bleiben LEER und werden fuer echte Zivilisten gemerkt, die
+       an einer Station einsteigen. Nur so sitzen im Zug wirklich dieselben
+       Leute, die vorher am Bahnsteig gewartet haben. */
     for (const s2 of [-1, 1]) {
       const zs = s2 * (ZUG_BREIT / 2 - 0.34);
-      kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + 0.42, zs, 0x37414d);
+      kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x37414d);
       for (let p = 0; p < 5; p++) {
-        if (Math.random() < 0.25) continue;
         const px = wx - (ZUG_WLANG - 5.0) / 2 + p * ((ZUG_WLANG - 5.0) / 4);
-        /* Blick zur Wagenmitte. */
-        for (const t of sitzMensch(px, ZUG_BODEN + 0.48, zs, s2 < 0 ? 0 : Math.PI, 0.92))
-          fest.push(t);
+        const ry = s2 < 0 ? 0 : Math.PI;          // Blick zur Wagenmitte
+        if (Math.random() < 0.55) { frei.push({ dx: px, dz: zs, ry }); continue; }
+        for (const t of sitzMensch(px, ZUG_BODEN + ZUG_BANK, zs, ry, 0.92)) fest.push(t);
       }
     }
   }
@@ -1979,6 +1992,7 @@ function baueZug(farbe) {
 
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   const g = new THREE.Group();
+  g.userData.freieSitze = frei;
   const kasten = new THREE.Mesh(verschmelzeTeile(fest), mat);
   const links = new THREE.Mesh(verschmelzeTeile(tuerL), mat);
   const rechts = new THREE.Mesh(verschmelzeTeile(tuerR), mat);
@@ -2054,7 +2068,24 @@ function updateZug(dt) {
         if (Math.abs(c.pos.z - t.z) > 4.5) continue;
         if (Math.random() > dt * 0.9) continue;        // nach und nach
         c.eingestiegen = rand(14, 30);
-        c.visual.root.visible = false;
+        /* Einen freien Platz im Wagen suchen. Gibt es keinen, faehrt die
+           Figur wie bisher unsichtbar mit - stehen im Gang waere zwar
+           realistisch, aber die Figuren haben dafuer keine Haltung. */
+        const plaetze = t.mesh.userData.freieSitze || [];
+        if (!t.besetzt) t.besetzt = new Set();
+        let idx = -1;
+        for (let v = 0; v < 8 && idx < 0; v++) {
+          const k = randi(0, plaetze.length - 1);
+          if (plaetze.length && !t.besetzt.has(k)) idx = k;
+        }
+        if (idx >= 0) {
+          t.besetzt.add(idx);
+          c.zugFahrt = t; c.sitzIdx = idx;
+          c.visual.root.visible = true;
+        } else {
+          c.zugFahrt = null; c.sitzIdx = -1;
+          c.visual.root.visible = false;
+        }
       }
     }
     if (!untenDrin) continue;
@@ -4400,6 +4431,40 @@ function makeGlbVisual(m) {
       } else {
         inner.position.y = basisY + bodenKorrektur - 0.34 * w;
       }
+    },
+    /* ---- Auf einer Bank sitzen ----
+       Es gibt keine Bewegungsdatei dafuer: "sit" ist die Haltung eines
+       Verletzten AM BODEN und wurde im Zug prompt zum auf dem Gang
+       liegenden Fahrgast. Die Haltung wird deshalb gesetzt - Huefte und
+       Knie je rund 85 Grad, Rumpf aufrecht, Arme locker.
+       bankY ist die Welthoehe der Sitzflaeche: die Figur wird so
+       verschoben, dass das Becken genau darauf zu liegen kommt. */
+    poseSitzen(k, bankY) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      for (const p of ['left', 'right']) {
+        drehZuRuhe(knochen[p + 'upleg'], 1.38 * w, 0, 0.05 * w, w);
+        drehZuRuhe(knochen[p + 'leg'], -1.55 * w, 0, 0, w);
+        if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.16 * w, 0, 0, w * 0.7);
+        if (knochen[p + 'arm']) drehZuRuhe(knochen[p + 'arm'], 0.3 * w, 0, 0, w * 0.55);
+        if (knochen[p + 'forearm']) drehZuRuhe(knochen[p + 'forearm'], 0.55 * w, 0, 0, w * 0.55);
+      }
+      if (knochen.spine1) drehe(knochen.spine1, 0.05 * w, 0, 0, w * 0.4);
+    },
+    /* Welthoehe des Beckens und des tiefsten Fusspunktes - damit der
+       Aufrufer eine sitzende Figur genau auf die Sitzflaeche setzen kann,
+       ohne dass die Fuesse durch den Boden gehen. */
+    sitzMasse() {
+      if (!knochen.hips) return null;
+      root.updateMatrixWorld(true);
+      knochen.hips.getWorldPosition(_vb);
+      const huefte = _vb.y;
+      let tiefster = Infinity;
+      for (const n of ['lefttoebase', 'righttoebase', 'leftfoot', 'rightfoot']) {
+        if (!knochen[n]) continue;
+        knochen[n].getWorldPosition(_vb);
+        tiefster = Math.min(tiefster, _vb.y);
+      }
+      return { huefte, fuss: tiefster === Infinity ? huefte : tiefster };
     },
     /* Kopf ruhig halten: Beim Laufen nickt der ganze Körper mit, und mit
        der neuen Vorlage schaut die Figur sonst auf den Asphalt. Kopf und
@@ -9192,6 +9257,7 @@ function spawnBahnsteigZivi(sx, seite) {
     onGround: true, wall: null,
     /* Ein Teil ist zu Beginn "unterwegs" und kommt erst mit einem Zug. */
     eingestiegen: Math.random() < 0.45 ? rand(4, 45) : 0,
+    zugFahrt: null, sitzIdx: -1,
   });
   const c = civilians[civilians.length - 1];
   if (c.eingestiegen > 0) c.visual.root.visible = false;
@@ -9311,9 +9377,47 @@ function updateCivilians(dtBild) {
        Bahnsteig. So fuellt und leert sich die Station wirklich. */
     if (c.eingestiegen > 0) {
       c.eingestiegen -= dtBild;
+      /* Wer einen Sitzplatz bekommen hat, faehrt SICHTBAR mit: die Figur
+         wird auf ihren Platz im fahrenden Wagen gesetzt und sitzt dort.
+         Vorher verschwand sie fuer die ganze Fahrt - im Zug sassen nur
+         die einfachen Sitzfiguren aus dem Wagenbau. */
+      if (c.zugFahrt && c.sitzIdx >= 0) {
+        const t = c.zugFahrt;
+        const p = (t.mesh.userData.freieSitze || [])[c.sitzIdx];
+        if (p) {
+          c.pos.set(t.x + p.dx, UB_TIEF, t.z + p.dz);
+          c.facing = p.ry;
+          /* Die Sitzbewegung setzt den Koerper 51 cm ueber die Wurzel -
+             gemessen am Fussknochen. Damit die Fuesse auf dem Wagenboden
+             stehen und das Becken auf der Bank sitzt, wird die Wurzel um
+             eben so viel abgesenkt. */
+          c.visual.root.position.set(c.pos.x, UB_TIEF, c.pos.z);
+          c.visual.root.rotation.y = p.ry;
+          c.visual.play('idle', { t: elapsed }, dtBild);
+          if (c.visual.poseSitzen) {
+            c.visual.poseSitzen(1);
+            /* Becken genau auf die Sitzflaeche (Wagenboden + 48 cm)
+               setzen. Gemessen statt geschaetzt: die Figuren sind
+               unterschiedlich gross, ein fester Abzug wuerde die einen
+               schweben und die anderen einsinken lassen. */
+            /* Zwei Bedingungen, und es gilt die staerkere: das Becken soll
+               auf der Bank sitzen UND die Fuesse duerfen nicht durch den
+               Wagenboden. Die Figuren sind verschieden gross - mit einem
+               festen Abzug schweben die einen und versinken die anderen. */
+            const m = c.visual.sitzMasse ? c.visual.sitzMasse() : null;
+            if (m) {
+              c.visual.root.position.y +=
+                Math.max((UB_TIEF + ZUG_BANK) - m.huefte, UB_TIEF - m.fuss);
+            }
+          }
+        }
+      }
       if (c.eingestiegen <= 0) {
         /* Aussteigen an der Bahnsteigkante, nicht irgendwo im Nichts. */
+        if (c.zugFahrt && c.zugFahrt.besetzt) c.zugFahrt.besetzt.delete(c.sitzIdx);
+        c.zugFahrt = null; c.sitzIdx = -1;
         c.visual.root.visible = true;
+        c.visual.root.rotation.y = 0;
         c.wp = 2;
         const kante = c.steigSeite === 0 ? UB_STEIG_Z0 + 1.2 : UB_STEIG2_Z1 - 1.2;
         c.pos.set(c.bahnsteig + rand(-12, 12), UB_TIEF, kante);
