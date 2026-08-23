@@ -64,6 +64,15 @@ const ANIM_KEYWORDS = [
        "Sneaking Forward"  -> gar nichts, es gab keine Regel
        "Braced Hang"       -> swing   (wuerde den Netzschwung ersetzen)
        "Climbing"          -> climb   (wuerde "Climbing Up Wall" ersetzen) */
+  /* mixamo-9: Haltungen fuer den Netzschwung. Von drei Varianten "Swing To
+     Land" hat die dritte die brauchbarsten Haltungen (angezogene Knie am
+     Tiefpunkt, Beine vor im Aufstieg, Landung in der Hocke), von zwei
+     "Jumping Down" die erste (tiefe Landehocke mit beiden Haenden am
+     Boden). Nur diese beiden werden eingebaut. */
+  [/swing[ ._-]?to[ ._-]?land[ ._-]?2/i, 'schwungpose'],
+  [/jumping[ ._-]?down(?![ ._-]?1)/i, 'sturzland'],
+  [/front[ ._-]?flip/i, 'frontflip'],
+  [/back[ ._-]?flip/i, 'backflip'],
   [/sprint/i, 'sprint'],
   [/crouch(ed)?[ ._-]?(walk|walking|run)/i, 'ducken'],
   [/sneak/i, 'schleichen'],

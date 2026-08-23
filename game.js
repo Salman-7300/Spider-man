@@ -2402,7 +2402,9 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'hook', 'punch3', 'luftangriff', 'knie', 'block', 'taunt', 'jubel',
   /* mixamo-8: Sprint, Ducklauf, Schleichen, zweites Klettern, freies
      Haengen am Faden. */
-  'sprint', 'ducken', 'schleichen', 'klettern', 'haengen_frei'];
+  'sprint', 'ducken', 'schleichen', 'klettern', 'haengen_frei',
+  /* mixamo-9: Haltungen fuer den Netzschwung, Landehocke, Salti. */
+  'schwungpose', 'sturzland', 'frontflip', 'backflip'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -2637,6 +2639,10 @@ const GLB_CLIP_PATTERNS = {
      /sprint/ sonst beim Laufen zuschlagen. */
   run: [/^run$/i, /run/i, /jog/i],
   sprint: [/^sprint$/i, /sprint/i],
+  schwungpose: [/^schwungpose$/i],
+  sturzland: [/^sturzland$/i],
+  frontflip: [/^frontflip$/i],
+  backflip: [/^backflip$/i],
   ducken: [/^ducken$/i, /crouch/i],
   schleichen: [/^schleichen$/i, /sneak/i],
   klettern: [/^klettern$/i],
@@ -3415,7 +3421,11 @@ function makeGlbVisual(m) {
          Pendels bringt Leben hinein, ohne der Bewegung ins Handwerk zu
          pfuschen (halbes Gewicht, kleine Ausschläge). */
       const takt = Math.sin((t || 0) * 2.3);
-      const k = 0.9;
+      /* Gibt es die echte Schwunghaltung, fuehrt sie die Beine. Die
+         selbstgesetzten Winkel legen sich dann nur noch leicht darueber
+         (0,35 statt 0,9) und bringen den Pendeltakt hinein - vorher haben
+         sie die Bewegungsdatei vollstaendig ueberschrieben. */
+      const k = findClip(m.clips, 'schwungpose') ? 0.35 : 0.9;
       /* lage: -1 = es geht abwärts in den Bogen hinein, +1 = es geht wieder
          hinauf. Am tiefsten Punkt zieht man die Beine an, oben streckt man
          sie nach vorn – erst dadurch wirkt der Schwung gelöst statt wie
@@ -4187,6 +4197,11 @@ function makeGlbVisual(m) {
          selbstgebauten Posen. Liegt eine echte Bewegung vor, führt die –
          sonst sah Klettern aus wie Die-Wand-hoch-Laufen. */
       let want = key;
+      /* Fuer den Netzschwung gibt es seit mixamo-9 echte Haltungen aus
+         "Swing To Land": angezogene Knie am Tiefpunkt, Beine nach vorn im
+         Aufstieg. Der Clip laeuft dabei nicht ab, sondern wird an der zur
+         Lage im Bogen passenden Stelle festgehalten. */
+      if (key === 'swing' && findClip(m.clips, 'schwungpose')) want = 'schwungpose';
       if ((key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
            key === 'klettern_seit') && !findClip(m.clips, key)) {
         want = findClip(m.clips, 'climb') ? 'climb' : 'idle';
@@ -4260,6 +4275,14 @@ function makeGlbVisual(m) {
            früheren Deckelung auf 2,4 rutschte die Figur im Sprint. */
         current.timeScale = clamp(vGlatt / ref, 0.45, 3.0);
         letzterTakt = { was: want, faktor: current.timeScale, ref, v: vGlatt };
+      } else if (current && want === 'schwungpose') {
+        /* Nicht abspielen, sondern anhalten: der Zeitpunkt im Clip folgt
+           der Lage im Bogen. 0,01 s = Knie angezogen (Tiefpunkt),
+           0,15 s = Beine nach vorn gestreckt (Aufstieg). Alles danach ist
+           im Clip ein Ueberschlag und waere hier falsch. */
+        current.timeScale = 0;
+        const lage = clamp(p.bogen === undefined ? 0 : p.bogen, 0, 1);
+        current.time = lerp(0.01, 0.15, lage);
       } else if (current && (want === 'climb' || want === 'klettern' ||
                             want === 'klettern_frei' || want === 'klettern_seit')) {
         /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
@@ -4894,7 +4917,7 @@ const player = {
   attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
-  hartLandung: 0, luftKombo: 0, konterT: 0, konterZiel: null,
+  hartLandung: 0, saltoCd: 0, luftSalto: 0, luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
   altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, katFlug: 0, zug: null,
@@ -5780,6 +5803,15 @@ function stopSwing(boost) {
     if (player.vel.y > -2) player.vel.y += 1.7;
     else player.vel.y += 0.8;
     if (vh > 6) { player.vel.x *= 1.03; player.vel.z *= 1.03; }
+    /* Wer am Tiefpunkt mit Tempo loslaesst, dreht einen Salto. Reine
+       Schau - die Flugbahn bleibt dieselbe -, aber genau das macht den
+       Absprung aus dem Bogen aus. Nur mit Luft nach oben, sonst landet
+       man mitten im Ueberschlag. */
+    const hoch = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
+    if (vh > 13 && hoch > 14 && heroVisual.rolleOneShot && player.saltoCd <= 0) {
+      const dauer = heroVisual.rolleOneShot(0.85, Math.random() < 0.5 ? 'frontflip' : 'backflip');
+      if (dauer) { player.saltoCd = 3.0; player.luftSalto = dauer; }
+    }
   }
   swingStrand.visible = false;
   SFX.swoosh();
@@ -7031,8 +7063,16 @@ function updatePlayer(dt) {
         const rest = Math.min(11, waagerecht * 0.55);
         player.vel.x = f.x * rest; player.vel.z = f.z * rest;
         player.facing = Math.atan2(f.x, f.z);
+      } else if (heroVisual.hatClip && heroVisual.hatClip('sturzland') &&
+                 heroVisual.attackOneShot) {
+        /* Von oben: die tiefe Landehocke aus "Jumping Down" - beide Haende
+           am Boden. Von zwei Varianten hat diese die deutlich bessere
+           Haltung; die andere war ein zaghafter Schritt von der Kante. */
+        player.landT = heroVisual.attackOneShot(0, 'sturzland', 0.75) || 0.75;
+        player.hartLandung = player.landT;
+        player.vel.x *= 0.1; player.vel.z *= 0.1;
       } else {
-        /* Von oben: Drei-Punkt-Landung. */
+        /* Ohne die Datei bleibt die selbstgebaute Drei-Punkt-Landung. */
         player.dreiPunktT = 0.62;
         player.dreiPunktSeite = Math.random() < 0.5 ? 'L' : 'R';
         player.vel.x *= 0.12; player.vel.z *= 0.12;
@@ -7176,6 +7216,8 @@ function updatePlayer(dt) {
                           Math.min(1, dt * 9));
   if (player.landT > 0) player.landT -= dt;
   if (player.hartLandung > 0) player.hartLandung -= dt;
+  if (player.saltoCd > 0) player.saltoCd -= dt;
+  if (player.luftSalto > 0) player.luftSalto -= dt;
   if (player.dreiPunktT > 0) {
     player.dreiPunktT -= dt;
     /* Bewegt man sich, bricht die Pose sofort ab – sonst klebt man fest. */
@@ -7302,10 +7344,23 @@ function updateHeroVisual(dt) {
       r.rotation.z = lerp(r.rotation.z, clamp(-player.neigSeit * 0.3, -0.3, 0.3),
                           Math.min(1, dt * 6));
     } else {
-      if (player.state === 'air') tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
+      /* Im Salto dreht die Bewegungsdatei den ganzen Koerper. Die
+         Flugneigung wuerde sich dann dazuaddieren und den Ueberschlag
+         schief kippen - deshalb hier neutral. */
+      if (player.state === 'air' && player.luftSalto <= 0) {
+        tilt = clamp(-player.vel.y * 0.015, -0.25, 0.3);
+      }
       if (r.rotation.z !== 0) r.rotation.z = lerp(r.rotation.z, 0, Math.min(1, dt * 8));
     }
-    r.rotation.x = lerp(r.rotation.x, tilt, Math.min(1, dt * 8));
+    /* Im Salto zaeher Uebergang gemessen: aus dem Schwung heraus stand die
+       Figur noch bei fast einem Radiant Vorlage, und die ersten 0,4 s des
+       Ueberschlags drehten sich schief mit. Deshalb wird die Neigung hier
+       deutlich schneller auf null gezogen. */
+    const wieSchnell = player.luftSalto > 0 ? 26 : 8;
+    r.rotation.x = lerp(r.rotation.x, tilt, Math.min(1, dt * wieSchnell));
+    if (player.luftSalto > 0 && r.rotation.z !== 0) {
+      r.rotation.z = lerp(r.rotation.z, 0, Math.min(1, dt * wieSchnell));
+    }
   }
 
   if (player.state !== 'climb' && heroVisual.versatzAus) {
@@ -7321,6 +7376,9 @@ function updateHeroVisual(dt) {
     hand: player.swing ? player.swing.hand : netzHand,
     ducken: player.duckt,
     gang: player.gang,
+    /* Lage im Bogen: 0 = Tiefpunkt, 1 = Aufstieg. Steuert, an welcher
+       Stelle die Schwunghaltung festgehalten wird. */
+    bogen: clamp(player.vel.y * 0.09, -1, 1),
   }, dt);
 
   if (heroVisual.procedural) {
@@ -7348,7 +7406,7 @@ function updateHeroVisual(dt) {
                                player.dreiPunktSeite || 'R');
       /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
       heroVisual.bodenAusgleich(Math.min(1, dt * 16));
-    } else if (player.gleiten) {
+    } else if (player.gleiten && player.luftSalto <= 0) {
       heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
                              0.9 * clamp(player.gleitMisch || 0, 0, 1));
     } else if (player.state === 'kante') {
@@ -7410,7 +7468,7 @@ function updateHeroVisual(dt) {
      Stärke daraufgelegt – dadurch geht sie in die Schwung- oder
      Fallhaltung über, statt umzuspringen. */
   if (!player.gleiten && player.gleitAus > 0 && !heroVisual.procedural &&
-      heroVisual.poseGleiten && !player.attack) {
+      heroVisual.poseGleiten && !player.attack && player.luftSalto <= 0) {
     heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
                            0.75 * clamp(player.gleitAus / 0.4, 0, 1));
   }
