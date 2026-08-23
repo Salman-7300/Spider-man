@@ -904,6 +904,15 @@ const suitTex = canvasTex(128, 128, (g) => {
 });
 suitTex.repeat.set(2, 2);
 
+/* Stellen fuer Bauteile aus dem Baukasten. Die Liste muss VOR dem
+   Stadtbau stehen: gesammelt wird beim Bauen, gesetzt erst, wenn die
+   Datei geladen ist (siehe ladeStadtteile weiter unten). */
+const TEIL_STELLEN = {};       // teilname -> [{x,y,z,ry,s}]
+function merkeTeil(name, x, y, z, ry, s) {
+  if (!TEIL_STELLEN[name]) TEIL_STELLEN[name] = [];
+  TEIL_STELLEN[name].push({ x, y, z, ry: ry || 0, s: s === undefined ? 1 : s });
+}
+
 /* ======================= Stadt bauen ======================= */
 const colliders = [];          // {x0,x1,z0,z1,h} – Gebäude & Pylonen
 const colliderGrid = new Map(); // "ci,cj" -> [collider,...]
@@ -1339,9 +1348,19 @@ function schmueckeHaus(w, h, d, x, z) {
     const bd = nx === 0 ? 0.14 : Math.min(4.2, laengs * 0.5);
     // Schild über dem Eingang
     deko(bw, 0.7, bd, px, unten + 2.85, pz, pick(LADEN));
-    // Türrahmen
-    const tw = nx === 0 ? 1.5 : 0.16, td = nx === 0 ? 0.16 : 1.5;
-    deko(tw, 2.42, td, px, unten + 1.21, pz, 0x14171c);
+    /* Eingang: echter Tuerrahmen mit Tuer aus dem Baukasten. Vorher war
+       das eine flache dunkle Platte - auf Strassenhoehe steht man direkt
+       davor, dort faellt genau das auf.
+       Die Modelle schauen in +z; ry dreht sie auf die jeweilige Wand. */
+    const ry = nz === 1 ? 0 : nz === -1 ? Math.PI
+             : nx === 1 ? Math.PI / 2 : -Math.PI / 2;
+    /* Nur die beiden schlanken Rahmen. "DoorFrame_Trim" hat 860 Dreiecke
+       gegen 239 bzw. 438 - bei rund sechshundert Eingaengen in der Stadt
+       macht allein der den Unterschied von einem Drittel mehr Dreiecken
+       aus, und man sieht ihn im Vorbeilaufen nicht. */
+    merkeTeil(pick(['DoorFrame_Metal_Single', 'DoorFrame_Wooden']), px, unten, pz, ry);
+    merkeTeil(pick(['Door_1', 'Door_2', 'Door_3']),
+              px + nx * 0.06, unten, pz + nz * 0.06, ry);
     /* Zwei Schaufenster links und rechts der Tür – mit gemaltem Innenraum
        statt einer hellen Platte.
        Frueher waren sie 2,10 x 1,06 m und begannen erst auf 0,80 m: das
@@ -1544,6 +1563,21 @@ function buildCity() {
       else buildBlockBuildings(cx, cz, loecher);
       // Straßenlampen an jeder zweiten Ecke
       if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz - size / 2 + 1);
+      /* Poller und Pflanzkuebel am Bordstein. Sie stehen genau dort, wo
+         man laeuft und kaempft, und geben dem Gehweg Massstab. */
+      for (const [ex, ez] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const px0 = cx + ex * (size / 2 - 1.0), pz0 = cz + ez * (size / 2 - 1.0);
+        if (loecher.some((l) => px0 > l.x0 - 2.5 && px0 < l.x1 + 2.5 &&
+                                pz0 > l.z0 - 2.5 && pz0 < l.z1 + 2.5)) continue;
+        if ((bi * 3 + bj + ex + ez) % 3 === 0) {
+          merkeTeil('Prop_Planter_Single', px0 - ex * 0.6, SLAB_H, pz0 - ez * 0.6, 0, 0.8);
+        } else {
+          for (let k = -1; k <= 1; k++) {
+            merkeTeil('Prop_Bollard', px0 + (ex ? 0 : k * 1.6), SLAB_H,
+                      pz0 + (ex ? k * 1.6 : 0), 0);
+          }
+        }
+      }
       /* Die Station gehoert zum noerdlichen Block; der suedliche bekommt
          nur das Loch fuer den zweiten Eingang. */
       if (Math.abs(cz - 50) < 1)
@@ -1559,7 +1593,8 @@ function buildCity() {
       const gx = ORIGIN + i * PITCH + rand(-2.5, 2.5);
       const gz = ORIGIN + j * PITCH + rand(-2.5, 2.5);
       DAMPF_STELLEN.push({ x: gx, z: gz, y: 0 });
-      deko(1.5, 0.05, 1.0, gx, 0.03, gz, 0x2a2d33);
+      /* Echter Gullideckel aus dem Baukasten statt einer flachen Platte. */
+      merkeTeil('Prop_ManholeCover', gx, 0.015, gz, rand(0, TAU));
     }
   }
 
@@ -2269,6 +2304,15 @@ function makeBuildingMesh(w, h, d, x, z) {
     deko(rand(1.5, 3), bh, rand(1.5, 3),
       x + rand(-w / 4, w / 4), SLAB_H + h + bh / 2, z + rand(-d / 4, d / 4), 0x777d84);
   }
+  /* Ein paar echte Klimageraete auf dem Dach - beim Schwingen sieht man
+     jedes Dach von oben, dort stand bisher nur ein Kasten. */
+  if (Math.random() < 0.7) {
+    const n = randi(1, 3);
+    for (let i = 0; i < n; i++) {
+      merkeTeil('Prop_ACUnit', x + rand(-w / 2 + 1, w / 2 - 1), SLAB_H + h,
+                z + rand(-d / 2 + 1, d / 2 - 1), rand(0, TAU));
+    }
+  }
   if (h > 55 && Math.random() < 0.5) {
     /* Wasserturm: alle Türme teilen sich eine Geometrie und werden als
        Instanzen gezeichnet – das kostet zusammen einen Zeichenaufruf. */
@@ -2831,7 +2875,11 @@ function loadGlbAssets(done) {
     let pending2 = jobs.length;
     const finish2 = () => {
       ladeSchritt();
-      if (--pending2 === 0) { ladeFertigMelden(); teileBewegungen(); ergaenzeSpiegelungen(); done(); }
+      if (--pending2 === 0) {
+        ladeFertigMelden(); teileBewegungen(); ergaenzeSpiegelungen();
+        ladeStadtteile(loader);
+        done();
+      }
     };
     for (const [slot, part] of jobs) {
       loader.load(`assets/${slot}@${part}.glb`, (gltf) => {
@@ -2844,6 +2892,55 @@ function loadGlbAssets(done) {
         } catch (e) { /* ignorieren */ }
         finish2();
       }, undefined, finish2);
+    }
+  }
+}
+
+/* ======================= Bauteile aus dem Baukasten =======================
+   Requisiten auf Strassenhoehe aus dem "Downtown City MegaKit" von
+   Quaternius (CC0). Das Spiel baut die Stadt selbst; hier kommen nur die
+   Kleinteile dazu, die auf Augenhoehe stehen und wo man kaempft - dort
+   faellt der Unterschied zwischen Kiste und Modell am meisten auf.
+
+   Jede Teilesorte wird als InstancedMesh gezeichnet: alle Gullideckel der
+   Stadt zusammen kosten damit EINEN Zeichenaufruf, alle Poller einen
+   weiteren, und so fort. Die Stellen sammelt der Stadtbau schon beim
+   Bauen ein - die Datei kommt erst spaeter an. */
+function ladeStadtteile(loader) {
+  const stellen = Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length);
+  if (!stellen.length) return;
+  loader.load('assets/stadtteile.glb', (gltf) => {
+    try { setzeStadtteile(gltf.scene); } catch (e) { /* ohne Requisiten weiter */ }
+  }, undefined, () => { /* fehlt die Datei, bleibt die Stadt wie sie ist */ });
+}
+
+function setzeStadtteile(szene) {
+  const _m = new THREE.Matrix4(), _p = new THREE.Vector3();
+  const _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+  for (const [name, liste] of Object.entries(TEIL_STELLEN)) {
+    if (!liste.length) continue;
+    const quelle = szene.getObjectByName(name);
+    if (!quelle) continue;
+    /* Ein Teil kann aus mehreren Untermeshes bestehen (Rahmen, Glas ...).
+       Jedes bekommt sein eigenes InstancedMesh. */
+    const teile = [];
+    quelle.traverse((o) => { if (o.isMesh) teile.push(o); });
+    for (const t of teile) {
+      const inst = new THREE.InstancedMesh(t.geometry, t.material, liste.length);
+      inst.castShadow = true; inst.receiveShadow = true;
+      /* Die Teile stehen ueber die ganze Stadt verteilt - ein gemeinsamer
+         Umkreis waere riesig und wuerde nie weggeschnitten. */
+      inst.frustumCulled = false;
+      for (let i = 0; i < liste.length; i++) {
+        const e = liste[i];
+        _p.set(e.x, e.y, e.z);
+        _q.setFromEuler(new THREE.Euler(0, e.ry, 0));
+        _s.set(e.s, e.s, e.s);
+        _m.compose(_p, _q, _s);
+        inst.setMatrixAt(i, _m);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      cityGroup.add(inst);
     }
   }
 }
