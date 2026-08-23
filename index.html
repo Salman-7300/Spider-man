@@ -92,6 +92,13 @@
   #ruf .rufbalken { display:inline-block; width:80px; height:6px; margin-left:6px;
     border-radius:3px; background:rgba(255,255,255,.18); vertical-align:middle; overflow:hidden; }
   #ruf .rufbalken i { display:block; height:100%; border-radius:3px; transition:width .3s; }
+  /* Symbiontenbalken: fuellt sich beim Kaempfen, blinkt wenn er voll ist. */
+  #symb { margin-top:4px; opacity:0; transition:opacity .3s; }
+  #symb .sbalken { display:inline-block; width:80px; height:6px; margin-left:6px;
+    background:rgba(255,255,255,.18); border-radius:3px; vertical-align:middle; overflow:hidden; }
+  #symb .sbalken i { display:block; height:100%; border-radius:3px; transition:width .2s; }
+  #symb.bereit b { animation: sympuls 1s ease-in-out infinite; }
+  @keyframes sympuls { 0%,100% { opacity:1 } 50% { opacity:.45 } }
 
   #combo { position:absolute; right:26px; top:90px; text-align:right;
     font-size:34px; font-weight:800; color:#ffd23c; text-shadow:0 2px 8px #000;
@@ -220,6 +227,7 @@
     <div id="score">Punkte: 0</div>
     <div id="best"></div>
     <div id="ruf"></div>
+    <div id="symb"></div>
   </div>
   <div id="combo"><span id="comboN">0</span><small>KOMBO</small></div>
   <div id="minimap"><canvas id="minimapC" width="360" height="360"></canvas>
@@ -245,9 +253,11 @@
     <b>E</b> Netz-Zip nach vorn / zu Gegnern<br>
     <b>Strg</b> Ausweichrolle – im richtigen Moment: Spinnensinn-Konter<br>
     <b>C</b> Erste Hilfe bei Verletzten (rotes Kreuz)<br>
+    <b>T</b> Symbiont – schwarzer Anzug, 22 s deutlich mehr Wucht.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<small>Der Balken füllt sich beim Kämpfen; erst wenn er voll ist, geht es.</small><br>
     <b>V halten</b> Netz-Katapult: zwei Netze spannen, loslassen = Riesensprung<br>
     <b>Shift in der Luft</b> Gleitflug mit den Netzflügeln<br>
-    <b>An Wänden</b> automatisch klettern, <b>Shift</b> = Wandlauf (ab Stufe 4)<br>
+    <b>An Wänden</b> automatisch klettern, <b>Shift</b> = Wandlauf<br>
     <b>Leertaste an der Wand</b> Absprung<br>
     <b>Enter</b> Zurück zum Startpunkt (nach K.o.)<br>
     <br>

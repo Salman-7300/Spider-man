@@ -11,7 +11,7 @@ const CFG = {
   gravity: 30,
   swingGravity: 24,
   duckSpeed: 2.2, schleichSpeed: 1.4,
-  walkSpeed: 2.8,
+  walkSpeed: 2.8, symSpeed: 1.2,
   runSpeed: 7,
   sprintSpeed: 11,
   airAccel: 10,
@@ -137,11 +137,45 @@ const SFX = (() => {
     },
     setLautstaerke(v) { lautstaerke = clamp(v, 0, 1); },
     toggleMute() { muted = !muted; return muted; },
-    thwip() { noise(0.09, 0.1, 1800); tone(900, 0.12, 'square', 0.05, 0.3); },
-    punch() { tone(120, 0.09, 'sine', 0.3, 0.5); noise(0.05, 0.12, 300); },
-    kick() { tone(90, 0.13, 'sine', 0.35, 0.4); noise(0.07, 0.14, 250); },
-    hurt() { tone(200, 0.2, 'sawtooth', 0.12, 0.5); },
+    /* Ein Netzschuss ist ein Zischen mit einem Klick am Anfang, nicht ein
+       Rechteckton. */
+    thwip() {
+      noise(0.05, 0.13, 2600);
+      noise(0.16, 0.07, 1100);
+      tone(1500, 0.1, 'sine', 0.05, 0.35);
+    },
+    /* Schlaege waren ein nackter Sinuston. Ein Treffer besteht aus drei
+       Schichten: der tiefe Stoss im Bauch, der Koerper des Schlags und ein
+       kurzer Knall obendrauf. Erst zusammen klingt es nach Aufprall. */
+    punch() {
+      tone(150, 0.08, 'sine', 0.26, 0.45);
+      tone(320, 0.05, 'triangle', 0.12, 0.5);
+      noise(0.05, 0.16, 900);
+    },
+    kick() {
+      tone(95, 0.14, 'sine', 0.32, 0.42);
+      tone(240, 0.07, 'triangle', 0.13, 0.5);
+      noise(0.08, 0.17, 500);
+    },
+    hurt() { tone(210, 0.16, 'sawtooth', 0.1, 0.55); noise(0.06, 0.06, 600); },
     swoosh() { noise(0.25, 0.05, 400); },
+    /* ---- Schritte ----
+       Es gab bisher gar keine. Die Figur lief voellig lautlos durch die
+       Stadt, und genau das laesst alles nach Kulisse klingen. Ein Schritt
+       ist ein sehr kurzer, tief gefilterter Rauschstoss; hart heisst
+       Rennen, weich heisst Schleichen. */
+    schritt(wucht, tief) {
+      const v = clamp(wucht === undefined ? 0.6 : wucht, 0, 1);
+      noise(0.05 + v * 0.03, 0.05 + v * 0.09, tief ? 220 : 420);
+      tone(70 + Math.random() * 25, 0.05, 'sine', 0.03 + v * 0.05, 0.6);
+    },
+    /* Aufkommen nach einem Sprung oder Fall. */
+    landung(wucht) {
+      const v = clamp(wucht === undefined ? 0.5 : wucht, 0, 1);
+      tone(60, 0.16 + v * 0.1, 'sine', 0.1 + v * 0.22, 0.45);
+      noise(0.1 + v * 0.12, 0.08 + v * 0.16, 260);
+      if (v > 0.6) noise(0.3, 0.05 * v, 900);
+    },
     ko() { tone(300, 0.3, 'square', 0.1, 0.25); },
     web() { noise(0.15, 0.09, 1200); tone(1400, 0.18, 'sine', 0.05, 0.2); },
     score() { tone(660, 0.09, 'sine', 0.12); setTimeout(() => tone(880, 0.12, 'sine', 0.12), 90); },
@@ -172,6 +206,7 @@ const SFX = (() => {
       schnellere Variante mit Schlagzeug umschaltet. */
 const MUSIK = (() => {
   let c = null, bus = null, musikBus = null, musikFilter = null, stadtBus = null;
+  let melodieBus = null;
   let rausch = null, rauschFilter = null, wind = null, windFilter = null;
   let tunnel = null, tunnelG = null;
   let naechsterTakt = 0, takt = 0, an = false;
@@ -234,6 +269,15 @@ const MUSIK = (() => {
     musikFilter.Q.value = 0.4;
     musikBus = c.createGain(); musikBus.gain.value = 0.55;
     musikBus.connect(musikFilter); musikFilter.connect(bus);
+    /* Kurzes Echo nur fuer die Melodie. Ein nackter Oszillator klingt wie
+       ein Signalton; mit ein wenig Nachhall klingt er nach Instrument. */
+    melodieBus = c.createGain(); melodieBus.gain.value = 1;
+    melodieBus.connect(musikBus);
+    const verz = c.createDelay(1.0); verz.delayTime.value = 0.27;
+    const rueck = c.createGain(); rueck.gain.value = 0.32;
+    const hall = c.createGain(); hall.gain.value = 0.38;
+    melodieBus.connect(verz); verz.connect(rueck); rueck.connect(verz);
+    verz.connect(hall); hall.connect(musikBus);
     stadtBus = c.createGain(); stadtBus.gain.value = 0.0; stadtBus.connect(bus);
 
     const buf = dauerRauschen(4);
@@ -327,13 +371,20 @@ const MUSIK = (() => {
          Akkord mit. Mitgewandert waere sie eine reine Parallelverschiebung
          - alle vier Takte klaenge das nach einem Tonartwechsel. */
       note(HT(okt + LEITER[stufeM]),
-           t, 0.30, 'triangle', 0.055 + stufe * 0.03, null, true);
+           t, 0.30, 'triangle', 0.055 + stufe * 0.03, melodieBus, true);
     }
 
+    /* Schlagwerk. Frueher gab es beim Streifzug ueberhaupt keins - die
+       Musik war dort ein reiner Klangteppich ohne Puls, und genau deshalb
+       klang sie wie ein haengengebliebener Automat. Jetzt laeuft auch beim
+       Streifzug ein leiser Grundschlag mit; im Kampf kommt das volle
+       Schlagzeug darueber. */
+    const puls = 0.22 + stufe * 0.78;
+    if (s8 === 0 || s8 === 4) schlag(t, 90, 0.20 * puls, 0.16);          // Bass
+    if (s8 % 2 === 1) schlag(t, 7000, 0.035 * puls, 0.045);              // Shaker
     if (stufe > 0.25) {
-      if (s8 === 0 || s8 === 4) schlag(t, 90, 0.22 * stufe, 0.16);       // Bass
       if (s8 === 2 || s8 === 6) schlag(t, 900, 0.14 * stufe, 0.12);      // Snare
-      if (stufe > 0.6 && s8 % 2 === 1) schlag(t, 6000, 0.05 * stufe, 0.05); // Hi-Hat
+      if (stufe > 0.6 && s8 % 4 === 3) schlag(t, 4200, 0.06 * stufe, 0.06);
     }
     takt++;
   }
@@ -2620,6 +2671,12 @@ const GANG_REF = {
   walk: 1.45,
   run: 4.2,
   sprint: 5.0,
+  /* "Bully Walking", der Gang im Symbiontenanzug. Wie die anderen
+     Gangarten abgetastet: bei 1,0 m/s steht der Fuss praktisch still
+     (0,006 m/s Restbewegung), bei 1,2 sind es 0,09 - so viel wie beim
+     Laufen. 1,2 ist der Kompromiss zwischen Standfestigkeit und einem
+     Tempo, mit dem man noch vorankommt. */
+  symgang: 1.2,
 };
 const GANG_CLIPS = Object.keys(GANG_REF);
 /* Stelle im Duck-Clip, an der die Figur im Stand angehalten wird.
@@ -2645,7 +2702,12 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   /* animation-1: echte Netzschwung-Bewegungen aus einem fertigen Modell
      (siehe tools/extract-anims.mjs). Endlich ein richtiger Schwung statt
      einer festgehaltenen Haltung. */
-  'schwung', 'schwungland', 'schwunghang'];
+  'schwung', 'schwungland', 'schwunghang',
+  /* animation-1, aus dem Symbiontenmodell: der schwere Gang und der
+     fliegende Kniestoss fuer den Symbiontenmodus. "Grab and Slam" und
+     "Low Crawl" sind zwar auch brauchbar, haben aber noch keinen Platz im
+     Spiel - sie werden erst geladen, wenn sie auch benutzt werden. */
+  'symgang', 'symkombo'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -2880,6 +2942,7 @@ const GLB_CLIP_PATTERNS = {
      /sprint/ sonst beim Laufen zuschlagen. */
   run: [/^run$/i, /run/i, /jog/i],
   sprint: [/^sprint$/i, /sprint/i],
+  symgang: [/^symgang$/i], symkombo: [/^symkombo$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
   schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
@@ -2960,6 +3023,9 @@ function findClip(clips, key) {
 const SUIT_ROT = new THREE.Color(0xc8102e);
 const SUIT_BLAU = new THREE.Color(0x1b3fa0);
 const SUIT_NETZ = new THREE.Color(0x2a0409);
+/* Symbiontenanzug: fast schwarz mit hellem Netz. */
+const SYM_SCHWARZ = new THREE.Color(0x0c0c11);
+const SYM_NETZ = new THREE.Color(0xd8dae4);
 
 /* Welche Körperpartie gehört zu welchem Knochen?
    So sitzen die Farbgrenzen exakt an Schulter, Hüfte und Handgelenk –
@@ -3076,30 +3142,46 @@ function baueAnzugKoerper(quelle, einheit) {
   const hoehe = Math.max(0.001, maxY - minY);
   const brust = knochenPos[index.spine2 !== undefined ? index.spine2 : index.spine1];
 
-  const pos = [], farb = [], sIdx = [], sGew = [], idx = [];
+  const pos = [], farb = [], symFarb = [], sIdx = [], sGew = [], idx = [];
 
-  function farbeFuer(bone, punkt) {
+  /* Die Farben stecken als Eckpunktfarben in der Geometrie, nicht in einer
+     Textur - ein Anzugwechsel laesst sich deshalb nicht durch Austauschen
+     eines Bildes machen. Stattdessen wird die zweite Farbreihe beim Bauen
+     gleich mit berechnet und spaeter nur noch eingehaengt. Das kostet
+     einmalig etwas Speicher und beim Wechsel gar nichts.
+     sym = true liefert den Symbionten: schwarzer Anzug, weisses Netz,
+     grosse weisse Spinne. */
+  function farbeFuer(bone, punkt, sym) {
     const partie = partieFuerKnochen(skeleton.bones[bone].name);
-    const c = new THREE.Color(partie === 'blau' ? SUIT_BLAU : SUIT_ROT);
-    if (partie !== 'blau') {
+    const c = sym ? new THREE.Color(SYM_SCHWARZ)
+                  : new THREE.Color(partie === 'blau' ? SUIT_BLAU : SUIT_ROT);
+    if (sym || partie !== 'blau') {
       const t = (punkt.y - minY) / hoehe;
       const winkel = Math.atan2(punkt.x, punkt.z);
       const ring = Math.abs(((t * 30) % 1) - 0.5) * 2;
       const speiche = Math.abs((((winkel / Math.PI) * 9) % 1) - 0.5) * 2;
-      if (ring > 0.9 || speiche > 0.92) c.lerp(SUIT_NETZ, 0.65);
+      if (ring > 0.9 || speiche > 0.92) c.lerp(sym ? SYM_NETZ : SUIT_NETZ, sym ? 0.85 : 0.65);
     }
     if (brust && punkt.z > brust.z) {   // Spinnenzeichen auf der Brust
       const dy = (punkt.y - brust.y) / einheit, dx = (punkt.x - brust.x) / einheit;
-      if ((Math.abs(dx) < 0.026 && dy > -0.10 && dy < 0.015) ||
-          (Math.abs(dy + 0.042) < 0.011 && Math.abs(dx) < 0.07)) c.setHex(0x140609);
+      /* Die Spinne des Symbionten ist deutlich groesser und hell - beim
+         Vorbild zieht sie sich ueber die ganze Brust. */
+      const gr = sym ? 2.6 : 1;
+      if ((Math.abs(dx) < 0.026 * gr && dy > -0.10 * gr && dy < 0.015 * gr) ||
+          (Math.abs(dy + 0.042 * gr) < 0.011 * gr && Math.abs(dx) < 0.07 * gr)) {
+        c.setHex(sym ? 0xe6e8f0 : 0x140609);
+      }
     }
     return c;
   }
 
   function punktAnhaengen(p, bone, gewicht2, bone2) {
     pos.push(p.x, p.y, p.z);
-    const c = farbeFuer(gewicht2 > 0.5 && bone2 !== undefined ? bone2 : bone, p);
+    const b3 = gewicht2 > 0.5 && bone2 !== undefined ? bone2 : bone;
+    const c = farbeFuer(b3, p, false);
     farb.push(c.r, c.g, c.b);
+    const cs = farbeFuer(b3, p, true);
+    symFarb.push(cs.r, cs.g, cs.b);
     sIdx.push(bone, bone2 === undefined ? 0 : bone2, 0, 0);
     sGew.push(1 - gewicht2, gewicht2, 0, 0);
     return pos.length / 3 - 1;
@@ -3204,6 +3286,9 @@ function baueAnzugKoerper(quelle, einheit) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(farb, 3));
+  /* Beide Farbreihen aufheben - der Wechsel kopiert nur noch. */
+  geometry.userData.anzugFarben = new Float32Array(farb);
+  geometry.userData.symbiontFarben = new Float32Array(symFarb);
   geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(sIdx, 4));
   geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sGew, 4));
   geometry.setIndex(idx);
@@ -4471,6 +4556,7 @@ function makeGlbVisual(m) {
       }
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
+
       if ((key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
            key === 'klettern_seit') && !findClip(m.clips, key)) {
         want = findClip(m.clips, 'climb') ? 'climb' : 'idle';
@@ -4499,7 +4585,13 @@ function makeGlbVisual(m) {
            wird umgeschaltet. Frueher entschied allein die gemessene
            Geschwindigkeit; die Gehstufe lag dabei genau in der Hysterese
            und blieb am Laufschritt haengen. */
-        if (p.gang && findClip(m.clips, p.gang)) want = p.gang;
+        /* Im Symbiontenanzug geht die Figur breitbeinig und schwer -
+           "Bully Walking" aus animation-1. Nur beim normalen Gehen, im
+           Sprint und geduckt bleiben die gewohnten Bewegungen. */
+        /* Im Symbiontenanzug ein schwerer, breitbeiniger Gang statt des
+           normalen Schritts ("Bully Walking" aus animation-1). */
+        if (p.symbiont && p.gang === 'walk' && findClip(m.clips, 'symgang')) want = 'symgang';
+        else if (p.gang && findClip(m.clips, p.gang)) want = p.gang;
         else if (findClip(m.clips, 'walk')) {
           if (geht && vBoden > 3.2) geht = false;
           else if (!geht && vBoden < 2.5) geht = true;
@@ -4651,6 +4743,41 @@ function makeGlbVisual(m) {
       angriff = a;
       angriffT = Math.min(zielDauer, d / v);
       return angriffT;
+    },
+    /* Anzug wechseln: nur die Eckpunktfarben werden ausgetauscht, die
+       Geometrie bleibt. Kostet einen Kopiervorgang, kein Neuaufbau. */
+    setzeSymbiont(an) {
+      root.traverse((o) => {
+        if (!o.isMesh && !o.isSkinnedMesh) return;
+        /* Weg 1: selbstgebauter Anzug mit Eckpunktfarben. Dann liegen
+           beide Farbreihen schon bereit und es wird nur umgehaengt. */
+        const u = o.geometry && o.geometry.userData;
+        const attr = o.geometry && o.geometry.attributes.color;
+        if (u && u.anzugFarben && u.symbiontFarben && attr) {
+          attr.array.set(an ? u.symbiontFarben : u.anzugFarben);
+          attr.needsUpdate = true;
+          return;
+        }
+        /* Weg 2: fertiges Modell mit eigenen Texturen - hier gibt es keine
+           Eckpunktfarben zum Tauschen. Stattdessen wird die Grundfarbe des
+           Materials abgedunkelt; die Textur wird damit multipliziert, das
+           Muster bleibt also erhalten und der Anzug wird schwarz und
+           glaenzend statt rot und blau. */
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m2 of mats) {
+          if (!m2 || !m2.color) continue;
+          if (m2.userData.grundFarbe === undefined) {
+            m2.userData.grundFarbe = m2.color.getHex();
+            m2.userData.grundGlanz = m2.shininess === undefined ? null : m2.shininess;
+          }
+          m2.color.setHex(an ? 0x14141b : m2.userData.grundFarbe);
+          if (m2.shininess !== undefined) {
+            m2.shininess = an ? 90 : (m2.userData.grundGlanz === null ? m2.shininess
+                                                                     : m2.userData.grundGlanz);
+          }
+          if (m2.specular) m2.specular.setHex(an ? 0x9aa0b0 : 0x33333a);
+        }
+      });
     },
     /* Wie lange dauert eine geladene Bewegung? Damit lässt sich die
        Spielmechanik auf die Bewegungsdatei abstimmen, statt umgekehrt. */
@@ -5206,7 +5333,11 @@ const player = {
   attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
-  hartLandung: 0, saltoCd: 0, luftSalto: 0, warSchwung: 0,
+  hartLandung: 0, saltoCd: 0, luftSalto: 0, warSchwung: 0, schrittT: 0,
+  /* ---- Symbiont ----
+     Kaempfen fuellt den Balken. Ist er voll, laesst sich der schwarze
+     Anzug zuschalten: haerter, schneller, aber nur fuer eine Weile. */
+  symEnergie: 0, symZeit: 0, symAn: false, symBlitz: 0,
   luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
@@ -5337,6 +5468,7 @@ document.addEventListener('keydown', (e) => {
     case 'KeyG': packenUndWerfen(); break;
     case 'KeyV': katapultStart(); break;
     case 'KeyC': if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); break;
+    case 'KeyT': symbiontStart(); break;
     case 'Enter': if (player.dead) respawn(); break;
   }
   if (e.code === 'Space') e.preventDefault();
@@ -5559,6 +5691,11 @@ function baueTouch() {
     { id: 'tHilfeC', sym: '✚', bez: '1. Hilfe', reihe: 2, art: 'tipp',
       hilfe: 'Verletzten am roten Kreuz helfen',
       tun: () => { if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); } },
+    { id: 'tSymbiont', sym: '🕷', bez: 'Symbiont', reihe: 2, art: 'tipp',
+      hilfe: 'Schwarzer Anzug: 22 Sekunden lang deutlich mehr Wucht. ' +
+             'Der Balken fuellt sich beim Kaempfen; erst wenn er voll ist, geht es.',
+      zeig: () => player.symEnergie > 0.001 || player.symAn,
+      tun: () => symbiontStart() },
 
     { id: 'tTritt', sym: '🦶', bez: 'Tritt', reihe: 3, gross: true, art: 'tipp',
       hilfe: 'Tritt – mehr Schaden als der Schlag', tun: () => tryAttack('kick') },
@@ -5737,7 +5874,11 @@ function gangTempo() {
   }
   const s = stickStaerke();
   if (sprintAn() || s > 0.85) return CFG.sprintSpeed;
-  if (geheAn() || (s > 0.05 && s < 0.55)) return CFG.walkSpeed;
+  /* Der Symbiontengang ist schwer und langsam. Er wird genau so schnell
+     gegangen, wie die Bewegung es hergibt - sonst schleifen die Fuesse. */
+  if (geheAn() || (s > 0.05 && s < 0.55)) {
+    return player.symAn ? CFG.symSpeed : CFG.walkSpeed;
+  }
   return CFG.runSpeed;
 }
 
@@ -6401,11 +6542,18 @@ function tryAttack(type) {
      ersten Schlag. Genau deshalb war die Kombo nicht zu erkennen. */
   const stufe = player.stufe || 0;
   /* In der Luft gibt es einen eigenen Sprungangriff – am Boden die Kombo. */
+  /* Im Symbiontenanzug ersetzt der fliegende Kniestoss aus animation-1
+     den Tritt. Er dauert laenger und trifft haerter - das ist der
+     spuerbare Unterschied zum normalen Anzug, nicht nur die Farbe. */
+  const symTritt = player.symAn && type === 'kick' && player.onGround &&
+                   heroVisual.hatClip && heroVisual.hatClip('symkombo');
   const k = !player.onGround
     ? { art: 'luftangriff', ziel: 0.5, arm: 'R' }
-    : type === 'kick'
-      ? { art: 'kick', ziel: 0.55, arm: 'R' }
-      : KOMBO[stufe % KOMBO.length];
+    : symTritt
+      ? { art: 'symkombo', ziel: 0.85, arm: 'R' }
+      : type === 'kick'
+        ? { art: 'kick', ziel: 0.55, arm: 'R' }
+        : KOMBO[stufe % KOMBO.length];
   const finisher = !!k.finisher;
   const arm = k.arm;
   /* Die Dauer kommt aus der Bewegungsdatei selbst. Vorher war sie fest
@@ -6414,7 +6562,8 @@ function tryAttack(type) {
   const dauer = heroVisual.attackOneShot(0, k.art, k.ziel) || k.ziel || 0.42;
   /* Flinke Gegner reagieren auf das Ausholen, nicht erst auf den Treffer. */
   versucheAusweichen();
-  const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie';
+  const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie' ||
+                   k.art === 'symkombo';
   player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm, art: k.art,
                     hitDone: false, finisher, stufe, dauer };
   if (player.onGround && type !== 'kick') {
@@ -7351,6 +7500,8 @@ function updatePlayer(dt) {
     const kamVomSchwung = player.state === 'swing' || player.gleiten || player.gleitAus > 0;
     if (player.state === 'swing') stopSwing(false);
     if (!wasOnGround && player.vel.length() < 4) SFX.swoosh();
+    /* Aufkommen war lautlos. Die Wucht richtet sich nach der Fallhoehe. */
+    if (!wasOnGround && SFX.landung) SFX.landung(clamp(fallTempo / 22, 0.15, 1));
     /* ---- Ankommen aus Schwung oder Gleitflug ----
        Vorher endete beides einfach im Stand: man kam mit 20 m/s an und
        stand im nächsten Bild still. Jetzt gibt es zwei Ausgänge – wer
@@ -7577,6 +7728,19 @@ function updatePlayer(dt) {
        sonst „läuft" die Figur beim Ausrollen weiter, obwohl man steht. */
     player.anim = 'run';
     player.phase += dt * (5 + hSpeed * 1.15);
+    /* Schritte im Takt der BEWEGUNGSDATEI. Die laeuft mit
+       timeScale = Tempo / GANG_REF, also muss der Schrittklang genauso
+       skalieren - sonst laufen Bild und Ton auseinander, und das faellt
+       staerker auf als ein fehlender Schritt. 2,4 Schritte je Sekunde ist
+       die Trittfrequenz der Clips bei ihrem natuerlichen Tempo. */
+    const ref = GANG_REF[player.gang] || GANG_REF.run;
+    player.schrittT -= dt * clamp(hSpeed / ref, 0.4, 3.0) * 2.4;
+    if (player.schrittT <= 0) {
+      player.schrittT = 1;
+      const leise = player.duckt || player.gang === 'schleichen';
+      SFX.schritt && SFX.schritt(leise ? 0.18 : clamp(hSpeed / CFG.sprintSpeed, 0.3, 1),
+                                 leise);
+    }
   } else player.anim = 'idle';
 
   if (player.anim !== 'run' && player.anim !== 'idle' && player.vel.lengthSq() > 4 && player.state !== 'climb') {
@@ -7702,6 +7866,7 @@ function updateHeroVisual(dt) {
     hand: player.swing ? player.swing.hand : netzHand,
     ducken: player.duckt,
     gang: player.gang,
+    symbiont: player.symAn,
     /* Lage im Bogen: 0 = Tiefpunkt, 1 = Aufstieg. Steuert, an welcher
        Stelle die Schwunghaltung festgehalten wird. */
     bogen: clamp(player.vel.y * 0.09, -1, 1),
@@ -9932,10 +10097,16 @@ function alarmiereGang(e, umkreis) {
 
 function damageEnemy(e, dmg, kind) {
   if (e.dead) return;
+  /* Im Symbiontenanzug schlaegt es deutlich haerter zu. */
+  if (player.symAn) dmg *= 1.7;
   /* Wer gerade zur Seite gesprungen ist, ist für einen Moment nicht zu
      treffen – sonst wäre das Ausweichen reine Kosmetik. */
   if (e.iFrames > 0) return;
   e.hp -= dmg;
+  /* Jeder Treffer fuellt den Symbiontenbalken. Voll wird er nach rund
+     zwanzig sauberen Schlaegen - lange genug, dass es sich verdient
+     anfuehlt, kurz genug fuer eine Gang. */
+  if (!player.symAn) player.symEnergie = clamp(player.symEnergie + dmg * 0.006, 0, 1);
   e.target = 'player';
   e.state = 'chase';
   alarmiereGang(e, 20);
@@ -9943,6 +10114,7 @@ function damageEnemy(e, dmg, kind) {
     e.dead = true; e.deadT = 2.5;
     e.webT = 0; e.cocoon.visible = false;
     e.hpBar.g.visible = false;
+    if (!player.symAn) player.symEnergie = clamp(player.symEnergie + 0.12, 0, 1);
     addScore(50, 'K.O.!', e.pos);
     checkGangCleared(e.gang);
     checkCivilianSaved(e);
@@ -9950,6 +10122,57 @@ function damageEnemy(e, dmg, kind) {
     e.hpBar.fg.scale.x = 1.1 * clamp(e.hp / (e.hpMax || CFG.enemyHP), 0, 1);
     e.hpBar.g.visible = true;
   }
+}
+
+/* ======================= Symbiont =======================
+   Kaempfen fuellt einen Balken. Ist er voll, laesst sich der schwarze
+   Anzug zuschalten (Taste T): mehr Wucht, mehr Tempo, eigene Gangart -
+   aber nur fuer eine begrenzte Zeit, danach ist der Balken leer.
+   Der Anzugwechsel selbst ist nur ein Austausch der Eckpunktfarben, das
+   76-MB-Modell aus animation-1 waere fuer den Browser viel zu gross. Seine
+   Bewegungen stecken dagegen im Spiel. */
+const SYM_DAUER = 22;
+
+function symbiontStart() {
+  if (player.dead) return false;
+  if (player.symAn) { symbiontEnde(); return true; }
+  if (player.symEnergie < 0.999) {
+    popupScreen(`Symbiont noch nicht bereit (${Math.round(player.symEnergie * 100)} %)`);
+    return false;
+  }
+  player.symAn = true;
+  player.symZeit = SYM_DAUER;
+  player.symBlitz = 0.6;
+  if (heroVisual.setzeSymbiont) heroVisual.setzeSymbiont(true);
+  popupScreen('🕷 Symbiont aktiv');
+  SFX.ko();
+  return true;
+}
+
+function symbiontEnde() {
+  if (!player.symAn) return;
+  player.symAn = false;
+  player.symZeit = 0;
+  player.symEnergie = 0;
+  player.symBlitz = 0.4;
+  if (heroVisual.setzeSymbiont) heroVisual.setzeSymbiont(false);
+  popupScreen('Symbiont abgestossen');
+}
+
+let symHudT = 0;
+function updateSymbiont(dt) {
+  if (player.symBlitz > 0) player.symBlitz -= dt;
+  /* Die Anzeige nur viermal je Sekunde neu schreiben - jedes Bild waere
+     unnoetige Arbeit am DOM. */
+  symHudT -= dt;
+  if (!player.symAn) {
+    if (player.symEnergie > 0.001 && symHudT <= 0) { symHudT = 0.25; updateHUD(); }
+    return;
+  }
+  player.symZeit -= dt;
+  player.symEnergie = clamp(player.symZeit / SYM_DAUER, 0, 1);
+  if (symHudT <= 0) { symHudT = 0.25; updateHUD(); }
+  if (player.symZeit <= 0 || player.dead) symbiontEnde();
 }
 
 function checkGangCleared(gang) {
@@ -10955,6 +11178,7 @@ const comboEl = document.getElementById('combo');
 const comboNEl = document.getElementById('comboN');
 const objectiveEl = document.getElementById('objective');
 const rufEl = document.getElementById('ruf');
+const symbEl = document.getElementById('symb');
 karteEl = document.getElementById('minimapC');
 if (karteEl) karteCtx = karteEl.getContext('2d');
 const vignetteEl = document.getElementById('vignette');
@@ -10996,6 +11220,24 @@ function updateHUD() {
     comboEl.style.opacity = 0.75;
     comboNEl.textContent = `${player.stufe}/${KOMBO.length}`;
   } else comboEl.style.opacity = 0;
+
+  /* Symbiontenbalken. Er taucht erst auf, wenn ueberhaupt etwas drin ist -
+     vor dem ersten Kampf waere er nur ein leeres Feld. */
+  if (symbEl) {
+    const e = clamp(player.symEnergie, 0, 1);
+    if (e < 0.01 && !player.symAn) symbEl.style.opacity = 0;
+    else {
+      symbEl.style.opacity = 1;
+      const voll = e >= 0.999 && !player.symAn;
+      symbEl.className = voll ? 'bereit' : '';
+      const farbe = player.symAn ? '#c9ccd8' : (voll ? '#e8e8f2' : '#8b7bd8');
+      symbEl.innerHTML = (player.symAn
+          ? `<b style="color:${farbe}">Symbiont ${Math.ceil(player.symZeit)} s</b>`
+          : `Symbiont <b style="color:${farbe}">${Math.round(e * 100)}%</b>` +
+            (voll ? ' <small style="opacity:.8">(T)</small>' : '')) +
+        `<span class="sbalken"><i style="width:${e * 100}%;background:${farbe}"></i></span>`;
+    }
+  }
 }
 updateHUD();
 
@@ -11163,6 +11405,7 @@ function simuliere(dt) {
   updateKatapult(dt);
   updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
+  updateSymbiont(dt);
   updateKlang(dt);
   updateDampf(dt);
   updateSpritzer(dt);
@@ -11295,8 +11538,12 @@ if (window.__WEBHERO_TEST__ === true) {
       programme: renderer.info.programs ? renderer.info.programs.length : -1,
       texturen: renderer.info.memory.textures, geometrien: renderer.info.memory.geometries }; },
     musikStatus() { return MUSIK.status(); },
+    klang: SFX,
     /* Nur fuer Messungen: Stelle im Duck-Clip, an der im Stand angehalten wird. */
     duckStandT(v) { if (v !== undefined) DUCK_STAND_T = v; return DUCK_STAND_T; },
+    /* Nur fuer Messungen: natuerliches Tempo einer Gangart setzen. */
+    setzeGangRef(name, v) { GANG_REF[name] = v; },
+    setzeTempo(name, v) { CFG[name] = v; },
     get kamPos() { return camera.position.clone(); },
     starteMission,
   };

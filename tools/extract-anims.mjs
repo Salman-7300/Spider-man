@@ -32,6 +32,12 @@ const ausgabe = rest[0];
 const nurListe = args.includes('--liste');
 const nimmArg = (args.find((a) => a.startsWith('--nimm=')) || '').slice(7);
 const slotArg = (args.find((a) => a.startsWith('--slots=')) || '').slice(8);
+/* Manche Modelle sind Z-up gebaut und werden erst durch eine Drehung am
+   Szenenknoten aufgerichtet ("GLTF_SceneRootNode" mit +90 Grad um X).
+   Loest man die Bewegung aus so einer Datei heraus, fehlt diese Drehung -
+   die Figur liegt dann flach auf dem Ruecken. Mit --drehX=90 wird die
+   Drehung in die Spuren des Wurzelknochens eingerechnet. */
+const drehX = Number((args.find((a) => a.startsWith('--drehX=')) || '').slice(8) || 0);
 const SLOTS = slotArg ? slotArg.split(',').map((s) => s.trim()) : ['hero'];
 
 if (!quelle || !fs.existsSync(quelle)) {
@@ -102,6 +108,40 @@ for (const { von, nach } of paare) {
   /* Zahlenreihen ohne Verwendung entfernen. prune() laesst sie stehen. */
   for (const acc of root.listAccessors()) {
     if (!acc.listParents().some((el) => el.propertyType !== 'Root')) acc.dispose();
+  }
+
+  /* Aufrichten: die Drehung des Szenenknotens in die Spuren des
+     Wurzelknochens einrechnen. Nur der Wurzelknochen braucht das - alle
+     anderen Knochen drehen relativ zu ihrem Elternknochen. */
+  if (drehX) {
+    const w = (drehX * Math.PI / 180) / 2;
+    const qf = [Math.sin(w), 0, 0, Math.cos(w)];      // x,y,z,w
+    const qmul = (a2, b2) => [
+      a2[3]*b2[0] + a2[0]*b2[3] + a2[1]*b2[2] - a2[2]*b2[1],
+      a2[3]*b2[1] - a2[0]*b2[2] + a2[1]*b2[3] + a2[2]*b2[0],
+      a2[3]*b2[2] + a2[0]*b2[1] - a2[1]*b2[0] + a2[2]*b2[3],
+      a2[3]*b2[3] - a2[0]*b2[0] - a2[1]*b2[1] - a2[2]*b2[2],
+    ];
+    /* Vektor mit einem Quaternion drehen: v' = q * (v,0) * q^-1 */
+    const vrot = (q, v) => {
+      const t = qmul(qmul(q, [v[0], v[1], v[2], 0]), [-q[0], -q[1], -q[2], q[3]]);
+      return [t[0], t[1], t[2]];
+    };
+    let gedreht = 0;
+    for (const ch of treffer.listChannels()) {
+      const node = ch.getTargetNode();
+      if (!node || !/hips/i.test(node.getName())) continue;
+      const pfad = ch.getTargetPath();
+      const out = ch.getSampler() && ch.getSampler().getOutput();
+      if (!out || (pfad !== 'rotation' && pfad !== 'translation')) continue;
+      const n = out.getCount();
+      for (let i = 0; i < n; i++) {
+        const el = out.getElement(i, []);
+        out.setElement(i, pfad === 'rotation' ? qmul(qf, el) : vrot(qf, el));
+      }
+      gedreht++;
+    }
+    if (!gedreht) console.warn('  (keine Wurzelspur gefunden – --drehX blieb wirkungslos)');
   }
 
   /* Knochennamen angleichen: die Endung "_12" faellt weg, damit die Spur
