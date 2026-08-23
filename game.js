@@ -942,9 +942,15 @@ function kitKasten(t, x, z, ry) {
   }
   return { x0: x + ax0, x1: x + ax1, z0: z + az0, z1: z + az1 };
 }
-/* Welche Blocks bekommen Altbauten? Vier Stueck - genug fuer eine eigene
-   Gegend, wenig genug, dass die Dreiecke im Rahmen bleiben. */
-const KIT_BLOCKS = [[1, 4], [4, 1], [5, 5], [2, 6]];
+/* Welche Blocks bekommen Altbauten? Sie liegen bewusst AM RAND: zur
+   Stadtmitte hin baut das Spiel die hoechsten Tuerme, und die sollen
+   bleiben - die fertigen Haeuser sind nur 17 bis 28 m hoch und koennten
+   eine Skyline gar nicht tragen. Aussen entsteht so ein Altbauguertel um
+   das Hochhausviertel herum. */
+const KIT_BLOCKS = [
+  [0, 1], [0, 4], [1, 6], [2, 0],
+  [4, 6], [5, 0], [6, 2], [6, 5],
+];
 
 /* Stellen fuer Bauteile aus dem Baukasten. Die Liste muss VOR dem
    Stadtbau stehen: gesammelt wird beim Bauen, gesetzt erst, wenn die
@@ -957,6 +963,27 @@ function merkeTeil(name, x, y, z, ry, s) {
 /* Ganze Haeuser stehen in einer eigenen Liste - sie werden kopiert, nicht
    als Instanzen gezeichnet. */
 const HAUS_STELLEN = [];
+/* Die fertigen Kopien. Jedes Haus besteht aus rund einem Dutzend
+   Teilmeshes; ueber die ganze Stadt verteilt sind das schnell ein paar
+   hundert Zeichenaufrufe - gemessen 417 bis 490 statt 257 bis 402. Weit
+   entfernte werden deshalb ganz abgeschaltet. Bei 170 m ist ein 25-m-Haus
+   im Bild so klein und steht so sicher hinter den Tuermen, dass man das
+   Verschwinden nicht bemerkt. */
+const KIT_KOPIEN = [];
+const KIT_SICHT = 170;
+let kitTakt = 0;
+function updateKitHaeuser(dt) {
+  if (!KIT_KOPIEN.length) return;
+  /* Nur viermal je Sekunde pruefen - oefter braucht es bei 220 m nicht. */
+  kitTakt -= dt;
+  if (kitTakt > 0) return;
+  kitTakt = 0.25;
+  const g2 = KIT_SICHT * KIT_SICHT;
+  for (const k of KIT_KOPIEN) {
+    const dx = k.position.x - player.pos.x, dz = k.position.z - player.pos.z;
+    k.visible = dx * dx + dz * dz < g2;
+  }
+}
 function merkeHaus(name, x, y, z, ry) { HAUS_STELLEN.push({ name, x, y, z, ry: ry || 0 }); }
 
 /* ======================= Stadt bauen ======================= */
@@ -3045,6 +3072,7 @@ function setzeStadtteile(szene) {
     kopie.rotation.y = e.ry;
     kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     cityGroup.add(kopie);
+    KIT_KOPIEN.push(kopie);
   }
   for (const [name, liste] of Object.entries(TEIL_STELLEN)) {
     if (!liste.length) continue;
@@ -8692,6 +8720,77 @@ function updateSpinnenSinn(dt) {
   }
 }
 
+/* ======================= Echte Fahrer in den Autos =======================
+   In jedem Wagen sassen einfache Sitzfiguren aus Zylindern und Kugeln.
+   Aus der Naehe - und genau da faehrt man vorbei - sah man sofort, dass
+   das keine Menschen sind.
+   Alle Autos mit echten Figuren zu besetzen waere zu teuer: jede ist ein
+   eigenes Skelett. Deshalb gibt es eine kleine Mannschaft, die immer in
+   den naechstgelegenen Wagen sitzt. Faehrt der Wagen weg, steigt sie in
+   den naechsten um; im Wagen selbst werden solange die einfachen Figuren
+   ausgeblendet. Weiter weg bleibt es bei den einfachen - dort sieht man
+   den Unterschied ohnehin nicht. */
+const AUTO_FAHRER = [];
+const AUTO_FAHRER_MAX = 5;
+const AUTO_FAHRER_WEITE = 34;      // so nah muss ein Wagen sein
+const _afP = new THREE.Vector3();
+
+function baueAutoFahrer() {
+  if (AUTO_FAHRER.length || !actorsReady) return;
+  for (let i = 0; i < AUTO_FAHRER_MAX; i++) {
+    const visual = makeCharacterVisual('civilian', {});
+    if (!visual || visual.procedural) return;    // ohne Modelle bleibt alles wie es war
+    visual.root.visible = false;
+    scene.add(visual.root);
+    AUTO_FAHRER.push({ visual, auto: null });
+  }
+}
+
+function updateAutoFahrer(dt) {
+  if (!AUTO_FAHRER.length) { baueAutoFahrer(); if (!AUTO_FAHRER.length) return; }
+  /* Die naechsten Wagen suchen. Nur Personenwagen - Bus und LKW haben
+     ihre eigenen, passend gebauten Insassen. */
+  const nah = [];
+  for (const c of cars) {
+    if (c.aus || !c.mesh || !c.mesh.userData.fahrerSitz) continue;
+    const p = c.mesh.position;
+    const d2 = (p.x - player.pos.x) * (p.x - player.pos.x) +
+               (p.z - player.pos.z) * (p.z - player.pos.z);
+    if (d2 > AUTO_FAHRER_WEITE * AUTO_FAHRER_WEITE) continue;
+    nah.push({ c, d2 });
+  }
+  nah.sort((a, b) => a.d2 - b.d2);
+  for (let i = 0; i < AUTO_FAHRER.length; i++) {
+    const f = AUTO_FAHRER[i];
+    const ziel = nah[i] ? nah[i].c : null;
+    if (f.auto !== ziel) {
+      /* Beim Umsteigen die einfachen Figuren im alten Wagen wieder zeigen. */
+      if (f.auto && f.auto.mesh && f.auto.mesh.userData.insassen) {
+        f.auto.mesh.userData.insassen.visible = true;
+      }
+      f.auto = ziel;
+    }
+    if (!ziel) { f.visual.root.visible = false; continue; }
+    if (ziel.mesh.userData.insassen) ziel.mesh.userData.insassen.visible = false;
+    const sitz = ziel.mesh.userData.fahrerSitz;
+    const ry = ziel.mesh.rotation.y;
+    const co = Math.cos(ry), si = Math.sin(ry);
+    _afP.set(ziel.mesh.position.x + sitz.x * co + sitz.z * si,
+             ziel.mesh.position.y,
+             ziel.mesh.position.z - sitz.x * si + sitz.z * co);
+    f.visual.root.visible = true;
+    f.visual.root.position.copy(_afP);
+    f.visual.root.rotation.y = ry;
+    f.visual.play('idle', { t: elapsed }, dt);
+    if (f.visual.poseSitzen) {
+      f.visual.poseSitzen(1);
+      const m = f.visual.sitzMasse ? f.visual.sitzMasse() : null;
+      /* Becken auf die Sitzflaeche des Wagens. */
+      if (m) f.visual.root.position.y += (ziel.mesh.position.y + sitz.y) - m.huefte;
+    }
+  }
+}
+
 /* ======================= Kontaktschatten =======================
    Auf den Grafikstufen "mittel" und "niedrig" ist die Schattenkarte aus -
    dann wirft keine Figur mehr einen Schatten, und ohne Schatten unter den
@@ -8891,8 +8990,12 @@ function waehleFahrzeug() {
 function makeCarMesh(color) {
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshLambertMaterial({ color });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.6, 4.4), bodyMat);
-  body.position.y = 0.62; body.castShadow = true;
+  /* Das Auto ist gewachsen. Vorher endete das Dach auf 1,57 m - in so eine
+     Zelle passt kein Mensch von 1,76 m, deshalb sassen dort nur auf 0,66
+     geschrumpfte Sitzfiguren. Jetzt reicht die Zelle bis 1,92 m, und ein
+     echter Zivilist sitzt hinein, ohne mit dem Kopf durchs Dach zu gehen. */
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.72, 4.6), bodyMat);
+  body.position.y = 0.66; body.castShadow = true;
   g.add(body);
   /* ---- Fahrgastzelle als Glaskasten ----
      Vorher war das Dach ein undurchsichtiger Klotz mit einer einzigen
@@ -8903,18 +9006,18 @@ function makeCarMesh(color) {
      0,42 verschwanden die Insassen im Glanz der Scheibe. */
   const glasMat = new THREE.MeshLambertMaterial({
     color: 0x5c7f96, transparent: true, opacity: 0.34, depthWrite: false });
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.62, 2.2), glasMat);
-  cab.position.set(0, 1.16, -0.2);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.86, 2.4), glasMat);
+  cab.position.set(0, 1.45, -0.2);
   g.add(cab);
-  const dach = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.1, 2.26), bodyMat);
-  dach.position.set(0, 1.52, -0.2); dach.castShadow = true;
+  const dach = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.1, 2.46), bodyMat);
+  dach.position.set(0, 1.93, -0.2); dach.castShadow = true;
   g.add(dach);
   /* Dachholme, damit die Zelle nicht wie eine Schneekugel wirkt. */
   const holmMat = new THREE.MeshLambertMaterial({ color: 0x2a2e34 });
   for (const sx of [-1, 1]) {
-    for (const sz of [0.92, -1.32]) {
-      const holm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.62, 0.09), holmMat);
-      holm.position.set(sx * 0.82, 1.16, sz);
+    for (const sz of [1.02, -1.42]) {
+      const holm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.86, 0.09), holmMat);
+      holm.position.set(sx * 0.86, 1.45, sz);
       g.add(holm);
     }
   }
@@ -8923,15 +9026,21 @@ function makeCarMesh(color) {
   const leute = [];
   for (const sx of [-1, 1]) {
     if (sx > 0 && Math.random() < 0.35) continue;        // mal faehrt jemand allein
-    for (const t of sitzMensch(sx * 0.42, 0.82, 0.12, 0, 0.66)) leute.push(t);
+    for (const t of sitzMensch(sx * 0.44, 0.92, 0.12, 0, 0.9)) leute.push(t);
   }
   if (Math.random() < 0.3) {                             // manchmal jemand hinten
-    for (const t of sitzMensch(rand(-0.4, 0.4), 0.82, -0.95, 0, 0.66)) leute.push(t);
+    for (const t of sitzMensch(rand(-0.4, 0.4), 0.92, -1.05, 0, 0.9)) leute.push(t);
   }
   if (leute.length) {
-    g.add(new THREE.Mesh(verschmelzeTeile(leute),
-                         new THREE.MeshLambertMaterial({ vertexColors: true })));
+    const im = new THREE.Mesh(verschmelzeTeile(leute),
+                              new THREE.MeshLambertMaterial({ vertexColors: true }));
+    g.add(im);
+    /* Merken: sitzt ein ECHTER Zivilist in diesem Wagen, werden die
+       einfachen Sitzfiguren ausgeblendet, sonst sitzen zwei uebereinander. */
+    g.userData.insassen = im;
   }
+  /* Wo der Fahrer sitzt, in Wagenkoordinaten. */
+  g.userData.fahrerSitz = { x: -0.44, y: 0.92, z: 0.12 };
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.25, 10);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x17181c });
   for (const [sx, sz] of [[-1, 1.35], [1, 1.35], [-1, -1.35], [1, -1.35]]) {
@@ -11885,6 +11994,8 @@ function simuliere(dt) {
   updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
   updateSymbiont(dt);
+  updateAutoFahrer(dt);
+  updateKitHaeuser(dt);
   updateFlecken();
   updateKlang(dt);
   updateDampf(dt);

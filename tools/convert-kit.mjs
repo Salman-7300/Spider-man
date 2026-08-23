@@ -26,7 +26,8 @@ const { prune, dedup, textureCompress, weld } = require('@gltf-transform/functio
 let sharp = null;
 try { sharp = require('sharp'); } catch (e) { /* dann ohne Verkleinern */ }
 
-const [kitDir, ziel, ...teile] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const [kitDir, ziel, ...teile] = args.filter((a) => !a.startsWith('--'));
 if (!kitDir || !ziel || !teile.length) {
   console.error('Aufruf: node tools/convert-kit.mjs <kit-ordner> <ausgabe.glb> Teil1 Teil2 ...');
   process.exit(1);
@@ -43,8 +44,28 @@ const puffer = aus.createBuffer();
 const matCache = new Map();
 const texCache = new Map();
 
+/* Ein fertiges Haus aus dem Baukasten besteht aus rund einem Dutzend
+   Teilmeshes, weil es ein Dutzend Materialien benutzt - und jedes
+   Teilmesh ist ein eigener Zeichenaufruf. Ueber eine ganze Gegend sind das
+   schnell ein paar hundert.
+   Mit --sparsam werden deshalb die Materialien zusammengelegt, die man im
+   Spiel ohnehin kaum auseinanderhaelt: die vier "FakeInterior" hinter den
+   Fenstern werden zu einem, und der Innenraum des Erdgeschosses
+   (InteriorFloor, InteriorWall, Glass) faellt ganz weg - man sieht ihn nur
+   durch die Schaufenster, und dort ist er hinter der Scheibe kaum zu
+   erkennen. */
+const sparsam = args.includes('--sparsam');
+function sparName(name) {
+  if (!sparsam) return name;
+  if (/FakeInterior/i.test(name)) return 'MI_FakeInterior';
+  return name;
+}
+function wegwerfen(name) {
+  return sparsam && /Interior(Floor|Wall)|^MI_Glass$/i.test(name);
+}
+
 function holeMaterial(quellMat) {
-  const name = quellMat.getName() || 'material';
+  const name = sparName(quellMat.getName() || 'material');
   if (matCache.has(name)) return matCache.get(name);
   const m = aus.createMaterial(name);
   m.setRoughnessFactor(1).setMetallicFactor(0);
@@ -89,9 +110,14 @@ for (const name of teile) {
   const doc = await io.read(datei);
   const knoten = aus.createNode(name);
   let tris = 0;
+  /* Alle Primitive eines Teils kommen in EIN Mesh - egal aus wie vielen
+     Quellmeshes sie stammen. Vorher ueberschrieb jedes Quellmesh das
+     vorige, und bei mehreren blieb nur das letzte uebrig. */
+  const neu = aus.createMesh(name);
   for (const mesh of doc.getRoot().listMeshes()) {
-    const neu = aus.createMesh(name);
     for (const prim of mesh.listPrimitives()) {
+      const qm0 = prim.getMaterial();
+      if (qm0 && wegwerfen(qm0.getName() || '')) continue;
       const p = aus.createPrimitive();
       /* Nur die Attribute uebernehmen, die das Spiel zeichnet: Lage,
          Normale und die erste UV. TANGENT und die zweiten UV braucht
@@ -109,12 +135,11 @@ for (const name of teile) {
       } else {
         tris += prim.getAttribute('POSITION').getCount() / 3;
       }
-      const qm = prim.getMaterial();
-      if (qm) p.setMaterial(holeMaterial(qm));
+      if (qm0) p.setMaterial(holeMaterial(qm0));
       neu.addPrimitive(p);
     }
-    knoten.setMesh(neu);
   }
+  knoten.setMesh(neu);
   szene.addChild(knoten);
   gefunden++;
   console.log(`  + ${name}  ${Math.round(tris)} Dreiecke`);
