@@ -55,6 +55,25 @@ const ANIM_KEYWORDS = [
      Bewegungen für Zivilisten. Alle Namen enthalten Wörter, die weiter
      unten schon gefangen würden ("Falling To Roll" -> roll, "Wall Run" ->
      run, "Standing Idle Looking" -> idle). */
+  /* mixamo-8: Sprint, Ducken, Schleichen, zweites Klettern, Haengen ohne
+     "Idle" im Namen. Alle fuenf wuerden ohne eigene Regel von einer
+     allgemeineren gefangen und dabei eine schon vorhandene Bewegung
+     ueberschreiben:
+       "Sprint"            -> run     (wuerde das normale Laufen ersetzen)
+       "Crouched Walking"  -> walk    (wuerde das Gehen ersetzen)
+       "Sneaking Forward"  -> gar nichts, es gab keine Regel
+       "Braced Hang"       -> swing   (wuerde den Netzschwung ersetzen)
+       "Climbing"          -> climb   (wuerde "Climbing Up Wall" ersetzen) */
+  [/sprint/i, 'sprint'],
+  [/crouch(ed)?[ ._-]?(walk|walking|run)/i, 'ducken'],
+  [/sneak/i, 'schleichen'],
+  /* Zwei Haenge-Bewegungen mit verschiedenem Zweck: "Braced Hang" stemmt
+     die Fuesse gegen die Wand (Sims, Kante), "Hanging Idle" haengt frei
+     (am Netzfaden). */
+  [/hanging[ ._-]?idle/i, 'haengen_frei'],
+  [/braced[ ._-]?hang/i, 'haengen'],
+  [/^climbing[ ._-]*(\(\d+\))?$/i, 'klettern'],
+
   [/falling[ ._-]?to[ ._-]?roll/i, 'fallrolle'],
   [/wall[ ._-]?run/i, 'wandlauf'],
   [/uppercut/i, 'uppercut'],

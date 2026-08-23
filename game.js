@@ -10,7 +10,7 @@ if (typeof THREE === 'undefined') return;
 const CFG = {
   gravity: 30,
   swingGravity: 24,
-  duckSpeed: 2.2,
+  duckSpeed: 2.2, schleichSpeed: 1.4,
   walkSpeed: 2.8,
   runSpeed: 7,
   sprintSpeed: 11,
@@ -2375,6 +2375,21 @@ const GLB_YAW = {};
 
 /* Zusätzliche Animations-Dateien pro Modell: assets/<slot>@<teil>.glb
    (entstehen automatisch aus Mixamo-Downloads „Without Skin“, siehe tools/) */
+/* ---- Bezugstempo der Gangarten ----
+   Wie schnell sich die Figur in der jeweiligen Mixamo-Datei bei
+   Abspielgeschwindigkeit 1 fortbewegt. Daraus wird die Abspielgeschwindig-
+   keit berechnet, damit der aufgesetzte Fuss wirklich stehen bleibt statt
+   ueber den Asphalt zu rutschen. Die Werte sind gemessen, nicht geschaetzt
+   (siehe Fussrutsch-Messung). */
+const GANG_REF = {
+  schleichen: 2.0,
+  ducken: 1.15,
+  walk: 1.45,
+  run: 4.2,
+  sprint: 5.0,
+};
+const GANG_CLIPS = Object.keys(GANG_REF);
+
 const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'attack', 'kick', 'hit', 'roll', 'sit', 'swing', 'climb',
   /* mixamo-5: freies Klettern, seitliches Hangeln, Ausweichschritt
@@ -2384,7 +2399,10 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'kante', 'haengen',
   /* mixamo-7: Wandlauf, Aufwärtshaken, Wurf, Landerolle, Zivilisten-Posen. */
   'fallrolle', 'wandlauf', 'uppercut', 'wurf', 'telefon', 'warten', 'umschauen',
-  'hook', 'punch3', 'luftangriff', 'knie', 'block', 'taunt', 'jubel'];
+  'hook', 'punch3', 'luftangriff', 'knie', 'block', 'taunt', 'jubel',
+  /* mixamo-8: Sprint, Ducklauf, Schleichen, zweites Klettern, freies
+     Haengen am Faden. */
+  'sprint', 'ducken', 'schleichen', 'klettern', 'haengen_frei'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -2615,7 +2633,13 @@ function teileBewegungen() {
 const GLB_CLIP_PATTERNS = {
   idle: [/idle/i, /stand/i, /breath/i],
   walk: [/walk/i],
-  run: [/run/i, /jog/i, /sprint/i],
+  /* Exakter Name zuerst: seit es eine eigene Sprint-Datei gibt, wuerde
+     /sprint/ sonst beim Laufen zuschlagen. */
+  run: [/^run$/i, /run/i, /jog/i],
+  sprint: [/^sprint$/i, /sprint/i],
+  ducken: [/^ducken$/i, /crouch/i],
+  schleichen: [/^schleichen$/i, /sneak/i],
+  klettern: [/^klettern$/i],
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – erst die
      passende suchen, sonst rudert die Figur beim Fallen mit den Beinen. */
   jump: [/jump/i, /leap/i],
@@ -2624,7 +2648,8 @@ const GLB_CLIP_PATTERNS = {
   swing: [/swing/i, /hang/i, /fly/i, /brachiat/i],
   climb: [/^climb$/i, /climb/i, /crawl/i, /ladder/i],
   kante: [/kante/i],
-  haengen: [/haengen/i],
+  haengen: [/^haengen$/i, /haengen/i],
+  haengen_frei: [/haengen_frei/i],
   fallrolle: [/fallrolle/i],
   wandlauf: [/wandlauf/i],
   uppercut: [/uppercut/i],
@@ -4179,18 +4204,32 @@ function makeGlbVisual(m) {
       /* Hysterese am Übergang Gehen/Laufen: mit einer einzigen Schwelle
          sprang die Figur bei knapp drei Metern je Sekunde ständig zwischen
          beiden Bewegungen hin und her. */
-      if (key === 'run' && findClip(m.clips, 'walk')) {
-        if (geht && vBoden > 3.2) geht = false;
-        else if (!geht && vBoden < 2.5) geht = true;
-        if (geht) want = 'walk';
+      /* ---- Fuenf Gangarten, jede mit eigener Bewegungsdatei ----
+         Schleichen, Ducklauf, Gehen, Laufen, Sprinten. Vorher gab es nur
+         Gehen und Laufen; Ducken war eine selbstgebaute Haltung ueber dem
+         Gehschritt und Sprinten war derselbe Laufschritt, nur schneller
+         abgespielt. Umgeschaltet wird nach echtem Tempo, nicht nach einem
+         Anteil der Hoechstgeschwindigkeit. */
+      if (key === 'run') {
+        /* Das Spiel weiss selbst, welche Gangart es befohlen hat - danach
+           wird umgeschaltet. Frueher entschied allein die gemessene
+           Geschwindigkeit; die Gehstufe lag dabei genau in der Hysterese
+           und blieb am Laufschritt haengen. */
+        if (p.gang && findClip(m.clips, p.gang)) want = p.gang;
+        else if (findClip(m.clips, 'walk')) {
+          if (geht && vBoden > 3.2) geht = false;
+          else if (!geht && vBoden < 2.5) geht = true;
+          if (geht) want = 'walk';
+        }
       }
       const a = actionFor(want) || actionFor('idle');
       if (a && a !== current) {
         /* Beim Wechsel zwischen Gehen und Laufen die Schrittphase
            mitnehmen: sonst fängt der neue Takt bei null an und die Beine
            machen mitten im Schritt einen Satz. */
-        const beideLauf = (want === 'run' || want === 'walk') &&
-                          current && (current === actions.run || current === actions.walk);
+          /* Beim Wechsel zwischen zwei Gangarten die Schrittphase mitnehmen. */
+        const beideLauf = GANG_REF[want] !== undefined && current &&
+                          GANG_CLIPS.some((k) => current === actions[k]);
         let phase = 0;
         if (beideLauf) {
           const cd = current.getClip().duration || 1;
@@ -4211,8 +4250,8 @@ function makeGlbVisual(m) {
          zurück. Wird die Abspielgeschwindigkeit daraus berechnet, bleiben
          die Füße am Boden stehen, statt zu rutschen – genau das hat das
          Laufen bisher unruhig wirken lassen. */
-      if (current && (want === 'run' || want === 'walk')) {
-        const ref = want === 'walk' ? 1.45 : 4.2;
+      if (current && GANG_REF[want] !== undefined) {
+        const ref = GANG_REF[want];
         /* Unten weiter aufgemacht (0,45 statt 0,7): wer langsam schleicht,
            bewegte die Beine sonst schneller als er vorankam – genau das
            war das Rutschen über den Asphalt. */
@@ -4221,7 +4260,8 @@ function makeGlbVisual(m) {
            früheren Deckelung auf 2,4 rutschte die Figur im Sprint. */
         current.timeScale = clamp(vGlatt / ref, 0.45, 3.0);
         letzterTakt = { was: want, faktor: current.timeScale, ref, v: vGlatt };
-      } else if (current && (want === 'climb' || want === 'klettern_frei' || want === 'klettern_seit')) {
+      } else if (current && (want === 'climb' || want === 'klettern' ||
+                            want === 'klettern_frei' || want === 'klettern_seit')) {
         /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
            kraxelte die Figur auf der Stelle weiter. */
         current.timeScale = p.tempo === undefined ? 1 : p.tempo;
@@ -5181,7 +5221,7 @@ function baueTouch() {
       kann: () => player.onGround && !player.dead,
       tun: () => katapultStart(), los: () => katapultLos() },
     { id: 'tDucken', sym: '🦵', bez: 'Ducken', reihe: 1, art: 'halten',
-      hilfe: 'Halten: schleichen (2,2 m/s)',
+      hilfe: 'Halten: ducken (2,2 m/s). Zusammen mit leicht ausgelenktem Knüppel: schleichen (1,4 m/s).',
       kann: () => player.onGround,
       tun: () => { touchDucken = true; }, los: () => { touchDucken = false; } },
     { id: 'tKlettern', sym: '🧗', bez: 'Halten', reihe: 1, art: 'halten',
@@ -5360,8 +5400,28 @@ function stickStaerke() {
 /* Vier Gangarten, auf jedem Gerät dieselben Geschwindigkeiten.
    Tastatur: X ducken, Alt gehen, nichts laufen, Shift sprinten.
    Knüppel/Stick: bis 55 % gehen, bis 85 % laufen, darüber sprinten. */
+/* Welche Gangart ist gerade befohlen? Die Optik braucht den Namen, nicht
+   nur das Tempo: beim Umschalten nach gemessener Geschwindigkeit lag die
+   Gehstufe (2,8 m/s) mitten in der Hysterese zwischen Gehen und Laufen und
+   blieb deshalb beim Laufschritt haengen. */
+function gangArt() {
+  if (duckenAn()) {
+    const s = stickStaerke();
+    return (geheAn() || (s > 0.05 && s < 0.55)) ? 'schleichen' : 'ducken';
+  }
+  const s = stickStaerke();
+  if (sprintAn() || s > 0.85) return 'sprint';
+  if (geheAn() || (s > 0.05 && s < 0.55)) return 'walk';
+  return 'run';
+}
 function gangTempo() {
-  if (duckenAn()) return CFG.duckSpeed;
+  /* Geduckt und dazu die Gehtaste: schleichen. Damit hat auch die
+     Schleichbewegung eine eigene Geschwindigkeit statt nur eine Datei zu
+     sein, die nie zu sehen ist. */
+  if (duckenAn()) {
+    const s = stickStaerke();
+    return (geheAn() || (s > 0.05 && s < 0.55)) ? CFG.schleichSpeed : CFG.duckSpeed;
+  }
   const s = stickStaerke();
   if (sprintAn() || s > 0.85) return CFG.sprintSpeed;
   if (geheAn() || (s > 0.05 && s < 0.55)) return CFG.walkSpeed;
@@ -6581,10 +6641,15 @@ function updatePlayer(dt) {
        geht es mit dem freien Klettern nach oben. Die Wandpose legt sich in
        beiden Fällen darüber. */
     const seitlich = Math.abs(side) > Math.abs(up);
+    /* mixamo-8 bringt mit "Climbing" eine durchgehende Kletterschleife -
+       Hand ueber Hand, Koerper an der Wand. Sie passt fuer das
+       Wandkriechen deutlich besser als "Climbing Up Wall", das eher ein
+       einmaliges Hochziehen ist. */
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
                 : seitlich ? 'klettern_seit'          // seitlich hangeln
-                : 'climb';                            // senkrecht hoch/runter
+                : (heroVisual.hatClip && heroVisual.hatClip('klettern')
+                    ? 'klettern' : 'climb');          // senkrecht hoch/runter
     updateHeroVisual(dt);
     return;
   }
@@ -7106,6 +7171,7 @@ function updatePlayer(dt) {
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   /* Geduckt: weich ein- und ausblenden, damit es nicht umspringt. */
   player.duckt = duckenAn();
+  player.gang = gangArt();
   player.duckMisch = lerp(player.duckMisch || 0, player.duckt ? 1 : 0,
                           Math.min(1, dt * 9));
   if (player.landT > 0) player.landT -= dt;
@@ -7129,7 +7195,12 @@ function updatePlayer(dt) {
   if (player.rollT > 0 && !player.onGround && player.vel.y < -1) player.rollT = 0;
   if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
-  else if (player.state === 'swing') player.anim = 'swing';
+  else if (player.state === 'swing') {
+    /* Haengt man fast bewegungslos am Faden, passt die ruhige Haenge-
+       bewegung besser als der volle Schwung. */
+    player.anim = (hSpeed < 2.2 && heroVisual.hatClip && heroVisual.hatClip('haengen_frei'))
+      ? 'haengen_frei' : 'swing';
+  }
   /* Beim Netz-Zip auf einen Gegner fliegt der Held mit dem Knie voran. */
   else if (player.state === 'zip') player.anim = (player.zip && player.zip.enemy) ? 'knie' : 'air';
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
@@ -7248,6 +7319,8 @@ function updateHeroVisual(dt) {
     tempo: player.klettertempo,
     t: elapsed,
     hand: player.swing ? player.swing.hand : netzHand,
+    ducken: player.duckt,
+    gang: player.gang,
   }, dt);
 
   if (heroVisual.procedural) {
@@ -7287,7 +7360,11 @@ function updateHeroVisual(dt) {
       /* Beim Wandlauf führt die Bewegung allein – die Spinnenpose würde
          die laufenden Beine überschreiben. */
       if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
-        heroVisual.poseWandkriechen(w.nx, w.nz, player.phase, 0.85);
+        /* Schwaecher als frueher (0,55 statt 0,85): mit der echten
+           Kletterschleife aus mixamo-8 soll die Bewegungsdatei den Rhythmus
+           vorgeben. Die Pose sorgt nur noch dafuer, dass Haende und Fuesse
+           wirklich an der Fassade landen. */
+        heroVisual.poseWandkriechen(w.nx, w.nz, player.phase, 0.55);
       } else if (w && player.wandlauf && heroVisual.poseWandlauf) {
         heroVisual.poseWandlauf(w.nx, w.nz, player.phase, 0.9);
       }
@@ -7316,9 +7393,14 @@ function updateHeroVisual(dt) {
                           Math.sin(player.facing), Math.cos(player.facing));
       }
       if (heroVisual.kopfStabil) heroVisual.kopfStabil(r.rotation.x, 0.55);
-      /* Geduckt zum Schluss: die Pose muss über der Laufbewegung liegen. */
-      if (player.duckMisch > 0.02 && heroVisual.poseDucken) {
-        heroVisual.poseDucken(clamp(player.duckMisch, 0, 1),
+      /* Geduckt zum Schluss: die Pose muss über der Laufbewegung liegen.
+         Seit es echte Duck- und Schleichbewegungen gibt, wird sie nur noch
+         im STAND gebraucht - beim Gehen fuehrt die Datei, und die
+         selbstgebaute Haltung wuerde nur dagegen arbeiten. */
+      const duckClip = heroVisual.hatClip && heroVisual.hatClip('ducken');
+      const duckStaerke = duckClip ? clamp(1 - hSpeed / 0.8, 0, 1) : 1;
+      if (player.duckMisch > 0.02 && duckStaerke > 0.02 && heroVisual.poseDucken) {
+        heroVisual.poseDucken(clamp(player.duckMisch, 0, 1) * duckStaerke,
                               clamp(hSpeed / CFG.duckSpeed, 0, 1));
       }
     }
@@ -8463,6 +8545,26 @@ function spawnCivilian() {
    Sie laufen denselben Weg-Punkt-Kreis wie alle anderen, nur liegt der auf
    dem Bahnsteig. Dadurch gilt fuer sie die gesamte vorhandene Logik -
    Stehenbleiben, Umschauen, Handy - ohne Sonderfall. */
+/* Einen vorhandenen Zivilisten zum Fahrgast einer Station machen: er
+   bekommt den Rundweg ueber Bahnsteig und Treppe. */
+function machZuFahrgast(c, sx, seite) {
+  const sch = UB_SCHAECHTE[seite];
+  const schZ = (sch.z0 + sch.z1) / 2;
+  const zSteig = seite === 0 ? [UB_STEIG_Z0 + 1.8, UB_STEIG_Z1 - 2.4]
+                             : [UB_STEIG2_Z0 + 2.4, UB_STEIG2_Z1 - 1.8];
+  const a = sx + rand(-10, 4);
+  c.bahnsteig = sx;
+  c.steigSeite = seite;
+  c.loop = [
+    V3(sx + sch.xKopf + (sch.xKopf > 0 ? 2.5 : -2.5), SLAB_H, schZ),
+    V3(sx + sch.xFuss, UB_TIEF, schZ),
+    V3(a, UB_TIEF, rand(zSteig[0], zSteig[1])),
+    V3(a + rand(4, 9), UB_TIEF, rand(zSteig[0], zSteig[1])),
+  ];
+  c.wp = 2;
+  c.festT = 0; c.letzteDist = null;
+}
+
 function spawnBahnsteigZivi(sx, seite) {
   /* Der Rundweg fuehrt ueber die Treppe bis auf den Gehweg und wieder
      hinunter. Dadurch kommen die Leute sichtbar von oben herein und
@@ -8752,6 +8854,21 @@ function updateCivilians(dtBild) {
     const cGrund = groundY(c.pos.x, c.pos.z, c.pos.y);
     c.pos.y = lerp(c.pos.y, cGrund, Math.min(1, dt * 12));
     c.pos.y = Math.max(c.pos.y, cGrund - 0.02);
+    /* Wer von der Strasse in einen Treppenschacht laeuft, landet unten -
+       und haette dort keinen Wegpunkt mehr, an dem er sich orientiert.
+       Statt ihn zurueckzusetzen wird er zum Fahrgast dieser Station: sein
+       Rundweg fuehrt ab jetzt ueber den Bahnsteig und die Treppe. */
+    if (c.bahnsteig === undefined && c.pos.y < -3 && UBAHNEN.length) {
+      let beste = null, bestD = 1e9;
+      for (const u of UBAHNEN) {
+        const d2 = Math.abs(u.x - c.pos.x);
+        if (d2 < bestD) { bestD = d2; beste = u; }
+      }
+      if (beste) {
+        const seite = c.pos.z > UB_Z ? 0 : 1;
+        machZuFahrgast(c, beste.x, seite);
+      }
+    }
     if (speed > 0.1) {
       c.facing = dampAngle(c.facing, Math.atan2(dirX, dirZ), dt * 8);
       c.phase += dt * (4 + speed * 1.6);
@@ -10697,6 +10814,7 @@ if (window.__WEBHERO_TEST__ === true) {
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
     ubahnen() { return UBAHNEN; },
+    gangRef() { return GANG_REF; },
     flaeche(a,b,c,d) { return flaecheMitLoechern(a,b,c,d, ubahnLoecher()); },
     ubLoecher() { return ubahnLoecher(); },
     zuege() { return ZUEGE.map(t => ({ x: +t.x.toFixed(1), z: t.z, r: t.richtung,
