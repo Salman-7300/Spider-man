@@ -1665,8 +1665,14 @@ function baueUBahn(x) {
                     x1: x + Math.max(sch.xFuss, sch.xKopf) + 0.45,
                     z0: wz - 0.25, z1: wz + 0.25, h: SLAB_H - 0.03,
                     y0: wandUnten, keinKlettern: true });
-      for (let i = 0; i < 6; i++) {
-        const t = (i + 0.5) / 6;
+      /* Lampen an der Schachtwand. Sie hingen 2,2 m ueber der jeweiligen
+         Stufe - bei den obersten Stufen liegt das ueber dem Gehweg, und
+         genau das waren die zwei hellen Platten, die frei ueber dem
+         Buergersteig schwebten. Sie beginnen jetzt erst dort, wo sie
+         mindestens 1,4 m UNTER dem Gehweg haengen. */
+      const tMin = (SLAB_H - 1.4 - 2.2 - SLAB_H) / (UB_TIEF - SLAB_H);
+      for (let i = 0; i < 5; i++) {
+        const t = tMin + (i + 0.5) / 5 * (0.95 - tMin);
         deko(1.3, 0.16, 0.1, x + sch.xKopf + richtung * t * UB_TREPPE,
              lerp(SLAB_H, UB_TIEF, t) + 2.2, wz + (s2 < 0 ? 0.2 : -0.2), 0xf4f0d8);
       }
@@ -2597,6 +2603,10 @@ const GANG_REF = {
   sprint: 5.0,
 };
 const GANG_CLIPS = Object.keys(GANG_REF);
+/* Stelle im Duck-Clip, an der die Figur im Stand angehalten wird.
+   Abgetastet: dort ist der Hoehenunterschied zwischen den Fuessen am
+   kleinsten und beide stehen am tiefsten. */
+let DUCK_STAND_T = 0.42;
 
 const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'attack', 'kick', 'hit', 'roll', 'sit', 'swing', 'climb',
@@ -2612,7 +2622,11 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
      Haengen am Faden. */
   'sprint', 'ducken', 'schleichen', 'klettern', 'haengen_frei',
   /* mixamo-9: Haltungen fuer den Netzschwung, Landehocke, Salti. */
-  'schwungpose', 'sturzland', 'frontflip', 'backflip'];
+  'schwungpose', 'sturzland', 'frontflip', 'backflip',
+  /* animation-1: echte Netzschwung-Bewegungen aus einem fertigen Modell
+     (siehe tools/extract-anims.mjs). Endlich ein richtiger Schwung statt
+     einer festgehaltenen Haltung. */
+  'schwung', 'schwungland', 'schwunghang'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -2847,6 +2861,8 @@ const GLB_CLIP_PATTERNS = {
      /sprint/ sonst beim Laufen zuschlagen. */
   run: [/^run$/i, /run/i, /jog/i],
   sprint: [/^sprint$/i, /sprint/i],
+  schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
+  schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
   sturzland: [/^sturzland$/i],
   frontflip: [/^frontflip$/i],
@@ -3633,7 +3649,8 @@ function makeGlbVisual(m) {
          selbstgesetzten Winkel legen sich dann nur noch leicht darueber
          (0,35 statt 0,9) und bringen den Pendeltakt hinein - vorher haben
          sie die Bewegungsdatei vollstaendig ueberschrieben. */
-      const k = findClip(m.clips, 'schwungpose') ? 0.35 : 0.9;
+      const k = findClip(m.clips, 'schwung') ? 0.15
+             : findClip(m.clips, 'schwungpose') ? 0.35 : 0.9;
       /* lage: -1 = es geht abwärts in den Bogen hinein, +1 = es geht wieder
          hinauf. Am tiefsten Punkt zieht man die Beine an, oben streckt man
          sie nach vorn – erst dadurch wirkt der Schwung gelöst statt wie
@@ -4254,13 +4271,26 @@ function makeGlbVisual(m) {
       for (const p of ['left', 'right']) {
         drehZuRuhe(knochen[p + 'upleg'], 0.62 * w * tief, 0, 0.1 * w, w * 0.8);
         drehZuRuhe(knochen[p + 'leg'], 0.95 * w * tief, 0, 0, w * 0.8);
-        if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.3 * w, 0, 0, w * 0.6);
+        if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.12 * w, 0, 0, w * 0.6);
       }
       drehe(knochen.spine1, 0.3 * w, 0, 0, w * 0.7);
       drehe(knochen.spine, 0.16 * w, 0, 0, w * 0.6);
       drehZuRuhe(knochen.head, -0.35 * w, 0, 0, w * 0.7);
-      /* Der ganze Körper sinkt ab – sonst schweben die Füße über dem Boden. */
-      inner.position.y = basisY + bodenKorrektur - 0.34 * w;
+      /* Absenken, damit die Fuesse auf dem Boden bleiben. Frueher stand
+         hier ein fester Abzug von 34 cm - geraten und zu klein: gemessen
+         hebt die Hocke den tiefsten Fuss um gut 67 cm an, die Figur
+         schwebte also 34 cm ueber der Strasse. Jetzt wird der Fussstand
+         nach den Drehungen gemessen und genau der Fehler ausgeglichen.
+         Weil inner ein Kind von root ist, verschiebt der Zuschlag alle
+         Knochen starr mit - der gemessene Fehler stimmt danach exakt. */
+      if (fuesse.length && fussRuhe !== null) {
+        root.updateMatrixWorld(true);
+        let tiefster = Infinity;
+        for (const f of fuesse) { f.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
+        inner.position.y += (fussRuhe - 0.015) - (tiefster - root.position.y);
+      } else {
+        inner.position.y = basisY + bodenKorrektur - 0.34 * w;
+      }
     },
     /* Kopf ruhig halten: Beim Laufen nickt der ganze Körper mit, und mit
        der neuen Vorlage schaut die Figur sonst auf den Asphalt. Kopf und
@@ -4409,7 +4439,14 @@ function makeGlbVisual(m) {
          "Swing To Land": angezogene Knie am Tiefpunkt, Beine nach vorn im
          Aufstieg. Der Clip laeuft dabei nicht ab, sondern wird an der zur
          Lage im Bogen passenden Stelle festgehalten. */
-      if (key === 'swing' && findClip(m.clips, 'schwungpose')) want = 'schwungpose';
+      /* Seit animation-1 gibt es eine echte Schwungbewegung. Sie hat
+         Vorrang vor der festgehaltenen Haltung aus mixamo-9. */
+      if (key === 'swing') {
+        if (findClip(m.clips, 'schwung')) want = 'schwung';
+        else if (findClip(m.clips, 'schwungpose')) want = 'schwungpose';
+      }
+      if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
+      if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
       if ((key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
            key === 'klettern_seit') && !findClip(m.clips, key)) {
         want = findClip(m.clips, 'climb') ? 'climb' : 'idle';
@@ -4483,6 +4520,21 @@ function makeGlbVisual(m) {
            früheren Deckelung auf 2,4 rutschte die Figur im Sprint. */
         current.timeScale = clamp(vGlatt / ref, 0.45, 3.0);
         letzterTakt = { was: want, faktor: current.timeScale, ref, v: vGlatt };
+      } else if (current && key === 'duckstand' && want === 'ducken') {
+        /* Angehalten statt abgespielt: sonst liefe die Figur im Stand auf
+           der Stelle. Die Stelle ist gemessen - dort stehen beide Fuesse
+           gleich tief auf dem Boden. */
+        current.timeScale = 0;
+        current.time = DUCK_STAND_T;
+      } else if (current && want === 'schwung') {
+        /* Der Clip laeuft nicht von selbst ab, seine Stelle folgt dem
+           Pendel: unten im Bogen liegt die Figur lang gestreckt (Ende des
+           Clips), im Aufstieg zieht sie sich zusammen und greift nach oben
+           (Mitte des Clips). Dadurch bewegt sich der Koerper MIT dem
+           Schwung, statt eine Haltung zu halten. */
+        current.timeScale = 0;
+        const lage = clamp(p.bogen === undefined ? 0 : p.bogen, 0, 1);
+        current.time = lerp(1.95, 1.02, lage);
       } else if (current && want === 'schwungpose') {
         /* Nicht abspielen, sondern anhalten: der Zeitpunkt im Clip folgt
            der Lage im Bogen. 0,01 s = Knie angezogen (Tiefpunkt),
@@ -5125,7 +5177,8 @@ const player = {
   attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
-  hartLandung: 0, saltoCd: 0, luftSalto: 0, luftKombo: 0, konterT: 0, konterZiel: null,
+  hartLandung: 0, saltoCd: 0, luftSalto: 0, warSchwung: 0,
+  luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
   altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, katFlug: 0, zug: null,
@@ -6021,6 +6074,9 @@ function stopSwing(boost) {
       if (dauer) { player.saltoCd = 3.0; player.luftSalto = dauer; }
     }
   }
+  /* Wer eben noch am Faden hing, landet mit der Abrollbewegung aus
+     animation-1 statt mit der allgemeinen Sturzlandung. */
+  player.warSchwung = 2.2;
   swingStrand.visible = false;
   SFX.swoosh();
 }
@@ -7276,6 +7332,14 @@ function updatePlayer(dt) {
         const rest = Math.min(11, waagerecht * 0.55);
         player.vel.x = f.x * rest; player.vel.z = f.z * rest;
         player.facing = Math.atan2(f.x, f.z);
+      } else if (player.warSchwung > 0 && heroVisual.hatClip &&
+                 heroVisual.hatClip('schwungland') && heroVisual.attackOneShot) {
+        /* Loslassen, abrollen, in der Hocke aufkommen - die passende
+           Bewegung zum Netzschwung. */
+        player.landT = heroVisual.attackOneShot(0, 'schwungland', 1.0) || 1.0;
+        player.hartLandung = player.landT;
+        player.vel.x *= 0.25; player.vel.z *= 0.25;
+        player.warSchwung = 0;
       } else if (heroVisual.hatClip && heroVisual.hatClip('sturzland') &&
                  heroVisual.attackOneShot) {
         /* Von oben: die tiefe Landehocke aus "Jumping Down" - beide Haende
@@ -7431,6 +7495,7 @@ function updatePlayer(dt) {
   if (player.hartLandung > 0) player.hartLandung -= dt;
   if (player.saltoCd > 0) player.saltoCd -= dt;
   if (player.luftSalto > 0) player.luftSalto -= dt;
+  if (player.warSchwung > 0) player.warSchwung -= dt;
   if (player.dreiPunktT > 0) {
     player.dreiPunktT -= dt;
     /* Bewegt man sich, bricht die Pose sofort ab – sonst klebt man fest. */
@@ -7465,7 +7530,14 @@ function updatePlayer(dt) {
   else if (player.dreiPunktT > 0) player.anim = 'land';
   else if (player.hartLandung > 0) player.anim = 'fallrolle';
   else if (player.landT > 0) player.anim = 'land';
-  else if (player.duckMisch > 0.3 && hSpeed <= 0.4) player.anim = 'idle';
+  /* Geduckt im Stand. Frueher lief hier die Ruhebewegung und darueber die
+     selbstgebaute Hocke - und die war falsch: gemessen hob sie den
+     tiefsten Fuss um gut 67 cm, die Figur sass sichtbar in der Luft, mit
+     den Beinen nach vorn. Seit es die echte Duckbewegung gibt, wird die
+     genommen und an einer Stelle angehalten, an der beide Fuesse stehen. */
+  else if (player.duckMisch > 0.3 && hSpeed <= 0.4) {
+    player.anim = (heroVisual.hatClip && heroVisual.hatClip('ducken')) ? 'duckstand' : 'idle';
+  }
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
        sonst „läuft" die Figur beim Ausrollen weiter, obwohl man steht. */
@@ -7675,8 +7747,12 @@ function updateHeroVisual(dt) {
          Seit es echte Duck- und Schleichbewegungen gibt, wird sie nur noch
          im STAND gebraucht - beim Gehen fuehrt die Datei, und die
          selbstgebaute Haltung wuerde nur dagegen arbeiten. */
+      /* Mit echter Duckbewegung wird die selbstgebaute Hocke gar nicht
+         mehr gebraucht - im Gehen fuehrt der Duckgang, im Stand die
+         angehaltene Duckbewegung. Sie bleibt nur als Rueckfall, wenn die
+         Datei fehlt. */
       const duckClip = heroVisual.hatClip && heroVisual.hatClip('ducken');
-      const duckStaerke = duckClip ? clamp(1 - hSpeed / 0.8, 0, 1) : 1;
+      const duckStaerke = duckClip ? 0 : 1;
       if (player.duckMisch > 0.02 && duckStaerke > 0.02 && heroVisual.poseDucken) {
         heroVisual.poseDucken(clamp(player.duckMisch, 0, 1) * duckStaerke,
                               clamp(hSpeed / CFG.duckSpeed, 0, 1));
@@ -11153,6 +11229,8 @@ if (window.__WEBHERO_TEST__ === true) {
       programme: renderer.info.programs ? renderer.info.programs.length : -1,
       texturen: renderer.info.memory.textures, geometrien: renderer.info.memory.geometries }; },
     musikStatus() { return MUSIK.status(); },
+    /* Nur fuer Messungen: Stelle im Duck-Clip, an der im Stand angehalten wird. */
+    duckStandT(v) { if (v !== undefined) DUCK_STAND_T = v; return DUCK_STAND_T; },
     get kamPos() { return camera.position.clone(); },
     starteMission,
   };
