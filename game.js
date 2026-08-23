@@ -1898,8 +1898,27 @@ function baueZug(farbe) {
      Tuer: so haengt der Zug zusammen wie ein echter. */
   for (let w = 0; w + 1 < ZUG_WAGEN; w++) {
     const gx = ((w - (ZUG_WAGEN - 1) / 2) + 0.5) * (ZUG_WLANG + ZUG_LUECKE);
-    kiste(fest, ZUG_LUECKE + 0.4, ZUG_HOCH - 0.5, ZUG_BREIT - 0.35, gx,
-          ZUG_BODEN + (ZUG_HOCH - 0.5) / 2, 0, 0x22262b);                 // Balg
+    /* Der Balg war ein VOLLER Kasten quer durch den Zug: 1,3 x 3,0 x 2,25 m
+       schwarz, mitten im Gang. Wer im Wagen stand, sah nur noch diesen
+       Block und sich selbst gar nicht mehr. Jetzt ist er das, was er sein
+       soll - eine Roehre: zwei Seitenwaende, ein Dach, der Boden liegt
+       schon darunter. Durch die Mitte kann man gehen und sehen. */
+    const balgH = ZUG_HOCH - 0.5;
+    for (const s3 of [-1, 1]) {
+      kiste(fest, ZUG_LUECKE + 0.4, balgH, 0.16, gx,
+            ZUG_BODEN + balgH / 2, s3 * (ZUG_BREIT / 2 - 0.26), 0x22262b);
+    }
+    kiste(fest, ZUG_LUECKE + 0.4, 0.16, ZUG_BREIT - 0.35, gx,
+          ZUG_BODEN + balgH - 0.08, 0, 0x22262b);
+    /* Tuerrahmen an beiden Enden des Uebergangs, wie im echten Zug. */
+    for (const s3 of [-1, 1]) {
+      const rx = gx + s3 * (ZUG_LUECKE / 2 + 0.18);
+      for (const s4 of [-1, 1]) {
+        kiste(fest, 0.12, balgH - 0.3, 0.5, rx,
+              ZUG_BODEN + (balgH - 0.3) / 2, s4 * (ZUG_BREIT / 2 - 0.45), 0x8fa6bc);
+      }
+      kiste(fest, 0.12, 0.14, ZUG_BREIT - 1.1, rx, ZUG_BODEN + balgH - 0.3, 0, 0x8fa6bc);
+    }
     kiste(fest, ZUG_LUECKE + 0.5, 0.22, ZUG_BREIT - 0.5, gx, ZUG_BODEN - 0.11, 0, 0x3a3f46);
     for (const s2 of [-1, 1]) {
       kiste(fest, ZUG_LUECKE + 0.5, 0.12, 0.12, gx,
@@ -3839,12 +3858,17 @@ function makeGlbVisual(m) {
            einen halben Meter von der Wand entfernt. */
         /* Zielabstand so gewählt, dass Brust und Bauch die Wand streifen
            und Hände und Füße genau auf der Fassade liegen – nicht darin. */
-        inner.position.z = clamp(inner.position.z + (-0.24 - tiefe) * 0.35, -1.2, 1.2);
+        /* Die Nachfuehrung wird mit der Staerke der Pose skaliert. Sonst
+           zieht sie den Koerper mit vollem Gewicht zur Wand, waehrend
+           wandFreiraum() ihn gleichzeitig herausschiebt - zwei Regler auf
+           dieselbe Groesse, und der Koerper pendelt zwischen ihnen. */
+        const kk = clamp(k === undefined ? 1 : k, 0, 1);
+        inner.position.z = clamp(inner.position.z + (-0.24 - tiefe) * 0.35 * kk, -1.2, 1.2);
         /* Achtung beim Vorzeichen: die lokale X-Achse der Wurzel zeigt nach
            LINKS, also entgegen "rechts". Mit dem falschen Vorzeichen war es
            eine Mitkopplung – der Körper wanderte bis an den Anschlag von
            0,8 m zur Seite und stand deshalb schief an der Wand. */
-        inner.position.x = clamp(inner.position.x + quer * 0.35, -0.5, 0.5);
+        inner.position.x = clamp(inner.position.x + quer * 0.35 * kk, -0.5, 0.5);
         root.updateMatrixWorld(true);
       }
       const m = root.position;
@@ -4544,9 +4568,14 @@ function makeGlbVisual(m) {
         const lage = clamp(p.bogen === undefined ? 0 : p.bogen, 0, 1);
         current.time = lerp(0.01, 0.15, lage);
       } else if (current && (want === 'climb' || want === 'klettern' ||
-                            want === 'klettern_frei' || want === 'klettern_seit')) {
+                            want === 'klettern_frei' || want === 'klettern_seit' ||
+                            want === 'haengen')) {
         /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
-           kraxelte die Figur auf der Stelle weiter. */
+           kraxelte die Figur auf der Stelle weiter.
+           Das Haengen gehoert dazu: "Braced Hang" ist keine ruhige
+           Haltung, sondern eine Bewegung. Ungebremst ruderte die Figur
+           damit an der Fassade herum - gemessen sprang der Fuss 6,5 cm je
+           Bild. Ohne Eingabe steht sie jetzt wirklich still. */
         current.timeScale = p.tempo === undefined ? 1 : p.tempo;
       } else if (current) {
         current.timeScale = 1;
@@ -6903,7 +6932,12 @@ function updatePlayer(dt) {
     // seitlich begrenzen
     if (w.nx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.2, c.z1 - 0.2);
     else player.pos.x = clamp(player.pos.x, c.x0 + 0.2, c.x1 - 0.2);
-    player.phase += dt * (1 + (Math.abs(up) + Math.abs(side)) * 6);
+    /* Der Takt lief mit 1 rad/s WEITER, auch wenn man bewegungslos an der
+       Wand hing. Die Wandpose setzt Arme und Beine nach sin(Takt) - die
+       Glieder pendelten also dauernd hin und her, obwohl die Figur stand.
+       Genau das war das Zappeln der Beine an der Fassade. Jetzt laeuft der
+       Takt nur, solange auch gedrueckt wird. */
+    player.phase += dt * (Math.abs(up) + Math.abs(side)) * 7;
     /* Klettertempo für die Animation: hoch = vorwärts, runter = rückwärts,
        ohne Eingabe hängt die Figur still an der Wand. */
     const bewegt = Math.abs(up) + Math.abs(side);
@@ -7714,7 +7748,11 @@ function updateHeroVisual(dt) {
            Kletterschleife aus mixamo-8 soll die Bewegungsdatei den Rhythmus
            vorgeben. Die Pose sorgt nur noch dafuer, dass Haende und Fuesse
            wirklich an der Fassade landen. */
-        heroVisual.poseWandkriechen(w.nx, w.nz, player.phase, 0.55);
+        /* Haengt man still, fuehrt die Haengebewegung allein: die Pose
+           wuerde ihr nur entgegenarbeiten. Sie bleibt schwach dabei, damit
+           Haende und Fuesse trotzdem an der Fassade liegen. */
+        heroVisual.poseWandkriechen(w.nx, w.nz, player.phase,
+                                    player.anim === 'haengen' ? 0.2 : 0.55);
       } else if (w && player.wandlauf && heroVisual.poseWandlauf) {
         heroVisual.poseWandlauf(w.nx, w.nz, player.phase, 0.9);
       }
@@ -8593,14 +8631,28 @@ function makeFahrzeugMesh(typ, farbe) {
     }
   };
   if (typ.art === 'bus') {
-    const k = new THREE.Mesh(new THREE.BoxGeometry(B, typ.hoehe, L), lack);
-    k.position.y = 1.35; k.castShadow = true; g.add(k);
-    for (let i = -1; i <= 1; i++) {
-      const f = new THREE.Mesh(new THREE.BoxGeometry(B + 0.04, 0.8, 2.4), glas);
-      f.position.set(0, 1.85, i * 2.9); g.add(f);
+    /* Frueher war der Bus EIN voller Kasten, und die Scheiben klebten
+       aussen darauf. Die Fahrgaeste sassen also in massivem Blech - man
+       hat nie jemanden gesehen. Jetzt bleibt das Fensterband offen: unten
+       Blech, oben Blech, dazwischen nur Glas und schmale Pfosten. */
+    const fUnten = 1.45, fOben = 2.35;   // Fensterband
+    const unten = new THREE.Mesh(new THREE.BoxGeometry(B, fUnten - 0.35, L), lack);
+    unten.position.y = (fUnten + 0.35) / 2; unten.castShadow = true; g.add(unten);
+    const dach = new THREE.Mesh(new THREE.BoxGeometry(B, 2.35 + 0.35 - fOben, L), lack);
+    dach.position.y = (fOben + 2.35 + 0.35) / 2; dach.castShadow = true; g.add(dach);
+    /* Rueckwand und Pfosten halten das Dach optisch. */
+    const rueck = new THREE.Mesh(new THREE.BoxGeometry(B, fOben - fUnten, 0.12), lack);
+    rueck.position.set(0, (fUnten + fOben) / 2, -L / 2 + 0.06); g.add(rueck);
+    for (const sx of [-1, 1]) for (let i = -2; i <= 2; i++) {
+      const pf = new THREE.Mesh(new THREE.BoxGeometry(0.1, fOben - fUnten, 0.12), lack);
+      pf.position.set(sx * (B / 2 - 0.05), (fUnten + fOben) / 2, i * (L / 5.2)); g.add(pf);
     }
-    const front = new THREE.Mesh(new THREE.BoxGeometry(B - 0.15, 1.0, 0.08), glas);
-    front.position.set(0, 1.9, L / 2 - 0.02); g.add(front);
+    for (const sx of [-1, 1]) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.05, fOben - fUnten, L - 0.3), glas);
+      f.position.set(sx * (B / 2 - 0.03), (fUnten + fOben) / 2, 0); g.add(f);
+    }
+    const front = new THREE.Mesh(new THREE.BoxGeometry(B - 0.15, fOben - fUnten, 0.06), glas);
+    front.position.set(0, (fUnten + fOben) / 2, L / 2 - 0.03); g.add(front);
     /* Fahrgaeste hinter den Scheiben - ein leerer Bus sieht aus wie Kulisse.
        Alle in einer Geometrie, damit der Bus nicht 30 Zeichenaufrufe kostet. */
     const leute = [];
@@ -8608,29 +8660,43 @@ function makeFahrzeugMesh(typ, farbe) {
       for (let i = 0; i < 4; i++) {
         if (Math.random() < 0.28) continue;
         const pz = -L / 2 + 2.6 + i * ((L - 5.2) / 3);
-        for (const t of sitzMensch(sx * (B / 2 - 0.5), 1.42, pz, 0, 0.8)) leute.push(t);
+        for (const t of sitzMensch(sx * (B / 2 - 0.5), 1.22, pz, 0, 0.8)) leute.push(t);
       }
     }
     /* Fahrer am Steuer, Blick nach vorn. */
-    for (const t of sitzMensch(-(B / 2 - 0.55), 1.42, L / 2 - 1.3, 0, 0.8)) leute.push(t);
+    for (const t of sitzMensch(-(B / 2 - 0.55), 1.22, L / 2 - 1.3, 0, 0.8)) leute.push(t);
     g.add(new THREE.Mesh(verschmelzeTeile(leute),
                          new THREE.MeshLambertMaterial({ vertexColors: true })));
     raeder([[-1, L / 2 - 1.3], [1, L / 2 - 1.3], [-1, -L / 2 + 1.6], [1, -L / 2 + 1.6]]);
   } else {                                            // LKW
-    const kabine = new THREE.Mesh(new THREE.BoxGeometry(B, 1.9, 2.3), lack);
-    kabine.position.set(0, 1.35, L / 2 - 1.15); kabine.castShadow = true; g.add(kabine);
-    const scheibe = new THREE.Mesh(new THREE.BoxGeometry(B - 0.2, 0.75, 0.08), glas);
-    scheibe.position.set(0, 1.75, L / 2 - 0.02); g.add(scheibe);
-    /* Seitenscheiben - sonst sah man von der Seite nie jemanden im LKW. */
-    for (const sx of [-1, 1]) {
-      const seite = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, 1.2), glas);
-      seite.position.set(sx * (B / 2 - 0.02), 1.72, L / 2 - 1.15); g.add(seite);
+    /* Die Kabine war ein voller Kasten mit aufgeklebten Scheiben - der
+       Fahrer sass mitten im Blech und war nie zu sehen. Jetzt ist sie
+       hohl: Unterbau bis Fensterhoehe, Dach darueber, dazwischen nur
+       Pfosten und Glas. */
+    const kz = L / 2 - 1.15;
+    const fUnten = 1.55, fOben = 2.25;
+    const unten = new THREE.Mesh(new THREE.BoxGeometry(B, fUnten - 0.4, 2.3), lack);
+    unten.position.set(0, (fUnten + 0.4) / 2, kz); unten.castShadow = true; g.add(unten);
+    const dach = new THREE.Mesh(new THREE.BoxGeometry(B, 0.18, 2.3), lack);
+    dach.position.set(0, fOben + 0.09, kz); dach.castShadow = true; g.add(dach);
+    const rueck = new THREE.Mesh(new THREE.BoxGeometry(B, fOben - fUnten, 0.12), lack);
+    rueck.position.set(0, (fUnten + fOben) / 2, kz - 1.09); g.add(rueck);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const pf = new THREE.Mesh(new THREE.BoxGeometry(0.11, fOben - fUnten, 0.11), lack);
+      pf.position.set(sx * (B / 2 - 0.055), (fUnten + fOben) / 2, kz + sz * 1.09); g.add(pf);
     }
-    /* Fahrer und manchmal ein Beifahrer. */
+    const scheibe = new THREE.Mesh(new THREE.BoxGeometry(B - 0.22, fOben - fUnten, 0.05), glas);
+    scheibe.position.set(0, (fUnten + fOben) / 2, L / 2 - 0.05); g.add(scheibe);
+    for (const sx of [-1, 1]) {
+      const seite = new THREE.Mesh(new THREE.BoxGeometry(0.05, fOben - fUnten, 2.0), glas);
+      seite.position.set(sx * (B / 2 - 0.03), (fUnten + fOben) / 2, kz); g.add(seite);
+    }
+    /* Fahrer und manchmal ein Beifahrer - sitzen jetzt so hoch, dass Kopf
+       und Schultern im Fensterband stehen. */
     const leute = [];
-    for (const t of sitzMensch(-(B / 2 - 0.55), 1.25, L / 2 - 1.5, 0, 0.78)) leute.push(t);
+    for (const t of sitzMensch(-(B / 2 - 0.6), 1.12, kz - 0.15, 0, 0.78)) leute.push(t);
     if (Math.random() < 0.5)
-      for (const t of sitzMensch((B / 2 - 0.55), 1.25, L / 2 - 1.5, 0, 0.78)) leute.push(t);
+      for (const t of sitzMensch((B / 2 - 0.6), 1.12, kz - 0.15, 0, 0.78)) leute.push(t);
     g.add(new THREE.Mesh(verschmelzeTeile(leute),
                          new THREE.MeshLambertMaterial({ vertexColors: true })));
     const kasten = new THREE.Mesh(new THREE.BoxGeometry(B + 0.1, 2.3, L - 2.6),
