@@ -1945,8 +1945,30 @@ function baueUBahn(x) {
          nicht. Die Beleuchtung unter der Erde kommt ohnehin von der Lampe,
          die der Figur folgt (untenLicht). */
     }
-    /* Kein Randstein mehr rings um das Loch - die beiden Balken schwebten
-       einen Zentimeter ueber dem Gehweg und flackerten dagegen. */
+    /* ---- Bruestung rings um die Oeffnung ----
+       Der Schacht war an DREI Seiten offen: nur die beiden Laengswaende
+       reichten bis unter den Gehweg, oben gab es nichts. Wer laengs des
+       Gehwegs auf das tiefe Ende zulief, trat gemessen bei x = -48 ins
+       Leere und fiel elf Meter. Genau das war das "ich laufe die Treppe
+       nicht richtig runter": man fiel hinein, statt hinabzusteigen.
+       Jetzt steht rings um das Loch ein Gelaender - offen bleibt nur der
+       Treppenmund am oberen Ende. So kommt man nur ueber die Stufen
+       hinunter, wie an einer echten Station. */
+    const gh = 1.05;                       // Gelaenderhoehe
+    const gx0 = x + Math.min(sch.xFuss, sch.xKopf) - 0.3;
+    const gx1 = x + Math.max(sch.xFuss, sch.xKopf) + 0.3;
+    const gz0 = sch.z0 - 0.32, gz1 = sch.z1 + 0.32;
+    const gelaender = (bx, bz, px, pz) => {
+      deko(bx, 0.09, bz, px, SLAB_H + gh, pz, 0x9aa2ad);          // Handlauf
+      deko(bx * 0.35, gh, bz * 0.35, px, SLAB_H + gh / 2, pz, 0x6f7681);  // Fuellung
+      addCollider({ x0: px - bx / 2, x1: px + bx / 2, z0: pz - bz / 2, z1: pz + bz / 2,
+                    h: SLAB_H + gh, y0: SLAB_H - 0.05, klein: true });
+    };
+    /* Die beiden Laengsseiten. */
+    for (const gz of [gz0, gz1]) gelaender(gx1 - gx0, 0.18, (gx0 + gx1) / 2, gz);
+    /* Nur das TIEFE Ende zumachen - am Treppenmund geht man hinein. */
+    const zuX = sch.xFuss < sch.xKopf ? gx0 : gx1;
+    gelaender(0.18, gz1 - gz0, zuX, (gz0 + gz1) / 2);
   }
 
   /* ---- Halle: Boeden, Decke, Waende ---- */
@@ -8524,6 +8546,28 @@ function updatePlayer(dt) {
   collidePlayerCars(prevY);
   collidePlayerHelis(prevY);
 
+  /* ---- Treppen und Bordsteine: nicht abheben ----
+     Der Boden faellt unter den Fuessen weg, sobald es abwaerts geht. Bei
+     der Treppe in die U-Bahn sind das gemessen 43 Grad Neigung; wer dort
+     mit 7 m/s hinunterlaeuft, verliert 6,6 m/s Hoehe je Sekunde - mehr,
+     als die Schwerkraft im ersten Moment hergibt. Die Figur hob deshalb
+     bei jeder Stufe ab, fiel, landete, hob wieder ab: genau das
+     Huepfen die Treppe hinunter.
+     Wer im letzten Bild noch stand und dessen Boden hoechstens eine
+     Stufenhoehe tiefer liegt, wird deshalb nachgezogen statt in den freien
+     Fall entlassen. */
+  const STUFE_MAX = 0.75;
+  if (wasOnGround && !player.onGround && player.state !== 'swing' &&
+      player.state !== 'zip' && player.state !== 'climb' && !player.gleiten &&
+      player.vel.y <= 0.6 && player.rollT <= 0) {
+    const gy = bodenHoeheFuerFuss(player.pos.x, player.pos.z);
+    if (player.pos.y - gy > 0 && player.pos.y - gy <= STUFE_MAX) {
+      player.pos.y = gy;
+      player.vel.y = 0;
+      player.onGround = true;
+    }
+  }
+
   if (player.onGround) {
     const kamVomSchwung = player.state === 'swing' || player.gleiten || player.gleitAus > 0;
     if (player.state === 'swing') stopSwing(false);
@@ -9600,6 +9644,68 @@ function updateAutoFahrer(dt) {
   }
 }
 
+/* ======================= Fahrgaeste im Bus =======================
+   Wie bei den Autos: eine kleine Mannschaft echter Zivilisten setzt sich
+   auf die Plaetze des naechstgelegenen Busses. Die einfachen Sitzfiguren
+   dieses Busses werden solange ausgeblendet, sonst sitzen zwei
+   uebereinander. Weiter weg bleibt es bei den einfachen. */
+const BUS_GAST = [];
+const BUS_GAST_MAX = 6;
+const BUS_GAST_WEITE = 30;
+const _bgP = new THREE.Vector3();
+
+function baueBusGaeste() {
+  if (BUS_GAST.length || !actorsReady) return;
+  for (let i = 0; i < BUS_GAST_MAX; i++) {
+    const visual = makeCharacterVisual('civilian', {});
+    if (!visual || visual.procedural) return;
+    visual.root.visible = false;
+    scene.add(visual.root);
+    BUS_GAST.push({ visual });
+  }
+}
+
+let busGastBus = null;
+function updateBusGaeste(dt) {
+  if (!BUS_GAST.length) { baueBusGaeste(); if (!BUS_GAST.length) return; }
+  /* Den naechsten Bus suchen. */
+  let bester = null, bd = BUS_GAST_WEITE * BUS_GAST_WEITE;
+  for (const c of cars) {
+    if (c.aus || !c.mesh || !c.mesh.userData.sitzplaetze) continue;
+    const p = c.mesh.position;
+    const d2 = (p.x - player.pos.x) * (p.x - player.pos.x) +
+               (p.z - player.pos.z) * (p.z - player.pos.z);
+    if (d2 < bd) { bd = d2; bester = c; }
+  }
+  if (busGastBus !== bester) {
+    if (busGastBus && busGastBus.mesh && busGastBus.mesh.userData.insassen) {
+      busGastBus.mesh.userData.insassen.visible = true;
+    }
+    busGastBus = bester;
+  }
+  if (!bester) { for (const g of BUS_GAST) g.visual.root.visible = false; return; }
+  if (bester.mesh.userData.insassen) bester.mesh.userData.insassen.visible = false;
+  const plaetze = bester.mesh.userData.sitzplaetze;
+  const ry = bester.mesh.rotation.y;
+  const co = Math.cos(ry), si = Math.sin(ry);
+  for (let i = 0; i < BUS_GAST.length; i++) {
+    const g = BUS_GAST[i], pl = plaetze[i];
+    if (!pl) { g.visual.root.visible = false; continue; }
+    _bgP.set(bester.mesh.position.x + pl.x * co + pl.z * si,
+             bester.mesh.position.y,
+             bester.mesh.position.z - pl.x * si + pl.z * co);
+    g.visual.root.visible = true;
+    g.visual.root.position.copy(_bgP);
+    g.visual.root.rotation.y = ry + pl.ry;
+    g.visual.play('idle', { t: elapsed }, dt);
+    if (g.visual.poseSitzen) {
+      g.visual.poseSitzen(1);
+      const m = g.visual.sitzMasse ? g.visual.sitzMasse() : null;
+      if (m) g.visual.root.position.y += (bester.mesh.position.y + pl.y) - m.huefte;
+    }
+  }
+}
+
 /* ======================= Fahrgaeste im Zug =======================
    Im Zug sassen bisher zum Teil einfache Sitzfiguren und zum Teil echte
    Zivilisten (die an einer Station eingestiegen sind) - nebeneinander auf
@@ -9919,6 +10025,27 @@ function makeCarMesh(color) {
   /* Rueckbank ueber die ganze Breite. */
   sitzTeil(1.44, 0.12, 0.48, 0, 0.76, -1.10, sitzFarbe);
   sitzTeil(1.42, 0.60, 0.11, 0, 1.10, -1.36, lehnFarbe);
+  /* ---- Der Rest des Innenraums ----
+     Sitze allein sind noch kein Wagen: durch die Rundumverglasung sieht
+     man vor allem nach VORN, und dort war bisher gar nichts. Jetzt gibt es
+     Bodenwanne, Armaturenbrett mit Instrumententafel, Lenkrad auf der
+     Fahrerseite, Mittelkonsole und Tuerverkleidungen. */
+  const bodenFarbe = 0x1b1d21, brettFarbe = 0x282c31;
+  sitzTeil(1.70, 0.06, 3.00, 0, 0.63, -0.30, bodenFarbe);        // Bodenwanne
+  sitzTeil(1.66, 0.30, 0.42, 0, 1.10, 0.86, brettFarbe);         // Armaturenbrett
+  sitzTeil(0.74, 0.16, 0.06, -0.44, 1.16, 0.66, 0x3b4048);       // Instrumente
+  sitzTeil(0.34, 0.10, 0.32, 0, 0.86, -0.30, brettFarbe);        // Mittelkonsole
+  for (const sx of [-1, 1]) {                                    // Tuerverkleidung
+    sitzTeil(0.07, 0.34, 2.10, sx * 0.84, 1.00, -0.20, brettFarbe);
+    sitzTeil(0.09, 0.07, 0.42, sx * 0.80, 1.12, 0.10, 0x4a5058);  // Griff
+  }
+  /* Lenkrad: ein flacher Ring, leicht geneigt wie im echten Wagen. */
+  {
+    const ring = new THREE.TorusGeometry(0.17, 0.028, 6, 14);
+    ring.rotateX(Math.PI / 2 - 0.35);
+    sitze.push({ geo: ring, farbe: 0x15171a, x: -0.44, y: 1.14, z: 0.60 });
+    sitzTeil(0.06, 0.06, 0.22, -0.44, 1.10, 0.70, 0x15171a);      // Lenksaeule
+  }
   g.add(new THREE.Mesh(verschmelzeTeile(sitze),
                        new THREE.MeshLambertMaterial({ vertexColors: true })));
   for (const sx of [-1, 1]) {
@@ -10264,20 +10391,58 @@ function makeFahrzeugMesh(typ, farbe) {
     }
     const front = new THREE.Mesh(new THREE.BoxGeometry(B - 0.15, fOben - fUnten, 0.06), glas);
     front.position.set(0, (fUnten + fOben) / 2, L / 2 - 0.03); g.add(front);
-    /* Fahrgaeste hinter den Scheiben - ein leerer Bus sieht aus wie Kulisse.
-       Alle in einer Geometrie, damit der Bus nicht 30 Zeichenaufrufe kostet. */
-    const leute = [];
+    /* ---- Innenraum ----
+       Bisher schwebten hier nur ein paar geschrumpfte Sitzfiguren (Groesse
+       0,8, also 1,40 m) in einem leeren Kasten. Jetzt gibt es einen Boden,
+       Sitzreihen mit Lehnen zu beiden Seiten des Ganges, Haltestangen,
+       eine Deckenleuchte und einen Fahrerplatz mit Lenkrad. */
+    const BUS_BODEN = 1.03, BUS_BANK = 1.45;
+    const innen = [];
+    const iTeil = (bx, by, bz, px, py, pz, farbe) =>
+      innen.push({ geo: sitzForm('box', bx, by, bz), farbe, x: px, y: py, z: pz });
+    iTeil(B - 0.2, 0.08, L - 0.3, 0, BUS_BODEN, 0, 0x2b2f35);        // Boden
+    iTeil(B - 0.5, 0.10, L - 3.0, 0, 2.30, -0.6, 0xf2f0e4);          // Deckenlicht
+    /* Sitzplaetze: vier Reihen je Seite, Bank und Lehne. */
+    const busPlaetze = [];
     for (const sx of [-1, 1]) {
       for (let i = 0; i < 4; i++) {
-        if (Math.random() < 0.28) continue;
         const pz = -L / 2 + 2.6 + i * ((L - 5.2) / 3);
-        for (const t of sitzMensch(sx * (B / 2 - 0.5), 1.22, pz, 0, 0.8)) leute.push(t);
+        const px = sx * (B / 2 - 0.52);
+        iTeil(0.86, 0.10, 0.52, px, BUS_BANK - 0.05, pz + 0.04, 0x2e4a63);
+        iTeil(0.84, 0.56, 0.10, px, BUS_BANK + 0.30, pz - 0.26, 0x35566f);
+        busPlaetze.push({ x: px, y: BUS_BANK, z: pz, ry: 0 });
       }
+      /* Haltestange laengs unter der Decke. */
+      iTeil(0.05, 0.05, L - 3.4, sx * (B / 2 - 0.55), 2.12, -0.4, 0x8b929c);
     }
-    /* Fahrer am Steuer, Blick nach vorn. */
-    for (const t of sitzMensch(-(B / 2 - 0.55), 1.22, L / 2 - 1.3, 0, 0.8)) leute.push(t);
-    g.add(new THREE.Mesh(verschmelzeTeile(leute),
+    /* Fahrerplatz: Sitz, Lenkrad, Trennwand. */
+    const fz = L / 2 - 1.3, fx = -(B / 2 - 0.55);
+    iTeil(0.56, 0.10, 0.52, fx, BUS_BANK - 0.05, fz, 0x24272c);
+    iTeil(0.54, 0.60, 0.10, fx, BUS_BANK + 0.32, fz - 0.28, 0x24272c);
+    iTeil(B - 0.3, 0.34, 0.30, 0, BUS_BANK + 0.42, L / 2 - 0.55, 0x282c31);
+    {
+      const ring = new THREE.TorusGeometry(0.21, 0.032, 6, 14);
+      ring.rotateX(Math.PI / 2 - 0.30);
+      innen.push({ geo: ring, farbe: 0x15171a, x: fx, y: BUS_BANK + 0.30, z: fz + 0.52 });
+    }
+    g.add(new THREE.Mesh(verschmelzeTeile(innen),
                          new THREE.MeshLambertMaterial({ vertexColors: true })));
+    /* Die einfachen Sitzfiguren bleiben als Rueckfall fuer weit entfernte
+       Busse - in der Naehe werden sie durch echte Zivilisten ersetzt. */
+    const leute = [];
+    for (const pl of busPlaetze) {
+      if (Math.random() < 0.35) continue;
+      for (const t of sitzMensch(pl.x, pl.y, pl.z, 0, 0.92)) leute.push(t);
+    }
+    for (const t of sitzMensch(fx, BUS_BANK, fz, 0, 0.92)) leute.push(t);
+    if (leute.length) {
+      const im = new THREE.Mesh(verschmelzeTeile(leute),
+                                new THREE.MeshLambertMaterial({ vertexColors: true }));
+      g.add(im);
+      g.userData.insassen = im;
+    }
+    /* Fuer die echten Fahrgaeste: alle Plaetze samt Fahrerplatz. */
+    g.userData.sitzplaetze = busPlaetze.concat([{ x: fx, y: BUS_BANK, z: fz, ry: 0 }]);
     raeder([[-1, L / 2 - 1.3], [1, L / 2 - 1.3], [-1, -L / 2 + 1.6], [1, -L / 2 + 1.6]]);
   } else {                                            // LKW
     /* Die Kabine war ein voller Kasten mit aufgeklebten Scheiben - der
@@ -12897,6 +13062,7 @@ function simuliere(dt) {
   updateSymbiont(dt);
   updateAutoFahrer(dt);
   updateZugGaeste(dt);
+  updateBusGaeste(dt);
   updateKitHaeuser(dt);
   updateFlecken();
   updateKlang(dt);
@@ -13033,6 +13199,7 @@ if (window.__WEBHERO_TEST__ === true) {
     kitKopien() { return KIT_KOPIEN; },
     kitInnen() { return KIT_INNEN; },
     zugGaeste() { return ZUG_GAST; },
+    busGaeste() { return BUS_GAST; },
     autoFahrer() { return AUTO_FAHRER; },
     imKitHaus,
     renderInfo() { return { calls: renderer.info.render.calls,
