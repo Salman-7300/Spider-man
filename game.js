@@ -1186,23 +1186,68 @@ const UB_DECKE = UB_TIEF + 5.0;
    Einer je Bahnsteig, jeweils im Randstreifen des Gehwegs, wo keine Haeuser
    stehen (noerdlicher Block z 31..35, suedlicher Block z 15..19). Die beiden
    Eingaenge liegen an entgegengesetzten Enden der Station. */
+/* ---- Der Abgang ----
+   Bisher war das EINE Treppe von der Strasse bis auf den Bahnsteig: 13 m
+   Lauf auf 12,25 m Hoehe, also 43 Grad. So steil ist keine Treppe, und
+   eine echte Station sieht auch anders aus - man geht eine Treppe hinab,
+   steht in einer Schalterhalle und geht von dort die zweite Treppe zum
+   Bahnsteig.
+   Der Abgang ist deshalb dreigeteilt und laenger:
+     obere Treppe   9 m Lauf,  6,15 m Gefaelle  ->  34 Grad
+     Zwischenebene  6 m eben
+     untere Treppe  9 m Lauf,  6,10 m Gefaelle  ->  34 Grad
+   xKopf wandert dafuer von 15 auf 26 m; xFuss bleibt, wo er war. */
+const UB_MITTE = -5.9;                    // Hoehe der Zwischenebene
+const UB_TR_OBEN = 9.0;                   // Lauf der oberen Treppe
+const UB_HALLE_LANG = 6.0;                // Laenge der Zwischenebene
+const UB_TR_UNTEN = 9.0;                  // Lauf der unteren Treppe
+const UB_ABGANG = UB_TR_OBEN + UB_HALLE_LANG + UB_TR_UNTEN;   // 24
+const UB_STUFEN_OBEN = 26, UB_STUFEN_UNTEN = 26;
 const UB_SCHAECHTE = [
-  { z0: 31.8, z1: 34.4, xFuss: 2.0, xKopf: 15.0, steig: 'nord' },
-  { z0: 15.6, z1: 18.2, xFuss: -2.0, xKopf: -15.0, steig: 'sued' },
+  { z0: 31.8, z1: 34.4, xFuss: 2.0, xKopf: 26.0, steig: 'nord' },
+  { z0: 15.6, z1: 18.2, xFuss: -2.0, xKopf: -26.0, steig: 'sued' },
 ];
-const UB_TREPPE = 13.0;
-const UB_STUFEN = 38;
+const UB_TREPPE = UB_ABGANG;
+const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
+
+/* Hoehe an einer Stelle des Abgangs. s = Weg vom Treppenmund aus,
+   gemessen laengs des Schachts. */
+function abgangHoehe(s) {
+  if (s <= UB_TR_OBEN) {
+    const t = clamp(s / UB_TR_OBEN, 0, 1);
+    const stufe = Math.floor(t * UB_STUFEN_OBEN) / UB_STUFEN_OBEN;
+    return lerp(SLAB_H, UB_MITTE, stufe);
+  }
+  if (s <= UB_TR_OBEN + UB_HALLE_LANG) return UB_MITTE;
+  const t = clamp((s - UB_TR_OBEN - UB_HALLE_LANG) / UB_TR_UNTEN, 0, 1);
+  const stufe = Math.floor(t * UB_STUFEN_UNTEN) / UB_STUFEN_UNTEN;
+  return lerp(UB_MITTE, UB_TIEF, stufe);
+}
 
 const UB_X0 = UB_STAT_X[0] - UB_HALLE_X / 2;                       // Linienanfang
 const UB_X1 = UB_STAT_X[UB_STAT_X.length - 1] + UB_HALLE_X / 2;    // Linienende
 
-/* Alle Schachtoeffnungen der Linie als Rechtecke. */
-function ubahnLoecher() {
+/* Alle Schachtoeffnungen der Linie als Rechtecke.
+   art:
+     'voll'  - der ganze Abgang. Fuer den Haeuserbau: dort darf nichts
+               stehen, auch nicht ueber der Zwischenebene.
+     'oben'  - nur die obere Treppe. Das ist das Loch im GEHWEG; ueber der
+               Zwischenebene und der unteren Treppe liegt eine Decke, dort
+               bleibt der Gehweg geschlossen.
+     'unten' - nur die untere Treppe. Das ist das Loch in der HALLENDECKE
+               der Station. */
+function ubahnLoecher(art) {
   const out = [];
   for (const sx of UB_STAT_X) {
     for (const s of UB_SCHAECHTE) {
-      out.push({ x0: sx + Math.min(s.xFuss, s.xKopf), x1: sx + Math.max(s.xFuss, s.xKopf),
-                 z0: s.z0, z1: s.z1 });
+      const dir = s.xFuss < s.xKopf ? -1 : 1;
+      const kopf = sx + s.xKopf;
+      let a, b;
+      if (art === 'oben') { a = kopf; b = kopf + dir * (UB_TR_OBEN + 0.6); }
+      else if (art === 'unten') { a = kopf + dir * (UB_TR_OBEN + UB_HALLE_LANG - 0.6);
+                                  b = sx + s.xFuss; }
+      else { a = kopf; b = sx + s.xFuss; }
+      out.push({ x0: Math.min(a, b), x1: Math.max(a, b), z0: s.z0, z1: s.z1 });
     }
   }
   return out;
@@ -1266,10 +1311,9 @@ function ubahnBoden(x, z, yRef) {
     for (const u of UBAHNEN) {
       const a = u.x + Math.min(s.xFuss, s.xKopf), b = u.x + Math.max(s.xFuss, s.xKopf);
       if (x <= a || x >= b) continue;
-      const t = clamp(Math.abs(u.x + s.xKopf - x) / UB_TREPPE, 0, 1);
-      /* In Stufen statt als Rampe - man soll Tritte sehen und spueren. */
-      const stufe = Math.floor(t * UB_STUFEN) / UB_STUFEN;
-      return lerp(SLAB_H, UB_TIEF, stufe);
+      /* In Stufen statt als Rampe - man soll Tritte sehen und spueren.
+         Dazwischen liegt die ebene Zwischenebene. */
+      return abgangHoehe(Math.abs(u.x + s.xKopf - x));
     }
   }
   /* Halle und Tunnel liegen unter der Fahrbahn. Nur wer schon unten ist,
@@ -1647,7 +1691,9 @@ function buildCity() {
        UV von 0 bis 1 hat, war die Asphaltkachelung je nach Streifengroesse
        unterschiedlich fein. Die UV werden deshalb aus den Weltkoordinaten
        gerechnet. */
-    const teile = flaecheMitLoechern(-207, 193, -200, 200, ubahnLoecher());
+    /* Nur die OBERE Treppe durchbricht den Gehweg - ueber der
+       Zwischenebene und der unteren Treppe liegt eine Decke. */
+    const teile = flaecheMitLoechern(-207, 193, -200, 200, ubahnLoecher('oben'));
     const pos = new Float32Array(teile.length * 18);
     const nor = new Float32Array(teile.length * 18);
     const uv = new Float32Array(teile.length * 12);
@@ -1916,23 +1962,58 @@ function baueUBahn(x) {
   for (const sch of UB_SCHAECHTE) {
     const zM = (sch.z0 + sch.z1) / 2, zT = sch.z1 - sch.z0;
     const richtung = sch.xKopf > sch.xFuss ? -1 : 1;   // Laufrichtung beim Hinabsteigen
-    const stufeT = UB_TREPPE / UB_STUFEN;
-    for (let i = 0; i < UB_STUFEN; i++) {
-      const y0 = lerp(SLAB_H, UB_TIEF, i / UB_STUFEN);
-      const y1 = lerp(SLAB_H, UB_TIEF, (i + 1) / UB_STUFEN);
-      const xx = x + sch.xKopf + richtung * (i + 0.5) * stufeT;
-      deko(stufeT, 0.1, zT, xx, y1 + 0.05, zM, 0x6a7078);                   // Trittflaeche
-      deko(0.08, y0 - y1, zT, xx - richtung * stufeT / 2, (y0 + y1) / 2, zM, 0x3c4249);
-      /* Keine hellen Kantenstreifen mehr: sie flimmerten gegen die
-         Trittflaeche und sahen von oben wie weisse Balken aus. Die Stufen
-         zeichnen sich durch die Setzstufe von allein ab. */
+    /* ---- Zwei Treppenlaeufe mit Zwischenebene ----
+       Die Stufen entstehen aus derselben Funktion, die auch die Hoehe
+       liefert (abgangHoehe) - dadurch stimmen Bild und Boden immer
+       ueberein. Vorher war es ein einziger Lauf von 43 Grad. */
+    const stufen = (vonS, bisS, anzahl) => {
+      const laenge = bisS - vonS;
+      const tT = laenge / anzahl;
+      for (let i = 0; i < anzahl; i++) {
+        const y0 = abgangHoehe(vonS + i * tT);
+        const y1 = abgangHoehe(vonS + (i + 1) * tT);
+        const xx = x + sch.xKopf + richtung * (vonS + (i + 0.5) * tT);
+        deko(tT, 0.1, zT, xx, y1 + 0.05, zM, 0x6a7078);                 // Trittflaeche
+        if (y0 > y1) deko(0.08, y0 - y1, zT, xx - richtung * tT / 2, (y0 + y1) / 2, zM, 0x3c4249);
+      }
+    };
+    stufen(0, UB_TR_OBEN, UB_STUFEN_OBEN);
+    stufen(UB_TR_OBEN + UB_HALLE_LANG, UB_ABGANG, UB_STUFEN_UNTEN);
+    /* ---- Zwischenebene: Boden, Decke, Waende ----
+       Hier steht man nach der ersten Treppe. Sie ist so breit wie der
+       Schacht und drei Meter hoch - genug, um sich umzusehen, bevor es
+       weiter hinuntergeht. */
+    {
+      const hM = 3.0;                                  // lichte Hoehe
+      const sA = UB_TR_OBEN - 0.5, sB = UB_TR_OBEN + UB_HALLE_LANG + 0.5;
+      const mx = x + sch.xKopf + richtung * (sA + sB) / 2;
+      const ml = sB - sA;
+      deko(ml, 0.30, zT + 0.9, mx, UB_MITTE - 0.15, zM, 0x3e454e);       // Boden
+      deko(ml, 0.35, zT + 1.4, mx, UB_MITTE + hM, zM, 0x454c55);         // Decke
+      /* Wandverkleidung an beiden Laengsseiten - ohne sie sieht man in
+         den Erdblock. */
+      for (const s3 of [-1, 1]) {
+        const wz = s3 < 0 ? sch.z0 - 0.22 : sch.z1 + 0.22;
+        deko(ml, hM, 0.16, mx, UB_MITTE + hM / 2, wz, 0x8d99a6);
+        deko(ml, 0.5, 0.2, mx, UB_MITTE + 1.9, wz + (s3 < 0 ? 0.12 : -0.12), 0x2c6e4a);
+      }
+      /* Zwei Deckenleuchten wie unten auf dem Bahnsteig. */
+      for (const f of [-0.28, 0.28]) {
+        const lx = x + sch.xKopf + richtung * lerp(sA, sB, 0.5 + f);
+        deko(1.7, 0.2, 0.44, lx, UB_MITTE + hM - 0.26, zM, 0x363b42);
+        deko(1.5, 0.1, 0.30, lx, UB_MITTE + hM - 0.4, zM, 0xf4f2e6);
+      }
+      /* Sperren gegen den Erdblock: die Decke traegt, die Waende halten. */
+      addCollider({ x0: Math.min(mx - ml / 2, mx + ml / 2), x1: Math.max(mx - ml / 2, mx + ml / 2),
+                    z0: zM - zT / 2 - 0.8, z1: zM + zT / 2 + 0.8,
+                    h: UB_MITTE + hM + 0.2, y0: UB_MITTE + hM - 0.2, keinKlettern: true });
     }
     /* Schachtwaende. Oberkante 4 cm UNTER dem Gehweg, sonst kaempfen
        Wandoberseite und Gehwegflaeche um dieselbe Ebene. */
     const wandOben = SLAB_H - 0.04, wandUnten = UB_TIEF - 0.6;
     for (const s2 of [-1, 1]) {
       const wz = s2 < 0 ? sch.z0 - 0.25 : sch.z1 + 0.25;
-      deko(UB_TREPPE + 0.9, wandOben - wandUnten, 0.5,
+      deko(UB_ABGANG + 0.9, wandOben - wandUnten, 0.5,
            x + (sch.xFuss + sch.xKopf) / 2, (wandOben + wandUnten) / 2, wz, 0x4e565f);
       /* Sperrt nur UNTER dem Gehweg: wer oben laeuft, wird nicht gebremst. */
       addCollider({ x0: x + Math.min(sch.xFuss, sch.xKopf) - 0.45,
@@ -1980,7 +2061,7 @@ function baueUBahn(x) {
   deko(hx, 0.4, gleisT, x, UB_GLEIS_TIEF - 0.2, gleisM, 0x1a1d21);
   /* Decke mit Aussparungen fuer beide Treppenschaechte. */
   for (const t of flaecheMitLoechern(x - hx / 2, x + hx / 2, UB_QUER_Z0, UB_QUER_Z1,
-                                     ubahnLoecher())) {
+                                     ubahnLoecher('unten'))) {
     deko(t.w, 0.4, t.d, t.x, UB_DECKE, t.z, 0x454c55);
   }
   /* Aussenwaende laengs, mit Loch fuer die Treppen. */
