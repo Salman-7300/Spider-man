@@ -3400,6 +3400,48 @@ function partieFuerKnochen(name) {
   return 'rot';                                // Rumpf, Kopf, Schultern
 }
 
+/* ---- Dunkle Stellen einer Textur anheben ----
+   out = in^0,62 auf 0..1 gerechnet. Ein dunkles Blau von 30 wird damit zu
+   82, ein kraeftiges Rot von 200 nur zu 213 - die Zeichnung bleibt also
+   erhalten, aber die Beine verschwinden nicht mehr im Schwarz.
+   Das Ergebnis wird je Quelltextur gemerkt: alle sieben Teilnetze des
+   Helden benutzen dieselbe Datei. */
+const _hellCache = new WeakMap();
+function hebeSchatten(tex) {
+  if (!tex || !tex.image) return tex;
+  const fertig = _hellCache.get(tex);
+  if (fertig) return fertig;
+  try {
+    const bild = tex.image;
+    const w = bild.width || bild.videoWidth, h = bild.height || bild.videoHeight;
+    if (!w || !h) return tex;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(bild, 0, 0);
+    const d = g.getImageData(0, 0, w, h);
+    const a = d.data;
+    /* Kurve einmal als Tabelle - 256 Werte statt Millionen Potenzen. */
+    const tab = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) tab[i] = Math.round(255 * Math.pow(i / 255, 0.62));
+    for (let i = 0; i < a.length; i += 4) {
+      a[i] = tab[a[i]]; a[i + 1] = tab[a[i + 1]]; a[i + 2] = tab[a[i + 2]];
+    }
+    g.putImageData(d, 0, 0);
+    const neu = new THREE.CanvasTexture(c);
+    neu.flipY = tex.flipY;
+    neu.wrapS = tex.wrapS; neu.wrapT = tex.wrapT;
+    neu.encoding = tex.encoding;
+    neu.anisotropy = tex.anisotropy;
+    neu.needsUpdate = true;
+    _hellCache.set(tex, neu);
+    return neu;
+  } catch (e) {
+    /* Laesst sich die Datei nicht lesen, bleibt es beim Original. */
+    return tex;
+  }
+}
+
 /* ---- Symbiontenanzug fuer ein fertiges, texturiertes Modell ----
    Das Muster wird in der RUHEPOSE gerechnet: die Ringe liegen dann fest
    auf dem Koerper und wandern beim Bewegen mit, statt im Raum zu stehen.
@@ -3893,6 +3935,14 @@ function makeGlbVisual(m) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const mat of mats) {
           if (mat && mat.emissive) mat.emissive.setHex(0x14141a);
+          /* Das reichte nicht: die Beine des Anzugs sind dunkelblau, und
+             unter Sonne plus Himmelslicht kamen sie als schwarze Flaeche
+             heraus - man sah unterhalb der Huefte gar keine Form mehr.
+             Ein gleichmaessiger Aufschlag auf die Materialfarbe wuerde das
+             Rot mit aufhellen und ausbleichen. Stattdessen wird die
+             TEXTUR mit einer Kurve angehoben: dunkle Stellen deutlich,
+             helle kaum. */
+          if (mat && mat.map) mat.map = hebeSchatten(mat.map);
         }
       }
     }
@@ -3985,6 +4035,7 @@ function makeGlbVisual(m) {
   const ruheDrehung = new Map();
   inner.traverse((o) => { if (o.isBone) ruheDrehung.set(o, o.quaternion.clone()); });
   const _qd = new THREE.Quaternion(), _ed = new THREE.Euler();
+  const _qz = new THREE.Quaternion();
   const _vw1 = new THREE.Vector3(), _vw2 = new THREE.Vector3();
   const _vw3 = new THREE.Vector3(), _vw4 = new THREE.Vector3();
   const _hf = new THREE.Vector3(), _hs = new THREE.Vector3(), _hp = new THREE.Vector3();
@@ -4079,6 +4130,39 @@ function makeGlbVisual(m) {
     }
   }
 
+  /* ---- Ruhende Hand ----
+     Die Bewegungsdateien bringen keine Fingerspuren mit (entferneFinger),
+     also steht die Hand in der RUHEHALTUNG des Modells - und die ist bei
+     diesen Rigs eine flach ausgestreckte Hand mit weit abgespreiztem
+     Daumen. Im Spiel sah das aus wie ein Seestern am Arm; genau das war
+     "was soll das mit dem Daumen".
+     Eine haengende Hand ist nie flach: die Finger sind leicht gekruemmt,
+     das Mittelglied am staerksten, und der Daumen liegt neben dem
+     Zeigefinger statt quer abzustehen.
+     Wird die Hand gebraucht (Klettern, Faust, Netzschuss), setzen die
+     dortigen Funktionen ihre eigenen Werte - sie rechnen alle gegen die
+     Ruhehaltung und ueberschreiben diese hier einfach. */
+  function ruheHand(seite, k) {
+    const kk = k === undefined ? 1 : k;
+    for (const f of ['index', 'middle', 'ring', 'pinky']) {
+      for (let g = 1; g <= 3; g++) {
+        const b = knochen[seite + 'hand' + f + g];
+        if (!b) continue;
+        /* Kleiner Finger etwas staerker als Zeigefinger - so faellt eine
+           Hand wirklich zu. */
+        const rand = f === 'pinky' ? 1.18 : f === 'ring' ? 1.10 : f === 'middle' ? 1.0 : 0.9;
+        drehZuRuhe(b, (g === 1 ? 0.30 : g === 2 ? 0.46 : 0.36) * rand * kk, 0, 0, 0.55);
+      }
+    }
+    for (let g = 1; g <= 3; g++) {
+      const b = knochen[seite + 'handthumb' + g];
+      if (!b) continue;
+      /* Der Daumen legt sich AN die Hand, nicht darueber: nur ein Viertel
+         der Faustwerte. */
+      drehZuRuhe(b, 0.16 * kk, g === 1 ? -0.30 * kk : 0, (g === 1 ? 0.30 : 0.22) * kk, 0.55);
+    }
+  }
+
   /* Faust um einen Gegenstand: Finger fest eingerollt, der Daumen legt
      sich quer darüber. Die Fingerspuren sind aus den Bewegungsdateien
      entfernt, deshalb bleiben die Finger sonst offen stehen – Handy und
@@ -4121,13 +4205,28 @@ function makeGlbVisual(m) {
     hand.quaternion.slerp(_q2, clamp(k, 0, 1));
   }
   /* Knochen zur Ruhelage ziehen und von dort um kleine Winkel auslenken. */
+  /* Einen Knochen auf "Ruhehaltung plus feste Winkel" ziehen.
+     Hier stand vorher:
+         bone.quaternion.slerp(ruhe, k);
+         bone.quaternion.multiply(euler);
+     Das ist etwas ganz anderes: k bestimmte nur, wie weit die LAUFENDE
+     Haltung zur Ruhe zurueckgeholt wird - die Zielwinkel kamen danach
+     jedes Mal in voller Groesse obendrauf. Solange eine Bewegungsdatei
+     den Knochen in jedem Bild neu setzt, faellt das nicht auf. Sobald
+     sie das nicht tut - und beim Netzschwung steht der Clip still -,
+     summiert sich der Winkel Bild fuer Bild auf und der Knochen dreht
+     sich durch.
+     Gemessen am linken Fuss im Schwung: mit der Schwunghaltung 14,5 cm
+     je Bild, ohne sie 1,3 cm. Das war das Rudern mit den Beinen.
+     Richtig ist: erst die Zielhaltung ausrechnen, dann anteilig dorthin
+     drehen. Damit ist k ein echtes Gewicht und nichts kann aufsummieren. */
   function drehZuRuhe(bone, ax, ay, az, k) {
     if (!bone) return;
     const ruhe = ruheDrehung.get(bone);
     if (!ruhe) return;
-    bone.quaternion.slerp(ruhe, clamp(k, 0, 1));
     _ed.set(ax || 0, ay || 0, az || 0);
-    bone.quaternion.multiply(_qd.setFromEuler(_ed));
+    _qz.copy(ruhe).multiply(_qd.setFromEuler(_ed));
+    bone.quaternion.slerp(_qz, clamp(k, 0, 1));
   }
 
   /* Einen Knochen auf einen Weltpunkt ausrichten (einfache Ziel-Kinematik).
@@ -4185,7 +4284,9 @@ function makeGlbVisual(m) {
     /* Schwung-Pose: Arm zum Netzanker strecken, Beine anziehen, Rumpf neigen.
        Die Beine werden vollständig gesetzt (nicht angenähert) – sonst kämpft
        die laufende Geh-Animation dagegen an und die Beine zappeln. */
-    poseSchwung(zielWelt, seite, t, bogen, neigung, beide) {
+    poseSchwung(zielWelt, seite, t, bogen, neigung, beide, staerke) {
+      const _sk = staerke === undefined ? 1 : clamp(staerke, 0, 1);
+      if (_sk <= 0.001) return;
       const gross = seite === 'L' ? 'leftarm' : 'rightarm';
       const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
       const hand = seite === 'L' ? 'lefthand' : 'righthand';
@@ -4199,11 +4300,11 @@ function makeGlbVisual(m) {
          Beide Glieder auf den Anker zu richten streckt den Arm vollständig
          durch – bei waagerechtem Körper landet er dann HINTER dem Kopf,
          und die Figur sah verrenkt aus. */
-      zieleKnochen(knochen[gross], knochen[klein], zielWelt, 1);
-      drehe(knochen[klein], -0.14, 0, 0, 1);
+      zieleKnochen(knochen[gross], knochen[klein], zielWelt, _sk);
+      drehe(knochen[klein], -0.14, 0, 0, _sk);
       const wiegen = Math.sin((t || 0) * 1.6) * 0.1;
-      drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5);
-      drehe(knochen[andereK], -0.5, 0, 0, 0.5);
+      drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5 * _sk);
+      drehe(knochen[andereK], -0.5, 0, 0, 0.5 * _sk);
       /* Die geladene Hänge-Bewegung steht fast still – am Netz sah das aus
          wie eine eingefrorene Puppe. Ein ruhiger Beintakt im Rhythmus des
          Pendels bringt Leben hinein, ohne der Bewegung ins Handwerk zu
@@ -4213,8 +4314,8 @@ function makeGlbVisual(m) {
          selbstgesetzten Winkel legen sich dann nur noch leicht darueber
          (0,35 statt 0,9) und bringen den Pendeltakt hinein - vorher haben
          sie die Bewegungsdatei vollstaendig ueberschrieben. */
-      const k = findClip(m.clips, 'schwung') ? 0.15
-             : findClip(m.clips, 'schwungpose') ? 0.35 : 0.9;
+      const k = (findClip(m.clips, 'schwung') ? 0.15
+              : findClip(m.clips, 'schwungpose') ? 0.35 : 0.9) * _sk;
       /* lage: -1 = es geht abwärts in den Bogen hinein, +1 = es geht wieder
          hinauf. Am tiefsten Punkt zieht man die Beine an, oben streckt man
          sie nach vorn – erst dadurch wirkt der Schwung gelöst statt wie
@@ -4275,8 +4376,8 @@ function makeGlbVisual(m) {
       /* Rumpf: am Tiefpunkt eingerollt, im Aufstieg aufgerichtet, dazu
          eine leichte Drehung zum Netzarm hin. */
       drehe(knochen.spine1, -0.06 + anziehen * 0.16 - strecken * 0.12,
-            (seite === 'L' ? 0.12 : -0.12) + takt * 0.05, 0, 0.5);
-      drehe(knochen.spine, -0.04 + anziehen * 0.08, seite === 'L' ? 0.08 : -0.08, 0, 0.4);
+            (seite === 'L' ? 0.12 : -0.12) + takt * 0.05, 0, 0.5 * _sk);
+      drehe(knochen.spine, -0.04 + anziehen * 0.08, seite === 'L' ? 0.08 : -0.08, 0, 0.4 * _sk);
       /* Beide Hände am Netz oder nur eine?
          Im Vorbild hängt Spider-Man meist an EINER Hand; mit beiden greift
          er zu, wenn er sich kräftig hochzieht. Genau so ist es hier: beim
@@ -4290,18 +4391,18 @@ function makeGlbVisual(m) {
         knochen[hand].getWorldPosition(_vw1);
         _vw2.copy(zielWelt).sub(_vw1).normalize();
         _vw3.copy(_vw1).addScaledVector(_vw2, 0.42);
-        zieleKnochen(knochen[andere], knochen[andereK], _vw3, 0.95);
-        drehe(knochen[andereK], -0.2, 0, 0, 0.95);
-        faust(seite === 'L' ? 'right' : 'left', 1);
+        zieleKnochen(knochen[andere], knochen[andereK], _vw3, 0.95 * _sk);
+        drehe(knochen[andereK], -0.2, 0, 0, 0.95 * _sk);
+        faust(seite === 'L' ? 'right' : 'left', _sk);
       } else {
         /* Nach hinten ausgestreckt in Flugrichtung – wie ein Ruder. */
         drehe(knochen[andere], -0.15 + wiegen * 1.4 - strecken * 0.25, 0,
-              seite === 'L' ? -0.55 : 0.55, 0.75);
-        drehe(knochen[andereK], -0.12 - anziehen * 0.25, 0, 0, 0.75);
-        faust(seite === 'L' ? 'right' : 'left', 0.55);
+              seite === 'L' ? -0.55 : 0.55, 0.75 * _sk);
+        drehe(knochen[andereK], -0.12 - anziehen * 0.25, 0, 0, 0.75 * _sk);
+        faust(seite === 'L' ? 'right' : 'left', 0.55 * _sk);
       }
       /* Die Netzhand ist eine feste Faust um den Faden. */
-      faust(seite === 'L' ? 'left' : 'right', 1);
+      faust(seite === 'L' ? 'left' : 'right', _sk);
       /* Der Kopf hält gegen die Vorlage, damit der Blick nach vorn geht
          und nicht auf den Asphalt. */
       /* Bei 66° Vorlage muss der Blick um denselben Betrag zurückgenommen
@@ -4309,9 +4410,9 @@ function makeGlbVisual(m) {
          Gegendrehung verteilt sich auf Kopf, Hals und obere Wirbelsäule –
          auf einen Knochen allein sähe sie verrenkt aus. */
       const gegen = -(neigung || 0);
-      drehZuRuhe(knochen.head, gegen * 0.55, 0, 0, 0.85);
-      drehZuRuhe(knochen.neck, gegen * 0.3, 0, 0, 0.8);
-      drehe(knochen.spine2, gegen * 0.22, 0, 0, 0.55);
+      drehZuRuhe(knochen.head, gegen * 0.55, 0, 0, 0.85 * _sk);
+      drehZuRuhe(knochen.neck, gegen * 0.3, 0, 0, 0.8 * _sk);
+      drehe(knochen.spine2, gegen * 0.22, 0, 0, 0.55 * _sk);
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -5151,23 +5252,26 @@ function makeGlbVisual(m) {
            gleich tief auf dem Boden. */
         current.timeScale = 0;
         current.time = DUCK_STAND_T;
-      } else if (current && want === 'schwung') {
+      } else if (current && (want === 'schwung' || want === 'schwungpose')) {
         /* Der Clip laeuft nicht von selbst ab, seine Stelle folgt dem
            Pendel: unten im Bogen liegt die Figur lang gestreckt (Ende des
            Clips), im Aufstieg zieht sie sich zusammen und greift nach oben
            (Mitte des Clips). Dadurch bewegt sich der Koerper MIT dem
-           Schwung, statt eine Haltung zu halten. */
+           Schwung, statt eine Haltung zu halten.
+           ACHTUNG: die Lage kommt aus der Steiggeschwindigkeit, und die
+           kippt am Tiefpunkt des Bogens innerhalb weniger Bilder von -1
+           auf +1. Ungeglaettet sprang die Stelle im Clip dabei mit - der
+           Fuss legte gemessen im Mittel 15,5 cm JE BILD zurueck (9,3 m/s
+           um die Huefte), Spitze 100 cm. Genau das sind die Beine, die
+           "wie ein Hubschrauber" aussehen.
+           Mit einer Zeitkonstante von rund 0,38 s folgt die Haltung dem
+           Bogen, ohne ihm jede Zuckung nachzumachen. */
         current.timeScale = 0;
-        const lage = clamp(p.bogen === undefined ? 0 : p.bogen, 0, 1);
-        current.time = lerp(1.95, 1.02, lage);
-      } else if (current && want === 'schwungpose') {
-        /* Nicht abspielen, sondern anhalten: der Zeitpunkt im Clip folgt
-           der Lage im Bogen. 0,01 s = Knie angezogen (Tiefpunkt),
-           0,15 s = Beine nach vorn gestreckt (Aufstieg). Alles danach ist
-           im Clip ein Ueberschlag und waere hier falsch. */
-        current.timeScale = 0;
-        const lage = clamp(p.bogen === undefined ? 0 : p.bogen, 0, 1);
-        current.time = lerp(0.01, 0.15, lage);
+        const roh = clamp(p.bogen === undefined ? 0 : p.bogen, 0, 1);
+        if (want !== letzterKey) bogenGlatt = roh;    // frisch eingestiegen
+        bogenGlatt = lerp(bogenGlatt, roh, Math.min(1, dt * 2.6));
+        current.time = want === 'schwung' ? lerp(1.95, 1.02, bogenGlatt)
+                                          : lerp(0.01, 0.15, bogenGlatt);
       } else if (current && (want === 'climb' || want === 'klettern' ||
                             want === 'klettern_frei' || want === 'klettern_seit' ||
                             want === 'haengen')) {
@@ -5181,7 +5285,12 @@ function makeGlbVisual(m) {
       } else if (current) {
         current.timeScale = 1;
       }
+      letzterKey = want;
       mixer.update(dt);
+      /* Nach dem Mischer, vor allen Haltungen: so hat jede Figur eine
+         natuerliche Hand, solange nichts anderes damit vorhat. */
+      ruheHand('left', 1);
+      ruheHand('right', 1);
     },
     /* art: 'punch' oder 'kick' – damit ein Tritt auch wie ein Tritt
        aussieht und nicht wie derselbe Schlag. Fehlt die passende Datei,
@@ -8305,11 +8414,86 @@ function updatePlayer(dt) {
   updateHeroVisual(dt);
 }
 
+/* ======================= Ueberblendung der Sonderhaltungen =============
+   Schwung, Gleitflug und Wandhaltung wurden bisher HART umgeschaltet: in
+   einem Bild lag die Haltung mit vollem Gewicht auf den Knochen, im
+   naechsten gar nicht mehr - die Glieder sprangen dann in einem einzigen
+   Bild auf die Stelle der Bewegungsdatei zurueck.
+   Gemessen (Weltlage der Knochen gegenueber der Wurzel, je Bild):
+     Schwung  rechter Fuss 158 cm, linke Hand 119 cm, Kopf 28 cm
+     Gleitflug linke Hand   43 cm, Fuesse      37 cm
+     Klettern  linke Hand   35 cm
+   158 cm in einem Sechzigstel sind 94 m/s - das ist das Zucken, das man
+   sieht.
+   Jetzt hat jede Haltung ein eigenes Gewicht, das ein- und ausgeblendet
+   wird. Waehrend des Uebergangs werden BEIDE gerechnet: erst die
+   abklingende, dann die aufkommende. Weil jede Haltung ihre Knochen nur
+   anteilig verdreht (slerp mit k), ergibt das eine echte Ueberblendung.
+   Die Werte der letzten Anwendung werden gemerkt, damit die abklingende
+   Haltung weiterrechnen kann, obwohl der Zustand schon gewechselt hat. */
+const MISCH = {
+  wunsch: null,
+  schwung: 0, gleiten: 0, wand: 0, wandlauf: 0,
+  schwungArg: null, gleitArg: null, wandArg: null, wandlaufArg: null,
+};
+const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
+/* 0,16 s auf, 0,22 s ab: das Aufkommen darf zuegig sein (sonst haengt die
+   Haltung der Bewegung hinterher), das Abklingen braucht laenger, weil
+   dort das Zucken sass. */
+function mischeHaltungen(dt) {
+  for (const n of MISCH_NAMEN) {
+    const ziel = MISCH.wunsch === n ? 1 : 0;
+    const tempo = ziel > MISCH[n] ? dt / 0.16 : dt / 0.22;
+    MISCH[n] = ziel > MISCH[n] ? Math.min(ziel, MISCH[n] + tempo)
+                               : Math.max(ziel, MISCH[n] - tempo);
+  }
+  /* Abklingende zuerst, aufkommende zuletzt - so gewinnt am Ende die
+     neue Haltung, ohne dass zwischendurch etwas springt. */
+  const reihe = MISCH_NAMEN.filter((n) => MISCH[n] > 0.002)
+    .sort((a, b) => (a === MISCH.wunsch ? 1 : 0) - (b === MISCH.wunsch ? 1 : 0));
+  for (const n of reihe) {
+    const g = MISCH[n];
+    if (n === 'schwung' && MISCH.schwungArg) {
+      const a = MISCH.schwungArg;
+      heroVisual.poseSchwung(a[0], a[1], a[2], a[3], a[4], a[5], g);
+    } else if (n === 'gleiten' && MISCH.gleitArg && heroVisual.poseGleiten) {
+      const a = MISCH.gleitArg;
+      heroVisual.poseGleiten(a[0], a[1], a[2], a[3] * g);
+    } else if (n === 'wand' && MISCH.wandArg && heroVisual.poseWandkriechen) {
+      const a = MISCH.wandArg;
+      heroVisual.poseWandkriechen(a[0], a[1], a[2], a[3] * g);
+    } else if (n === 'wandlauf' && MISCH.wandlaufArg && heroVisual.poseWandlauf) {
+      const a = MISCH.wandlaufArg;
+      heroVisual.poseWandlauf(a[0], a[1], a[2], a[3] * g);
+    }
+  }
+}
+
 function updateHeroVisual(dt) {
   if (!heroVisual) return;
   const r = heroVisual.root;
   r.position.copy(player.pos);
-  r.rotation.y = player.facing;
+  /* Die Blickrichtung wurde HART gesetzt. Im Schwung dreht sie sich mit
+     der Flugrichtung, und die springt am Anker- und Zustandswechsel -
+     gemessen 24,2 Grad in einem einzigen Bild. Jetzt wird nachgezogen:
+     am Boden fast sofort (das Lenken soll knackig bleiben), in der Luft
+     und am Netz gedaempft. */
+  {
+    const schnell = player.onGround || player.state === 'climb' ? 30 : 11;
+    r.rotation.y = dampAngle(r.rotation.y, player.facing, Math.min(1, dt * schnell));
+  }
+  /* Die Lage im Netzbogen kommt aus der Steiggeschwindigkeit und kippt am
+     Tiefpunkt binnen weniger Bilder von -1 auf +1. Sie wird EINMAL
+     geglaettet und dann ueberall benutzt - sowohl fuer die Stelle im Clip
+     als auch fuer die Beinhaltung. Vorher bekam die Beinhaltung den rohen
+     Wert und die Knie sprangen im Takt der Zuckungen. */
+  {
+    const roh = clamp(player.vel.y * 0.09, -1, 1);
+    if (player.state !== 'swing') player.bogenGlatt = roh;
+    else player.bogenGlatt = lerp(player.bogenGlatt === undefined ? roh : player.bogenGlatt,
+                                  roh, Math.min(1, dt * 2.6));
+  }
+  MISCH.wunsch = null;
 
   /* Beim Klettern lehnt der Körper leicht zur Wand – das liest sich sofort
      als Kleben statt als Hochlaufen. */
@@ -8356,6 +8540,19 @@ function updateHeroVisual(dt) {
          nahezu waagerecht, Kopf voran. Mit 0,3 als Untergrenze hing er
          auch im schnellen Bogen noch fast senkrecht am Faden. */
       tilt = clamp(0.62 + hs * 0.042, 0.62, 1.32);
+      /* Ankerwechsel: der Netzarm zielt auf den neuen Anker, und der liegt
+         beim naechsten Netz ganz woanders - gemessen sprang die Hand dabei
+         bis zu 1,1 m in EINEM Bild. Die Haltung auszublenden hilft nicht
+         (dann springt sie beim Wiederaufbau), also wandert stattdessen ein
+         gemerkter Zielpunkt in 0,25 s zum neuen Anker hinueber. */
+      if (!MISCH.ankerGlatt) MISCH.ankerGlatt = player.swing.anchor.clone();
+      if (MISCH.letzterAnker !== player.swing) {
+        MISCH.letzterAnker = player.swing;
+        /* Beim allerersten Netz sofort setzen, sonst zeigt der Arm noch
+           dorthin, wo gar kein Anker mehr ist. */
+        if (MISCH.schwung < 0.05) MISCH.ankerGlatt.copy(player.swing.anchor);
+      }
+      MISCH.ankerGlatt.lerp(player.swing.anchor, Math.min(1, dt * 4));
       // Kurvenlage: seitlich in den Bogen legen
       const a = player.swing.anchor;
       const rx = Math.cos(player.facing), rz = -Math.sin(player.facing);
@@ -8423,8 +8620,8 @@ function updateHeroVisual(dt) {
     gang: player.gang,
     symbiont: player.symAn,
     /* Lage im Bogen: 0 = Tiefpunkt, 1 = Aufstieg. Steuert, an welcher
-       Stelle die Schwunghaltung festgehalten wird. */
-    bogen: clamp(player.vel.y * 0.09, -1, 1),
+       Stelle die Schwunghaltung festgehalten wird. Schon geglaettet. */
+    bogen: player.bogenGlatt === undefined ? 0 : player.bogenGlatt,
   }, dt);
 
   if (heroVisual.procedural) {
@@ -8443,8 +8640,10 @@ function updateHeroVisual(dt) {
       const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4 ||
                              player.vel.y < -2);
       player.beideAmFaden = beideHaende;
-      heroVisual.poseSchwung(player.swing.anchor, player.swing.hand, elapsed,
-                             clamp(player.vel.y * 0.09, -1, 1), r.rotation.x, beideHaende);
+      MISCH.wunsch = 'schwung';
+      MISCH.schwungArg = [(MISCH.ankerGlatt || player.swing.anchor).clone(),
+                          player.swing.hand, elapsed,
+                          player.bogenGlatt, r.rotation.x, beideHaende];
     } else if (player.dreiPunktT > 0) {
       /* Ein- und wieder ausblenden, damit die Pose nicht umspringt. */
       const p = player.dreiPunktT / 0.62;
@@ -8453,8 +8652,9 @@ function updateHeroVisual(dt) {
       /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
       heroVisual.bodenAusgleich(Math.min(1, dt * 16));
     } else if (player.gleiten && player.luftSalto <= 0) {
-      heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
-                             0.9 * clamp(player.gleitMisch || 0, 0, 1));
+      MISCH.wunsch = 'gleiten';
+      MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
+                        0.9 * clamp(player.gleitMisch || 0, 0, 1)];
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
@@ -8464,20 +8664,11 @@ function updateHeroVisual(dt) {
       /* Beim Wandlauf führt die Bewegung allein – die Spinnenpose würde
          die laufenden Beine überschreiben. */
       if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
-        /* Schwaecher als frueher (0,55 statt 0,85): mit der echten
-           Kletterschleife aus mixamo-8 soll die Bewegungsdatei den Rhythmus
-           vorgeben. Die Pose sorgt nur noch dafuer, dass Haende und Fuesse
-           wirklich an der Fassade landen. */
-        /* Haengt man still, fuehrt die Haengebewegung allein: die Pose
-           wuerde ihr nur entgegenarbeiten. Sie bleibt schwach dabei, damit
-           Haende und Fuesse trotzdem an der Fassade liegen. */
-        /* 0,55 liess der Bewegungsdatei zu viel: sie zog Haende und Fuesse
-           wieder von der Fassade weg. Mit 0,72 bleibt der Rhythmus der
-           Datei erhalten, die Glieder landen aber wirklich an der Wand. */
-        heroVisual.poseWandkriechen(w.nx, w.nz, player.phase,
-                                    player.anim === 'haengen' ? 0.2 : 0.72);
+        MISCH.wunsch = 'wand';
+        MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
       } else if (w && player.wandlauf && heroVisual.poseWandlauf) {
-        heroVisual.poseWandlauf(w.nx, w.nz, player.phase, 0.9);
+        MISCH.wunsch = 'wandlauf';
+        MISCH.wandlaufArg = [w.nx, w.nz, player.phase, 0.9];
       }
       else if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
@@ -8521,18 +8712,10 @@ function updateHeroVisual(dt) {
     }
   }
 
-  /* Nach dem Gleiten wird die Gleithaltung noch kurz mit abnehmender
-     Stärke daraufgelegt – dadurch geht sie in die Schwung- oder
-     Fallhaltung über, statt umzuspringen. */
-  /* An der Wand nicht mehr nachgleiten: die ausklingende Gleithaltung hat
-     sich sonst ueber die Kletterpose gelegt und Arme und Beine von der
-     Fassade weggezogen. */
-  if (!player.gleiten && player.gleitAus > 0 && !heroVisual.procedural &&
-      heroVisual.poseGleiten && !player.attack && player.luftSalto <= 0 &&
-      player.state !== 'climb' && player.state !== 'kante') {
-    heroVisual.poseGleiten(player.gleitNase || 0, player.gleitKurve || 0, elapsed,
-                           0.75 * clamp(player.gleitAus / 0.4, 0, 1));
-  }
+  /* Sonderhaltungen ueberblenden. Das ersetzt das frueher harte
+     Umschalten UND das gesonderte Nachgleiten - der Mischer laesst jede
+     Haltung von allein ausklingen, auch die Gleithaltung. */
+  if (!heroVisual.procedural) mischeHaltungen(dt);
 
   /* Für die Neigung im nächsten Bild. */
   player.altVelX = player.vel.x; player.altVelZ = player.vel.z;
