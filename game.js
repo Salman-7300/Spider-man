@@ -6598,11 +6598,20 @@ const shotStrands = [makeWebStrand(), makeWebStrand(), makeWebStrand()];
 let shotIdx = 0;
 const activeShots = []; // {mesh, life, from, to}
 
+/* Wie schnell die Luftsteuerung den Kurs dreht (Bogenmass je Sekunde). */
+const LUFT_DREH = 2.4;
+const _vSeil = new THREE.Vector3(), _vVorWand = new THREE.Vector3();
 const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
 const _fd = new THREE.Vector3(), _fe = new THREE.Vector3();
 
-/* from = Hand, to = Anker. durchhang: 0 = straff gespannt. */
-function placeStrand(mesh, from, to, durchhang) {
+/* from = Hand, to = Anker. durchhang: 0 = straff gespannt.
+   dicke: Faktor auf den Fadenquerschnitt (1 = normal).
+   WICHTIG: die Eckpunkte werden hier in WELTKOORDINATEN geschrieben. Wer
+   den Faden dicker haben will, muss deshalb hierher - ein
+   mesh.scale.setScalar() skaliert die Weltpunkte um den Nullpunkt und
+   zieht den Faden als riesige Flaeche quer ueber die Stadt. Genau das war
+   das Netz, das beim Katapult im Nichts hing. */
+function placeStrand(mesh, from, to, durchhang, dicke) {
   _fa.subVectors(to, from);
   const len = _fa.length();
   if (len < 0.05) { mesh.visible = false; return; }
@@ -6622,7 +6631,7 @@ function placeStrand(mesh, from, to, durchhang) {
     const bx = roh[i * 3], by = roh[i * 3 + 1], bz = roh[i * 3 + 2];
     const t = by + 0.5;                              // 0 an der Hand, 1 am Anker
     // Radius: an der Hand kräftig, zum Anker hin dünner
-    const r = 0.036 - 0.021 * t;
+    const r = (0.036 - 0.021 * t) * (dicke === undefined ? 1 : dicke);
     const durch = tiefe * 4 * t * (1 - t);           // Parabel-Durchhang
     _fe.copy(from)
        .addScaledVector(_fa, len * t)
@@ -7832,9 +7841,15 @@ function zipHaltepunkt() {
 
 function webZip() {
   if (player.dead) return;
-  const enemy = coneTargetEnemy(30, 0.5);
+  /* E ist der Zug ZUM GEGNER. Der Kegel war mit 0,5 nur 60 Grad breit -
+     schon ein halber Schritt daneben, und statt des Gegners gewann der
+     Rueckfall auf irgendeinen Haltepunkt an einer Hauswand. Genau das war
+     "es zieht mich ueberall hin". Jetzt zaehlt fast der ganze vordere
+     Halbraum, und wer dicht daneben steht, wird auch ohne Blickkontakt
+     genommen. */
+  const enemy = coneTargetEnemy(34, 0.0) || nearestEnemy(10, -1);
   const target = enemy
-    ? V3(enemy.pos.x, enemy.pos.y + 1.2, enemy.pos.z)
+    ? V3(enemy.pos.x, enemy.pos.y + 1.1, enemy.pos.z)
     : zipHaltepunkt();
   if (!target) {
     if (player.keinHaltCd <= 0) { popupScreen('Kein Halt in Reichweite'); player.keinHaltCd = 1.4; }
@@ -7849,12 +7864,46 @@ function webZip() {
   stopSwing(false);
   const hand = wechsleNetzHand();
   player.state = 'zip';
-  player.zip = { target, enemy: enemy || null, t: 0.6, hand };
-  const dir = _v1.copy(target).sub(player.pos).sub(_v2.set(0, 1.2, 0)).normalize();
-  player.vel.copy(dir).multiplyScalar(27);
+  /* Kein harter Geschwindigkeitsstoss mehr. Vorher wurde die
+     Geschwindigkeit in EINEM Bild auf 27 m/s in Zielrichtung gesetzt -
+     das ist kein Zug, das ist ein Schubs, und wenn der Gegner sich
+     bewegte, flog man an der Stelle vorbei, wo er beim Tastendruck stand.
+     Jetzt zieht das Netz an: das Tempo steigt an, die Richtung wird jedes
+     Bild auf den Gegner nachgefuehrt. */
+  /* Die Zugzeit richtet sich nach der Entfernung. Fest 1,5 s reichten
+     gemessen nur fuer 14 m - bei 20 m Abstand brach der Zug auf halber
+     Strecke ab, und der Angriff kam nie zustande. */
+  const weg = Math.hypot(target.x - player.pos.x, target.y - player.pos.y - 1.1,
+                         target.z - player.pos.z);
+  player.zip = { target, enemy: enemy || null, hand,
+                 t: enemy ? clamp(weg / 13 + 0.7, 0.9, 3.2) : 0.9,
+                 tempo: Math.max(16, Math.hypot(player.vel.x, player.vel.z)) };
   /* Kein zusätzlicher Blitz-Faden: der Zip zieht den Faden ohnehin die
      ganze Zeit mit. Beide zusammen sahen aus wie zwei Netze. */
   SFX.zip();
+}
+
+/* Ankunft am Gegner. Bisher stand hier nur damageEnemy(): man beruehrte
+   ihn, er verlor Leben, aber eine Bewegung war nie zu sehen. Jetzt laeuft
+   der Kniestoss aus der Bewegungsdatei ab, und der Treffer kommt ueber
+   dieselbe Auswertung wie jeder andere Schlag (resolveAttackHit). */
+function zipAngriff(e) {
+  player.ziel = e;
+  const art = heroVisual.hatClip && heroVisual.hatClip('knie') ? 'knie' : 'luftangriff';
+  const dauer = heroVisual.attackOneShot(0, art, 0.62) || 0.5;
+  player.attack = { type: 'kick', t: 0, arm: 'R', art,
+                    hitDone: false, finisher: false, stufe: 0, dauer };
+  player.attackCd = dauer * 0.7;
+  player.combo++; player.comboTimer = 3;
+  /* Der Schwung des Zuges geht in den Stoss: die Figur bleibt am Gegner
+     stehen, statt an ihm vorbeizuschiessen. */
+  player.vel.multiplyScalar(0.16);
+  player.vel.y = 3.4;
+  player.facing = Math.atan2(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+  camShake = Math.max(camShake, 0.2);
+  hitstop(0.05);
+  popupWorld('Netz-Angriff!', e.pos, '#bfe8ff');
+  SFX.swoosh();
 }
 
 /* ======================= Spieler-Aktionen ======================= */
@@ -8691,35 +8740,42 @@ function updatePlayer(dt) {
 
   /* ---- Zip ---- */
   if (player.state === 'zip' && player.zip) {
-    player.zip.t -= dt;
-    const t = player.zip.target;
+    const z = player.zip;
+    z.t -= dt;
+    /* Beim Gegner wandert das Ziel mit. Vorher stand der Punkt fest, an
+       dem er beim Tastendruck war - lief er weiter, zog das Netz ins
+       Leere daneben. */
+    if (z.enemy && !z.enemy.dead) z.target.set(z.enemy.pos.x, z.enemy.pos.y + 1.1, z.enemy.pos.z);
+    const t = z.target;
     const d = _v1.set(t.x - player.pos.x, t.y - player.pos.y, t.z - player.pos.z);
     const dist = d.length();
-    player.fadenZiel = t; player.fadenHand = player.zip.hand;
-    if (dist < 2 || player.zip.t <= 0) {
+    player.fadenZiel = t; player.fadenHand = z.hand;
+    const ende = dist < (z.enemy ? 2.3 : 2.0) || z.t <= 0 || (z.enemy && z.enemy.dead);
+    if (ende) {
       swingStrand.visible = false;
-      if (player.zip.enemy && !player.zip.enemy.dead && dist < 3.5) {
-        // Netz-Angriff: Tritt beim Eintreffen
-        const e = player.zip.enemy;
-        damageEnemy(e, 14, 'kick');
-        e.vel.x += d.x / (dist || 1) * 10; e.vel.z += d.z / (dist || 1) * 10; e.vel.y += 5;
-        SFX.kick();
-        hitstop(0.06);
-        popupWorld('Netz-Angriff!', e.pos, '#bfe8ff');
-        player.vel.multiplyScalar(0.25);
-        player.vel.y = 4;
-        player.combo++; player.comboTimer = 3;
-      } else {
-        player.vel.multiplyScalar(0.45);
-      }
+      if (z.enemy && !z.enemy.dead && dist < 4.2) zipAngriff(z.enemy);
+      else player.vel.multiplyScalar(0.45);
       player.zip = null;
       player.state = 'air';
     } else {
+      /* Ziehen statt schieben: das Tempo steigt ueber die Zugstrecke an,
+         und die vorhandene Geschwindigkeit wird auf die Fadenrichtung
+         GEDREHT statt hart ersetzt. Dadurch fliegt man einen Bogen zum
+         Ziel - wer aus dem Lauf zieht, behaelt seinen Schwung. */
+      z.tempo = Math.min(40, z.tempo + 80 * dt);
+      _v2.copy(d).multiplyScalar(z.tempo / (dist || 1));
+      player.vel.lerp(_v2, Math.min(1, dt * 16));
       player.pos.addScaledVector(player.vel, dt);
       const prevY = player.pos.y;
       player.onGround = false;
       collideBody(player, prevY);
-      if (player.wall) { player.zip = null; player.state = 'air'; swingStrand.visible = false; }
+      /* An einer Wand haengenbleiben beendet den Zug - ausser der Gegner
+         steht dahinter dicht davor, dann waere es ein Abbruch kurz vor
+         dem Treffer. */
+      if (player.wall) {
+        if (z.enemy && !z.enemy.dead && dist < 4.2) zipAngriff(z.enemy);
+        player.zip = null; player.state = 'air'; swingStrand.visible = false;
+      }
       updateHeroVisual(dt);
       return;
     }
@@ -8897,19 +8953,37 @@ function updatePlayer(dt) {
        Luftsteuerung würde sonst dagegenarbeiten. */
     if (dir && player.state !== 'swing') {
       const vorher = Math.hypot(player.vel.x, player.vel.z);
-      player.vel.x += dir.x * CFG.airAccel * dt;
-      player.vel.z += dir.z * CFG.airAccel * dt;
-      const hs = Math.hypot(player.vel.x, player.vel.z);
-      /* Die Deckelung lag bei 18 m/s und wurde auf die GESAMTE
-         Geschwindigkeit angewandt. Wer nach einem schnellen Bogen (bis
-         40 m/s) losliess und dann auch nur antippte, wurde dadurch
-         schlagartig auf 18 heruntergebremst - es fuehlte sich an, als
-         liesse sich in der Luft gar nichts machen.
-         Jetzt bremst die Eingabe nie: gedeckelt wird auf das Groessere aus
-         Grenze und bisherigem Tempo. Beschleunigen ueber die Grenze hinaus
-         geht weiterhin nicht. */
-      const maxH = Math.max(30, vorher);
-      if (hs > maxH) { player.vel.x *= maxH / hs; player.vel.z *= maxH / hs; }
+      if (vorher > 6) {
+        /* ---- Schnell in der Luft: die Eingabe DREHT den Kurs ----
+           Vorher wurde einfach eine Kraft in Eingaberichtung addiert. Wer
+           bei 28 m/s zur Seite steuerte, drueckte damit zwangslaeufig auch
+           gegen die eigene Flugrichtung: gemessen blieben von 28 m/s noch
+           12,8 uebrig. Jede Kurve war also eine Vollbremsung, und genau
+           deshalb liess sich in der Luft "nichts machen".
+           Jetzt wird der Querteil der Eingabe zu einer Kursaenderung - der
+           Betrag bleibt - und nur der Laengsteil beschleunigt oder bremst,
+           und der deutlich schwaecher als frueher. */
+        const fx = player.vel.x / vorher, fz = player.vel.z / vorher;
+        const laengs = dir.x * fx + dir.z * fz;
+        const quer = dir.x * fz - dir.z * fx;
+        const w = quer * LUFT_DREH * dt;
+        const cw = Math.cos(w), sw = Math.sin(w);
+        const vx = player.vel.x, vz = player.vel.z;
+        player.vel.x = vx * cw + vz * sw;
+        player.vel.z = -vx * sw + vz * cw;
+        const neuTempo = clamp(vorher + laengs * CFG.airAccel * 0.45 * dt,
+                               5, Math.max(30, vorher));
+        const f2 = neuTempo / vorher;
+        player.vel.x *= f2; player.vel.z *= f2;
+      } else {
+        /* Langsam oder aus dem Stand: hier braucht es echten Schub, sonst
+           kommt man in der Luft gar nicht in Fahrt. */
+        player.vel.x += dir.x * CFG.airAccel * dt;
+        player.vel.z += dir.z * CFG.airAccel * dt;
+        const hs = Math.hypot(player.vel.x, player.vel.z);
+        const maxH = Math.max(30, vorher);
+        if (hs > maxH) { player.vel.x *= maxH / hs; player.vel.z *= maxH / hs; }
+      }
     }
   }
 
@@ -8931,6 +9005,10 @@ function updatePlayer(dt) {
      beim Aufkommen auf einem Dach. */
   const wasOnGround = player.onGround;
   const fallTempo = -player.vel.y;
+  /* Geschwindigkeit VOR der Kollision merken. collideBody nimmt den Anteil
+     in die Wand heraus; wer danach abprallen will, findet sonst nichts
+     mehr vor, womit er rechnen koennte. */
+  _vVorWand.copy(player.vel);
   /* Ab hier gilt "in der Luft", bis irgendeine Kollisionsprüfung dieses
      Bildes etwas anderes sagt – auch eine aus den Teilschritten. Vorher
      wurde das Ergebnis der Teilschritte gleich wieder verworfen: die
@@ -8984,11 +9062,17 @@ function updatePlayer(dt) {
        Vorrang. */
     let geradeAus = 0;
     if (!kurveEin) {
-      const flug = Math.atan2(player.vel.x, player.vel.z);
-      let ab = flug - (camYaw + Math.PI);
-      while (ab > Math.PI) ab -= TAU;
-      while (ab < -Math.PI) ab += TAU;
-      geradeAus = clamp(-ab * 0.45, -0.45, 0.45);
+      /* Nur waehrend es VORWAERTS geht. Im Rueckschwung zeigt die
+         Flugrichtung naturgemaess nach hinten; die Rueckfuehrung hat dort
+         gegen das Pendel gearbeitet und ihm die Bewegung genommen. */
+      const vor = player.vel.x * -Math.sin(camYaw) + player.vel.z * -Math.cos(camYaw);
+      if (vor > 0.5) {
+        const flug = Math.atan2(player.vel.x, player.vel.z);
+        let ab = flug - (camYaw + Math.PI);
+        while (ab > Math.PI) ab -= TAU;
+        while (ab < -Math.PI) ab += TAU;
+        geradeAus = clamp(-ab * 0.45, -0.45, 0.45);
+      }
     }
     /* Seil sanft auf die Wunschlänge bringen statt ruckartig einzuholen */
     const tief = player.pos.y < s.anchor.y - s.zielLen * 0.72;   // nahe dem Tiefpunkt?
@@ -9042,13 +9126,22 @@ function updatePlayer(dt) {
          Jetzt wird stattdessen der KURS gedreht: die waagerechte
          Geschwindigkeit wird um die Hochachse gedreht, ihr Betrag bleibt
          gleich. Damit kostet Lenken kein Tempo. */
+      /* ---- Und um WELCHE Achse? ----
+         Bisher um die Welt-Hochachse. Das kippt die Geschwindigkeit aus
+         der Tangentialebene des Seils heraus, und die Seilbedingung
+         streicht diesen Anteil im naechsten Bild ersatzlos. Der Schwung
+         hat dadurch in jedem Bild Energie verloren - gemessen aus dem
+         Stand: nach 2 s 16,6 m/s, nach 6 s noch 2,7 m/s, in zehn Sekunden
+         ganze 42 m Weg. Man hing am Faden statt zu schwingen.
+         Gedreht wird deshalb um die SEILACHSE. Dabei bleibt die
+         Geschwindigkeit tangential, ihr Betrag bleibt erhalten, und die
+         Schwungebene dreht sich - genau das ist eine Kurve am Netz. */
       const lenkung = kurveEin || geradeAus;
       if (lenkung) {
-        const w2 = (kurveEin * 1.30 + geradeAus * 0.85) * hdt;
-        const cw = Math.cos(w2), sw = Math.sin(w2);
-        const vx = player.vel.x, vz = player.vel.z;
-        player.vel.x = vx * cw + vz * sw;
-        player.vel.z = -vx * sw + vz * cw;
+        const w2 = -(kurveEin * 2.0 + geradeAus * 0.5) * hdt;
+        _vSeil.copy(player.pos).sub(s.anchor);
+        const sl = _vSeil.length();
+        if (sl > 0.2) { _vSeil.multiplyScalar(1 / sl); player.vel.applyAxisAngle(_vSeil, w2); }
       }
     }
     player.vel.multiplyScalar(1 - 0.02 * dt);
@@ -9066,6 +9159,29 @@ function updatePlayer(dt) {
   collideBody(player, prevY, wandPuffer());
   collidePlayerCars(prevY);
   collidePlayerHelis(prevY);
+
+  /* ---- Im Bogen gegen eine Wand ----
+     Der Anker sitzt auf einer Dachkante, und das Pendel traegt die Figur
+     anschliessend genau in die Fassade darunter. Gemessen brach das Tempo
+     dabei von 14,4 auf 1,1 m/s ein, und danach hing sie bewegungslos am
+     Faden - vier Sekunden lang, ohne dass irgendetwas passierte.
+     Jetzt loest sich das Netz und die Figur rutscht mit dem Rest ihres
+     Schwungs an der Wand entlang weiter. Wer will, klettert von dort
+     hoch oder schiesst ein neues Netz. */
+  if (player.state === 'swing' && player.wall) {
+    const w = player.wall;
+    const rein = _vVorWand.x * w.nx + _vVorWand.z * w.nz;
+    stopSwing(true);
+    if (rein < 0) {
+      /* Der Anteil laengs der Wand bleibt erhalten, der Anteil in die Wand
+         wird zu einem Abstoss davon weg. So gleitet die Figur an der
+         Fassade entlang weiter, statt daran stehenzubleiben. */
+      player.vel.x = _vVorWand.x - w.nx * rein * 1.6;
+      player.vel.z = _vVorWand.z - w.nz * rein * 1.6;
+      player.vel.y = Math.max(player.vel.y, _vVorWand.y * 0.7 + 1.5);
+      SFX.swoosh();
+    }
+  }
 
   /* ---- Treppen und Bordsteine: nicht abheben ----
      Der Boden faellt unter den Fuessen weg, sobald es abwaerts geht. Bei
@@ -9427,6 +9543,19 @@ function updateHeroVisual(dt) {
     const schnell = player.onGround || player.state === 'climb' ? 30 : 11;
     r.rotation.y = dampAngle(r.rotation.y, player.facing, Math.min(1, dt * schnell));
   }
+  /* ---- In die Kurve legen ----
+     Am Netz und im Gleitflug legt sich die Figur in die Kurve, so wie ein
+     Radfahrer. Ohne das dreht sie sich in der Kurve wie eine Statue auf
+     einem Drehteller - die Bewegung war nicht abzulesen. Gerollt wird um
+     die eigene Laengsachse; bei der Reihenfolge XYZ steht rotation.z im
+     Modellsystem, wird also VOR der Blickrichtung angewandt. */
+  {
+    const kurve = player.state === 'swing' ? (player.kurveGlatt || 0)
+                : player.gleiten ? (player.gleitKurve || 0) : 0;
+    const ziel = clamp(kurve, -1, 1) * (player.gleiten ? 0.62 : 0.48);
+    player.neigung = lerp(player.neigung || 0, ziel, Math.min(1, dt * 5));
+    r.rotation.z = Math.abs(player.neigung) < 0.004 ? 0 : player.neigung;
+  }
   /* Die Lage im Netzbogen kommt aus der Steiggeschwindigkeit und kippt am
      Tiefpunkt binnen weniger Bilder von -1 auf +1. Sie wird EINMAL
      geglaettet und dann ueberall benutzt - sowohl fuer die Stelle im Clip
@@ -9774,8 +9903,13 @@ function wandFreiraum() {
    Weg zum nächsten Häuserblock, ohne erst einen Bogen aufbauen zu müssen.
    Taste V (Gamepad: Y), gedrückt halten zum Spannen. */
 const KAT = { aktiv: false, ladung: 0, anker: [null, null], strang: [null, null],
-              zeichen: [null, null] };
-const KAT_MAX = 1.0;              // volle Spannung nach einer Sekunde
+              zeichen: [null, null], start: null, rx: 0, rz: 0 };
+/* Gespannt wird nicht mehr ueber die Zeit, sondern ueber den WEG: die
+   beiden Netze kleben vor der Figur, und je weiter man rueckwaerts geht,
+   desto straffer werden sie - wie bei einer Schleuder, in die man sich
+   hineinlehnt. Vorher lief einfach eine Sekunde ab, egal was man tat;
+   deshalb hatte das Spannen ueberhaupt kein Gefuehl. */
+const KAT_ZUG = 5.0;              // Meter Rueckweg bis zur vollen Spannung
 
 function katapultStrang(i) {
   if (!KAT.strang[i]) {
@@ -9800,9 +9934,16 @@ function katapultZeichen(i) {
   return KAT.zeichen[i];
 }
 
-/* Zwei Ankerpunkte schräg hinter der Figur suchen. */
+/* Zwei Ankerpunkte schräg VOR der Figur suchen - dorthin geht auch der
+   Flug. Frueher klebten die Netze hinter dem Ruecken; man wurde dann in
+   die Gegenrichtung geschleudert und sah beim Spannen nichts davon. */
 function katapultAnker() {
-  const hinten = _v1.set(-Math.sin(player.facing), 0, -Math.cos(player.facing));
+  /* Gesucht wird in BLICKRICHTUNG, nicht in Laufrichtung: wohin man
+     schaut, dorthin fliegt man auch. Beim Zurueckgehen dreht sich die
+     Figur naemlich um - mit player.facing haetten die Netze mitten im
+     Spannen die Seite gewechselt. */
+  const f = camForward();
+  const hinten = _v1.set(f.x, 0, f.z);
   const rechts = _v2.set(hinten.z, 0, -hinten.x);
   const gefunden = [null, null];
   /* Das Netz soll wirklich an ZWEI Dingen haengen. Ohne diese Sperre
@@ -9825,7 +9966,7 @@ function katapultAnker() {
       const nachHinten = (dx * hinten.x + dz * hinten.z) / d;
       const nachSeite = (dx * rechts.x + dz * rechts.z) / d * vz;
       if (nachHinten < 0.05 || nachSeite < 0.1) continue;
-      /* Möglichst hoch und möglichst weit hinten. */
+      /* Möglichst hoch und möglichst weit vorn. */
       const wert = nachHinten * 2 + nachSeite - d * 0.02 + Math.min(c.h, 90) * 0.02;
       if (wert > bestWert) {
         bestWert = wert;
@@ -9846,23 +9987,32 @@ function katapultStart() {
   if (!anker[0] || !anker[1]) { popupScreen('Keine zwei Ankerpunkte in Reichweite'); return; }
   KAT.aktiv = true; KAT.ladung = 0;
   KAT.anker[0] = anker[0]; KAT.anker[1] = anker[1];
+  KAT.start = { x: player.pos.x, z: player.pos.z };
+  /* Flugrichtung: zur Mitte der beiden Anker. Sie steht beim Anschiessen
+     fest und dreht sich nicht mehr mit, auch wenn man sich beim
+     Zurueckgehen umschaut. */
+  const mx = (anker[0].x + anker[1].x) / 2 - player.pos.x;
+  const mz = (anker[0].z + anker[1].z) / 2 - player.pos.z;
+  const L = Math.hypot(mx, mz) || 1;
+  KAT.rx = mx / L; KAT.rz = mz / L;
+  popupScreen('Rueckwaerts gehen zum Spannen');
   SFX.thwip(); SFX.web();
 }
 
 function katapultLos() {
   if (!KAT.aktiv) return;
-  const t = clamp(KAT.ladung / KAT_MAX, 0, 1);
+  const t = clamp(KAT.ladung / KAT_ZUG, 0, 1);
   KAT.aktiv = false;
   KAT.strang[0].visible = false;
   KAT.strang[1].visible = false;
   if (KAT.zeichen[0]) KAT.zeichen[0].visible = false;
   if (KAT.zeichen[1]) KAT.zeichen[1].visible = false;
   /* Unter einem Drittel Spannung passiert nichts – so kann man abbrechen. */
-  if (t < 0.3) { popupScreen('Zu wenig Spannung'); return; }
-  const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+  if (t < 0.3) { popupScreen('Zu wenig Spannung - weiter zurueck'); return; }
   const tempo = lerp(16, 34, t);
-  player.vel.x = f.x * tempo;
-  player.vel.z = f.z * tempo;
+  player.vel.x = KAT.rx * tempo;
+  player.vel.z = KAT.rz * tempo;
+  player.facing = Math.atan2(KAT.rx, KAT.rz);
   player.vel.y = lerp(7, 15, t);
   player.onGround = false;
   player.state = 'air';
@@ -9882,13 +10032,16 @@ function updateKatapult(dt) {
   if (!KAT.aktiv) return;
   /* Loslassen oder Zustandswechsel beendet die Spannung. */
   if (player.dead || !player.onGround || player.state === 'swing') { katapultLos(); return; }
-  /* Die Spannung bleibt bei voll STEHEN. Frueher schoss es bei 1,12 von
-     allein los - man hielt die Taste, und noch bevor man losliess, war man
-     schon unterwegs. Genau deshalb wirkte das Katapult unkontrollierbar. */
-  KAT.ladung = Math.min(KAT_MAX, KAT.ladung + dt);
-  const t = clamp(KAT.ladung / KAT_MAX, 0, 1);
-  /* Die Figur geht in die Hocke und lehnt sich gegen den Zug. */
-  player.vel.x *= 0.6; player.vel.z *= 0.6;
+  /* Spannung aus dem WEG gegen die Flugrichtung. Wer wieder nach vorn
+     geht, laesst nach - das Netz ist keine Ratsche. */
+  const zug = -((player.pos.x - KAT.start.x) * KAT.rx +
+                (player.pos.z - KAT.start.z) * KAT.rz);
+  KAT.ladung = clamp(zug, 0, KAT_ZUG);
+  const t = clamp(KAT.ladung / KAT_ZUG, 0, 1);
+  /* Je straffer, desto schwerer kommt man weiter zurueck - das Netz zieht
+     zurueck. Vorher wurde einfach jede Bewegung gebremst. */
+  const halt = 1 - 0.55 * t;
+  player.vel.x *= halt; player.vel.z *= halt;
   heroVisual.root.updateMatrixWorld(true);
   for (let i = 0; i < 2; i++) {
     const m = katapultStrang(i);
@@ -9897,10 +10050,10 @@ function updateKatapult(dt) {
        nichts zu zeigen. Vorher blieb der Strang in dem Fall unsichtbar,
        und man sah beim Spannen ueberhaupt kein Netz. */
     const von = hand || _v3.set(player.pos.x, player.pos.y + 1.4, player.pos.z);
-    placeStrand(m, von, KAT.anker[i], 0.02 * (1 - t) + 0.004);
-    /* Beim Spannen wird der Faden dicker und heller - man soll sehen,
-       wie die Spannung steigt. */
-    m.scale.setScalar(1 + t * 0.9);
+    /* Beim Spannen wird der Faden straffer, dicker und heller - man soll
+       sehen, wie die Spannung steigt. Die Dicke geht in placeStrand hinein;
+       ein mesh.scale haette die Weltpunkte des Fadens verschoben. */
+    placeStrand(m, von, KAT.anker[i], 0.03 * (1 - t) + 0.002, 1 + t * 1.6);
     if (m.material && m.material.color) {
       const hell = 0.75 + t * 0.25;
       m.material.color.setRGB(hell, hell, 1);
@@ -13777,7 +13930,9 @@ if (window.__WEBHERO_TEST__ === true) {
     katStand() {
       return { aktiv: KAT.aktiv, ladung: KAT.ladung,
         anker: KAT.anker.map((a) => a ? [+a.x.toFixed(1), +a.y.toFixed(1), +a.z.toFixed(1)] : null),
-        straenge: KAT.strang.map((m) => m ? { sicht: m.visible, s: +m.scale.x.toFixed(2) } : null) };
+        rx: KAT.rx, rz: KAT.rz,
+        straenge: KAT.strang.map((m) => m ? { sicht: m.visible, s: +m.scale.x.toFixed(2),
+          r: m.geometry.boundingSphere ? +m.geometry.boundingSphere.radius.toFixed(1) : null } : null) };
     },
     bodenFuss: bodenHoeheFuerFuss,
     sinnStand() { return { staerke: sinnStaerke, konter: sinnKonter }; },
