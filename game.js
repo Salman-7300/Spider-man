@@ -1416,7 +1416,7 @@ const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
    oder Aussenwand gibt es deshalb keine.
    In x endet sie 60 cm vor den Schachtenden, damit sie nicht in die
    Aussenwand der Bahnsteighalle laeuft. */
-const UB_BE_TIEF = 9.0;                   // Tiefe der Halle neben dem Schacht
+const UB_BE_TIEF = 10.0;                  // Tiefe der Halle neben dem Schacht
 const UB_BE_HOCH = 3.0;                   // lichte Hoehe
 const UB_BE_RAND = 0.6;                   // Abstand zu den Schachtenden
 function ubBEbene(sx, sch) {
@@ -1431,8 +1431,14 @@ function ubBEbene(sx, sch) {
    Zwischenebene, sonst stuende man vor einer Treppe in der Wand. */
 function ubDurchgang(sx, sch) {
   const richtung = sch.xKopf > sch.xFuss ? -1 : 1;
-  const a = sx + sch.xKopf + richtung * (UB_TR_OBEN - 0.5);
-  const b = sx + sch.xKopf + richtung * (UB_TR_OBEN + UB_HALLE_LANG + 0.5);
+  /* Die Oeffnung reicht ueber die ebene Strecke HINAUS, ein Stueck in
+     beide Treppenlaeufe hinein. Vorher war es eine 5 m breite Tuer in
+     einer sonst geschlossenen Wand: wer die Treppe herunterkam, sah von
+     den Laeden nichts, weil er erst um die Ecke treten musste. Jetzt ist
+     die Seite zur Halle hin offen, die Halle liegt beim Hinuntergehen
+     schon im Blick. */
+  const a = sx + sch.xKopf + richtung * (UB_TR_OBEN - 2.6);
+  const b = sx + sch.xKopf + richtung * (UB_TR_OBEN + UB_HALLE_LANG + 2.6);
   return { x0: Math.min(a, b), x1: Math.max(a, b) };
 }
 
@@ -1474,6 +1480,16 @@ function ubahnLoecher(art) {
                                   b = sx + s.xFuss; }
       else { a = kopf; b = sx + s.xFuss; }
       out.push({ x0: Math.min(a, b), x1: Math.max(a, b), z0: s.z0, z1: s.z1 });
+      /* 'erde' nimmt zusaetzlich die B-Ebene heraus. Der Erdblock zwischen
+         Tunneldecke und Strasse reicht 80 cm ueber die Roehre hinaus und
+         stand damit als 90 cm dicke, erdbraune Scheibe genau in der
+         Oeffnung zur Halle - gemessen ein Brett von 331 m Laenge bei
+         z 34,4..35,3. Man stand in der Zwischenebene und sah statt der
+         Laeden eine braune Wand. */
+      if (art === 'erde') {
+        const be = ubBEbene(sx, s);
+        out.push({ x0: be.x0 - 0.5, x1: be.x1 + 0.5, z0: be.z0, z1: be.z1 });
+      }
     }
   }
   return out;
@@ -1613,8 +1629,14 @@ scene.add(cityGroup);
    Deshalb werden alle Details gesammelt und am Ende zu EINER Geometrie
    verschmolzen. Die Farbe steckt dann in den Eckpunkten. */
 const dekoTeile = [];
-function deko(w, h, d, x, y, z, farbe, ry) {
-  dekoTeile.push({ w, h, d, x, y, z, farbe, ry: ry || 0 });
+/* Nur fuers Messen: eine Kopie aller gesetzten Kisten. */
+const DEKO_KOPIE = [];
+/* rz kippt die Kiste um die Z-Achse - gebraucht fuer schraege Teile wie
+   einen Treppenhandlauf. Ohne das musste ein Gefaelle als Kistenhoehe
+   nachgebildet werden, und aus dem Handlauf wurde eine mannshohe Platte. */
+function deko(w, h, d, x, y, z, farbe, ry, rz) {
+  const t = { w, h, d, x, y, z, farbe, ry: ry || 0, rz: rz || 0 };
+  dekoTeile.push(t); DEKO_KOPIE.push(t);
 }
 
 /* Eine Liste von Kisten {w,h,d,x,y,z,farbe,ry} zu EINER Geometrie
@@ -1634,7 +1656,7 @@ function verschmelzeBoxen(teile) {
   const v = new THREE.Vector3(), farbe = new THREE.Color();
   let vo = 0, io = 0;
   for (const t of teile) {
-    eul.set(0, t.ry || 0, 0);
+    eul.set(0, t.ry || 0, t.rz || 0);
     m.compose(pos.set(t.x, t.y, t.z), quat.setFromEuler(eul), skal.set(t.w, t.h, t.d));
     nm.getNormalMatrix(m);
     farbe.set(t.farbe);
@@ -2246,10 +2268,11 @@ function baueBEbene(sx, sch) {
     deko(b - a, 2.30, 0.12, (a + b) / 2, u0 + 1.35, tief(0.10), 0xb9c2cc);
     deko(b - a, 0.30, 0.14, (a + b) / 2, u0 + 0.15, tief(0.10), 0x4d545c);
   }
+  /* Nur zwei schmale Kanten als Laibung - kein Sturz. Ein Sturz haette
+     die Oeffnung wieder auf Tuerhoehe gebracht; sie soll bis unter die
+     Decke offen sein. */
   for (const px of [dgA.x0, dgA.x1])
-    deko(0.24, UB_BE_HOCH, 0.5, px, u0 + UB_BE_HOCH / 2, tief(0.25), 0xb9c2cc);
-  deko(dgA.x1 - dgA.x0 + 0.48, 0.45, 0.5, (dgA.x0 + dgA.x1) / 2, u1 - 0.22,
-       tief(0.25), 0xb9c2cc);
+    deko(0.20, UB_BE_HOCH, 0.5, px, u0 + UB_BE_HOCH / 2, tief(0.25), 0xb9c2cc);
 
   /* ---- Laeden an der Aussenwand ---- */
   const nL = 4, bw = (lx - 0.6) / nL;
@@ -2334,9 +2357,13 @@ function baueBEbene(sx, sch) {
   /* ---- Wegweiser ueber dem Durchgang ---- */
   {
     const wx = (dg.x0 + dg.x1) / 2, wz = tief(1.7);
-    deko(2.80, 0.55, 0.16, wx, u1 - 0.60, wz, 0x2c6e4a);
-    deko(2.55, 0.14, 0.10, wx, u1 - 0.60, tief(1.62), 0xf2f6f2);
-    for (const s2 of [-1.2, 1.2])
+    /* Blau wie die Linie, mit Namensband und Pfeil zur Treppe. Das
+       durchgehend gruene Feld sah aus wie eine aufgehaengte Plane. */
+    deko(2.60, 0.50, 0.14, wx, u1 - 0.58, wz, 0x1b3fa0);
+    deko(1.80, 0.12, 0.12, wx + 0.25, u1 - 0.58, tief(1.62), 0xf2f4f8);
+    deko(0.26, 0.26, 0.12, wx - 0.92, u1 - 0.58, tief(1.62), 0xf2f4f8);
+    deko(0.14, 0.14, 0.12, wx - 1.08, u1 - 0.58, tief(1.62), 0xf2f4f8);
+    for (const s2 of [-1.1, 1.1])
       deko(0.06, 0.33, 0.06, wx + s2, u1 - 0.16, wz, 0x8d99a6);
   }
 
@@ -2375,6 +2402,33 @@ function baueUBahn(x) {
         const xx = x + sch.xKopf + richtung * (vonS + (i + 0.5) * tT);
         deko(tT, 0.1, zT, xx, y1 + 0.05, zM, 0x6a7078);                 // Trittflaeche
         if (y0 > y1) deko(0.08, y0 - y1, zT, xx - richtung * tT / 2, (y0 + y1) / 2, zM, 0x3c4249);
+        /* Helle Nase auf jeder Stufe - erst dadurch liest sich der Abgang
+           als Treppe und nicht als schiefe Ebene. */
+        deko(0.10, 0.12, zT, xx + richtung * tT / 2, y1 + 0.06, zM, 0xc4cad2);
+      }
+      /* ---- Handlaeufe ----
+         Links und rechts ein Lauf auf 95 cm ueber den Stufen, getragen von
+         Pfosten. Ohne sie war der Abgang ein nackter Betontrog. */
+      const HL = 0.95;
+      const nP = Math.max(2, Math.round(laenge / 1.5));
+      for (const s3 of [-1, 1]) {
+        const hz = zM + s3 * (zT / 2 - 0.18);
+        for (let k = 0; k <= nP; k++) {
+          const sp = vonS + (k / nP) * laenge;
+          const hy = abgangHoehe(sp);
+          const hx2 = x + sch.xKopf + richtung * sp;
+          deko(0.07, HL, 0.07, hx2, hy + HL / 2, hz, 0x8d99a6);
+        }
+        /* Der Lauf selbst: EIN schraeges Stueck ueber den ganzen Flug.
+           Der Schacht liegt laengs der x-Achse, deshalb genuegt eine
+           Neigung um die Z-Achse. */
+        {
+          const ax = x + sch.xKopf + richtung * vonS, ay = abgangHoehe(vonS) + HL;
+          const bx2 = x + sch.xKopf + richtung * bisS, by = abgangHoehe(bisS) + HL;
+          const lg = Math.hypot(bx2 - ax, by - ay);
+          deko(lg + 0.12, 0.09, 0.09, (ax + bx2) / 2, (ay + by) / 2, hz, 0xb4bcc6,
+               0, Math.atan2(by - ay, bx2 - ax));
+        }
       }
     };
     stufen(0, UB_TR_OBEN, UB_STUFEN_OBEN);
@@ -2397,7 +2451,14 @@ function baueUBahn(x) {
         if (s3 === weg) continue;
         const wz = s3 < 0 ? sch.z0 - 0.22 : sch.z1 + 0.22;
         deko(ml, hM, 0.16, mx, UB_MITTE + hM / 2, wz, 0x8d99a6);
-        deko(ml, 0.5, 0.2, mx, UB_MITTE + 1.9, wz + (s3 < 0 ? 0.12 : -0.12), 0x2c6e4a);
+        /* Ein durchgehendes gruenes Band ueber fuenf Meter Wand sah aus
+           wie eine Plane. Jetzt zwei kurze Wegweiser im Blau der Linie. */
+        const bz = wz + (s3 < 0 ? 0.12 : -0.12);
+        for (const f of [0.3, 0.7]) {
+          const bx = mx - ml / 2 + ml * f;
+          deko(1.40, 0.42, 0.12, bx, UB_MITTE + 2.05, bz, 0x1b3fa0);
+          deko(1.16, 0.10, 0.14, bx, UB_MITTE + 2.05, bz, 0xf2f4f8);
+        }
       }
       /* Zwei Deckenleuchten wie unten auf dem Bahnsteig. */
       for (const f of [-0.28, 0.28]) {
@@ -2516,20 +2577,25 @@ function baueUBahn(x) {
       deko(1.9, 0.22, 0.5, lx, UB_DECKE - 0.24, zm, 0x363b42);      // Gehaeuse
       deko(1.7, 0.1, 0.34, lx, UB_DECKE - 0.4, zm, 0xf4f2e6);       // Leuchtfeld
     }
-    deko(3.4, 1.1, 0.14, x, UB_TIEF + 2.7, zw - rueck * 0.35, 0x1b8f4a);
-    deko(3.0, 0.8, 0.16, x, UB_TIEF + 2.7, zw - rueck * 0.38, 0xf2f6f0);
+    /* Stationsschild. Vorher ein 3,4 x 1,1 m grosses, giftgruenes Feld mit
+       einem weissen Loch darin - aus zwei Metern Entfernung fuellte es
+       die halbe Wand. Jetzt eine flache Namenstafel im selben Blau wie
+       oben am Eingang, mit U-Zeichen davor. */
+    const sz = zw - rueck * 0.35;
+    deko(2.60, 0.62, 0.12, x, UB_TIEF + 2.65, sz, 0x1b3fa0);
+    deko(2.40, 0.44, 0.14, x, UB_TIEF + 2.65, sz, 0xf2f4f8);
+    deko(0.60, 0.60, 0.16, x - 1.00, UB_TIEF + 2.65, sz, 0x1b3fa0);
+    for (const s4 of [-1, 1])
+      deko(0.09, 0.34, 0.18, x - 1.00 + s4 * 0.14, UB_TIEF + 2.70, sz, 0xf4f8ff);
+    deko(0.37, 0.09, 0.18, x - 1.00, UB_TIEF + 2.52, sz, 0xf4f8ff);
+    deko(1.30, 0.09, 0.16, x + 0.35, UB_TIEF + 2.65, sz, 0x39404a);
     for (const s2 of [-1, 1])
       baueBank(x + s2 * 8, UB_TIEF, zw - rueck * 1.5, false, undefined, rueck);
   }
-  /* Ueber dem Gleis dasselbe: einzelne Lampen statt eines 26-m-Bandes. */
-  {
-    const lampen = Math.max(3, Math.round((hx - 4) / 5.5));
-    for (let i = 0; i < lampen; i++) {
-      const lx = x - (hx - 4) / 2 + (i + 0.5) * ((hx - 4) / lampen);
-      deko(1.5, 0.2, 0.44, lx, UB_DECKE - 0.26, gleisM, 0x363b42);
-      deko(1.3, 0.1, 0.3, lx, UB_DECKE - 0.4, gleisM, 0xeceadd);
-    }
-  }
+  /* Ueber dem GLEIS haengen keine Deckenleuchten mehr. Dort faehrt der
+     Zug; in einer echten Station ist ueber dem Gleistrog nichts ausser
+     der Decke. Die Reihe leuchtender Felder mitten ueber den Schienen
+     war das, was von oben nicht hingehoerte. */
 
   /* ---- Oben: Mast und Schild neben jedem Loch ---- */
   for (const sch of UB_SCHAECHTE) {
@@ -2538,14 +2604,65 @@ function baueUBahn(x) {
        Mund auf dem Gehweg, ein Stueck seitlich versetzt, damit er nicht
        im Durchgang steht. */
     const zur = sch.xFuss < sch.xKopf ? -1 : 1;      // Richtung nach unten
-    const mx = x + sch.xKopf + zur * 1.4;
-    const mz = sch.z1 + 0.95;
-    deko(0.2, 2.6, 0.2, mx, SLAB_H + 1.3, mz, 0x2e3238);
-    deko(1.5, 0.9, 0.12, mx, SLAB_H + 2.7, mz, 0x1b8f4a);
-    deko(1.2, 0.6, 0.14, mx, SLAB_H + 2.7, mz, 0xf2f6f0);
-    addCollider({ x0: mx - 0.12, x1: mx + 0.12, z0: mz - 0.12, z1: mz + 0.12,
-                  h: SLAB_H + 2.6, klein: true });
+    /* Das Schild steht VOR dem Vordach an der Gehwegkante - dahinter
+       verschwand es hinter der Dachplatte. */
+    const mx = x + sch.xKopf - zur * 0.8;
+    const mz = sch.z1 + 1.7;
+    baueUSchild(mx, mz, zur);
+    /* ---- Vordach ueber dem Treppenmund ----
+       Bisher war der Eingang ein blankes Loch im Gehweg mit einem Brett
+       daneben. Ein Eingang hat ein Dach: zwei Stuetzen links und rechts
+       des Mundes, darauf eine flache Platte mit hellem Rand und der
+       Stationsname an der Stirnseite. Man erkennt ihn dadurch schon von
+       weitem als Eingang und nicht als Baugrube. */
+    {
+      const dx = x + sch.xKopf + zur * 0.9;          // Mitte des Vordachs
+      const dz = (sch.z0 + sch.z1) / 2;
+      const bt = sch.z1 - sch.z0 + 1.5;              // Tiefe des Dachs
+      const H = SLAB_H + 2.85;
+      for (const s2 of [-1, 1]) {
+        const pz = dz + s2 * (bt / 2 - 0.16);
+        deko(0.24, H - SLAB_H, 0.24, dx, (SLAB_H + H) / 2, pz, 0x3a4048);
+        addCollider({ x0: dx - 0.12, x1: dx + 0.12, z0: pz - 0.12, z1: pz + 0.12,
+                      h: H, klein: true });
+      }
+      deko(2.5, 0.24, bt, dx, H + 0.12, dz, 0x2e343b);              // Dachplatte
+      /* Nur eine schmale helle Kante rings um die Platte - eine zweite
+         volle Platte darueber sah aus wie ein weisser Tisch, der den
+         halben Gehweg einnimmt. */
+      for (const s3 of [-1, 1]) {
+        deko(2.62, 0.09, 0.12, dx, H + 0.29, dz + s3 * (bt / 2), 0x8b939c);
+        deko(0.12, 0.09, bt + 0.12, dx + s3 * 1.31, H + 0.29, dz, 0x8b939c);
+      }
+      /* Beschriftete Stirnseite - von der Strasse aus lesbar. */
+      deko(0.12, 0.42, bt - 0.5, dx - zur * 1.26, H - 0.28, dz, 0x1b3fa0);
+      deko(0.14, 0.24, bt - 1.1, dx - zur * 1.30, H - 0.28, dz, 0xf2f6ff);
+      addCollider({ x0: dx - 1.25, x1: dx + 1.25, z0: dz - bt / 2, z1: dz + bt / 2,
+                    h: H + 0.35, y0: H - 0.1, keinKlettern: true });
+    }
   }
+}
+
+/* ---- U-Bahn-Schild ----
+   Das gruene Brett auf einem Stiel sah nach Bauschild aus. Jetzt steht
+   dort ein richtiges Schild: blaue Tafel mit weissem U, darunter ein
+   helles Namensband, beides beidseitig. Das U entsteht aus drei Kaesten -
+   zwei Schenkeln und dem Boden. */
+function baueUSchild(mx, mz, zur) {
+  deko(0.16, 3.1, 0.16, mx, SLAB_H + 1.55, mz, 0x2e3238);            // Mast
+  const H = SLAB_H + 2.95;
+  /* Blaue Tafel, quadratisch - das ist das eigentliche U-Zeichen. */
+  deko(1.05, 1.05, 0.14, mx, H, mz, 0x1b3fa0);
+  deko(0.95, 0.95, 0.16, mx, H, mz, 0x2a5ad0);
+  /* Das U: zwei senkrechte Schenkel und ein Boden. */
+  for (const s2 of [-1, 1])
+    deko(0.13, 0.62, 0.18, mx + s2 * 0.26, H + 0.09, mz, 0xf4f8ff);
+  deko(0.65, 0.13, 0.18, mx, H - 0.29, mz, 0xf4f8ff);
+  /* Namensband darunter. */
+  deko(1.55, 0.34, 0.12, mx, H - 0.86, mz, 0xf2f4f8);
+  deko(1.30, 0.12, 0.14, mx, H - 0.86, mz, 0x39404a);
+  addCollider({ x0: mx - 0.1, x1: mx + 0.1, z0: mz - 0.1, z1: mz + 0.1,
+                h: SLAB_H + 3.0, klein: true });
 }
 
 /* ---- Die Tunnel zwischen den Stationen ----
@@ -2581,9 +2698,10 @@ function baueUBahnLinie() {
     const n = Math.max(3, Math.round(laenge / 7));
     for (let i = 0; i < n; i++) {
       const lx = a + (i + 0.5) * (laenge / n);
-      for (const [lz, farbe] of [[steigA, 0xf4f2e6], [steigB, 0xf4f2e6], [gleisM, 0xeceadd]]) {
+      /* Nur ueber den beiden Gehwegen - ueber dem Gleis nicht. */
+      for (const lz of [steigA, steigB]) {
         deko(1.6, 0.2, 0.44, lx, UB_DECKE - 0.26, lz, 0x363b42);   // Gehaeuse
-        deko(1.4, 0.1, 0.3, lx, UB_DECKE - 0.4, lz, farbe);        // Leuchtfeld
+        deko(1.4, 0.1, 0.3, lx, UB_DECKE - 0.4, lz, 0xf4f2e6);     // Leuchtfeld
       }
       if (i % 2 === 0) {
         deko(0.28, 5.4, 0.28, lx, UB_TIEF + 2.7, UB_STEIG_Z1 - 0.6, 0x3c434c);
@@ -2611,7 +2729,7 @@ function baueUBahnLinie() {
   if (erdeH > 0.2) {
     for (const t of flaecheMitLoechern(UB_X0 - 0.5, UB_X1 + 0.5,
                                        UB_QUER_Z0 - 0.8, UB_QUER_Z1 + 0.8,
-                                       ubahnLoecher())) {
+                                       ubahnLoecher('erde'))) {
       deko(t.w, erdeH, t.d, t.x, (erdeOben + erdeUnten) / 2, t.z, 0x2a2620);
     }
   }
@@ -13974,6 +14092,18 @@ if (window.__WEBHERO_TEST__ === true) {
     tippeSprung() { tryJump(); },
     kitKopien() { return KIT_KOPIEN; },
     kitInnen() { return KIT_INNEN; },
+    dekoBei(x, y, z) {
+      return DEKO_KOPIE.filter((t) =>
+        Math.abs(t.x - x) <= t.w / 2 + 0.05 && Math.abs(t.y - y) <= t.h / 2 + 0.05 &&
+        Math.abs(t.z - z) <= t.d / 2 + 0.05)
+        .map((t) => [t.w, t.h, t.d, +t.x.toFixed(2), +t.y.toFixed(2), +t.z.toFixed(2),
+                     '#' + t.farbe.toString(16)]);
+    },
+    ubStand() {
+      return UB_SCHAECHTE.map((sch) => ({
+        steig: sch.steig, z0: sch.z0, z1: sch.z1,
+        dg: ubDurchgang(-50, sch), be: ubBEbene(-50, sch) }));
+    },
     zugGaeste() { return ZUG_GAST; },
     busGaeste() { return BUS_GAST; },
     innenLeute() { return INNEN_LEUTE; },
