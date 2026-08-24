@@ -950,8 +950,12 @@ suitTex.repeat.set(2, 2);
    hindurch. Sichtbar streift dabei nichts - die Schulter kommt rechnerisch
    auf 50 cm neben die Mitte, die Tuerkante liegt bei 52 cm. */
 const KIT_HAEUSER = [
+  /* hoch = Hochparterre: bei Small_1 liegt der Fussboden des Modells
+     gemessen 1,00 m ueber dem Gehweg (Rueckwaerts geprueft: Strahl von
+     oben trifft innen bei y = 1,25, Gehweg liegt bei 0,25). Ohne diesen
+     Wert stuende man bis zur Huefte im Boden. Davor kommt eine Treppe. */
   { name: 'Building_Small_1',      x0: -7.23, x1: 5.23, z0: -12.23, z1: 2.31,
-    h: 17.0, dreh: -Math.PI / 2, tuer: { x0: -0.70, x1: 0.75 } },
+    h: 17.0, dreh: -Math.PI / 2, tuer: { x0: -0.70, x1: 0.75 }, hoch: 1.00 },
   { name: 'Building_Medium_2_001', x0: -7.53, x1: 7.53, z0: -12.49, z1: 0.57,
     h: 25.0, dreh: 0, tuer: { x0: -0.70, x1: 0.75 } },
   { name: 'Building_Large_2',      x0: -9.32, x1: 11.32, z0: -16.32, z1: 0.32,
@@ -989,10 +993,32 @@ function kitRechteck(x, z, ry, lx0, lx1, lz0, lz1) {
    des Daches ins Haus.
    Alle Kaesten kommen aus den GEMESSENEN Grenzen des Modells, nicht aus
    Breite und Tiefe um den Setzpunkt herum. */
-const KIT_INNEN = [];              // {x0,x1,z0,z1,decke} - fuer das Innenlicht
+const KIT_INNEN = [];              // {x0,x1,z0,z1,decke,boden} - fuers Innenlicht
+/* Nur die Haeuser mit Hochparterre - sie bestimmen den Boden im Haus.
+   Eine eigene Liste, weil groundY sie in jedem Bild durchgeht. */
+const KIT_HOCH = [];
+/* Die Tritte vor deren Tueren - ebenfalls Boden, nicht Sperre. */
+const KIT_STUFEN = [];
+/* Umschliessendes Rechteck ueber beide Listen. groundY laeuft in jedem
+   Bild fuer jede Figur und jedes Fahrzeug; ohne diese Vorpruefung wuerde
+   es fuer die ganze Stadt ein Dutzend Rechtecke abklappern, obwohl die
+   Hochparterres auf einer Handvoll Blocks stehen. */
+const KIT_BOX = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+function kitBoxDazu(r) {
+  KIT_BOX.x0 = Math.min(KIT_BOX.x0, r.x0); KIT_BOX.x1 = Math.max(KIT_BOX.x1, r.x1);
+  KIT_BOX.z0 = Math.min(KIT_BOX.z0, r.z0); KIT_BOX.z1 = Math.max(KIT_BOX.z1, r.z1);
+}
+/* Plaetze fuer Leute in Innenraeumen. Die Liste entsteht beim Bauen, die
+   Figuren kommen erst spaeter dazu (updateInnenLeute).
+   boden = Standflaeche, sitz = Hoehe der Sitzflaeche (fehlt beim Stehen). */
+const INNEN_PLAETZE = [];
+function merkeInnenPlatz(x, boden, z, ry, sitz) {
+  INNEN_PLAETZE.push({ x, boden, z, ry, sitz });
+}
 function kitHindernis(t, x, z, ry, kasten) {
   const oben = SLAB_H + t.h;
   const W = KIT_WAND;
+  const bodenY = SLAB_H + (t.hoch || 0);      // Hoehe des Fussbodens im Haus
   const scheibe = (lx0, lx1, lz0, lz1, y0, h) => {
     if (lx1 - lx0 < 0.05 || lz1 - lz0 < 0.05) return;
     const r = kitRechteck(x, z, ry, lx0, lx1, lz0, lz1);
@@ -1010,7 +1036,7 @@ function kitHindernis(t, x, z, ry, kasten) {
   /* Front links und rechts der Tuer, dazu der Sturz darueber. */
   scheibe(t.x0, t.tuer.x0, t.z1 - W, t.z1, -1.0, oben);
   scheibe(t.tuer.x1, t.x1, t.z1 - W, t.z1, -1.0, oben);
-  scheibe(t.tuer.x0, t.tuer.x1, t.z1 - W, t.z1, SLAB_H + KIT_TUER_HOCH, oben);
+  scheibe(t.tuer.x0, t.tuer.x1, t.z1 - W, t.z1, bodenY + KIT_TUER_HOCH, oben);
   /* Dachplatte ueber die ganze Grundflaeche - sonst faellt man von oben
      hinein. 1,2 m dick, damit sie beim Klettern von innen nicht
      uebersprungen wird. */
@@ -1019,14 +1045,166 @@ function kitHindernis(t, x, z, ry, kasten) {
   /* Fuer das Innenlicht merken: der begehbare Innenraum. */
   const innen = kitRechteck(x, z, ry, t.x0 + W, t.x1 - W, t.z0 + W, t.z1 - W);
   innen.decke = oben - 1.2;
+  innen.boden = bodenY;
   KIT_INNEN.push(innen);
+  if (t.hoch) {
+    KIT_HOCH.push(innen);
+    kitBoxDazu(innen);
+    /* Treppe vor der Tuer: drei Tritte vom Gehweg auf das Hochparterre.
+       Sie sind BODEN, keine Sperren. Eine Sperre waere fuer die Figur eine
+       Wand: sie laeuft dagegen und beginnt zu klettern, statt hinaufzu-
+       steigen (gemessen: y 0,25 -> 7,17 an der Fassade hoch). Wie beim
+       U-Bahn-Abgang liefert deshalb groundY die Stufenhoehe.
+       Der oberste Tritt reicht bis unter die Tuerlaibung, sonst faellt man
+       auf der Schwelle einen Meter tief. */
+    const n = 3, sh = t.hoch / n;
+    for (let i = 0; i < n; i++) {
+      const y = SLAB_H + sh * (i + 1);
+      const a = i === n - 1 ? t.z1 - W - 0.05 : t.z1 + (n - 1 - i) * 0.34;
+      const b2 = t.z1 + (n - i) * 0.34;
+      const r2 = kitRechteck(x, z, ry, t.tuer.x0 - 0.35, t.tuer.x1 + 0.35, a, b2);
+      deko(r2.x1 - r2.x0, sh + 0.12, r2.z1 - r2.z0,
+           (r2.x0 + r2.x1) / 2, y - sh / 2 - 0.06, (r2.z0 + r2.z1) / 2, 0x6f6a62);
+      KIT_STUFEN.push({ x0: r2.x0, x1: r2.x1, z0: r2.z0, z1: r2.z1, y });
+      kitBoxDazu(r2);
+    }
+  }
+  kitMoebel(t, x, z, ry, bodenY);
+}
+
+/* ---- Einrichtung eines begehbaren Hauses ----
+   Die Haeuser waren begehbar, aber innen leere Kaesten. Hier entsteht ein
+   Ladenlokal: Regalwand an der Rueckwand, Verkaufstheke quer davor, zwei
+   Tische mit Stuehlen, Pflanzen in den Ecken, Plakate an den Seitenwaenden
+   und eine Haengelampe.
+   Gerechnet wird im EIGENEN System des Modells (lx nach rechts, lz nach
+   hinten); ort() rechnet einen solchen Punkt in Weltkoordinaten um, und
+   die Kisten bekommen dieselbe Drehung mitgegeben. Die Tuer liegt bei
+   lz = t.z1, gearbeitet wird also von der Rueckwand (t.z0) nach vorn. */
+const KIT_WARE = [0xd9c99c, 0xa8514a, 0x4a6ea0, 0x5f8f5f, 0xd6d2c6, 0xc09248];
+function kitMoebel(t, x, z, ry, bodenY) {
+  const W = KIT_WAND, B = bodenY;
+  const co = Math.cos(ry), si = Math.sin(ry);
+  const ort = (lx, lz) => ({ x: x + lx * co + lz * si, z: z - lx * si + lz * co });
+  /* Kiste an einem Punkt des Modellsystems. */
+  const kiste = (bw, bh, bd, lx, by, lz, farbe) => {
+    const o = ort(lx, lz);
+    deko(bw, bh, bd, o.x, by, o.z, farbe, ry);
+  };
+  /* Kiste MIT Sperre - fuer alles, wogegen man laufen kann. */
+  const moebel = (bw, bh, bd, lx, by, lz, farbe) => {
+    kiste(bw, bh, bd, lx, by, lz, farbe);
+    const r = kitRechteck(x, z, ry, lx - bw / 2, lx + bw / 2, lz - bd / 2, lz + bd / 2);
+    addCollider({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1,
+                  h: by + bh / 2, y0: B - 0.1, klein: true });
+  };
+  const ix0 = t.x0 + W, ix1 = t.x1 - W;          // lichte Breite
+  const iz0 = t.z0 + W, iz1 = t.z1 - W;          // hinten .. vorn (Tuer)
+  const mitte = (ix0 + ix1) / 2;
+  const breit = ix1 - ix0, tief2 = iz1 - iz0;
+  if (breit < 3 || tief2 < 3) return;
+
+  /* Einen eigenen Fussboden braucht es nicht - das Modell bringt seinen
+     eigenen mit (bei Small_1 als Hochparterre). Nur ein Teppich. */
+  kiste(Math.min(4.2, breit - 1.2), 0.05, 2.6, mitte, B + 0.02, iz0 + tief2 * 0.62, 0x7a4a3e);
+
+  /* ---- Regalwand an der Rueckwand ---- */
+  const rb = Math.min(breit - 1.0, 7.0);
+  kiste(rb, 2.60, 0.34, mitte, B + 1.30, iz0 + 0.20, 0x6a5342);
+  for (const hy of [0.55, 1.10, 1.65, 2.20]) {
+    kiste(rb - 0.12, 0.07, 0.42, mitte, B + hy, iz0 + 0.30, 0x8a6f56);
+    const n = Math.max(3, Math.round(rb / 0.7));
+    for (let k = 0; k < n; k++) {
+      const wx = mitte + (k - (n - 1) / 2) * ((rb - 0.5) / n);
+      kiste(0.24, 0.28, 0.26, wx, B + hy + 0.18, iz0 + 0.30,
+            KIT_WARE[(k + Math.round(hy * 2)) % KIT_WARE.length]);
+    }
+  }
+
+  /* ---- Verkaufstheke ---- */
+  const tb = Math.min(breit - 2.2, 5.0);
+  const tz = iz0 + 1.75;
+  moebel(tb, 0.95, 0.70, mitte, B + 0.475, tz, 0xb9a07c);
+  kiste(tb + 0.12, 0.07, 0.86, mitte, B + 0.98, tz, 0x4a4038);
+  kiste(0.34, 0.26, 0.30, mitte + tb / 2 - 0.6, B + 1.14, tz, 0x2b3038);   // Kasse
+
+  /* ---- Verkaufsinseln in der Raummitte ----
+     Die Raeume sind gross (bis 19 x 15 m). Nur Theke und Regal an der
+     Rueckwand liessen die Mitte leer wirken. */
+  for (const s2 of [-1, 1]) {
+    const cx2 = mitte + s2 * Math.min(breit / 4 + 0.6, 3.0);
+    const cz2 = iz0 + tief2 * 0.45;
+    moebel(2.40, 0.90, 1.10, cx2, B + 0.45, cz2, 0x7b6a55);
+    kiste(2.52, 0.07, 1.22, cx2, B + 0.93, cz2, 0x4a4038);
+    for (let k = 0; k < 4; k++) {
+      const wx = cx2 + (k - 1.5) * 0.56;
+      kiste(0.24, 0.26, 0.24, wx, B + 1.09, cz2, KIT_WARE[(k + (s2 > 0 ? 2 : 0)) % KIT_WARE.length]);
+    }
+  }
+
+  /* ---- Tische mit Stuehlen im vorderen Teil ---- */
+  for (const s2 of [-1, 1]) for (const reihe of [0.70, 0.88]) {
+    const cx2 = mitte + s2 * Math.min(breit / 2 - 1.4, 3.4);
+    const cz2 = iz0 + tief2 * reihe;
+    if (Math.abs(cx2 - mitte) < 1.0) continue;
+    moebel(1.20, 0.06, 1.20, cx2, B + 0.75, cz2, 0xa8845c);              // Platte
+    kiste(0.16, 0.72, 0.16, cx2, B + 0.36, cz2, 0x5a4a3a);               // Fuss
+    kiste(0.60, 0.06, 0.60, cx2, B + 0.03, cz2, 0x5a4a3a);
+    for (const s3 of [-1, 1]) {
+      const sx3 = cx2 + s3 * 0.95;
+      kiste(0.46, 0.06, 0.46, sx3, B + 0.45, cz2, 0x6b5a46);             // Sitz
+      kiste(0.46, 0.55, 0.08, sx3, B + 0.74, cz2 + s3 * 0.20, 0x6b5a46); // Lehne
+      for (const [ax2, az2] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]])
+        kiste(0.06, 0.42, 0.06, sx3 + ax2, B + 0.21, cz2 + az2, 0x4a3d30);
+    }
+  }
+
+  /* ---- Pflanzen in den hinteren Ecken ---- */
+  for (const s2 of [-1, 1]) {
+    const px = mitte + s2 * (breit / 2 - 0.6);
+    const pz = iz0 + 0.75;
+    kiste(0.46, 0.44, 0.46, px, B + 0.22, pz, 0x8a5a3e);
+    kiste(0.16, 0.70, 0.16, px, B + 0.79, pz, 0x4a6a3a);
+    kiste(0.80, 0.55, 0.80, px, B + 1.30, pz, 0x3f7a44);
+  }
+
+  /* ---- Plakate an den Seitenwaenden ---- */
+  for (const s2 of [-1, 1]) {
+    const px = s2 < 0 ? ix0 + 0.06 : ix1 - 0.06;
+    for (const f of [0.45, 0.72]) {
+      const pz = iz0 + tief2 * f;
+      kiste(0.10, 1.40, 1.00, px, B + 1.70, pz, 0x2a2f36);
+      kiste(0.06, 1.22, 0.84, px + s2 * 0.05, B + 1.70, pz, 0xe8e0cc);
+    }
+  }
+
+  /* ---- Haengelampen ---- */
+  for (const f of [0.35, 0.75]) {
+    const pz = iz0 + tief2 * f;
+    kiste(0.05, 0.90, 0.05, mitte, B + 3.55, pz, 0x3a3f46);
+    kiste(1.10, 0.16, 1.10, mitte, B + 3.02, pz, 0x3a3f46);
+    kiste(0.95, 0.08, 0.95, mitte, B + 2.92, pz, 0xf6f2e2);
+  }
+
+  /* ---- Leute: hinter der Theke und an einem Tisch ---- */
+  {
+    const o = ort(mitte, tz - 0.75);
+    merkeInnenPlatz(o.x, B, o.z, ry + Math.PI);
+  }
+  for (const s2 of [-1, 1]) {
+    const cx2 = mitte + s2 * Math.min(breit / 2 - 1.4, 3.4);
+    if (Math.abs(cx2 - mitte) < 1.0) continue;
+    const cz2 = iz0 + tief2 * 0.70;
+    const o = ort(cx2 - s2 * 0.95, cz2);
+    merkeInnenPlatz(o.x, B, o.z, ry + (s2 < 0 ? Math.PI / 2 : -Math.PI / 2), B + 0.48);
+  }
 }
 
 /* Steht die Figur in einem der begehbaren Haeuser? */
 function imKitHaus(pos) {
   for (const r of KIT_INNEN) {
     if (pos.x > r.x0 && pos.x < r.x1 && pos.z > r.z0 && pos.z < r.z1 &&
-        pos.y < r.decke && pos.y > -2) return true;
+        pos.y < r.decke && pos.y > r.boden - 2.2) return true;
   }
   return false;
 }
@@ -1225,6 +1403,39 @@ const UB_SCHAECHTE = [
 const UB_TREPPE = UB_ABGANG;
 const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
 
+/* ---- B-Ebene ----
+   Die Zwischenebene im Schacht war nur ein Treppenabsatz: 2,6 m breit,
+   5 m lang, zwei Lampen. Eine echte Station hat dort eine ganze Ebene -
+   in Frankfurt die B-Ebene: man kommt die Treppe herunter, steht in
+   einer Halle mit Laeden und Fahrkartenautomaten, laeuft darin herum
+   und geht erst dann die zweite Treppe zum Bahnsteig.
+   Die Halle liegt seitlich NEBEN dem Schacht, und zwar auf der Seite,
+   die von der Bahnsteigroehre wegzeigt. Dort ist unter dem Gehweg Platz:
+   die Roehre reicht bis z 34,5 (Nord) beziehungsweise 15,5 (Sued), die
+   Halle beginnt erst dahinter. Ueberschneidungen mit Roehre, Hallendecke
+   oder Aussenwand gibt es deshalb keine.
+   In x endet sie 60 cm vor den Schachtenden, damit sie nicht in die
+   Aussenwand der Bahnsteighalle laeuft. */
+const UB_BE_TIEF = 9.0;                   // Tiefe der Halle neben dem Schacht
+const UB_BE_HOCH = 3.0;                   // lichte Hoehe
+const UB_BE_RAND = 0.6;                   // Abstand zu den Schachtenden
+function ubBEbene(sx, sch) {
+  const weg = sch.steig === 'nord' ? 1 : -1;      // Richtung weg von der Roehre
+  return { x0: sx + Math.min(sch.xFuss, sch.xKopf) + UB_BE_RAND,
+           x1: sx + Math.max(sch.xFuss, sch.xKopf) - UB_BE_RAND,
+           z0: weg > 0 ? sch.z1 : sch.z0 - UB_BE_TIEF,
+           z1: weg > 0 ? sch.z1 + UB_BE_TIEF : sch.z0,
+           weg };
+}
+/* Der Durchgang zwischen Schacht und Halle - genau ueber der ebenen
+   Zwischenebene, sonst stuende man vor einer Treppe in der Wand. */
+function ubDurchgang(sx, sch) {
+  const richtung = sch.xKopf > sch.xFuss ? -1 : 1;
+  const a = sx + sch.xKopf + richtung * (UB_TR_OBEN - 0.5);
+  const b = sx + sch.xKopf + richtung * (UB_TR_OBEN + UB_HALLE_LANG + 0.5);
+  return { x0: Math.min(a, b), x1: Math.max(a, b) };
+}
+
 /* Hoehe an einer Stelle des Abgangs. s = Weg vom Treppenmund aus,
    gemessen laengs des Schachts. */
 function abgangHoehe(s) {
@@ -1336,6 +1547,13 @@ function ubahnBoden(x, z, yRef) {
      Gehweg 0,25) und weit ueber der Hallendecke bei UB_DECKE. */
   if (yRef === undefined || yRef > -1.5) return null;
   if (x < UB_X0 || x > UB_X1) return null;
+  /* B-Ebene: die Halle neben dem Schacht. */
+  for (const u of UBAHNEN) {
+    for (const s of UB_SCHAECHTE) {
+      const r = ubBEbene(u.x, s);
+      if (x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1) return UB_MITTE;
+    }
+  }
   if (z > UB_STEIG_Z0 && z < UB_STEIG_Z1) return UB_TIEF;
   if (z > UB_STEIG2_Z0 && z < UB_STEIG2_Z1) return UB_TIEF;
   if (z > UB_GLEIS_Z0 && z < UB_GLEIS_Z1) return UB_GLEIS_TIEF;
@@ -1343,6 +1561,16 @@ function ubahnBoden(x, z, yRef) {
 }
 
 function groundY(x, z, yRef) {
+  /* Hochparterre: in diesen Haeusern liegt der Fussboden ueber dem Gehweg. */
+  if (x > KIT_BOX.x0 && x < KIT_BOX.x1 && z > KIT_BOX.z0 && z < KIT_BOX.z1) {
+  for (const st of KIT_STUFEN) {
+    if (x > st.x0 && x < st.x1 && z > st.z0 && z < st.z1) return st.y;
+  }
+  for (const r of KIT_HOCH) {
+    if (x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1 &&
+        (yRef === undefined || yRef < r.decke)) return r.boden;
+  }
+  }
   /* Im Wagen steht man auf dem Zugboden, nicht im Schotter. */
   const zb = zugBoden(x, z, yRef);
   if (zb !== null) return zb;
@@ -1966,6 +2194,160 @@ function bauePark(cx, cz, size) {
 }
 
 
+/* ---- Die B-Ebene bauen ----
+   Boden, Decke, Aussenwand und Stirnwaende - die Wand zum Schacht hin ist
+   die Schachtwand selbst, dort sitzt der Durchgang. Dazu das, was so eine
+   Ebene erst zu einer macht: eine Reihe Laeden hinter Theken,
+   Fahrkartenautomaten, Saeulen, Baenke, Werbetafeln und ein Wegweiser. */
+const UB_LADEN_WAND = [0xb8863c, 0x2f6ea8, 0x3f8a52, 0xa8443c];
+const UB_LADEN_SCHILD = [0xffe2a6, 0xc0dcf6, 0xcaeecb, 0xf8ccc4];
+function baueBEbene(sx, sch) {
+  const r = ubBEbene(sx, sch);
+  const u0 = UB_MITTE, u1 = UB_MITTE + UB_BE_HOCH;
+  const mx = (r.x0 + r.x1) / 2, mz = (r.z0 + r.z1) / 2;
+  const lx = r.x1 - r.x0, lz = r.z1 - r.z0;
+  const weg = r.weg;
+  const zIn = weg > 0 ? r.z0 : r.z1;        // Kante am Treppenschacht
+  const zAus = weg > 0 ? r.z1 : r.z0;       // gegenueberliegende Wand
+  /* Punkte in der Halle: d = Abstand von der Schachtkante nach innen. */
+  const tief = (d) => zIn + weg * d;
+  const vorn = (d) => zAus - weg * d;       // Abstand von der Aussenwand
+
+  /* ---- Huelle ---- */
+  deko(lx + 0.9, 0.30, lz + 0.9, mx, u0 - 0.15, mz, 0x5b626c);        // Boden
+  /* Die Decke ist hell: unter Tage faellt auf eine nach unten zeigende
+     Flaeche nur der Bodenanteil des Himmelslichts, ein dunkler Farbton
+     waere dort schlicht schwarz. */
+  deko(lx + 0.9, 0.35, lz + 0.9, mx, u1 + 0.17, mz, 0x99a1ab);        // Decke
+  {
+    const cz0 = Math.min(tief(0.2), vorn(-0.45)), cz1 = Math.max(tief(0.2), vorn(-0.45));
+    addCollider({ x0: r.x0 - 0.45, x1: r.x1 + 0.45, z0: cz0, z1: cz1,
+                  h: u1 + 0.35, y0: u1 - 0.05, keinKlettern: true });
+  }
+  const wand = (w, d, px, pz, farbe) => {
+    deko(w, UB_BE_HOCH, d, px, u0 + UB_BE_HOCH / 2, pz, farbe);
+    addCollider({ x0: px - w / 2, x1: px + w / 2, z0: pz - d / 2, z1: pz + d / 2,
+                  h: u1, y0: u0 - 0.3, keinKlettern: true });
+  };
+  wand(lx + 0.9, 0.4, mx, vorn(-0.2), 0x77818e);                      // Aussenwand
+  wand(0.4, lz + 0.5, r.x0 - 0.2, mz, 0x77818e);                      // Stirnwaende
+  wand(0.4, lz + 0.5, r.x1 + 0.2, mz, 0x77818e);
+  /* Heller Laufstreifen im Boden - er zeigt, wo es langgeht. */
+  deko(lx - 0.6, 0.06, 1.6, mx, u0 - 0.02, tief(lz * 0.55), 0x6f7783);
+
+  /* ---- Schachtwand von der Halle aus ----
+     Sie ist die vierte Wand der Halle. Roh ist sie ein dunkles Feld,
+     deshalb bekommt sie eine helle Verkleidung, einen Sockel und einen
+     Rahmen um den Durchgang - erst dadurch sieht man ueberhaupt, dass
+     dort eine Tuer ist. */
+  const dgA = ubDurchgang(sx, sch);
+  for (const [a, b] of [[r.x0 - 0.4, dgA.x0], [dgA.x1, r.x1 + 0.4]]) {
+    if (b - a < 0.3) continue;
+    deko(b - a, 2.30, 0.12, (a + b) / 2, u0 + 1.35, tief(0.10), 0xb9c2cc);
+    deko(b - a, 0.30, 0.14, (a + b) / 2, u0 + 0.15, tief(0.10), 0x4d545c);
+  }
+  for (const px of [dgA.x0, dgA.x1])
+    deko(0.24, UB_BE_HOCH, 0.5, px, u0 + UB_BE_HOCH / 2, tief(0.25), 0xb9c2cc);
+  deko(dgA.x1 - dgA.x0 + 0.48, 0.45, 0.5, (dgA.x0 + dgA.x1) / 2, u1 - 0.22,
+       tief(0.25), 0xb9c2cc);
+
+  /* ---- Laeden an der Aussenwand ---- */
+  const nL = 4, bw = (lx - 0.6) / nL;
+  for (let i = 0; i < nL; i++) {
+    const cx = r.x0 + 0.3 + bw * (i + 0.5);
+    deko(bw - 0.30, 2.30, 0.14, cx, u0 + 1.15, vorn(0.26), UB_LADEN_WAND[i]);
+    deko(bw - 0.30, 0.50, 0.16, cx, u0 + 2.62, vorn(0.32), UB_LADEN_SCHILD[i]);
+    /* Zwei Regalboeden mit Ware. */
+    for (const [hy, n] of [[1.00, 5], [1.55, 4]]) {
+      deko(bw - 0.80, 0.07, 0.34, cx, u0 + hy, vorn(0.48), 0xd9d2c2);
+      for (let k = 0; k < n; k++) {
+        const wx = cx + (k - (n - 1) / 2) * ((bw - 1.0) / n);
+        const f = [0xe8d9a8, 0xc85a4a, 0x4a7fc8, 0x6bb06b, 0xe0e0e0][(i + k) % 5];
+        deko(0.20, 0.24, 0.20, wx, u0 + hy + 0.16, vorn(0.48), f);
+      }
+    }
+    /* Theke davor - man sieht ueber sie hinweg in den Laden. */
+    const tz = vorn(1.70);
+    deko(bw - 0.90, 0.95, 0.60, cx, u0 + 0.475, tz, 0xe2ddd0);
+    deko(bw - 0.80, 0.08, 0.70, cx, u0 + 0.98, tz, 0x3b4048);
+    addCollider({ x0: cx - (bw - 0.90) / 2, x1: cx + (bw - 0.90) / 2,
+                  z0: Math.min(tz - 0.3, tz + 0.3), z1: Math.max(tz - 0.3, tz + 0.3),
+                  h: u0 + 1.0, y0: u0 - 0.1, klein: true });
+    /* Hinter der Theke steht jemand - mit Blick in die Halle. */
+    merkeInnenPlatz(cx, u0, vorn(1.05), weg > 0 ? Math.PI : 0);
+  }
+  /* Pfeiler zwischen den Laeden - sie trennen die Fronten. */
+  for (let i = 0; i <= nL; i++) {
+    const px = r.x0 + 0.3 + bw * i;
+    deko(0.28, UB_BE_HOCH, 0.9, px, u0 + UB_BE_HOCH / 2, vorn(0.5), 0x8f99a5);
+  }
+
+  /* ---- Fahrkartenautomaten an der Schachtwand ---- */
+  const dg = dgA;
+  const linksPlatz = dg.x0 - r.x0, rechtsPlatz = r.x1 - dg.x1;
+  const start = linksPlatz > rechtsPlatz ? dg.x0 - 1.1 : dg.x1 + 1.1;
+  const schritt = linksPlatz > rechtsPlatz ? -1.15 : 1.15;
+  for (let i = 0; i < 3; i++) {
+    const ax = start + schritt * i;
+    if (ax < r.x0 + 0.8 || ax > r.x1 - 0.8) continue;
+    const az = tief(0.55);
+    deko(0.88, 1.75, 0.55, ax, u0 + 0.875, az, 0x2b3038);
+    deko(0.62, 0.46, 0.10, ax, u0 + 1.34, tief(0.26), 0x9fe8ff);      // Bildschirm
+    deko(0.62, 0.14, 0.10, ax, u0 + 0.94, tief(0.26), 0xd8c26a);      // Ausgabeschale
+    deko(0.88, 0.12, 0.60, ax, u0 + 1.80, az, 0x1b1f25);
+    addCollider({ x0: ax - 0.44, x1: ax + 0.44,
+                  z0: Math.min(az, tief(0.26)) - 0.14, z1: Math.max(az, tief(0.26)) + 0.14,
+                  h: u0 + 1.75, y0: u0 - 0.1, klein: true });
+    /* Vor dem mittleren Automaten loest jemand eine Fahrkarte. */
+    if (i === 1) merkeInnenPlatz(ax, u0, tief(1.25), weg > 0 ? Math.PI : 0);
+  }
+
+  /* ---- Saeulen in der Halle ---- */
+  for (let i = 0; i < 4; i++) {
+    const px = lerp(r.x0 + 1.8, r.x1 - 1.8, i / 3);
+    const pz = vorn(3.0);
+    deko(0.55, UB_BE_HOCH, 0.55, px, u0 + UB_BE_HOCH / 2, pz, 0x9aa4b0);
+    deko(0.78, 0.18, 0.78, px, u1 - 0.09, pz, 0x7d8794);
+    addCollider({ x0: px - 0.3, x1: px + 0.3, z0: pz - 0.3, z1: pz + 0.3,
+                  h: u1, y0: u0 - 0.1 });
+  }
+
+  /* ---- Baenke ---- */
+  for (const f of [0.28, 0.72]) {
+    const px = lerp(r.x0 + 1.8, r.x1 - 1.8, f);
+    const pz = tief(2.1);
+    deko(1.80, 0.12, 0.50, px, u0 + 0.45, pz, 0x8a6a44);
+    deko(1.80, 0.50, 0.10, px, u0 + 0.72, tief(1.86), 0x8a6a44);
+    for (const s2 of [-0.76, 0.76])
+      deko(0.12, 0.44, 0.46, px + s2, u0 + 0.22, pz, 0x4a4f57);
+    /* Auf jeder Bank sitzt jemand und schaut in die Halle. */
+    merkeInnenPlatz(px + 0.45, u0, pz, weg > 0 ? 0 : Math.PI, u0 + 0.51);
+  }
+
+  /* ---- Werbetafeln an den Stirnwaenden ---- */
+  for (const px of [r.x0 + 0.06, r.x1 - 0.06]) {
+    const nach = px < mx ? 1 : -1;
+    deko(0.12, 2.10, 1.70, px + nach * 0.06, u0 + 1.45, tief(lz * 0.45), 0x1d2128);
+    deko(0.06, 1.86, 1.46, px + nach * 0.16, u0 + 1.45, tief(lz * 0.45), 0xf2e9d8);
+  }
+
+  /* ---- Wegweiser ueber dem Durchgang ---- */
+  {
+    const wx = (dg.x0 + dg.x1) / 2, wz = tief(1.7);
+    deko(2.80, 0.55, 0.16, wx, u1 - 0.60, wz, 0x2c6e4a);
+    deko(2.55, 0.14, 0.10, wx, u1 - 0.60, tief(1.62), 0xf2f6f2);
+    for (const s2 of [-1.2, 1.2])
+      deko(0.06, 0.33, 0.06, wx + s2, u1 - 0.16, wz, 0x8d99a6);
+  }
+
+  /* ---- Deckenleuchten ---- */
+  for (const d of [1.6, lz - 1.6]) {
+    const pz = tief(d);
+    deko(lx - 1.0, 0.20, 0.50, mx, u1 - 0.12, pz, 0x363b42);
+    deko(lx - 1.3, 0.10, 0.34, mx, u1 - 0.27, pz, 0xf6f4e8);
+  }
+}
+
 /* ---- U-Bahn-Eingang ----
    Treppenschacht mit Geländer und beleuchtetem Schild. */
 /* ---- Eine Station ----
@@ -1979,6 +2361,7 @@ function baueUBahn(x) {
   for (const sch of UB_SCHAECHTE) {
     const zM = (sch.z0 + sch.z1) / 2, zT = sch.z1 - sch.z0;
     const richtung = sch.xKopf > sch.xFuss ? -1 : 1;   // Laufrichtung beim Hinabsteigen
+    const weg = sch.steig === 'nord' ? 1 : -1;         // Seite, auf der die B-Ebene liegt
     /* ---- Zwei Treppenlaeufe mit Zwischenebene ----
        Die Stufen entstehen aus derselben Funktion, die auch die Hoehe
        liefert (abgangHoehe) - dadurch stimmen Bild und Boden immer
@@ -2010,6 +2393,8 @@ function baueUBahn(x) {
       /* Wandverkleidung an beiden Laengsseiten - ohne sie sieht man in
          den Erdblock. */
       for (const s3 of [-1, 1]) {
+        /* Zur B-Ebene hin bleibt die Seite offen - dort geht man hinueber. */
+        if (s3 === weg) continue;
         const wz = s3 < 0 ? sch.z0 - 0.22 : sch.z1 + 0.22;
         deko(ml, hM, 0.16, mx, UB_MITTE + hM / 2, wz, 0x8d99a6);
         deko(ml, 0.5, 0.2, mx, UB_MITTE + 1.9, wz + (s3 < 0 ? 0.12 : -0.12), 0x2c6e4a);
@@ -2022,21 +2407,34 @@ function baueUBahn(x) {
       }
       /* Sperren gegen den Erdblock: die Decke traegt, die Waende halten. */
       addCollider({ x0: Math.min(mx - ml / 2, mx + ml / 2), x1: Math.max(mx - ml / 2, mx + ml / 2),
-                    z0: zM - zT / 2 - 0.8, z1: zM + zT / 2 + 0.8,
+                    z0: zM - zT / 2 - (weg < 0 ? 0 : 0.8), z1: zM + zT / 2 + (weg > 0 ? 0 : 0.8),
                     h: UB_MITTE + hM + 0.2, y0: UB_MITTE + hM - 0.2, keinKlettern: true });
     }
     /* Schachtwaende. Oberkante 4 cm UNTER dem Gehweg, sonst kaempfen
        Wandoberseite und Gehwegflaeche um dieselbe Ebene. */
     const wandOben = SLAB_H - 0.04, wandUnten = UB_TIEF - 0.6;
+    const dg = ubDurchgang(x, sch);
+    const wa0 = x + Math.min(sch.xFuss, sch.xKopf) - 0.45;
+    const wa1 = x + Math.max(sch.xFuss, sch.xKopf) + 0.45;
     for (const s2 of [-1, 1]) {
       const wz = s2 < 0 ? sch.z0 - 0.25 : sch.z1 + 0.25;
-      deko(UB_ABGANG + 0.9, wandOben - wandUnten, 0.5,
-           x + (sch.xFuss + sch.xKopf) / 2, (wandOben + wandUnten) / 2, wz, 0x4e565f);
-      /* Sperrt nur UNTER dem Gehweg: wer oben laeuft, wird nicht gebremst. */
-      addCollider({ x0: x + Math.min(sch.xFuss, sch.xKopf) - 0.45,
-                    x1: x + Math.max(sch.xFuss, sch.xKopf) + 0.45,
-                    z0: wz - 0.25, z1: wz + 0.25, h: SLAB_H - 0.03,
-                    y0: wandUnten, keinKlettern: true });
+      /* Ein Stueck Schachtwand. Auf der Seite der B-Ebene bleibt ueber der
+         Zwischenebene ein Durchgang frei - sonst kaeme man nicht hinein. */
+      const stueck = (b0, b1, y0, y1) => {
+        if (b1 - b0 < 0.06 || y1 - y0 < 0.06) return;
+        deko(b1 - b0, y1 - y0, 0.5, (b0 + b1) / 2, (y0 + y1) / 2, wz, 0x4e565f);
+        /* Sperrt nur UNTER dem Gehweg: wer oben laeuft, wird nicht gebremst. */
+        addCollider({ x0: b0, x1: b1, z0: wz - 0.25, z1: wz + 0.25,
+                      h: Math.min(y1, SLAB_H - 0.03), y0, keinKlettern: true });
+      };
+      if (s2 !== weg) {
+        stueck(wa0, wa1, wandUnten, wandOben);
+      } else {
+        stueck(wa0, dg.x0, wandUnten, wandOben);
+        stueck(dg.x1, wa1, wandUnten, wandOben);
+        stueck(dg.x0, dg.x1, wandUnten, UB_MITTE - 0.05);
+        stueck(dg.x0, dg.x1, UB_MITTE + UB_BE_HOCH, wandOben);
+      }
       /* Hier hingen Lampen an der Schachtwand. Sie sind ersatzlos weg:
          als fast weisse Platten von 1,3 m Laenge waren sie im engen Schacht
          riesige leuchtende Bloecke, und mehr als Licht sah man von ihnen
@@ -2067,6 +2465,9 @@ function baueUBahn(x) {
     /* Nur das TIEFE Ende zumachen - am Treppenmund geht man hinein. */
     const zuX = sch.xFuss < sch.xKopf ? gx0 : gx1;
     gelaender(0.18, gz1 - gz0, zuX, (gz0 + gz1) / 2);
+
+    /* ---- B-Ebene neben dem Schacht ---- */
+    baueBEbene(x, sch);
   }
 
   /* ---- Halle: Boeden, Decke, Waende ---- */
@@ -9893,6 +10294,64 @@ function updateZugGaeste(dt) {
   }
 }
 
+/* ======================= Leute in Innenraeumen =======================
+   B-Ebene, Laeden, begehbare Haeuser: gebaut waren sie, bewohnt nicht.
+   Nach demselben Muster wie im Bus und im Zug faehrt eine kleine
+   Mannschaft echter Zivilisten mit und stellt beziehungsweise setzt sich
+   auf die naechstgelegenen gemerkten Plaetze. Weiter weg als 24 m sieht
+   man ohnehin keinen - dort bleibt der Platz leer und kostet nichts.
+   Ein Platz merkt sich den Boden (darauf stehen die Fuesse) und
+   wahlweise eine Sitzhoehe (darauf kommt das Becken). */
+const INNEN_LEUTE = [];
+/* Vier Figuren, nicht mehr: eine Zivilistin kostet gemessen 7 Zeichen-
+   aufrufe und 35.000 Dreiecke, und anders als auf der Strasse stehen die
+   Leute im Innenraum alle gleichzeitig im Bild. */
+const INNEN_LEUTE_MAX = 4;
+const INNEN_WEITE = 20;
+
+function baueInnenLeute() {
+  if (INNEN_LEUTE.length || !actorsReady) return;
+  for (let i = 0; i < INNEN_LEUTE_MAX; i++) {
+    const visual = makeCharacterVisual('civilian', {});
+    if (!visual || visual.procedural) return;
+    visual.root.visible = false;
+    scene.add(visual.root);
+    INNEN_LEUTE.push({ visual });
+  }
+}
+
+const _innenNah = [];
+function updateInnenLeute(dt) {
+  if (!INNEN_PLAETZE.length) return;
+  if (!INNEN_LEUTE.length) { baueInnenLeute(); if (!INNEN_LEUTE.length) return; }
+  _innenNah.length = 0;
+  for (const p of INNEN_PLAETZE) {
+    const dx = p.x - player.pos.x, dz = p.z - player.pos.z, dy = p.boden - player.pos.y;
+    if (Math.abs(dy) > 14) continue;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > INNEN_WEITE * INNEN_WEITE) continue;
+    _innenNah.push({ p, d2 });
+  }
+  _innenNah.sort((a, b) => a.d2 - b.d2);
+  for (let i = 0; i < INNEN_LEUTE.length; i++) {
+    const g = INNEN_LEUTE[i], e = _innenNah[i];
+    if (!e) { g.visual.root.visible = false; continue; }
+    const p = e.p;
+    g.visual.root.visible = true;
+    g.visual.root.position.set(p.x, p.boden, p.z);
+    g.visual.root.rotation.y = p.ry;
+    /* Der Zeitversatz sorgt dafuer, dass nicht alle im Gleichschritt
+       atmen - sonst sieht man sofort, dass es dieselbe Figur ist. */
+    g.visual.play('idle', { t: elapsed + i * 2.3 }, dt);
+    if (p.sitz !== undefined && g.visual.poseSitzen) {
+      g.visual.poseSitzen(1);
+      const m = g.visual.sitzMasse ? g.visual.sitzMasse() : null;
+      if (m) g.visual.root.position.y +=
+        Math.max(p.sitz - m.huefte, p.boden - m.fuss);
+    }
+  }
+}
+
 /* ======================= Kontaktschatten =======================
    Auf den Grafikstufen "mittel" und "niedrig" ist die Schattenkarte aus -
    dann wirft keine Figur mehr einen Schatten, und ohne Schatten unter den
@@ -13224,6 +13683,7 @@ function simuliere(dt) {
   updateAutoFahrer(dt);
   updateZugGaeste(dt);
   updateBusGaeste(dt);
+  updateInnenLeute(dt);
   updateKitHaeuser(dt);
   updateFlecken();
   updateKlang(dt);
@@ -13361,6 +13821,8 @@ if (window.__WEBHERO_TEST__ === true) {
     kitInnen() { return KIT_INNEN; },
     zugGaeste() { return ZUG_GAST; },
     busGaeste() { return BUS_GAST; },
+    innenLeute() { return INNEN_LEUTE; },
+    innenPlaetze() { return INNEN_PLAETZE; },
     autoFahrer() { return AUTO_FAHRER; },
     imKitHaus,
     renderInfo() { return { calls: renderer.info.render.calls,
