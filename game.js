@@ -49,6 +49,11 @@ const ORIGIN = -175;        // Rasterursprung (Straßenlinien bei -175..175)
 const ROAD_HALF = 6;        // halbe Asphaltbreite
 const SLAB_H = 0.25;        // Gehweg-/Blocksockelhöhe
 const RIVER_X0 = 186, RIVER_X1 = 330;   // Fluss
+/* Die Uferpromenade zwischen der letzten Querstrasse und der Kaimauer.
+   Sie liegt als Gehweg auf SLAB_H - der Bodenhoehe war das aber nie
+   bekannt: dort galt weiter das Strassenraster, und in den Fahrbahnbaendern
+   kam 0 heraus. Die Figur sank deshalb 25 cm in die Promenade ein. */
+const PROM_X0 = 175;
 const SHORE_X0 = 330, SHORE_X1 = 400;   // gegenüberliegendes Ufer
 const BRIDGE_Z = -25, BRIDGE_HW = 7.5;  // Brücke entlang der Straße z=-25
 /* Eigenes, etwas engeres Raster für den Stadtteil am anderen Ufer.
@@ -955,6 +960,10 @@ const KIT_HAEUSER = [
 /* Lichte Hoehe der Tuer und Dicke der Wandscheiben. */
 const KIT_TUER_HOCH = 2.45;
 const KIT_WAND = 0.8;
+/* Die Modelle haben oben eine schmale Attika: das begehbare Dach liegt
+   gemessene 20 cm unter der Oberkante des Umrisses. Ohne diesen Abzug
+   steht die Figur 20 cm ueber dem Dach in der Luft. */
+const KIT_ATTIKA = 0.20;
 /* Das gedrehte Rechteck eines Hauses in Weltkoordinaten. Die Drehung ist
    immer ein Vielfaches von 90 Grad, deshalb reicht es, die vier Ecken zu
    drehen und Kleinstes und Groesstes zu nehmen. */
@@ -1006,7 +1015,7 @@ function kitHindernis(t, x, z, ry, kasten) {
      hinein. 1,2 m dick, damit sie beim Klettern von innen nicht
      uebersprungen wird. */
   addCollider({ x0: kasten.x0, x1: kasten.x1, z0: kasten.z0, z1: kasten.z1,
-                h: oben, y0: oben - 1.2 });
+                h: oben - KIT_ATTIKA, y0: oben - 1.2 });
   /* Fuer das Innenlicht merken: der begehbare Innenraum. */
   const innen = kitRechteck(x, z, ry, t.x0 + W, t.x1 - W, t.z0 + W, t.z1 - W);
   innen.decke = oben - 1.2;
@@ -1160,7 +1169,13 @@ function baueBank(x, y, z, laengsZ, holz, rueck) {
    naechsten Station versetzt hat. Auf dem Gleis fahren zwei Zuege, einer
    je Richtung. */
 const UBAHNEN = [];                       // gebaute Stationen, { x }
-const UB_TIEF = -12.0;                    // Bahnsteighoehe, tief unter der Strasse
+/* Von -12,0 auf -9,0 angehoben. Der Grund ist die Laenge des Abgangs:
+   der Gehweg neben dem Schacht ist nachgemessen nur 17 m lang (von +2 bis
+   +19 vom Stationsmittelpunkt aus, dann kommt die Querstrasse). Bei 12,25 m
+   Gefaelle passte da keine Treppe hinein, die nicht steiler als 45 Grad
+   ist - der Schacht ragte deshalb sieben Meter in die Fahrbahn. Mit 9,25 m
+   Gefaelle passen zwei Laeufe von je 6 m mit 37 Grad auf den Gehweg. */
+const UB_TIEF = -9.0;                     // Bahnsteighoehe unter der Strasse
 const UB_GLEIS_TIEF = UB_TIEF - 1.2;      // Sohle des Gleistrogs
 const UB_Z = 25;                          // die Linie folgt dieser Strassenachse
 const UB_STAT_X = [-150, -50, 50, 150];   // Stationen (Blockmitten)
@@ -1197,15 +1212,15 @@ const UB_DECKE = UB_TIEF + 5.0;
      Zwischenebene  6 m eben
      untere Treppe  9 m Lauf,  6,10 m Gefaelle  ->  34 Grad
    xKopf wandert dafuer von 15 auf 26 m; xFuss bleibt, wo er war. */
-const UB_MITTE = -5.9;                    // Hoehe der Zwischenebene
-const UB_TR_OBEN = 9.0;                   // Lauf der oberen Treppe
-const UB_HALLE_LANG = 6.0;                // Laenge der Zwischenebene
-const UB_TR_UNTEN = 9.0;                  // Lauf der unteren Treppe
+const UB_MITTE = -4.2;                    // Hoehe der Zwischenebene
+const UB_TR_OBEN = 6.0;                   // Lauf der oberen Treppe (36,6 Grad)
+const UB_HALLE_LANG = 4.0;                // Laenge der Zwischenebene
+const UB_TR_UNTEN = 6.0;                  // Lauf der unteren Treppe (38,7 Grad)
 const UB_ABGANG = UB_TR_OBEN + UB_HALLE_LANG + UB_TR_UNTEN;   // 24
 const UB_STUFEN_OBEN = 26, UB_STUFEN_UNTEN = 26;
 const UB_SCHAECHTE = [
-  { z0: 31.8, z1: 34.4, xFuss: 2.0, xKopf: 26.0, steig: 'nord' },
-  { z0: 15.6, z1: 18.2, xFuss: -2.0, xKopf: -26.0, steig: 'sued' },
+  { z0: 31.8, z1: 34.4, xFuss: 2.0, xKopf: 18.0, steig: 'nord' },
+  { z0: 15.6, z1: 18.2, xFuss: -2.0, xKopf: -18.0, steig: 'sued' },
 ];
 const UB_TREPPE = UB_ABGANG;
 const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
@@ -1244,7 +1259,7 @@ function ubahnLoecher(art) {
       const kopf = sx + s.xKopf;
       let a, b;
       if (art === 'oben') { a = kopf; b = kopf + dir * (UB_TR_OBEN + 0.6); }
-      else if (art === 'unten') { a = kopf + dir * (UB_TR_OBEN + UB_HALLE_LANG - 0.6);
+      else if (art === 'unten') { a = kopf + dir * (UB_TR_OBEN - 0.6);
                                   b = sx + s.xFuss; }
       else { a = kopf; b = sx + s.xFuss; }
       out.push({ x0: Math.min(a, b), x1: Math.max(a, b), z0: s.z0, z1: s.z1 });
@@ -1333,6 +1348,8 @@ function groundY(x, z, yRef) {
   if (zb !== null) return zb;
   const ub = ubahnBoden(x, z, yRef);
   if (ub !== null) return ub;
+  /* Uferpromenade: durchgehend Gehweghoehe, kein Strassenraster. */
+  if (x >= PROM_X0 && x <= RIVER_X0 && Math.abs(z) < 198 && !onBridge(x, z)) return SLAB_H;
   if (x >= SHORE_X1 || x <= -195 || Math.abs(z) >= 195) return 0;
   if (onBridge(x, z)) return 0.3;
   if (x > RIVER_X0) {
@@ -2115,8 +2132,13 @@ function baueUBahn(x) {
 
   /* ---- Oben: Mast und Schild neben jedem Loch ---- */
   for (const sch of UB_SCHAECHTE) {
-    const mx = x + sch.xKopf + (sch.xKopf > 0 ? 1.6 : -1.6);
-    const mz = sch.z1;
+    /* Der Mast stand 1,6 m HINTER dem Treppenmund - mit dem laengeren
+       Abgang lag das mitten auf der Fahrbahn. Jetzt steht er neben dem
+       Mund auf dem Gehweg, ein Stueck seitlich versetzt, damit er nicht
+       im Durchgang steht. */
+    const zur = sch.xFuss < sch.xKopf ? -1 : 1;      // Richtung nach unten
+    const mx = x + sch.xKopf + zur * 1.4;
+    const mz = sch.z1 + 0.95;
     deko(0.2, 2.6, 0.2, mx, SLAB_H + 1.3, mz, 0x2e3238);
     deko(1.5, 0.9, 0.12, mx, SLAB_H + 2.7, mz, 0x1b8f4a);
     deko(1.2, 0.6, 0.14, mx, SLAB_H + 2.7, mz, 0xf2f6f0);
@@ -2902,7 +2924,7 @@ function buildRiverAndBridge() {
      das aus wie ein Fehler in der Karte. Jetzt liegt dort eine Promenade:
      dunkleres Pflaster, ein Bordstein zur Straße, Bäume, Bänke und
      Laternen entlang des Wassers. */
-  const PROM_X0 = 175, PROM_X1 = RIVER_X0;
+  const PROM_X1 = RIVER_X0;
   const prom = new THREE.Mesh(
     new THREE.PlaneGeometry(PROM_X1 - PROM_X0, 400),
     new THREE.MeshLambertMaterial({ map: wegTex }));
@@ -5688,7 +5710,13 @@ function makeGlbVisual(m) {
       const a = actionFor(art || 'attack') || actionFor('attack');
       if (!a) return 0;
       const d = a.getClip().duration;
-      const v = zielDauer ? clamp(d / zielDauer, 1.3, 3.4) : (tempo || 1.7);
+      /* Die Untergrenze lag bei 1,3 und die Obergrenze bei 3,4. Der
+         Tritt-Clip ist 2,5 s lang und hatte 0,55 s als Ziel - er lief also
+         im Anschlag mit 3,4-facher Geschwindigkeit. So schnell schlaegt
+         niemand, und genau das sah nicht gut aus.
+         Jetzt darf eine Bewegung auch in ihrem eigenen Takt laufen, und
+         nach oben ist bei 2,4 Schluss. */
+      const v = zielDauer ? clamp(d / zielDauer, 1.0, 2.4) : (tempo || 1.7);
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
       /* Beim Verketten weich überblenden. Nur wenn dieselbe Bewegung
@@ -7640,9 +7668,9 @@ function tryAttack(type) {
   const k = !player.onGround
     ? { art: 'luftangriff', ziel: 0.5, arm: 'R' }
     : symTritt
-      ? { art: 'symkombo', ziel: 0.85, arm: 'R' }
+      ? { art: 'symkombo', ziel: 1.30, arm: 'R' }
       : type === 'kick'
-        ? { art: 'kick', ziel: 0.55, arm: 'R' }
+        ? { art: 'kick', ziel: 1.10, arm: 'R' }
         : KOMBO[stufe % KOMBO.length];
   const finisher = !!k.finisher;
   const arm = k.arm;
@@ -8113,12 +8141,19 @@ function updatePlayer(dt) {
          Gemessen ist die Steighoehe v0^2/(2a). Mit 3,2 werden aus dem Lauf
          rund 10 m in 2,5 s, aus dem Sprint (12,7) rund 37 m in 5,8 s - man
          rennt sichtbar hoch, wird langsamer und klettert dann weiter. */
-      player.wandSchwung -= dt * (sprintAn() && up > 0 ? 2.2 : 3.2);
+      /* 2,2 / 3,2 ergaben gemessen 20,8 m ohne und rund 37 m mit Sprint -
+         mit Sprint also fast ein ganzes Hochhaus. Mit 7,5 / 7,0 sind es
+         gemessen 12 m mit und 7,5 m ohne Sprint: ein kraeftiger Anlauf,
+         aber kein halbes Haus mehr. */
+      player.wandSchwung -= dt * (sprintAn() && up > 0 ? 7.5 : 7.0);
       if (player.wandSchwung < 0) player.wandSchwung = 0;
     }
     const kTempo = CFG.climbSpeed;
     const hoch = up * kTempo + Math.max(0, player.wandSchwung);
-    player.wandlauf = player.wandSchwung > 1.5;
+    /* Ohne Eingabe ist es kein Lauf mehr. Vorher blieb die waagerechte
+       Laufhaltung stehen, solange noch Schwung da war - man klebte quer
+       an der Fassade, obwohl man stand. */
+    player.wandlauf = player.wandSchwung > 1.5 && (Math.abs(up) + Math.abs(side)) > 0.05;
     player.vel.set(tx * side * kTempo, hoch, tz * side * kTempo);
     player.pos.addScaledVector(player.vel, dt);
     /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
@@ -8362,7 +8397,15 @@ function updatePlayer(dt) {
 
   /* ---- Physik ---- */
   let grav = player.state === 'swing' ? CFG.swingGravity : CFG.gravity;
-  if (player.gleiten) grav *= 0.24;          // die Flügel tragen
+  if (player.gleiten) {
+    /* Der Faktor stand auf 0,24. Gemessen pendelte sich das Sinken damit
+       bei 13,8 m/s ein, bei 26 m/s nach vorn - also nur zwei Meter Strecke
+       je Meter Hoehe. So ist der Gleitflug vorbei, bevor er anfaengt.
+       Mit 0,12 und einer Sinkbremse von 7 m/s sind es rund vier Meter je
+       Meter Hoehe: man kommt weit und hat Zeit, es zu geniessen. */
+    grav *= 0.12;                            // die Flügel tragen
+    if (player.vel.y < -7) player.vel.y = lerp(player.vel.y, -7, Math.min(1, dt * 3));
+  }
   player.vel.y -= grav * dt;
 
   if (player.onGround && player.state !== 'swing') {
@@ -8589,26 +8632,22 @@ function updatePlayer(dt) {
          im straffen Seil wirkte, kam über einen ganzen Bogen kaum ein
          Dutzend Grad zusammen – man musste zum Abbiegen loslassen, sich
          drehen und neu anschießen. */
+      /* ---- Lenken ----
+         Hier wurde eine KRAFT quer zur Flugbahn addiert. Das dreht zwar,
+         aber die Seilzwangsbedingung nimmt den Zuwachs gleich wieder weg -
+         gemessen kam beim Halten von D nur 3,4 m Versatz zur Seite heraus,
+         waehrend der Weg nach VORN von 21 m auf 4,4 m einbrach. Es fuehlte
+         sich deshalb an, als drehe sich die Figur nur, statt zu fliegen.
+         Jetzt wird stattdessen der KURS gedreht: die waagerechte
+         Geschwindigkeit wird um die Hochachse gedreht, ihr Betrag bleibt
+         gleich. Damit kostet Lenken kein Tempo. */
       const lenkung = kurveEin || geradeAus;
       if (lenkung) {
-        const rd = _v2.copy(player.pos).sub(s.anchor);
-        const rl = rd.length() || 0.001;
-        rd.multiplyScalar(1 / rl);
-        _v3.crossVectors(player.vel, rd);
-        const l = _v3.length();
-        if (l > 0.001) {
-          _v3.multiplyScalar(1 / l);
-          /* Bei hohem Tempo fällt die Kurve von selbst weiter aus – das
-             ist richtig so und fühlt sich nach Fliegen an. */
-          /* 26 m/s^2 ergeben bei 30 m/s Flugtempo einen Kurvenradius von
-             35 m - damit kommt man zwischen zwei Haeuserzeilen nicht
-             herum. Mit 62 sind es 15 m.
-             Und: hier stand nur kurveEin. Die Rueckfuehrung auf die
-             Blickrichtung (geradeAus) wurde zwar ausgerechnet, aber nie
-             angewandt - der Schwung zog deshalb weiter von allein zur
-             Seite, sobald man nichts druckte. */
-          player.vel.addScaledVector(_v3, (kurveEin * 62 + geradeAus * 26) * hdt);
-        }
+        const w2 = (kurveEin * 1.30 + geradeAus * 0.85) * hdt;
+        const cw = Math.cos(w2), sw = Math.sin(w2);
+        const vx = player.vel.x, vz = player.vel.z;
+        player.vel.x = vx * cw + vz * sw;
+        player.vel.z = -vx * sw + vz * cw;
       }
     }
     player.vel.multiplyScalar(1 - 0.02 * dt);
@@ -10057,9 +10096,28 @@ function makeCarMesh(color) {
      Zelle passt kein Mensch von 1,76 m, deshalb sassen dort nur auf 0,66
      geschrumpfte Sitzfiguren. Jetzt reicht die Zelle bis 1,92 m, und ein
      echter Zivilist sitzt hinein, ohne mit dem Kopf durchs Dach zu gehen. */
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.72, 4.6), bodyMat);
-  body.position.y = 0.66; body.castShadow = true;
+  /* ---- Karosserie ----
+     Ein einziger Kasten von 0,30 bis 1,02 m ging bis in die
+     Fahrgastzelle hinein. Die Sitzflaeche liegt bei 0,76 m, das Becken bei
+     0,94 - alles darunter steckte im Blech, und durch die Scheibe sah man
+     vor allem eine gruene Flaeche. Genau das war "das innere Gruene muss
+     weg".
+     Jetzt ist die Zelle offen: unten die Wanne bis 0,78 m, darueber nur
+     noch Tuerbruestungen an den Seiten und Motorhaube und Kofferraum vorn
+     und hinten. Dazwischen sieht man hinein. */
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.48, 4.6), bodyMat);
+  body.position.y = 0.54; body.castShadow = true;
   g.add(body);
+  for (const sx of [-1, 1]) {                       // Tuerbruestung
+    const br = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.34, 2.6), bodyMat);
+    br.position.set(sx * 0.91, 0.95, -0.2); br.castShadow = true;
+    g.add(br);
+  }
+  for (const [zz, ll] of [[1.68, 1.24], [-1.72, 1.16]]) {   // Haube und Heck
+    const h2 = new THREE.Mesh(new THREE.BoxGeometry(1.98, 0.34, ll), bodyMat);
+    h2.position.set(0, 0.95, zz); h2.castShadow = true;
+    g.add(h2);
+  }
   /* ---- Fahrgastzelle als Glaskasten ----
      Vorher war das Dach ein undurchsichtiger Klotz mit einer einzigen
      Frontscheibe - in den Autos sass niemand und man sah auch nirgendwo
@@ -10099,12 +10157,12 @@ function makeCarMesh(color) {
     sitze.push({ geo: sitzForm('box', bx, by, bz), farbe, x: px, y: py, z: pz });
   for (const sx of [-1, 1]) {
     /* Sitzflaeche auf 0,76 m - genau darauf sitzt das Becken (0,92 m). */
-    sitzTeil(0.52, 0.12, 0.50, sx * 0.44, 0.76, 0.06, sitzFarbe);
+    sitzTeil(0.52, 0.12, 0.50, sx * 0.44, 0.80, 0.06, sitzFarbe);
     sitzTeil(0.50, 0.62, 0.11, sx * 0.44, 1.12, -0.20, lehnFarbe);   // Lehne
     sitzTeil(0.30, 0.16, 0.10, sx * 0.44, 1.50, -0.22, lehnFarbe);   // Kopfstuetze
   }
   /* Rueckbank ueber die ganze Breite. */
-  sitzTeil(1.44, 0.12, 0.48, 0, 0.76, -1.10, sitzFarbe);
+  sitzTeil(1.44, 0.12, 0.48, 0, 0.80, -1.10, sitzFarbe);
   sitzTeil(1.42, 0.60, 0.11, 0, 1.10, -1.36, lehnFarbe);
   /* ---- Der Rest des Innenraums ----
      Sitze allein sind noch kein Wagen: durch die Rundumverglasung sieht
@@ -10112,7 +10170,7 @@ function makeCarMesh(color) {
      Bodenwanne, Armaturenbrett mit Instrumententafel, Lenkrad auf der
      Fahrerseite, Mittelkonsole und Tuerverkleidungen. */
   const bodenFarbe = 0x1b1d21, brettFarbe = 0x282c31;
-  sitzTeil(1.70, 0.06, 3.00, 0, 0.63, -0.30, bodenFarbe);        // Bodenwanne
+  sitzTeil(1.70, 0.06, 3.00, 0, 0.72, -0.30, bodenFarbe);        // Bodenwanne
   sitzTeil(1.66, 0.30, 0.42, 0, 1.10, 0.86, brettFarbe);         // Armaturenbrett
   sitzTeil(0.74, 0.16, 0.06, -0.44, 1.16, 0.66, 0x3b4048);       // Instrumente
   sitzTeil(0.34, 0.10, 0.32, 0, 0.86, -0.30, brettFarbe);        // Mittelkonsole
@@ -10131,10 +10189,10 @@ function makeCarMesh(color) {
                        new THREE.MeshLambertMaterial({ vertexColors: true })));
   for (const sx of [-1, 1]) {
     if (sx > 0 && Math.random() < 0.35) continue;        // mal faehrt jemand allein
-    for (const t of sitzMensch(sx * 0.44, 0.92, 0.12, 0, 0.9)) leute.push(t);
+    for (const t of sitzMensch(sx * 0.44, 0.96, 0.12, 0, 0.9)) leute.push(t);
   }
   if (Math.random() < 0.3) {                             // manchmal jemand hinten
-    for (const t of sitzMensch(rand(-0.4, 0.4), 0.92, -1.05, 0, 0.9)) leute.push(t);
+    for (const t of sitzMensch(rand(-0.4, 0.4), 0.96, -1.05, 0, 0.9)) leute.push(t);
   }
   if (leute.length) {
     const im = new THREE.Mesh(verschmelzeTeile(leute),
@@ -10145,7 +10203,7 @@ function makeCarMesh(color) {
     g.userData.insassen = im;
   }
   /* Wo der Fahrer sitzt, in Wagenkoordinaten. */
-  g.userData.fahrerSitz = { x: -0.44, y: 0.92, z: 0.12 };
+  g.userData.fahrerSitz = { x: -0.44, y: 0.96, z: 0.12 };
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.25, 10);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x17181c });
   for (const [sx, sz] of [[-1, 1.35], [1, 1.35], [-1, -1.35], [1, -1.35]]) {
@@ -11837,7 +11895,9 @@ function damageEnemy(e, dmg, kind) {
   /* Jeder Treffer fuellt den Symbiontenbalken. Voll wird er nach rund
      zwanzig sauberen Schlaegen - lange genug, dass es sich verdient
      anfuehlt, kurz genug fuer eine Gang. */
-  if (!player.symAn) player.symEnergie = clamp(player.symEnergie + dmg * 0.006, 0, 1);
+  /* Halbiert: der Symbiont soll etwas Besonderes sein und nicht nach
+     zwei Gegnern bereitstehen. */
+  if (!player.symAn) player.symEnergie = clamp(player.symEnergie + dmg * 0.0028, 0, 1);
   e.target = 'player';
   e.state = 'chase';
   alarmiereGang(e, 20);
@@ -11845,7 +11905,7 @@ function damageEnemy(e, dmg, kind) {
     e.dead = true; e.deadT = 2.5;
     e.webT = 0; e.cocoon.visible = false;
     e.hpBar.g.visible = false;
-    if (!player.symAn) player.symEnergie = clamp(player.symEnergie + 0.12, 0, 1);
+    if (!player.symAn) player.symEnergie = clamp(player.symEnergie + 0.055, 0, 1);
     addScore(50, 'K.O.!', e.pos);
     checkGangCleared(e.gang);
     checkCivilianSaved(e);
@@ -11976,11 +12036,26 @@ function updateEnemies(dtBild) {
         const a = clamp(e.deadT / 0.6, 0, 1);
         if (!e.blendMats) {
           e.blendMats = [];
+          /* Die Materialien werden zwischen allen Gegnern GETEILT - das
+             Modell wird geklont, three.js hängt dabei dieselben Materialien
+             an alle Kopien. Wer hier einfach transparent setzt, macht
+             deshalb JEDEN Gegner durchsichtig, und weil die Deckung nach
+             dem Ausblenden auf null stehen bleibt, bleiben auch alle
+             spaeter erscheinenden unsichtbar. Genau das war "man sieht die
+             Gegner nicht mehr".
+             Deshalb bekommt der sterbende Gegner hier eigene Kopien. */
           e.visual.root.traverse((o) => {
             if (!o.isMesh && !o.isSkinnedMesh) return;
-            for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
-              if (m && e.blendMats.indexOf(m) < 0) { m.transparent = true; e.blendMats.push(m); }
+            const war = Array.isArray(o.material) ? o.material : [o.material];
+            const neu2 = [];
+            for (const m of war) {
+              if (!m) { neu2.push(m); continue; }
+              const k = m.clone();
+              k.transparent = true;
+              neu2.push(k);
+              e.blendMats.push(k);
             }
+            o.material = Array.isArray(o.material) ? neu2 : neu2[0];
           });
         }
         for (const m of e.blendMats) m.opacity = a;
@@ -12392,7 +12467,10 @@ function updateCrimeBeacon() {
    Vorher gab es genau eine Aufgabe ("Schalte die Gang aus"), alle 45
    Sekunden dieselbe. Jetzt wechseln fünf Arten mit eigener Uhr, eigenem
    Ziel und eigener Belohnung. */
-const ringGeoM = new THREE.TorusGeometry(3.4, 0.26, 8, 22);
+/* Von 3,4 auf 5,0 m Radius. Mit dem alten Ring und einem Trefferkreis von
+   4 m musste man ihn fast mittig durchfliegen - im Gleitflug oder am Netz
+   ist das kaum zu steuern. */
+const ringGeoM = new THREE.TorusGeometry(5.0, 0.30, 8, 24);
 const ringMatM = new THREE.MeshBasicMaterial({ color: 0x4fd2ff, transparent: true, opacity: 0.85 });
 const rennRinge = [];
 for (let i = 0; i < 8; i++) {
@@ -12498,11 +12576,13 @@ function starteMission() {
     for (let i = 0; i < 6; i++) {
       let px, pz, tries = 0;
       do {
-        const a = rand(0, Math.PI * 2), r = rand(38, 62);
+        /* Kuerzere Abstaende: 38 bis 62 m waren im Bogen kaum zu treffen. */
+        const a = rand(0, Math.PI * 2), r = rand(26, 44);
         px = clamp(x + Math.cos(a) * r, -160, 160);
         pz = clamp(z + Math.sin(a) * r, -160, 160);
       } while (inGebaeude(px, pz) && ++tries < 14);
-      const p = V3(px, rand(22, 46), pz);
+      /* Etwas tiefer: auf 46 m kommt man im Gleitflug kaum wieder hoch. */
+      const p = V3(px, rand(20, 38), pz);
       rest.push({ pos: p });
       x = px; z = pz;
     }
@@ -12513,7 +12593,7 @@ function starteMission() {
       m.rotation.set(0, rand(0, Math.PI), Math.PI / 2);
       r.mesh = m;
     });
-    MISSION.art = 'rennen'; MISSION.zeit = 65;
+    MISSION.art = 'rennen'; MISSION.zeit = 85;
     MISSION.daten = { rest, gesamt: rest.length };
     MISSION.text = '🏁 Zeitrennen! Flieg durch alle Ringe';
   }
@@ -12573,13 +12653,13 @@ function updateMission(dt) {
       const r = d.rest[0];
       if (r) {
         const dx = player.pos.x - r.pos.x, dy = player.pos.y - r.pos.y, dz = player.pos.z - r.pos.z;
-        if (Math.hypot(dx, dy, dz) < 4.0) {
+        if (Math.hypot(dx, dy, dz) < 5.6) {
           r.mesh.visible = false;
           d.rest.shift();
           treffEffekt(r.pos, 2.2, 0x4fd2ff);
           SFX.score();
           addScore(40, '', r.pos);
-          MISSION.zeit += 6;                    // Zeitbonus pro Ring
+          MISSION.zeit += 9;                    // Zeitbonus pro Ring
           showObjective(`${MISSION.text}  (${d.gesamt - d.rest.length}/${d.gesamt})`);
         }
       }
