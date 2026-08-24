@@ -14,9 +14,17 @@ const CFG = {
   walkSpeed: 2.8, symSpeed: 1.2,
   runSpeed: 7,
   sprintSpeed: 11,
-  airAccel: 10,
+  /* Von 10 auf 26: mit 10 m/s^2 braucht ein Richtungswechsel in der Luft
+     mehrere Sekunden, und genau so fuehlte es sich an - man konnte in der
+     Luft praktisch nicht steuern. */
+  airAccel: 26,
   jumpVel: 11.5,
-  climbSpeed: 4.5,
+  /* Von 4,5 auf 2,6. Bei 4,5 m/s muesste die Kriechbewegung siebenfach
+     laufen, und so schnell rudert kein Mensch mit Armen und Beinen.
+     Mit 2,6 sind es rund 4,2 - schnell, aber noch lesbar, und die
+     greifende Hand bleibt dabei an der Fassade stehen. Ein Haus von 28 m
+     dauert damit elf Sekunden statt sechs. */
+  climbSpeed: 2.6,
   /* Abstand der Körpermitte zur Wand beim Klettern. Vorher wurde der volle
      Kollisionsradius (0,45 m) benutzt – dadurch schwebte die Figur sichtbar
      vor dem Haus, statt daran zu kleben. */
@@ -4348,15 +4356,26 @@ function makeGlbVisual(m) {
         /* Kleiner Finger etwas staerker als Zeigefinger - so faellt eine
            Hand wirklich zu. */
         const rand = f === 'pinky' ? 1.18 : f === 'ring' ? 1.10 : f === 'middle' ? 1.0 : 0.9;
-        drehZuRuhe(b, (g === 1 ? 0.30 : g === 2 ? 0.46 : 0.36) * rand * kk, 0, 0, 0.55);
+        /* Seit drehZuRuhe richtig mischt, ist k ein echtes Gewicht - mit
+           0,55 blieben die Finger halb offen stehen. */
+        drehZuRuhe(b, (g === 1 ? 0.30 : g === 2 ? 0.46 : 0.36) * rand * kk, 0, 0, 0.85);
       }
     }
+    /* ---- Daumen ----
+       Hier wurden Winkel gesetzt, die aus der Faust abgeleitet waren. Das
+       war falsch: nachgemessen liegt die Daumenspitze in der RUHEHALTUNG
+       des Modells nur 5,7 cm neben dem Mittelglied des Zeigefingers - der
+       Daumen ist dort also schon natuerlich angelegt. Die gesetzten Werte
+       haben ihn erst abgespreizt.
+       Ein Abtasten ueber alle drei Achsen (100 Kombinationen) fand als
+       engste Haltung 3,9 cm. Genommen wird ein Drittel davon: etwas
+       angelegter als die Ruhe, ohne die Modellierung zu verbiegen. */
     for (let g = 1; g <= 3; g++) {
       const b = knochen[seite + 'handthumb' + g];
       if (!b) continue;
-      /* Der Daumen legt sich AN die Hand, nicht darueber: nur ein Viertel
-         der Faustwerte. */
-      drehZuRuhe(b, 0.16 * kk, g === 1 ? -0.30 * kk : 0, (g === 1 ? 0.30 : 0.22) * kk, 0.55);
+      drehZuRuhe(b, 0.20 * kk * (g === 1 ? 1 : 0.7),
+                 g === 1 ? -0.30 * kk : 0,
+                 (g === 1 ? 0.30 : 0.20) * kk, 0.8);
     }
   }
 
@@ -5403,7 +5422,8 @@ function makeGlbVisual(m) {
          dafuer um ihre Querachse gekippt (siehe wandKriechen). Am Boden
          sieht diese Bewegung gut aus, an der Wand ist es genau die
          Haltung, die ein Kletterer haette. */
-      if (p.wandKriechen && findClip(m.clips, 'kriechen')) want = 'kriechen';
+      if (p.wandModus === 'lauf' && findClip(m.clips, 'run')) want = 'run';
+      else if (p.wandModus === 'kriechen' && findClip(m.clips, 'kriechen')) want = 'kriechen';
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
 
@@ -5476,7 +5496,11 @@ function makeGlbVisual(m) {
          zurück. Wird die Abspielgeschwindigkeit daraus berechnet, bleiben
          die Füße am Boden stehen, statt zu rutschen – genau das hat das
          Laufen bisher unruhig wirken lassen. */
-      if (current && GANG_REF[want] !== undefined) {
+      /* An der Wand NICHT ueber die Gangart-Tabelle: die rechnet mit dem
+         waagerechten Tempo, und das ist beim Klettern null - der Clip lief
+         dadurch mit 0,45 statt mit dem gesetzten Klettertempo. Genau das
+         war "die Animation ist langsam, aber er ist schon halb oben". */
+      if (current && GANG_REF[want] !== undefined && !p.wandKriechen) {
         const ref = GANG_REF[want];
         /* Unten weiter aufgemacht (0,45 statt 0,7): wer langsam schleicht,
            bewegte die Beine sonst schneller als er vorankam – genau das
@@ -5512,9 +5536,26 @@ function makeGlbVisual(m) {
         bogenGlatt = lerp(bogenGlatt, roh, Math.min(1, dt * 2.6));
         current.time = want === 'schwung' ? lerp(1.95, 1.02, bogenGlatt)
                                           : lerp(0.01, 0.15, bogenGlatt);
+      } else if (current && p.wandKriechen && (p.tempo === 0 || p.tempo === undefined)) {
+        /* Still an der Wand: der Clip stand vorher einfach dort, wo er
+           gerade war - mal mit einem Bein in der Luft, mal halb im
+           Ausfallschritt. Das war das "komische Stehen an der Wand".
+           Jetzt wandert er zu einer festen Stelle, an der beide Haende und
+           beide Fuesse an der Fassade liegen. */
+        current.timeScale = 0;
+        const dauer = current.getClip().duration || 1;
+        const ruhe = WAND_RUHE_T * dauer;
+        let t2 = current.time;
+        /* Auf dem kuerzeren Weg dorthin, damit es nicht rueckwaerts durch
+           den ganzen Clip laeuft. */
+        let ab = ruhe - t2;
+        if (ab > dauer / 2) ab -= dauer;
+        if (ab < -dauer / 2) ab += dauer;
+        t2 += ab * Math.min(1, dt * 4);
+        current.time = ((t2 % dauer) + dauer) % dauer;
       } else if (current && (want === 'climb' || want === 'klettern' ||
                             want === 'klettern_frei' || want === 'klettern_seit' ||
-                            want === 'haengen' || (p.wandKriechen && want === 'kriechen'))) {
+                            want === 'haengen' || p.wandKriechen)) {
         /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
            kraxelte die Figur auf der Stelle weiter.
            Das Haengen gehoert dazu: "Braced Hang" ist keine ruhige
@@ -5648,6 +5689,27 @@ function makeGlbVisual(m) {
           if (m2.specular) m2.specular.setHex(an ? 0x9aa0b0 : 0x33333a);
         }
       });
+    },
+    /* Nur fuer Messungen: eine Stelle im laufenden Clip setzen (0..1). */
+    /* Nur fuer Messungen: Daumenwinkel von aussen setzen. */
+    daumenProbe(seite, ax, ay, az, k) {
+      for (let g = 1; g <= 3; g++) {
+        const b = knochen[seite + 'handthumb' + g];
+        if (!b) continue;
+        drehZuRuhe(b, ax * (g === 1 ? 1 : 0.7), g === 1 ? ay : 0,
+                   g === 1 ? az : az * 0.7, k);
+      }
+    },
+    setzeClipZeit(t01) {
+      if (!current) return;
+      current.timeScale = 0;
+      current.time = clamp(t01, 0, 0.999) * (current.getClip().duration || 1);
+    },
+    /* Nur fuer Messungen: welcher Clip laeuft gerade, wie schnell? */
+    laufStand() {
+      return current ? { clip: current.getClip().name, ts: +current.timeScale.toFixed(2),
+                         t: +current.time.toFixed(3), gewicht: +current.getEffectiveWeight().toFixed(2),
+                         laeuft: current.isRunning() } : null;
     },
     /* Wie lange dauert eine geladene Bewegung? Damit lässt sich die
        Spielmechanik auf die Bewegungsdatei abstimmen, statt umgekehrt. */
@@ -7095,7 +7157,21 @@ function findAnchor() {
       || null;
 }
 
+/* Steht die Figur unter der Erde (U-Bahn-Schacht, Tunnel, Bahnsteig)?
+   Dort gibt es nichts, woran ein Netz haengen koennte: die Anker sitzen
+   auf den Dachkanten der Haeuser, also zwanzig Meter ueber der Decke.
+   Ein Netz dorthin zog die Figur durch die Tunneldecke - und die Seil-
+   zwangsbedingung setzt die Lage direkt, an jeder Kollision vorbei. Genau
+   das war das Durchbuggen durch die Waende. */
+function unterTage() {
+  return player.pos.y < SLAB_H - 1.5;
+}
+
 function startSwing() {
+  if (unterTage()) {
+    popupScreen('Hier ist nichts, woran ein Netz halten koennte');
+    return false;
+  }
   const anchor = findAnchor();
   if (!anchor) return false;                  // nichts zum Festmachen in Reichweite
   const abstand = anchor.distanceTo(player.pos);
@@ -7229,6 +7305,12 @@ function webZip() {
     ? V3(enemy.pos.x, enemy.pos.y + 1.2, enemy.pos.z)
     : zipHaltepunkt();
   if (!target) {
+    if (player.keinHaltCd <= 0) { popupScreen('Kein Halt in Reichweite'); player.keinHaltCd = 1.4; }
+    return;
+  }
+  /* Unter Tage darf der Zug nicht an ein Ziel ueber der Strasse gehen -
+     sonst zieht er die Figur durch die Tunneldecke. */
+  if (unterTage() && target.y > SLAB_H - 1.0) {
     if (player.keinHaltCd <= 0) { popupScreen('Kein Halt in Reichweite'); player.keinHaltCd = 1.4; }
     return;
   }
@@ -8004,7 +8086,23 @@ function updatePlayer(dt) {
     /* Klettertempo für die Animation: hoch = vorwärts, runter = rückwärts,
        ohne Eingabe hängt die Figur still an der Wand. */
     const bewegt = Math.abs(up) + Math.abs(side);
-    player.klettertempo = bewegt === 0 ? 0 : (up < 0 ? -0.9 : 1);
+    /* Die Abspielgeschwindigkeit muss zum WIRKLICHEN Steigen passen.
+       Sie stand fest auf 1, waehrend die Figur mit 4,5 m/s die Wand
+       hochfuhr - die Kriechbewegung legt bei 1 aber nur 0,85 m/s zurueck.
+       Der Arm bewegte sich also einmal, waehrend die Figur fuenf Meter
+       hochgeklettert war: genau der Eindruck "er klettert langsam, ist
+       aber schon halb oben".
+       Gleiche Rechnung wie bei den Gangarten am Boden: Tempo geteilt durch
+       die Eigengeschwindigkeit der Bewegung - dann bleibt die Hand an der
+       Fassade stehen, statt zu rutschen. */
+    if (bewegt === 0 && !player.wandlauf) player.klettertempo = 0;
+    else {
+      const vSteig = Math.abs(hoch);
+      /* Beim Rennen die Eigengeschwindigkeit des Laufs, beim Klettern die
+         der Kriechbewegung an der Wand. */
+      const eigen = player.wandlauf ? (GANG_REF.run || 4.2) : KLETTER_REF;
+      player.klettertempo = clamp(vSteig / eigen, 0.5, 5.0) * (up < 0 ? -1 : 1);
+    }
     /* Oben angekommen → über die Kante ziehen. Vorher wurde die Figur
        einfach aufs Dach versetzt und nach oben geschleudert; jetzt läuft
        dafür eine eigene Bewegung ab und der Körper wandert währenddessen
@@ -8251,10 +8349,19 @@ function updatePlayer(dt) {
     /* Beim Schwingen übernimmt die Kurvensteuerung – die grobe
        Luftsteuerung würde sonst dagegenarbeiten. */
     if (dir && player.state !== 'swing') {
+      const vorher = Math.hypot(player.vel.x, player.vel.z);
       player.vel.x += dir.x * CFG.airAccel * dt;
       player.vel.z += dir.z * CFG.airAccel * dt;
       const hs = Math.hypot(player.vel.x, player.vel.z);
-      const maxH = player.state === 'swing' ? 34 : 18;
+      /* Die Deckelung lag bei 18 m/s und wurde auf die GESAMTE
+         Geschwindigkeit angewandt. Wer nach einem schnellen Bogen (bis
+         40 m/s) losliess und dann auch nur antippte, wurde dadurch
+         schlagartig auf 18 heruntergebremst - es fuehlte sich an, als
+         liesse sich in der Luft gar nichts machen.
+         Jetzt bremst die Eingabe nie: gedeckelt wird auf das Groessere aus
+         Grenze und bisherigem Tempo. Beschleunigen ueber die Grenze hinaus
+         geht weiterhin nicht. */
+      const maxH = Math.max(30, vorher);
       if (hs > maxH) { player.vel.x *= maxH / hs; player.vel.z *= maxH / hs; }
     }
   }
@@ -8390,7 +8497,14 @@ function updatePlayer(dt) {
           _v3.multiplyScalar(1 / l);
           /* Bei hohem Tempo fällt die Kurve von selbst weiter aus – das
              ist richtig so und fühlt sich nach Fliegen an. */
-          player.vel.addScaledVector(_v3, kurveEin * 26 * hdt);
+          /* 26 m/s^2 ergeben bei 30 m/s Flugtempo einen Kurvenradius von
+             35 m - damit kommt man zwischen zwei Haeuserzeilen nicht
+             herum. Mit 62 sind es 15 m.
+             Und: hier stand nur kurveEin. Die Rueckfuehrung auf die
+             Blickrichtung (geradeAus) wurde zwar ausgerechnet, aber nie
+             angewandt - der Schwung zog deshalb weiter von allein zur
+             Seite, sobald man nichts druckte. */
+          player.vel.addScaledVector(_v3, (kurveEin * 62 + geradeAus * 26) * hdt);
         }
       }
     }
@@ -8693,6 +8807,16 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
 /* Wie weit der Setzpunkt der Figur beim Wandkriechen von der Wand weg
    liegt. Wird unten nachgemessen. */
 const KRIECH_TIEFE = 0.30;
+/* Eigengeschwindigkeit der Kriechbewegung AN DER WAND. Am Boden sind es
+   0,85 m/s (GANG_REF), an der Fassade weniger: dort greift die Hand nach
+   oben und der Koerper zieht nach, die Hand legt also je Takt weniger
+   Weg zurueck. Abgetastet an der Weltgeschwindigkeit der Haende - bei
+   diesem Wert steht die greifende Hand am ruhigsten. */
+const KLETTER_REF = 0.62;
+/* Stelle im Kriechclip (0..1), an der die Figur an der Wand ruht.
+   Abgetastet: dort liegen beide Haende und beide Fuesse am dichtesten an
+   der Fassade. */
+const WAND_RUHE_T = 0.0;
 /* 0,16 s auf, 0,22 s ab: das Aufkommen darf zuegig sein (sonst haengt die
    Haltung der Bewegung hinterher), das Abklingen braucht laenger, weil
    dort das Zucken sass. */
@@ -8869,13 +8993,23 @@ function updateHeroVisual(dt) {
   }
   /* Wandkriechen: an einer echten Hauswand, nicht beim Wandlauf und nicht
      beim ruhigen Haengen. Braucht die Kriechbewegung. */
-  player.wandKriechen = player.state === 'climb' && !!player.wallInfo &&
-    !player.wandlauf && player.anim !== 'haengen' &&
-    !!(heroVisual.hatClip && heroVisual.hatClip('kriechen')) &&
-    !!heroVisual.wandKriechen;
+  /* An der Wand gibt es zwei Bewegungen, und beide werden mit DERSELBEN
+     Kippung gefahren - genau wie am Boden Laufen und Kriechen dieselbe
+     Schwerkraft haben:
+       'kriechen' - das normale Hochklettern,
+       'lauf'     - der Anlauf mit Schwung, also Rennen die Wand hinauf.
+     Vorher hatte der Wandlauf eine von Hand gesetzte Haltung
+     (poseWandlauf). Die sah nach Klettern aus, nicht nach Rennen. */
+  const anWand = player.state === 'climb' && !!player.wallInfo &&
+                 player.anim !== 'haengen' && !!heroVisual.wandKriechen;
+  player.wandModus = !anWand ? null
+    : player.wandlauf && heroVisual.hatClip && heroVisual.hatClip('run') ? 'lauf'
+    : heroVisual.hatClip && heroVisual.hatClip('kriechen') ? 'kriechen' : null;
+  player.wandKriechen = !!player.wandModus;
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   heroVisual.play(player.anim, {
     wandKriechen: player.wandKriechen,
+    wandModus: player.wandModus,
     phase: player.phase,
     speed01: clamp(hSpeed / CFG.sprintSpeed, 0, 1),
     speed: hSpeed,
@@ -8930,8 +9064,12 @@ function updateHeroVisual(dt) {
       /* Beim Wandlauf führt die Bewegung allein – die Spinnenpose würde
          die laufenden Beine überschreiben. */
       if (w && player.wandKriechen && heroVisual.wandKriechen) {
-        /* Die Kriechbewegung fuehrt allein - keine gesetzten Gliedmassen
-           mehr. wandFreiraum() haelt am Ende alles aus der Fassade. */
+        /* Die Bewegungsdatei fuehrt allein - keine gesetzten Gliedmassen
+           mehr. wandFreiraum() haelt am Ende alles aus der Fassade.
+           Fuer beide Bewegungen derselbe Abstand: ein groesserer Wert fuer
+           den Lauf hat die Figur ins Haus geschoben (gemessen 95 cm hinter
+           der Fassade), und herausgedrueckt wird sie ohnehin von
+           wandFreiraum(). */
         heroVisual.wandKriechen(1, KRIECH_TIEFE);
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
@@ -9052,8 +9190,13 @@ function wandFreiraum() {
     if (d < min) min = d;
   }
   /* Sehr grosse Abweichungen ignorieren: dann steht die Figur gar nicht an
-     dieser Wand und das Verschieben waere ein Sprung. */
-  if (min >= WAND_LUFT || min < -1.5) return;
+     dieser Wand und das Verschieben waere ein Sprung.
+     Die Grenze lag bei -1,5 m. Beim Wandlauf mit der gekippten
+     Laufbewegung steckte die Figur gemessen 0,5 bis 1,8 m in der Fassade -
+     die Korrektur stieg dann aus und man sah gar nichts mehr. Mit -3,0
+     greift sie auch dort; weiter entfernt ist es wirklich eine andere
+     Wand. */
+  if (min >= WAND_LUFT || min < -3.0) return;
   const s = WAND_LUFT - min;
   r.position.x += w.nx * s;
   r.position.z += w.nz * s;
