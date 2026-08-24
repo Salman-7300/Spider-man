@@ -628,10 +628,15 @@ function updateTagNacht(dt) {
      Eine Großstadt bei Nacht ist durch Straßen- und Fensterlicht ohnehin
      nie wirklich dunkel. */
   himmel.intensity = 0.72 + tagAnteil * 0.36;
+  /* Auch INNEN in einem Baukasten-Haus braucht es Licht: der Innenraum ist
+     rundum geschlossen, Sonne und Himmel kommen nicht hinein, und ohne
+     Lampe stuende man in einer schwarzen Kiste. */
   /* Unter Tage die Lampe hoch- und das Himmelslicht anheben. Ohne das ist
      unten alles schwarz, weil dort weder Sonne noch Himmel hinkommt. */
   const unten = clamp((-1.0 - player.pos.y) / 3.5, 0, 1);
-  untenLicht.intensity = unten * 2.2;
+  const drin = imKitHaus(player.pos) ? 1 : 0;
+  const lampe = Math.max(unten, drin * 0.85);
+  untenLicht.intensity = lampe * 2.2;
   untenLicht.position.set(player.pos.x, player.pos.y + 3.0, player.pos.z);
   himmel.intensity += unten * 0.9;
   sun.intensity *= 1 - unten * 0.7;
@@ -921,17 +926,94 @@ suitTex.repeat.set(2, 2);
    einem mittig gesetzten Hindernis stand rings um das Haus eine
    unsichtbare Wand, und auf dem Dach fehlte der Boden - man fiel hinein.
    Genau das war der Fehler. */
+/* tuer = die Tueroeffnung im EIGENEN System des Modells, immer auf der
+   +z-Seite (das ist bei allen dreien die Schauseite).
+   Abgetastet mit Strahlen von aussen nach innen, auf drei Hoehen:
+     Small_1  x -0,45 .. 0,52  (0,97 m, erst ab 1,2 m Hoehe - davor eine Stufe)
+     Medium   x -0,42 .. 0,50  (0,92 m)
+     Large_2  x -0,49 .. 0,54  (1,03 m)
+   Der Durchgang im Hindernis wird etwas weiter gefasst (1,40 m): der
+   Kollisionszylinder der Figur ist 90 cm breit, sonst passt sie nicht
+   hindurch. Sichtbar streift dabei nichts - die Schulter kommt rechnerisch
+   auf 50 cm neben die Mitte, die Tuerkante liegt bei 52 cm. */
 const KIT_HAEUSER = [
   { name: 'Building_Small_1',      x0: -7.23, x1: 5.23, z0: -12.23, z1: 2.31,
-    h: 17.0, dreh: -Math.PI / 2 },
+    h: 17.0, dreh: -Math.PI / 2, tuer: { x0: -0.70, x1: 0.75 } },
   { name: 'Building_Medium_2_001', x0: -7.53, x1: 7.53, z0: -12.49, z1: 0.57,
-    h: 25.0, dreh: 0 },
+    h: 25.0, dreh: 0, tuer: { x0: -0.70, x1: 0.75 } },
   { name: 'Building_Large_2',      x0: -9.32, x1: 11.32, z0: -16.32, z1: 0.32,
-    h: 28.0, dreh: 0 },
+    h: 28.0, dreh: 0, tuer: { x0: -0.70, x1: 0.75 } },
 ];
+/* Lichte Hoehe der Tuer und Dicke der Wandscheiben. */
+const KIT_TUER_HOCH = 2.45;
+const KIT_WAND = 0.8;
 /* Das gedrehte Rechteck eines Hauses in Weltkoordinaten. Die Drehung ist
    immer ein Vielfaches von 90 Grad, deshalb reicht es, die vier Ecken zu
    drehen und Kleinstes und Groesstes zu nehmen. */
+/* Ein Rechteck aus dem EIGENEN System des Modells in Weltkoordinaten.
+   Die Drehung ist immer ein Vielfaches von 90 Grad, deshalb bleibt aus
+   einem achsenparallelen Rechteck wieder eines. */
+function kitRechteck(x, z, ry, lx0, lx1, lz0, lz1) {
+  const c = Math.cos(ry), si = Math.sin(ry);
+  let ax0 = Infinity, ax1 = -Infinity, az0 = Infinity, az1 = -Infinity;
+  for (const [lx, lz] of [[lx0, lz0], [lx1, lz0], [lx1, lz1], [lx0, lz1]]) {
+    const wx = lx * c + lz * si, wz = -lx * si + lz * c;
+    ax0 = Math.min(ax0, wx); ax1 = Math.max(ax1, wx);
+    az0 = Math.min(az0, wz); az1 = Math.max(az1, wz);
+  }
+  return { x0: x + ax0, x1: x + ax1, z0: z + az0, z1: z + az1 };
+}
+
+/* ---- Hindernis fuer ein Baukasten-Haus ----
+   Bis hierher war das EIN massiver Quader ueber die ganze Grundflaeche -
+   deshalb liess sich kein Haus betreten. Jetzt sind es vier Wandscheiben
+   mit einer Luecke in der Tuer, dazu ein Sturz darueber und eine
+   Dachplatte. Die Dachplatte ist wichtig: ohne sie faellt man in der Mitte
+   des Daches ins Haus.
+   Alle Kaesten kommen aus den GEMESSENEN Grenzen des Modells, nicht aus
+   Breite und Tiefe um den Setzpunkt herum. */
+const KIT_INNEN = [];              // {x0,x1,z0,z1,decke} - fuer das Innenlicht
+function kitHindernis(t, x, z, ry, kasten) {
+  const oben = SLAB_H + t.h;
+  const W = KIT_WAND;
+  const scheibe = (lx0, lx1, lz0, lz1, y0, h) => {
+    if (lx1 - lx0 < 0.05 || lz1 - lz0 < 0.05) return;
+    const r = kitRechteck(x, z, ry, lx0, lx1, lz0, lz1);
+    addCollider({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1, h, y0 });
+  };
+  if (!t.tuer) {
+    addCollider({ x0: kasten.x0, x1: kasten.x1, z0: kasten.z0, z1: kasten.z1,
+                  h: oben, y0: -1.0 });
+    return;
+  }
+  /* Rueckwand und die beiden Seitenwaende ueber die volle Hoehe. */
+  scheibe(t.x0, t.x1, t.z0, t.z0 + W, -1.0, oben);            // hinten
+  scheibe(t.x0, t.x0 + W, t.z0, t.z1, -1.0, oben);            // links
+  scheibe(t.x1 - W, t.x1, t.z0, t.z1, -1.0, oben);            // rechts
+  /* Front links und rechts der Tuer, dazu der Sturz darueber. */
+  scheibe(t.x0, t.tuer.x0, t.z1 - W, t.z1, -1.0, oben);
+  scheibe(t.tuer.x1, t.x1, t.z1 - W, t.z1, -1.0, oben);
+  scheibe(t.tuer.x0, t.tuer.x1, t.z1 - W, t.z1, SLAB_H + KIT_TUER_HOCH, oben);
+  /* Dachplatte ueber die ganze Grundflaeche - sonst faellt man von oben
+     hinein. 1,2 m dick, damit sie beim Klettern von innen nicht
+     uebersprungen wird. */
+  addCollider({ x0: kasten.x0, x1: kasten.x1, z0: kasten.z0, z1: kasten.z1,
+                h: oben, y0: oben - 1.2 });
+  /* Fuer das Innenlicht merken: der begehbare Innenraum. */
+  const innen = kitRechteck(x, z, ry, t.x0 + W, t.x1 - W, t.z0 + W, t.z1 - W);
+  innen.decke = oben - 1.2;
+  KIT_INNEN.push(innen);
+}
+
+/* Steht die Figur in einem der begehbaren Haeuser? */
+function imKitHaus(pos) {
+  for (const r of KIT_INNEN) {
+    if (pos.x > r.x0 && pos.x < r.x1 && pos.z > r.z0 && pos.z < r.z1 &&
+        pos.y < r.decke && pos.y > -2) return true;
+  }
+  return false;
+}
+
 function kitKasten(t, x, z, ry) {
   const c = Math.cos(ry), si = Math.sin(ry);
   let ax0 = Infinity, ax1 = -Infinity, az0 = Infinity, az1 = -Infinity;
@@ -2089,11 +2171,17 @@ function baueZug(farbe) {
     for (const s2 of [-1, 1]) {
       const zs = s2 * (ZUG_BREIT / 2 - 0.34);
       kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x37414d);
+      /* Hier wurden 45 % der Plaetze mit einfachen Sitzfiguren aufgefuellt.
+         Im Wagen sass dadurch eine Mischung aus echten Zivilisten und
+         Kloetzchenmenschen nebeneinander - und genau das faellt auf.
+         Jetzt bleiben ALLE Plaetze frei; besetzt werden sie von echten
+         Zivilisten: von denen, die an einer Station einsteigen, und von
+         einer kleinen Mannschaft, die immer im naechstgelegenen Wagen
+         mitfaehrt (siehe updateZugFahrgaeste). */
       for (let p = 0; p < 5; p++) {
         const px = wx - (ZUG_WLANG - 5.0) / 2 + p * ((ZUG_WLANG - 5.0) / 4);
         const ry = s2 < 0 ? 0 : Math.PI;          // Blick zur Wagenmitte
-        if (Math.random() < 0.55) { frei.push({ dx: px, dz: zs, ry }); continue; }
-        for (const t of sitzMensch(px, ZUG_BODEN + ZUG_BANK, zs, ry, 0.92)) fest.push(t);
+        frei.push({ dx: px, dz: zs, ry });
       }
     }
   }
@@ -2592,11 +2680,9 @@ function baueAltbauBlock(cx, cz, size) {
                             kasten.z1 > r.z0 - 1.2 && kasten.z0 < r.z1 + 1.2)) continue;
     gesetzt.push(kasten);
     merkeHaus(t.name, x, SLAB_H, z, ry);
-    /* Das Modell bringt kein Hindernis mit. Der Quader kommt aus den
-       gemessenen Grenzen des GEDREHTEN Modells - nicht aus Breite und
-       Tiefe um den Setzpunkt herum. */
-    addCollider({ x0: kasten.x0, x1: kasten.x1, z0: kasten.z0, z1: kasten.z1,
-                  h: SLAB_H + t.h, y0: -1.0 });
+    /* Das Modell bringt kein Hindernis mit - es wird hier gebaut, mit
+       einem Durchgang in der Tuer. */
+    kitHindernis(t, x, z, ry, kasten);
     /* Dachaufbauten wie bei den anderen Haeusern. */
     if (Math.random() < 0.6) {
       merkeTeil('Prop_ACUnit', rand(kasten.x0 + 1.5, kasten.x1 - 1.5), SLAB_H + t.h,
@@ -6723,6 +6809,19 @@ function collideBody(body, prevY, radiusExtra) {
         p.y = c.h; body.vel.y = 0; body.onGround = true; body.groundTop = c.h;
         continue;
       }
+      /* ---- Mit dem Kopf anstossen ----
+         Vorsprünge mit Unterkante (y0) wurden bisher IMMER waagerecht
+         weggedrueckt. Steht man unter einem Tuersturz oder in einem
+         begehbaren Haus und springt, schiebt einen das seitlich aus dem
+         Gebaeude heraus - man wird also aus der Wand teleportiert.
+         Richtig ist: solange die FUESSE noch unter der Unterkante sind und
+         nur der Kopf dagegen kommt, ist es eine Decke. Dann wird die Hoehe
+         begrenzt und der Aufwaertsschwung genommen, sonst nichts. */
+      if (c.y0 !== undefined && p.y + 0.25 < c.y0 && p.y + 1.75 > c.y0) {
+        if (body.vel.y > 0) body.vel.y = 0;
+        p.y = Math.min(p.y, c.y0 - 1.75);
+        continue;
+      }
       // horizontal herausdrücken
       const dxL = p.x - (c.x0 - r), dxR = (c.x1 + r) - p.x;
       const dzL = p.z - (c.z0 - r), dzR = (c.z1 + r) - p.z;
@@ -9120,8 +9219,11 @@ function updateSpinnenSinn(dt) {
    ausgeblendet. Weiter weg bleibt es bei den einfachen - dort sieht man
    den Unterschied ohnehin nicht. */
 const AUTO_FAHRER = [];
-const AUTO_FAHRER_MAX = 5;
-const AUTO_FAHRER_WEITE = 34;      // so nah muss ein Wagen sein
+/* Von fuenf auf acht erhoeht und die Reichweite von 34 auf 46 m: mit
+   fuenf blieb im Bild regelmaessig ein Wagen uebrig, in dem nur die
+   einfachen Sitzfiguren sassen - und genau der faellt auf. */
+const AUTO_FAHRER_MAX = 8;
+const AUTO_FAHRER_WEITE = 46;      // so nah muss ein Wagen sein
 const _afP = new THREE.Vector3();
 
 function baueAutoFahrer() {
@@ -9176,6 +9278,73 @@ function updateAutoFahrer(dt) {
       const m = f.visual.sitzMasse ? f.visual.sitzMasse() : null;
       /* Becken auf die Sitzflaeche des Wagens. */
       if (m) f.visual.root.position.y += (ziel.mesh.position.y + sitz.y) - m.huefte;
+    }
+  }
+}
+
+/* ======================= Fahrgaeste im Zug =======================
+   Im Zug sassen bisher zum Teil einfache Sitzfiguren und zum Teil echte
+   Zivilisten (die an einer Station eingestiegen sind) - nebeneinander auf
+   derselben Bank. Die einfachen sind raus; damit der Wagen trotzdem nicht
+   leer ist, faehrt eine kleine Mannschaft echter Leute mit. Sie setzt sich
+   immer auf die naechstgelegenen freien Plaetze des naechsten Zuges.
+   Ein Sitzplatz weiter weg als 30 m ist im Bild ohnehin nicht zu sehen. */
+const ZUG_GAST = [];
+const ZUG_GAST_MAX = 7;
+const ZUG_GAST_WEITE = 30;
+const _zgP = new THREE.Vector3();
+
+function baueZugGaeste() {
+  if (ZUG_GAST.length || !actorsReady) return;
+  for (let i = 0; i < ZUG_GAST_MAX; i++) {
+    const visual = makeCharacterVisual('civilian', {});
+    if (!visual || visual.procedural) return;
+    visual.root.visible = false;
+    scene.add(visual.root);
+    ZUG_GAST.push({ visual });
+  }
+}
+
+function updateZugGaeste(dt) {
+  if (!ZUG_GAST.length) { baueZugGaeste(); if (!ZUG_GAST.length) return; }
+  /* Alle freien Plaetze aller sichtbaren Zuege einsammeln, nach Abstand
+     zur Figur sortieren. */
+  const plaetze = [];
+  for (const t of ZUEGE) {
+    if (!t.mesh || !t.mesh.visible) continue;
+    const sitze = t.mesh.userData.freieSitze;
+    if (!sitze || !sitze.length) continue;
+    for (let k = 0; k < sitze.length; k++) {
+      /* Plaetze, auf denen schon ein eingestiegener Zivilist sitzt,
+         bleiben frei fuer ihn. */
+      if (t.besetzt && t.besetzt.has(k)) continue;
+      const pl = sitze[k];
+      /* Genau wie beim Einsteigen gerechnet: der Zug faehrt laengs der
+         x-Achse, die Platzangaben sind schon Weltversaetze. */
+      const wx = t.x + pl.dx, wz = t.z + pl.dz;
+      const d2 = (wx - player.pos.x) * (wx - player.pos.x) +
+                 (wz - player.pos.z) * (wz - player.pos.z);
+      if (d2 > ZUG_GAST_WEITE * ZUG_GAST_WEITE) continue;
+      plaetze.push({ x: wx, z: wz, ry: pl.ry, d2 });
+    }
+  }
+  plaetze.sort((a, b) => a.d2 - b.d2);
+  for (let i = 0; i < ZUG_GAST.length; i++) {
+    const g = ZUG_GAST[i], pl = plaetze[i];
+    if (!pl) { g.visual.root.visible = false; continue; }
+    g.visual.root.visible = true;
+    g.visual.root.position.set(pl.x, UB_TIEF, pl.z);
+    g.visual.root.rotation.y = pl.ry;
+    g.visual.play('idle', { t: elapsed }, dt);
+    if (g.visual.poseSitzen) {
+      g.visual.poseSitzen(1);
+      /* Zwei Bedingungen, es gilt die staerkere: das Becken sitzt auf der
+         Bank UND die Fuesse duerfen nicht durch den Wagenboden. Nur die
+         erste zu nehmen liess die Figuren 44 cm ueber dem Boden schweben -
+         gemessen am tiefsten Fussknochen. */
+      const m = g.visual.sitzMasse ? g.visual.sitzMasse() : null;
+      if (m) g.visual.root.position.y +=
+        Math.max((UB_TIEF + ZUG_BANK) - m.huefte, UB_TIEF - m.fuss);
     }
   }
 }
@@ -9410,9 +9579,30 @@ function makeCarMesh(color) {
       g.add(holm);
     }
   }
-  /* Insassen: richtige sitzende Menschen, nicht zwei Kisten. Alle zusammen
-     in einer Geometrie, damit ein Auto ein Zeichenaufruf mehr bleibt. */
+  /* ---- Sitze ----
+     Im Wagen gab es ueberhaupt keine Sitze: die Insassen schwebten auf
+     einer gedachten Hoehe im leeren Kasten. Jetzt stehen zwei Vordersitze
+     und eine Rueckbank drin - Sitzflaeche, Lehne, Kopfstuetze -, alle in
+     EINER Geometrie zusammen mit den Insassen, damit es beim
+     Zeichenaufwand bleibt wie bisher. */
   const leute = [];
+  /* Die Sitze kommen in ein EIGENES Netz: die Insassen werden ausgeblendet,
+     sobald ein echter Zivilist einsteigt - die Sitze muessen bleiben. */
+  const sitze = [];
+  const sitzFarbe = 0x24272c, lehnFarbe = 0x2c3036;
+  const sitzTeil = (bx, by, bz, px, py, pz, farbe) =>
+    sitze.push({ geo: sitzForm('box', bx, by, bz), farbe, x: px, y: py, z: pz });
+  for (const sx of [-1, 1]) {
+    /* Sitzflaeche auf 0,76 m - genau darauf sitzt das Becken (0,92 m). */
+    sitzTeil(0.52, 0.12, 0.50, sx * 0.44, 0.76, 0.06, sitzFarbe);
+    sitzTeil(0.50, 0.62, 0.11, sx * 0.44, 1.12, -0.20, lehnFarbe);   // Lehne
+    sitzTeil(0.30, 0.16, 0.10, sx * 0.44, 1.50, -0.22, lehnFarbe);   // Kopfstuetze
+  }
+  /* Rueckbank ueber die ganze Breite. */
+  sitzTeil(1.44, 0.12, 0.48, 0, 0.76, -1.10, sitzFarbe);
+  sitzTeil(1.42, 0.60, 0.11, 0, 1.10, -1.36, lehnFarbe);
+  g.add(new THREE.Mesh(verschmelzeTeile(sitze),
+                       new THREE.MeshLambertMaterial({ vertexColors: true })));
   for (const sx of [-1, 1]) {
     if (sx > 0 && Math.random() < 0.35) continue;        // mal faehrt jemand allein
     for (const t of sitzMensch(sx * 0.44, 0.92, 0.12, 0, 0.9)) leute.push(t);
@@ -12388,6 +12578,7 @@ function simuliere(dt) {
   updateSpinnenSinn(dt);
   updateSymbiont(dt);
   updateAutoFahrer(dt);
+  updateZugGaeste(dt);
   updateKitHaeuser(dt);
   updateFlecken();
   updateKlang(dt);
@@ -12522,6 +12713,10 @@ if (window.__WEBHERO_TEST__ === true) {
     regenAn() { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; },
     tippeSprung() { tryJump(); },
     kitKopien() { return KIT_KOPIEN; },
+    kitInnen() { return KIT_INNEN; },
+    zugGaeste() { return ZUG_GAST; },
+    autoFahrer() { return AUTO_FAHRER; },
+    imKitHaus,
     renderInfo() { return { calls: renderer.info.render.calls,
       dreiecke: renderer.info.render.triangles,
       programme: renderer.info.programs ? renderer.info.programs.length : -1,
