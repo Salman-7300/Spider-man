@@ -5607,6 +5607,17 @@ function makeGlbVisual(m) {
       zieleKnochen(knochen[gross], knochen[klein], zielWelt, k);
       drehe(knochen[klein], 0, 0, 0, k);
     },
+    /* Arm mit ANGEWINKELTEM Ellbogen: Oberarm zeigt auf den Ellbogenpunkt,
+       Unterarm auf den Handpunkt. poseSchuss streckt den Arm dagegen ganz
+       durch - damit sah jeder, der ein Handy hielt, aus, als zeige er mit
+       ausgestrecktem Arm darauf. */
+    poseGreifen(ellbogenWelt, handWelt, seite, k) {
+      const gross = seite === 'L' ? 'leftarm' : 'rightarm';
+      const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
+      const hand = seite === 'L' ? 'lefthand' : 'righthand';
+      zieleKnochen(knochen[gross], knochen[klein], ellbogenWelt, k);
+      zieleKnochen(knochen[klein], knochen[hand], handWelt, k);
+    },
     /* Etwas in eine Hand geben (Handy, später auch anderes). Das Objekt
        hängt danach am Handknochen und macht jede Bewegung mit. */
     inDieHand(seite, obj, versatz, drehung) {
@@ -6396,8 +6407,42 @@ function makeCharacterVisual(kind, cfg) {
     m = glbModels[kind];
   }
   const v = m ? makeGlbVisual(m) : makeProceduralVisual(cfg);
+  if (kind === 'civilian' && m) faerbeKleidung(v);
   scene.add(v.root);
   return v;
+}
+
+/* ---- Kleidung einfaerben ----
+   Es gibt genau zwei Zivilistenmodelle. Ungefaerbt laufen deshalb ueberall
+   dieselben zwei Personen herum, und wo drei nebeneinander stehen, faellt
+   genau das auf. Die Modelle haben eigene Materialien fuer Oberteil, Hose,
+   Schuhe und Haar - die werden je Figur kopiert und mit einer eigenen
+   Farbe multipliziert. Haut, Augen und Wimpern bleiben unangetastet.
+   Weiss heisst "Textur unveraendert lassen". */
+const ZIVI_OBEN = [0xffffff, 0xffffff, 0xc0554e, 0x4d7dc4, 0x58a15c, 0xc9a23f,
+                   0x8e5fae, 0xd97c33, 0x4ea9a5, 0xc45a8c, 0xe6e2d8, 0x3a3f47];
+const ZIVI_UNTEN = [0xffffff, 0xffffff, 0x3a4250, 0x2b3038, 0x6b6152, 0x8a8f96,
+                    0x4a5a70, 0x6a4a3a];
+const ZIVI_SCHUH = [0xffffff, 0x2a2e36, 0xd8d4cc, 0x8a5a3e, 0x4a5a70];
+const ZIVI_HAAR = [0xffffff, 0x2a2018, 0x4a3524, 0x6b4a2a, 0x8a6a40, 0xb09060, 0x50504e];
+function faerbeKleidung(v) {
+  const wunsch = { Topmat: pick(ZIVI_OBEN), Bottommat: pick(ZIVI_UNTEN),
+                   Shoesmat: pick(ZIVI_SCHUH), Hairmat: pick(ZIVI_HAAR) };
+  const kopien = new Map();
+  v.root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const n = o.material.name;
+    if (!(n in wunsch) || wunsch[n] === 0xffffff) return;
+    let mat = kopien.get(n);
+    if (!mat) {
+      /* Kopieren ist Pflicht: die geklonten Figuren teilen sich sonst ihre
+         Materialien, und eine Farbe wuerde alle auf einmal umfaerben. */
+      mat = o.material.clone();
+      mat.color = new THREE.Color(wunsch[n]);
+      kopien.set(n, mat);
+    }
+    o.material = mat;
+  });
 }
 
 /* ======================= Menschen-Baukasten ======================= */
@@ -6719,6 +6764,7 @@ const activeShots = []; // {mesh, life, from, to}
 /* Wie schnell die Luftsteuerung den Kurs dreht (Bogenmass je Sekunde). */
 const LUFT_DREH = 2.4;
 const _vSeil = new THREE.Vector3(), _vVorWand = new THREE.Vector3();
+const _vHalt = new THREE.Vector3();
 const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
 const _fd = new THREE.Vector3(), _fe = new THREE.Vector3();
 
@@ -8236,7 +8282,7 @@ function tryAttack(type) {
   const k = !player.onGround
     ? { art: 'luftangriff', ziel: 0.5, arm: 'R' }
     : symTritt
-      ? { art: 'symkombo', ziel: 1.30, arm: 'R' }
+      ? { art: 'symkombo', ziel: 1.70, arm: 'R', wucht: true }
       : type === 'kick'
         ? { art: 'kick', ziel: 1.10, arm: 'R' }
         : KOMBO[stufe % KOMBO.length];
@@ -8251,7 +8297,7 @@ function tryAttack(type) {
   const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie' ||
                    k.art === 'symkombo';
   player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm, art: k.art,
-                    hitDone: false, finisher, stufe, dauer };
+                    hitDone: false, finisher, stufe, dauer, wucht: !!k.wucht };
   if (player.onGround && type !== 'kick') {
     player.stufe = (stufe + 1) % KOMBO.length;
     player.comboTimer = Math.max(player.comboTimer, 1.6);
@@ -8462,11 +8508,36 @@ function resolveAttackHit() {
     dmg *= 1.35;
   }
 
+  /* ---- Der Tritt im Symbiontenanzug ----
+     Er sah aus wie jeder andere Tritt, nur schwarz. Ein Anzug, der so
+     lange laedt, muss sich auch anders anfuehlen: der Einschlag wirft
+     ALLE in einem Umkreis von 3,2 m um, nicht nur den Getroffenen, und
+     der Getroffene selbst nimmt das Doppelte. */
+  if (a.wucht) {
+    dmg *= 2.0;
+    const wx = e.pos.x, wz = e.pos.z;
+    for (const o of enemies) {
+      if (o === e || o.dead) continue;
+      const dx = o.pos.x - wx, dz = o.pos.z - wz;
+      const d2 = Math.hypot(dx, dz);
+      if (d2 > 3.2) continue;
+      const f = 1 - d2 / 3.2;
+      damageEnemy(o, dmg * 0.55 * f, 'kick');
+      o.vel.x += (dx / (d2 || 1)) * (7 + 6 * f);
+      o.vel.z += (dz / (d2 || 1)) * (7 + 6 * f);
+      o.vel.y += 4.5 * f;
+      o.staggerT = Math.max(o.staggerT, 0.9);
+    }
+    e.vel.y += 5.5;
+    staubWolke(e.pos, 1.8);
+    treffEffekt(_v1.set(e.pos.x, e.pos.y + 0.4, e.pos.z), 3.0, 0xb08cff);
+    popupWorld('Symbiont!', e.pos, '#c8b0ff');
+  }
   damageEnemy(e, dmg, a.type);
   player.combo++;
   player.comboTimer = 3;
-  hitstop(a.finisher ? 0.11 : (a.type === 'kick' ? 0.075 : 0.05));
-  camShake = Math.max(camShake, 0.05 + wucht * 0.035);
+  hitstop(a.wucht ? 0.16 : (a.finisher ? 0.11 : (a.type === 'kick' ? 0.075 : 0.05)));
+  camShake = Math.max(camShake, (a.wucht ? 0.30 : 0.05) + wucht * 0.035);
   (a.type === 'kick' ? SFX.kick : SFX.punch)();
 
   // Rückstoß – Finisher schleudert den Gegner richtig weg
@@ -11905,7 +11976,12 @@ function updateCivilians(dtBild) {
     } else {
       c.gafft = false; c.filmt = false; c.staunT = 0;
     }
-    c.handy.visible = !!(c.gafft && c.filmt);
+    /* Ein Teil der Leute laeuft auch ohne den Helden mit dem Handy
+       herum - genau das machen Leute auf der Strasse. */
+    if (c.handyLaeufer === undefined) c.handyLaeufer = Math.random() < 0.18;
+    c.handy.visible = !!((c.gafft && c.filmt) ||
+      (c.handyLaeufer && !c.geisel && c.state === 'walk' &&
+       !(c.schirm && c.schirm.visible)));
 
     let dirX = 0, dirZ = 0, speed = c.speed;
     if (c.state === 'flee') {
@@ -12017,17 +12093,28 @@ function updateCivilians(dtBild) {
        Gegenstand ausrichten) kostet je Figur rund zwanzig Knochendrehungen.
        Auf 30 m Entfernung sieht man davon nichts mehr. */
     const nah = dHeld < 30 && Math.abs(player.pos.y - c.pos.y) < 14;
-    if (nah && c.handy.visible && c.visual.poseSchuss) {
-      _v3.set(player.pos.x, player.pos.y + 1.2, player.pos.z);
-      c.visual.poseSchuss(_v3, 'R', 0.85);
+    if (nah && c.handy.visible && c.visual.poseGreifen) {
+      /* Wer filmt, haelt das Geraet vor das GESICHT und schaut darauf -
+         Ellbogen angewinkelt, Oberarm dicht am Koerper. Vorher zeigte der
+         ganze Arm ausgestreckt auf den Helden, und das Handy klebte am
+         Handgelenk statt in den Fingern zu stecken. */
+      const co = Math.cos(c.facing), si = Math.sin(c.facing);
+      const vx = si, vz = co;                    // Blickrichtung
+      const rx = co, rz = -si;                   // rechts von der Figur
+      _v3.set(c.pos.x + rx * 0.26 + vx * 0.06, c.pos.y + 1.14,
+              c.pos.z + rz * 0.26 + vz * 0.06);                 // Ellbogen
+      _v2.set(c.pos.x + rx * 0.13 + vx * 0.36, c.pos.y + 1.47,
+              c.pos.z + rz * 0.13 + vz * 0.36);                 // Hand
+      c.visual.poseGreifen(_v3, _v2, 'R', 0.9);
       /* Die Finger schließen sich um das Gerät. Ohne das lag das Handy in
          einer flachen, offenen Hand und sah aus, als würde es schweben. */
-      if (c.visual.faust) c.visual.faust('R', 0.8);
-      /* Das Gerät steht senkrecht in der Faust, Bildschirm zum Gesicht –
-         unabhängig davon, wie die Hand gerade gedreht ist. */
+      if (c.visual.faust) c.visual.faust('R', 0.75);
+      /* Das Geraet steht senkrecht in der Faust, Bildschirm zum Gesicht.
+         Der kleine Versatz nach vorn holt es aus dem Handgelenk in die
+         Finger. */
       if (c.visual.haltAusgerichtet) {
-        c.visual.haltAusgerichtet(c.handy, c.facing + Math.PI, 0.25,
-          _v2.set(0, 0.03, 0));     // Gerät sitzt in der Faust
+        _vHalt.set(vx * 0.05, 0.045, vz * 0.05);
+        c.visual.haltAusgerichtet(c.handy, c.facing + Math.PI, 0.20, _vHalt);
       }
     }
     /* Der Schirm wird über den Kopf gehalten, nicht am Bein baumeln lassen.
