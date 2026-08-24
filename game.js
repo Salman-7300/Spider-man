@@ -3149,7 +3149,15 @@ function loadGlbAssets(done) {
           xOffset: -(mass.mitteX || 0),
           zOffset: -(mass.mitteZ || 0),
           yaw: GLB_YAW[slot] || 0,
-          aufhellen: slot === 'hero',
+          /* Nicht mehr nur der Held: die Gegner tragen eine dunkle
+             Panzerung, und die kam unter Sonne plus Himmelslicht als
+             schwarze Silhouette heraus - in der Haeuserschlucht sah man
+             sie gar nicht mehr ("Gegner sind weiterhin unsichtbar").
+             Gemessen an einem Gegner: 42 Netze, davon eines sichtbar - das
+             Modell war also da, es war nur zu dunkel. Die Kurve hebt
+             dunkle Stellen deutlich und helle kaum, Zivilisten mit
+             hellen Hemden veraendern sich daher fast nicht. */
+          aufhellen: true,
         };
       } catch (e) { /* unbrauchbares Modell -> eingebaute Figur */ }
       finish();
@@ -3495,6 +3503,12 @@ function partieFuerKnochen(name) {
 const _hellCache = new WeakMap();
 function hebeSchatten(tex) {
   if (!tex || !tex.image) return tex;
+  /* WICHTIG: eine schon angehobene Textur darf NICHT noch einmal durch die
+     Kurve. Ein Modell besteht aus vielen Netzen, die sich Materialien
+     teilen; beim zweiten Netz stand in mat.map schon das Ergebnis vom
+     ersten, und ohne diese Sperre wurde bei 42 Netzen 42-mal angehoben -
+     die Gegner kamen danach schneeweiss heraus. */
+  if (tex.userData && tex.userData.schonGehoben) return tex;
   const fertig = _hellCache.get(tex);
   if (fertig) return fertig;
   try {
@@ -3520,12 +3534,86 @@ function hebeSchatten(tex) {
     neu.encoding = tex.encoding;
     neu.anisotropy = tex.anisotropy;
     neu.needsUpdate = true;
+    neu.userData.schonGehoben = true;
     _hellCache.set(tex, neu);
     return neu;
   } catch (e) {
     /* Laesst sich die Datei nicht lesen, bleibt es beim Original. */
     return tex;
   }
+}
+
+/* ---- Symbiontentextur aus der Anzugtextur ----
+   Der erste Versuch hat das Netz als Eckpunktfarben gerechnet. Auf einem
+   Modell mit ein paar tausend Punkten wird daraus kein feines Netz,
+   sondern ein Muster aus hellen Flecken - "was sind das fuer weisse
+   Punkte", und mit Spider-Man hatte das nichts mehr zu tun.
+   Richtig ist, die vorhandene Anzugtextur zu benutzen: sie hat das echte
+   Netz, die Spinne und die Naehte schon drin. Gesucht sind darin genau
+   die Netzlinien - und die sind DUNKLER als ihre Umgebung.
+   Also: die Textur einmal stark weichzeichnen, und jeden Bildpunkt mit
+   seiner Umgebung vergleichen. Ist er deutlich dunkler, war es eine
+   Netzlinie und wird hell; sonst wird er fast schwarz. Das Ergebnis ist
+   derselbe Anzug in Schwarz-Weiss - mit demselben Netz, derselben Spinne,
+   denselben Kanten. */
+const _symTexCache = new WeakMap();
+function symbiontTextur(tex) {
+  if (!tex || !tex.image) return null;
+  const fertig = _symTexCache.get(tex);
+  if (fertig) return fertig;
+  try {
+    const bild = tex.image;
+    const w = bild.width || bild.videoWidth, h = bild.height || bild.videoHeight;
+    if (!w || !h) return null;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(bild, 0, 0);
+    const scharf = g.getImageData(0, 0, w, h).data;
+    /* Weichzeichnen ueber Verkleinern und wieder Vergroessern - das macht
+       die Grafikkarte und kostet nichts. Der Faktor 10 entspricht bei
+       1024 px rund 50 px Umkreis: breiter als jede Netzlinie, schmaler
+       als die roten und blauen Felder. */
+    const kw = Math.max(4, Math.round(w / 10)), kh = Math.max(4, Math.round(h / 10));
+    const k = document.createElement('canvas');
+    k.width = kw; k.height = kh;
+    k.getContext('2d').drawImage(c, 0, 0, kw, kh);
+    g.clearRect(0, 0, w, h);
+    g.drawImage(k, 0, 0, w, h);
+    const weich = g.getImageData(0, 0, w, h).data;
+    const out = g.createImageData(w, h);
+    const o = out.data;
+    const hell = [232, 235, 242], dunkel = [12, 12, 16];
+    for (let i = 0; i < o.length; i += 4) {
+      const L  = 0.299 * scharf[i] + 0.587 * scharf[i + 1] + 0.114 * scharf[i + 2];
+      const Lb = 0.299 * weich[i]  + 0.587 * weich[i + 1]  + 0.114 * weich[i + 2];
+      /* Wie viel dunkler als die Umgebung? Die Netzlinien dieses Anzugs
+         sind nur wenig dunkler als das Rot - mit der ersten Schwelle (4
+         bis 24) blieb fast alles schwarz und man sah kein Netz mehr.
+         Gemessen am Bild: ab 1 faengt es an, ab 9 ist es eine volle
+         Linie. */
+      let t = (Lb - L - 1) / 8;
+      /* Auch deutlich HELLERE Stellen bleiben hell: die Augenlinsen der
+         Maske und die weissen Kanten. */
+      const heller = (L - Lb - 10) / 20;
+      t = Math.max(t, heller);
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      t = t * t * (3 - 2 * t);                    // weiche Kante
+      o[i]     = dunkel[0] + (hell[0] - dunkel[0]) * t;
+      o[i + 1] = dunkel[1] + (hell[1] - dunkel[1]) * t;
+      o[i + 2] = dunkel[2] + (hell[2] - dunkel[2]) * t;
+      o[i + 3] = scharf[i + 3];
+    }
+    g.putImageData(out, 0, 0);
+    const neu = new THREE.CanvasTexture(c);
+    neu.flipY = tex.flipY;
+    neu.wrapS = tex.wrapS; neu.wrapT = tex.wrapT;
+    neu.encoding = tex.encoding;
+    neu.anisotropy = tex.anisotropy;
+    neu.needsUpdate = true;
+    _symTexCache.set(tex, neu);
+    return neu;
+  } catch (e) { return null; }
 }
 
 /* ---- Symbiontenanzug fuer ein fertiges, texturiertes Modell ----
@@ -3560,6 +3648,27 @@ function baueSymbiontFuerModell(o) {
   const geo = o.geometry;
   const pos = geo && geo.attributes.position;
   if (!pos || !pos.count) return;
+  /* Weg 1 (der gute): das Modell hat eine Anzugtextur. Dann wird sie
+     schwarzweiss umgerechnet und einfach eingehaengt - derselbe Anzug,
+     dasselbe Netz, dieselbe Spinne, nur in Symbiontenfarben. */
+  const mat0 = Array.isArray(o.material) ? o.material[0] : o.material;
+  if (mat0 && mat0.map) {
+    const symTex = symbiontTextur(mat0.map);
+    if (symTex) {
+      o.userData.normalMat = o.material;
+      const sm = mat0.clone();
+      sm.map = symTex;
+      sm.color = new THREE.Color(0xffffff);
+      if (sm.emissive) sm.emissive.setHex(0x101014);
+      if (sm.roughness !== undefined) sm.roughness = 0.35;
+      if (sm.metalness !== undefined) sm.metalness = 0.15;
+      if (sm.shininess !== undefined) sm.shininess = 80;
+      if (sm.specular) sm.specular.setHex(0x8a90a0);
+      o.userData.symMat = sm;
+      return;
+    }
+  }
+  /* Weg 2: kein Bild da - dann bleibt nur das gerechnete Netz. */
   const h = symHuelleVon(o);
   if (!h) return;
   const farben = new Float32Array(pos.count * 3);
@@ -4066,6 +4175,8 @@ function makeGlbVisual(m) {
   const alleKnochen = [];
   inner.traverse((o) => { if (o.isBone) alleKnochen.push(o); });
   const basisY = inner.position.y;
+  /* Kippung der inneren Gruppe (Wandkriechen), immer <= 0. */
+  let innerKipp = 0;
   let fussRuhe = null, bodenKorrektur = 0, schattenAn = true;
   /* Höhe des Knöchels über der Sohle. */
   const KNOECHEL_HOCH = 0.095;
@@ -4784,7 +4895,40 @@ function makeGlbVisual(m) {
       }
     },
     /* Nach dem Klettern den Wandversatz wieder abbauen. */
+    /* ---- An der Wand kriechen ----
+       Der Wunsch: die Kriechbewegung, die am Boden so gut aussieht, EINS
+       ZU EINS an der Hauswand. Physikalisch ist das dasselbe - nur steht
+       der "Boden" senkrecht.
+       Dafuer wird die Figur um ihre EIGENE Querachse gekippt. Das geht
+       nicht ueber root.rotation.x: Three.js dreht bei der Reihenfolge XYZ
+       um die WELTachse x, also quer zur Blickrichtung der Figur. Die
+       innere Gruppe sitzt dagegen schon hinter der Drehung um die
+       Hochachse - eine Drehung dort ist eine Drehung um die Querachse der
+       Figur.
+       -90 Grad bilden ab: Koerper-vorn -> Wand hinauf, Koerper-oben ->
+       von der Wand weg. Genau die Haltung eines Kletterers.
+       tiefe = wie weit der Setzpunkt von der Wand weg liegt. */
+    wandKriechen(k, tiefe) {
+      const kk = clamp(k === undefined ? 1 : k, 0, 1);
+      innerKipp = lerp(innerKipp, -Math.PI / 2 * kk, 0.28);
+      inner.rotation.x = innerKipp;
+      /* Solange gekippt wird, liegt "unter der Figur" die Wand. Die
+         Bodenkorrektur (inner.position.y) wuerde sie an der Wand
+         entlangschieben - sie wird deshalb ausgeblendet. */
+      inner.position.y = lerp(inner.position.y, basisY, 0.2 * kk + 0.02);
+      const zZiel = grundZ + (tiefe === undefined ? 0.30 : tiefe) * kk;
+      inner.position.z = lerp(inner.position.z, zZiel, 0.25);
+      inner.position.x = lerp(inner.position.x, grundX, 0.25);
+    },
+    /* Ist die Figur gerade an die Wand gekippt? */
+    get wandGekippt() { return innerKipp < -0.02; },
     versatzAus(k) {
+      /* Die Kippung immer mit zuruecknehmen - sonst bliebe die Figur nach
+         dem Loslassen waagerecht in der Luft liegen. */
+      if (innerKipp < -0.0005) {
+        innerKipp = lerp(innerKipp, 0, Math.max(k, 0.12));
+        inner.rotation.x = innerKipp;
+      } else if (inner.rotation.x !== 0) { innerKipp = 0; inner.rotation.x = 0; }
       /* Zurueck auf den GRUNDVERSATZ, nicht auf null: der haelt die Figur
          ueber ihrem Punkt. Frueher lief er auf null und schob die Figur
          wieder zurueck neben sich selbst. */
@@ -5025,7 +5169,11 @@ function makeGlbVisual(m) {
          heben; in der Landebewegung stehen die Füße rund 25 cm über der
          Ruhelage, und die Figur schwebte für einen Moment sichtbar über
          der Straße. */
-      const ziel = clamp(bodenKorrektur + fehler, -0.3, 0.35);
+      /* Die Untergrenze war -0,3. Die Kriechbewegung setzt den Koerper
+         deutlich hoeher ueber die Wurzel als der Stand - gemessen schwebte
+         der tiefste Fuss beim Kriechen 40,7 cm ueber dem Gehweg, und der
+         Ausgleich lief in genau diesen Anschlag. Mit -0,7 reicht er aus. */
+      const ziel = clamp(bodenKorrektur + fehler, -0.7, 0.35);
       /* Der Ausgleich wird in BEIDE Richtungen gleich weich nachgeführt.
          Früher sprang er nach oben sofort – beim Laufen wandert der tiefste
          Fuß aber in jedem Schritt auf und ab, dadurch hüpfte der ganze
@@ -5250,6 +5398,12 @@ function makeGlbVisual(m) {
         if (findClip(m.clips, 'schwung')) want = 'schwung';
         else if (findClip(m.clips, 'schwungpose')) want = 'schwungpose';
       }
+      /* An der Hauswand laeuft die KRIECHBEWEGUNG. Sie ist dieselbe wie am
+         Boden - nur steht der Boden dort senkrecht, und die Figur wird
+         dafuer um ihre Querachse gekippt (siehe wandKriechen). Am Boden
+         sieht diese Bewegung gut aus, an der Wand ist es genau die
+         Haltung, die ein Kletterer haette. */
+      if (p.wandKriechen && findClip(m.clips, 'kriechen')) want = 'kriechen';
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
 
@@ -5360,7 +5514,7 @@ function makeGlbVisual(m) {
                                           : lerp(0.01, 0.15, bogenGlatt);
       } else if (current && (want === 'climb' || want === 'klettern' ||
                             want === 'klettern_frei' || want === 'klettern_seit' ||
-                            want === 'haengen')) {
+                            want === 'haengen' || (p.wandKriechen && want === 'kriechen'))) {
         /* An der Wand nur klettern, wenn auch gedrückt wird – sonst
            kraxelte die Figur auf der Stelle weiter.
            Das Haengen gehoert dazu: "Braced Hang" ist keine ruhige
@@ -8536,6 +8690,9 @@ const MISCH = {
   schwungArg: null, gleitArg: null, wandArg: null, wandlaufArg: null,
 };
 const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
+/* Wie weit der Setzpunkt der Figur beim Wandkriechen von der Wand weg
+   liegt. Wird unten nachgemessen. */
+const KRIECH_TIEFE = 0.30;
 /* 0,16 s auf, 0,22 s ab: das Aufkommen darf zuegig sein (sonst haengt die
    Haltung der Bewegung hinterher), das Abklingen braucht laenger, weil
    dort das Zucken sass. */
@@ -8607,7 +8764,10 @@ function updateHeroVisual(dt) {
        und der Unterschied steckt in der Bewegung: lange Schritte die Wand
        hinauf, Arme greifen abwechselnd hoch. Das liest sich als Rennen,
        nicht als Kriechen. */
-    const zielX = player.wandlauf ? 0.05 : 0.13;
+    /* Beim Wandkriechen steckt die ganze Neigung in der Kippung der
+       inneren Gruppe - der Wurzelknoten bleibt aufrecht, sonst kaeme die
+       Weltdrehung um x noch einmal obendrauf. */
+    const zielX = player.wandKriechen ? 0 : player.wandlauf ? 0.05 : 0.13;
     r.rotation.x = lerp(r.rotation.x, zielX, Math.min(1, dt * (player.wandlauf ? 8 : 10)));
     /* Die Seitenneigung MUSS hier zurueckgenommen werden. Sie fehlte, und
        genau das war das schiefe Kleben an der Fassade: aus dem Gleitflug
@@ -8707,8 +8867,15 @@ function updateHeroVisual(dt) {
   if (player.state !== 'climb' && heroVisual.versatzAus) {
     heroVisual.versatzAus(Math.min(1, dt * 8));
   }
+  /* Wandkriechen: an einer echten Hauswand, nicht beim Wandlauf und nicht
+     beim ruhigen Haengen. Braucht die Kriechbewegung. */
+  player.wandKriechen = player.state === 'climb' && !!player.wallInfo &&
+    !player.wandlauf && player.anim !== 'haengen' &&
+    !!(heroVisual.hatClip && heroVisual.hatClip('kriechen')) &&
+    !!heroVisual.wandKriechen;
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   heroVisual.play(player.anim, {
+    wandKriechen: player.wandKriechen,
     phase: player.phase,
     speed01: clamp(hSpeed / CFG.sprintSpeed, 0, 1),
     speed: hSpeed,
@@ -8762,7 +8929,11 @@ function updateHeroVisual(dt) {
       const w = player.wallInfo;
       /* Beim Wandlauf führt die Bewegung allein – die Spinnenpose würde
          die laufenden Beine überschreiben. */
-      if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
+      if (w && player.wandKriechen && heroVisual.wandKriechen) {
+        /* Die Kriechbewegung fuehrt allein - keine gesetzten Gliedmassen
+           mehr. wandFreiraum() haelt am Ende alles aus der Fassade. */
+        heroVisual.wandKriechen(1, KRIECH_TIEFE);
+      } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
         MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
       } else if (w && player.wandlauf && heroVisual.poseWandlauf) {
@@ -8782,7 +8953,11 @@ function updateHeroVisual(dt) {
          hüpft der Körper im Schritttakt mit. Im Stand darf er zügiger sein. */
       /* Beim Laufen ganz sacht (sonst hüpft der Körper im Schritttakt),
          beim Landen zügig, damit die Füße sofort aufsetzen. */
-      const zaeh = (player.anim === 'run' || player.anim === 'walk') ? 0.6
+      /* Beim Kriechen zuegig nachfuehren: dort ist der Unterschied zur
+         Ruhehaltung gross, und mit 0,6 je Sekunde braeuchte der Ausgleich
+         mehrere Sekunden - so lange schwebt die Figur sichtbar. */
+      const zaeh = (player.gang === 'kriechen' || player.duckt) ? 9
+                 : (player.anim === 'run' || player.anim === 'walk') ? 0.6
                  : (player.anim === 'land' || player.anim === 'roll') ? 12 : 5;
       heroVisual.bodenAusgleich(Math.min(0.35, dt * zaeh));
       /* Danach jedes Bein einzeln auf den Boden UNTER DIESEM FUSS setzen –
