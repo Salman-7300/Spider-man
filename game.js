@@ -3729,7 +3729,11 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   /* Aus dem Unreal-Projekt in hero-3, ueber tools/uasset-zu-glb.mjs und
      tools/retarget-ue4.mjs geholt: seitliches Kriechen nach links und
      rechts (fuer die Hauswand) und die Hocke auf der Dachkante. */
-  'kriech_l', 'kriech_r', 'hocke'];
+  'kriech_l', 'kriech_r', 'hocke',
+  /* Netzschwung, Wandlauf, Netz-Zug und Landung - alle aus demselben
+     Projekt und fuer genau diese Bewegungen gemacht. */
+  'schwung2', 'flip_v', 'flip_h', 'wandlauf2', 'wandab', 'wandruhe',
+  'zip_ab', 'zip_zug', 'sturz2', 'land2', 'kriech_b'];
 
 /* Alltagsbewegungen der Zivilisten. Sie liegen NUR unter civilian@... und
    werden danach an alle Zivilistenmodelle weitergereicht - Held und Gegner
@@ -4154,6 +4158,11 @@ const GLB_CLIP_PATTERNS = {
   gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
   kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/], hocke: [/^hocke$/],
+  kriech_b: [/^kriech_b$/], wandruhe: [/^wandruhe$/],
+  schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
+  wandlauf2: [/^wandlauf2$/], wandab: [/^wandab$/],
+  zip_ab: [/^zip_ab$/], zip_zug: [/^zip_zug$/],
+  sturz2: [/^sturz2$/], land2: [/^land2$/],
   ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
   ausw_hr: [/^ausw_hr$/], ausw_h: [/^ausw_h$/], ausw_hl: [/^ausw_hl$/],
   ausw_l: [/^ausw_l$/], ausw_vl: [/^ausw_vl$/],
@@ -4205,7 +4214,12 @@ const GLB_FALLBACK = {
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
   kriech_l: ['klettern_seit', 'climb'], kriech_r: ['klettern_seit', 'climb'],
-  hocke: ['ducken', 'idle'],
+  hocke: ['ducken', 'idle'], kriech_b: ['kriechen', 'climb'],
+  wandruhe: ['haengen', 'climb'],
+  schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
+  wandlauf2: ['wandlauf', 'run'], wandab: ['wandlauf', 'run'],
+  zip_ab: ['jump', 'air'], zip_zug: ['air'],
+  sturz2: ['sturzland', 'land'], land2: ['land'],
   ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
   ausw_hr: ['ausweichenR', 'roll'], ausw_h: ['roll'], ausw_hl: ['ausweichenL', 'roll'],
   ausw_l: ['ausweichenL', 'roll'], ausw_vl: ['ausweichenL', 'roll'],
@@ -6179,8 +6193,13 @@ function makeGlbVisual(m) {
          Lage im Bogen passenden Stelle festgehalten. */
       /* Seit animation-1 gibt es eine echte Schwungbewegung. Sie hat
          Vorrang vor der festgehaltenen Haltung aus mixamo-9. */
+      /* Seit hero-3 gibt es die Schwungbewegung aus dem Unreal-Projekt
+         ("ApexTwist"): eine Hand am Faden ueber dem Kopf, der Koerper
+         pendelt darunter. Sie ist fuer genau diesen Bogen gemacht und hat
+         deshalb Vorrang. */
       if (key === 'swing') {
-        if (findClip(m.clips, 'schwung')) want = 'schwung';
+        if (findClip(m.clips, 'schwung2')) want = 'schwung2';
+        else if (findClip(m.clips, 'schwung')) want = 'schwung';
         else if (findClip(m.clips, 'schwungpose')) want = 'schwungpose';
       }
       /* An der Hauswand laeuft die KRIECHBEWEGUNG. Sie ist dieselbe wie am
@@ -6188,8 +6207,24 @@ function makeGlbVisual(m) {
          dafuer um ihre Querachse gekippt (siehe wandKriechen). Am Boden
          sieht diese Bewegung gut aus, an der Wand ist es genau die
          Haltung, die ein Kletterer haette. */
-      if (p.wandModus === 'lauf' && findClip(m.clips, 'run')) want = 'run';
-      else if (p.wandModus === 'kriechen' && findClip(m.clips, 'kriechen')) want = 'kriechen';
+      /* An der Wand gibt es jetzt echte Wandbewegungen: hoch, hinunter und
+         das ruhige Kleben. Vorher lief oben der normale Laufschritt - der
+         ist fuer den Boden gemacht, an der Fassade fehlte ihm der Griff. */
+      if (p.wandModus === 'lauf') {
+        const abwaerts = p.wandAb && findClip(m.clips, 'wandab');
+        if (abwaerts) want = 'wandab';
+        else if (findClip(m.clips, 'wandlauf2')) want = 'wandlauf2';
+        else if (findClip(m.clips, 'run')) want = 'run';
+      } else if (p.wandModus === 'kriechen') {
+        /* Fuer die Richtungen an der Wand gibt es eigene Bewegungen
+           (seitwaerts und abwaerts). Nur wenn keine davon gewuenscht ist,
+           laeuft das allgemeine Kriechen. Vorher hat diese Zeile den
+           Wunsch immer ueberschrieben - die Richtungsclips kamen nie an. */
+        const richtung = (key === 'kriech_l' || key === 'kriech_r' ||
+                          key === 'kriech_b') && findClip(m.clips, key);
+        if (!richtung && findClip(m.clips, 'kriechen')) want = 'kriechen';
+      }
+      if (key === 'haengen' && findClip(m.clips, 'wandruhe')) want = 'wandruhe';
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
 
@@ -6384,6 +6419,12 @@ function makeGlbVisual(m) {
       return true;
     },
     get einmalLaeuft() { return !!angriff; },
+    /* Welche Bewegungsdatei laeuft gerade wirklich? Nur zur Kontrolle -
+       der Wunschname und der gefundene Clip koennen auseinandergehen. */
+    get aktuellerClip() {
+      const a = angriff || current;
+      return a ? a.getClip().name : null;
+    },
     /* Ausweichrolle: die Datei ist 2,4 s lang, im Spiel darf das Ausweichen
        aber nur einen knappen Satz dauern. Sie wird deshalb beschleunigt
        abgespielt, damit die Rolle wirklich zu Ende geht, statt mittendrin
@@ -8032,7 +8073,13 @@ function stopSwing(boost) {
        man mitten im Ueberschlag. */
     const hoch = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
     if (vh > 13 && hoch > 14 && heroVisual.rolleOneShot && player.saltoCd <= 0) {
-      const dauer = heroVisual.rolleOneShot(0.85, Math.random() < 0.5 ? 'frontflip' : 'backflip');
+      /* Aus hero-3 kommen zwei echte Ueberschlaege ("FrontRollFlip" und
+         "BackflipToApex"). Sie sind fuer den Absprung aus dem Bogen
+         gemacht; die Mixamo-Saltos bleiben als Rueckfall. */
+      const hat = heroVisual.hatClip || (() => false);
+      const vorn = hat('flip_v') ? 'flip_v' : 'frontflip';
+      const hint = hat('flip_h') ? 'flip_h' : 'backflip';
+      const dauer = heroVisual.rolleOneShot(0.85, Math.random() < 0.5 ? vorn : hint);
       if (dauer) { player.saltoCd = 3.0; player.luftSalto = dauer; }
     }
   }
@@ -8157,6 +8204,11 @@ function webZip() {
                  tempo: Math.max(16, Math.hypot(player.vel.x, player.vel.z)) };
   /* Kein zusätzlicher Blitz-Faden: der Zip zieht den Faden ohnehin die
      ganze Zeit mit. Beide zusammen sahen aus wie zwei Netze. */
+  /* Der Abschuss ist eine eigene Bewegung: Arm nach vorn, Koerper folgt.
+     Danach uebernimmt die Zugbewegung (siehe player.anim). */
+  if (heroVisual.hatClip && heroVisual.hatClip('zip_ab') && heroVisual.attackOneShot) {
+    heroVisual.attackOneShot(0, 'zip_ab', 0.2);
+  }
   SFX.zip();
 }
 
@@ -9056,9 +9108,16 @@ function updatePlayer(dt) {
        aus, als haenge die Figur an einem unsichtbaren Sims. */
     const seitClip = side > 0 ? 'kriech_r' : 'kriech_l';
     const hatSeit = heroVisual.hatClip && heroVisual.hatClip(seitClip);
+    /* Abwaerts an der Wand ist eine eigene Bewegung, keine rueckwaerts
+       abgespielte Aufwaertsbewegung: der Kopf zeigt nach unten, die Arme
+       stemmen sich gegen die Fassade. */
+    player.wandAb = !seitlich && up < 0;
+    const abClip = heroVisual.hatClip && heroVisual.hatClip('kriech_b')
+                     ? 'kriech_b' : null;
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
                 : seitlich ? (hatSeit ? seitClip : 'klettern_seit')
+                : (player.wandAb && abClip) ? abClip  // die Wand hinunter
                 : (heroVisual.hatClip && heroVisual.hatClip('klettern')
                     ? 'klettern' : 'climb');          // senkrecht hoch/runter
     updateHeroVisual(dt);
@@ -9103,6 +9162,12 @@ function updatePlayer(dt) {
         if (z.enemy && !z.enemy.dead && dist < 4.2) zipAngriff(z.enemy);
         player.zip = null; player.state = 'air'; swingStrand.visible = false;
       }
+      /* Waehrend des Zugs zieht der Faden die Figur nach vorn. Die Haltung
+         wird hier gesetzt, nicht in der allgemeinen Auswahl weiter unten -
+         der Zug kehrt vorher zurueck. Genau deshalb lief bisher der freie
+         Fall, obwohl unten eine Zip-Haltung stand. */
+      const hatZug = heroVisual.hatClip && heroVisual.hatClip('zip_zug');
+      player.anim = hatZug ? 'zip_zug' : (z.enemy ? 'knie' : 'air');
       updateHeroVisual(dt);
       return;
     }
@@ -9561,12 +9626,15 @@ function updatePlayer(dt) {
         player.hartLandung = player.landT;
         player.vel.x *= 0.25; player.vel.z *= 0.25;
         player.warSchwung = 0;
-      } else if (heroVisual.hatClip && heroVisual.hatClip('sturzland') &&
-                 heroVisual.attackOneShot) {
+      } else if (heroVisual.hatClip && heroVisual.attackOneShot &&
+                 (heroVisual.hatClip('sturz2') || heroVisual.hatClip('sturzland'))) {
         /* Von oben: die tiefe Landehocke aus "Jumping Down" - beide Haende
            am Boden. Von zwei Varianten hat diese die deutlich bessere
            Haltung; die andere war ein zaghafter Schritt von der Kante. */
-        player.landT = heroVisual.attackOneShot(0, 'sturzland', 0.75) || 0.75;
+        /* "LandInCrouch" aus hero-3 faengt den Sturz sauber in der Hocke
+           ab; die aeltere Bewegung bleibt als Rueckfall. */
+        const sturzClip = heroVisual.hatClip('sturz2') ? 'sturz2' : 'sturzland';
+        player.landT = heroVisual.attackOneShot(0, sturzClip, 0.75) || 0.75;
         player.hartLandung = player.landT;
         player.vel.x *= 0.1; player.vel.z *= 0.1;
       } else {
@@ -9582,13 +9650,35 @@ function updatePlayer(dt) {
       player.landT = clamp(fallTempo / 26, 0.18, 0.42);
       /* Aus großer Höhe wird abgerollt statt in die Knie zu federn. */
       if (fallTempo > 17 && heroVisual.attackOneShot) {
-        player.landT = heroVisual.attackOneShot(0, 'fallrolle', 0.85) || 0.85;
-        player.hartLandung = player.landT;
-        const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
-        player.vel.x = f.x * 7; player.vel.z = f.z * 7;
+        /* Zwei verschiedene Landungen aus grosser Hoehe: wer im Fallen
+           noch nach vorn unterwegs ist, rollt die Wucht ab; wer senkrecht
+           herunterkommt, faengt sie in der Hocke ab. Vorher rollte die
+           Figur auch aus dem freien Fall nach vorn weg - aus dem Stand
+           heraus sah das aus, als stolpere sie beim Aufkommen. */
+        const vorwaerts = Math.hypot(player.vel.x, player.vel.z) > 4.5;
+        const hockeClip = heroVisual.hatClip && heroVisual.hatClip('sturz2')
+                            ? 'sturz2'
+                            : (heroVisual.hatClip && heroVisual.hatClip('sturzland')
+                                 ? 'sturzland' : null);
+        if (!vorwaerts && hockeClip) {
+          player.landT = heroVisual.attackOneShot(0, hockeClip, 0.7) || 0.7;
+          player.hartLandung = player.landT;
+          player.vel.x *= 0.1; player.vel.z *= 0.1;
+        } else {
+          player.landT = heroVisual.attackOneShot(0, 'fallrolle', 0.85) || 0.85;
+          player.hartLandung = player.landT;
+          const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+          player.vel.x = f.x * 7; player.vel.z = f.z * 7;
+        }
         camShake = Math.max(camShake, 0.16);
         staubWolke(player.pos, 1.4);
         SFX.swoosh();
+      } else if (heroVisual.hatClip && heroVisual.hatClip('land2') &&
+                 heroVisual.attackOneShot) {
+        /* Die gewoehnliche Landung war bisher nur eine kurze Sperre ohne
+           Bewegung - die Figur kam an und stand. Jetzt federt sie ab. */
+        player.landT = heroVisual.attackOneShot(0, 'land2', 0.46) || 0.46;
+        player.hartLandung = player.landT;
       }
     }
     player.state = 'ground';
@@ -9757,7 +9847,9 @@ function updatePlayer(dt) {
       ? 'haengen_frei' : 'swing';
   }
   /* Beim Netz-Zip auf einen Gegner fliegt der Held mit dem Knie voran. */
-  else if (player.state === 'zip') player.anim = (player.zip && player.zip.enemy) ? 'knie' : 'air';
+  /* Der Zug selbst setzt seine Haltung schon oben (er kehrt vorher
+     zurueck); hier bleibt nur der Rest eines abgebrochenen Zugs. */
+  else if (player.state === 'zip') player.anim = 'air';
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
      oben geht, läuft der Absprung, danach erst der freie Fall. */
   else if (player.gleiten) player.anim = 'gleiten';
@@ -10050,6 +10142,9 @@ function updateHeroVisual(dt) {
   heroVisual.play(player.anim, {
     wandKriechen: player.wandKriechen,
     wandModus: player.wandModus,
+    /* Geht es die Wand hinunter? Dafuer gibt es eine eigene Bewegung -
+       kopfueber die Fassade herablaufen sieht anders aus als hinauf. */
+    wandAb: player.wandAb,
     phase: player.phase,
     speed01: clamp(hSpeed / CFG.sprintSpeed, 0, 1),
     speed: hSpeed,
