@@ -3734,6 +3734,15 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
 const ZIVI_ANIM_PARTS = ['sitzen', 'reden', 'streiten', 'tippen', 'trinken',
                          'gelangweilt', 'froh', 'winken'];
 
+/* Ausweichen und Rollen in ACHT Richtungen, dazu zwei Drehausweicher.
+   Sie stammen aus einem Unreal-Projekt und liegen deshalb auf dem
+   UE4-Mannequin; tools/retarget-ue4.mjs rechnet sie auf das
+   Mixamo-Skelett um. Nur der Held braucht sie. */
+const RICHT_8 = ['v', 'vr', 'r', 'hr', 'h', 'hl', 'l', 'vl'];
+const HELD_ANIM_PARTS = RICHT_8.map((r) => 'ausw_' + r)
+  .concat(RICHT_8.map((r) => 'rolle_' + r))
+  .concat(['spin_l', 'spin_r']);
+
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
    (z. B. aus Sketchfab) hängen das Netz unter Knoten mit winziger Skalierung,
@@ -3851,6 +3860,9 @@ function loadGlbAssets(done) {
     }
     if (glbModels.civilian) {
       for (const part of ZIVI_ANIM_PARTS) jobs.push(['civilian', part]);
+    }
+    if (glbModels.hero) {
+      for (const part of HELD_ANIM_PARTS) jobs.push(['hero', part]);
     }
     if (!jobs.length) { ladeFertigMelden(); verteileZiviBewegungen();
                         teileBewegungen(); ergaenzeSpiegelungen(); done(); return; }
@@ -4137,6 +4149,13 @@ const GLB_CLIP_PATTERNS = {
   tippen: [/^tippen$/i], trinken: [/^trinken$/i],
   gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
+  ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
+  ausw_hr: [/^ausw_hr$/], ausw_h: [/^ausw_h$/], ausw_hl: [/^ausw_hl$/],
+  ausw_l: [/^ausw_l$/], ausw_vl: [/^ausw_vl$/],
+  rolle_v: [/^rolle_v$/], rolle_vr: [/^rolle_vr$/], rolle_r: [/^rolle_r$/],
+  rolle_hr: [/^rolle_hr$/], rolle_h: [/^rolle_h$/], rolle_hl: [/^rolle_hl$/],
+  rolle_l: [/^rolle_l$/], rolle_vl: [/^rolle_vl$/],
+  spin_l: [/^spin_l$/], spin_r: [/^spin_r$/],
   klettern_frei: [/klettern_frei/i],
   klettern_seit: [/klettern_seit/i],
   ausweichenL: [/ausweichenL/],
@@ -4180,6 +4199,12 @@ const GLB_FALLBACK = {
   sitzen: ['sit', 'idle'], reden: ['idle'], streiten: ['idle'], tippen: ['telefon', 'idle'],
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
+  ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
+  ausw_hr: ['ausweichenR', 'roll'], ausw_h: ['roll'], ausw_hl: ['ausweichenL', 'roll'],
+  ausw_l: ['ausweichenL', 'roll'], ausw_vl: ['ausweichenL', 'roll'],
+  rolle_v: ['roll'], rolle_vr: ['roll'], rolle_r: ['roll'], rolle_hr: ['roll'],
+  rolle_h: ['roll'], rolle_hl: ['roll'], rolle_l: ['roll'], rolle_vl: ['roll'],
+  spin_l: ['ausweichenL', 'roll'], spin_r: ['ausweichenR', 'roll'],
   ausweichenL: ['roll'], ausweichenR: ['roll'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
@@ -8228,9 +8253,23 @@ function dodge() {
   const fx = Math.sin(player.facing), fz = Math.cos(player.facing);
   const vor = dir.x * fx + dir.z * fz;
   const seit = dir.x * -fz + dir.z * fx;
-  const zurSeite = Math.abs(seit) > Math.abs(vor)
-    && heroVisual.hatClip && heroVisual.hatClip(seit > 0 ? 'ausweichenR' : 'ausweichenL');
-  const welche = zurSeite ? (seit > 0 ? 'ausweichenR' : 'ausweichenL') : 'roll';
+  const zurSeite = Math.abs(seit) > Math.abs(vor);
+  /* ---- Acht Richtungen ----
+     Vorher gab es drei Bewegungen: Rolle vorwaerts, Schritt links, Schritt
+     rechts. Wer schraeg auswich, bekam trotzdem eine davon zu sehen. Aus
+     dem Unreal-Projekt kommen Ausweichschritt und Rolle in je acht
+     Richtungen; gewaehlt wird nach dem Winkel zwischen Blick- und
+     Ausweichrichtung. */
+  const acht = RICHT_8[Math.round(Math.atan2(seit, vor) / (Math.PI / 4)) & 7];
+  const wunsch = (zurSeite ? 'ausw_' : 'rolle_') + acht;
+  let welche = heroVisual.hatClip && heroVisual.hatClip(wunsch) ? wunsch
+             : (zurSeite && heroVisual.hatClip && heroVisual.hatClip(seit > 0 ? 'ausweichenR' : 'ausweichenL')
+                 ? (seit > 0 ? 'ausweichenR' : 'ausweichenL') : 'roll');
+  /* Beim reinen Schritt zur Seite hin und wieder der Drehausweicher. */
+  if ((welche === 'ausw_l' || welche === 'ausw_r') && Math.random() < 0.3) {
+    const dreh = welche === 'ausw_l' ? 'spin_l' : 'spin_r';
+    if (heroVisual.hatClip && heroVisual.hatClip(dreh)) welche = dreh;
+  }
   /* In der Luft wird NICHT gerollt. Die Rollbewegung gehört auf den Boden –
      in der Luft sah es aus, als würde man frei schwebend einen Purzelbaum
      schlagen. Dort gibt es nur einen kurzen Ausweichsatz, die Figur behält
