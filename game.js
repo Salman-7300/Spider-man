@@ -3732,7 +3732,8 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'kriech_l', 'kriech_r', 'hocke',
   /* Netzschwung, Wandlauf, Netz-Zug und Landung - alle aus demselben
      Projekt und fuer genau diese Bewegungen gemacht. */
-  'schwung2', 'flip_v', 'flip_h', 'wandlauf2', 'wandab', 'wandruhe',
+  'schwung2', 'flip_v', 'flip_h', 'wandlauf2', 'kriech_v', 'wandruhe',
+  'sturzflug', 'sturzflug2',
   'zip_ab', 'zip_zug', 'sturz2', 'land2', 'kriech_b'];
 
 /* Alltagsbewegungen der Zivilisten. Sie liegen NUR unter civilian@... und
@@ -4160,7 +4161,8 @@ const GLB_CLIP_PATTERNS = {
   kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/], hocke: [/^hocke$/],
   kriech_b: [/^kriech_b$/], wandruhe: [/^wandruhe$/],
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
-  wandlauf2: [/^wandlauf2$/], wandab: [/^wandab$/],
+  wandlauf2: [/^wandlauf2$/], kriech_v: [/^kriech_v$/],
+  sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
   zip_ab: [/^zip_ab$/], zip_zug: [/^zip_zug$/],
   sturz2: [/^sturz2$/], land2: [/^land2$/],
   ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
@@ -4217,7 +4219,8 @@ const GLB_FALLBACK = {
   hocke: ['ducken', 'idle'], kriech_b: ['kriechen', 'climb'],
   wandruhe: ['haengen', 'climb'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
-  wandlauf2: ['wandlauf', 'run'], wandab: ['wandlauf', 'run'],
+  wandlauf2: ['wandlauf', 'run'], kriech_v: ['kriechen', 'climb'],
+  sturzflug: ['gleiten', 'air'], sturzflug2: ['sturzflug', 'gleiten', 'air'],
   zip_ab: ['jump', 'air'], zip_zug: ['air'],
   sturz2: ['sturzland', 'land'], land2: ['land'],
   ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
@@ -6207,21 +6210,26 @@ function makeGlbVisual(m) {
          dafuer um ihre Querachse gekippt (siehe wandKriechen). Am Boden
          sieht diese Bewegung gut aus, an der Wand ist es genau die
          Haltung, die ein Kletterer haette. */
-      /* An der Wand gibt es jetzt echte Wandbewegungen: hoch, hinunter und
-         das ruhige Kleben. Vorher lief oben der normale Laufschritt - der
-         ist fuer den Boden gemacht, an der Fassade fehlte ihm der Griff. */
+      /* An der Wand laufen echte Wandbewegungen aus hero-3: hinauf,
+         hinunter, seitwaerts und das ruhige Kleben. Vorher lief oben der
+         normale Laufschritt - der ist fuer den Boden gemacht, an der
+         Fassade fehlte ihm der Griff.
+         Alle diese Dateien sind auf DIESELBE Ausgangslage gedreht (flach
+         auf dem Bauch, Kopf in Bewegungsrichtung, siehe
+         tools/anim-ausrichten.mjs). In Unreal bringt jede ihre eigene
+         Wanddrehung mit; ungedreht klebte die Figur mit dem Ruecken an der
+         Fassade oder lag quer. */
       if (p.wandModus === 'lauf') {
-        const abwaerts = p.wandAb && findClip(m.clips, 'wandab');
-        if (abwaerts) want = 'wandab';
-        else if (findClip(m.clips, 'wandlauf2')) want = 'wandlauf2';
+        if (findClip(m.clips, 'wandlauf2')) want = 'wandlauf2';
         else if (findClip(m.clips, 'run')) want = 'run';
       } else if (p.wandModus === 'kriechen') {
-        /* Fuer die Richtungen an der Wand gibt es eigene Bewegungen
-           (seitwaerts und abwaerts). Nur wenn keine davon gewuenscht ist,
-           laeuft das allgemeine Kriechen. Vorher hat diese Zeile den
-           Wunsch immer ueberschrieben - die Richtungsclips kamen nie an. */
+        /* Fuer die vier Richtungen an der Wand gibt es eigene Bewegungen.
+           Nur wenn keine davon gewuenscht ist, laeuft das allgemeine
+           Kriechen. Vorher hat diese Zeile den Wunsch immer
+           ueberschrieben - die Richtungsclips kamen nie an. */
         const richtung = (key === 'kriech_l' || key === 'kriech_r' ||
-                          key === 'kriech_b') && findClip(m.clips, key);
+                          key === 'kriech_b' || key === 'kriech_v') &&
+                         findClip(m.clips, key);
         if (!richtung && findClip(m.clips, 'kriechen')) want = 'kriechen';
       }
       if (key === 'haengen' && findClip(m.clips, 'wandruhe')) want = 'wandruhe';
@@ -6309,7 +6317,7 @@ function makeGlbVisual(m) {
         /* Obergrenze so hoch, dass auch der volle Sprint noch passt:
            bei 11 m/s braucht der Lauf-Clip (4,2 m/s) Faktor 2,6. Mit der
            früheren Deckelung auf 2,4 rutschte die Figur im Sprint. */
-        current.timeScale = clamp(vGlatt / ref, 0.45, 3.0);
+        current.timeScale = clamp(vGlatt / ref, 0.45, 3.0) * (p.rueckwaerts ? -1 : 1);
         letzterTakt = { was: want, faktor: current.timeScale, ref, v: vGlatt };
       } else if (current && key === 'duckstand' && want === 'ducken') {
         /* Angehalten statt abgespielt: sonst liefe die Figur im Stand auf
@@ -9108,18 +9116,19 @@ function updatePlayer(dt) {
        aus, als haenge die Figur an einem unsichtbaren Sims. */
     const seitClip = side > 0 ? 'kriech_r' : 'kriech_l';
     const hatSeit = heroVisual.hatClip && heroVisual.hatClip(seitClip);
-    /* Abwaerts an der Wand ist eine eigene Bewegung, keine rueckwaerts
-       abgespielte Aufwaertsbewegung: der Kopf zeigt nach unten, die Arme
-       stemmen sich gegen die Fassade. */
+    /* Vier Richtungen an der Wand, jede mit eigener Bewegung: hinauf,
+       hinunter, links, rechts. Rueckwaerts abgespielt sieht Klettern
+       falsch aus - hinunter greifen die Haende anders herum. */
     player.wandAb = !seitlich && up < 0;
-    const abClip = heroVisual.hatClip && heroVisual.hatClip('kriech_b')
-                     ? 'kriech_b' : null;
+    const hatK = heroVisual.hatClip || (() => false);
+    const aufwaerts = hatK('kriech_v') ? 'kriech_v'
+                    : hatK('klettern') ? 'klettern' : 'climb';
+    const abwaerts = hatK('kriech_b') ? 'kriech_b' : aufwaerts;
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
                 : seitlich ? (hatSeit ? seitClip : 'klettern_seit')
-                : (player.wandAb && abClip) ? abClip  // die Wand hinunter
-                : (heroVisual.hatClip && heroVisual.hatClip('klettern')
-                    ? 'klettern' : 'climb');          // senkrecht hoch/runter
+                : player.wandAb ? abwaerts
+                : aufwaerts;
     updateHeroVisual(dt);
     return;
   }
@@ -9247,14 +9256,30 @@ function updatePlayer(dt) {
   /* ---- Physik ---- */
   let grav = player.state === 'swing' ? CFG.swingGravity : CFG.gravity;
   if (player.gleiten) {
-    /* Der Faktor stand auf 0,24. Gemessen pendelte sich das Sinken damit
-       bei 13,8 m/s ein, bei 26 m/s nach vorn - also nur zwei Meter Strecke
-       je Meter Hoehe. So ist der Gleitflug vorbei, bevor er anfaengt.
-       Mit 0,12 und einer Sinkbremse von 7 m/s sind es rund vier Meter je
-       Meter Hoehe: man kommt weit und hat Zeit, es zu geniessen. */
-    grav *= 0.12;                            // die Flügel tragen
-    if (player.vel.y < -7) player.vel.y = lerp(player.vel.y, -7, Math.min(1, dt * 3));
-  }
+    /* ---- Sturzflug ----
+       Nase ganz nach unten (W halten) heisst nicht mehr nur "etwas
+       steiler": die Figur legt sich kopfvoran in den Sturz, die Traglast
+       faellt weg und die gewonnene Hoehe wird in Tempo umgesetzt. Genau
+       damit holt man sich vor dem naechsten Netz Schwung. */
+    player.sturzflug = (player.gleitNase || 0) > 0.55 &&
+                       heroVisual.hatClip && heroVisual.hatClip('sturzflug');
+    if (player.sturzflug) {
+      grav *= 0.62;                          // fast freier Fall
+      /* Fallhoehe wird zu Vortrieb: je schneller es abwaerts geht, desto
+         mehr Tempo nach vorn. */
+      const vor = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+      const zug = Math.min(28, -player.vel.y) * 0.55 * dt;
+      if (zug > 0) { player.vel.x += vor.x * zug; player.vel.z += vor.z * zug; }
+    } else {
+      /* Der Faktor stand auf 0,24. Gemessen pendelte sich das Sinken damit
+         bei 13,8 m/s ein, bei 26 m/s nach vorn - also nur zwei Meter Strecke
+         je Meter Hoehe. So ist der Gleitflug vorbei, bevor er anfaengt.
+         Mit 0,12 und einer Sinkbremse von 7 m/s sind es rund vier Meter je
+         Meter Hoehe: man kommt weit und hat Zeit, es zu geniessen. */
+      grav *= 0.12;                          // die Flügel tragen
+      if (player.vel.y < -7) player.vel.y = lerp(player.vel.y, -7, Math.min(1, dt * 3));
+    }
+  } else player.sturzflug = false;
   player.vel.y -= grav * dt;
 
   if (player.onGround && player.state !== 'swing') {
@@ -9528,9 +9553,19 @@ function updatePlayer(dt) {
          Gedreht wird deshalb um die SEILACHSE. Dabei bleibt die
          Geschwindigkeit tangential, ihr Betrag bleibt erhalten, und die
          Schwungebene dreht sich - genau das ist eine Kurve am Netz. */
+      /* ---- Vorzeichen ----
+         Die Seilachse zeigt vom Anker zur Figur, also nach UNTEN. Eine
+         Drehung um sie mit dem Winkel w2 aendert den Kurswinkel
+         atan2(vx, vz) um MINUS w2. Rechts (D) soll den Kurs verkleinern -
+         von +Z nach -X. Also gehoert die Lenkung mit PLUS hierher.
+         Vorher stand ein Minus davor: A und D waren vertauscht, man flog
+         beim Druecken von D nach links.
+         Die Rueckfuehrung auf die Blickrichtung braucht das umgekehrte
+         Vorzeichen, denn geradeAus ist bereits als -0,45 * Abweichung
+         gerechnet. */
       const lenkung = kurveEin || geradeAus;
       if (lenkung) {
-        const w2 = -(kurveEin * 2.0 + geradeAus * 0.5) * hdt;
+        const w2 = (kurveEin * 2.0 - geradeAus * 0.5) * hdt;
         _vSeil.copy(player.pos).sub(s.anchor);
         const sl = _vSeil.length();
         if (sl > 0.2) { _vSeil.multiplyScalar(1 / sl); player.vel.applyAxisAngle(_vSeil, w2); }
@@ -9676,8 +9711,11 @@ function updatePlayer(dt) {
       } else if (heroVisual.hatClip && heroVisual.hatClip('land2') &&
                  heroVisual.attackOneShot) {
         /* Die gewoehnliche Landung war bisher nur eine kurze Sperre ohne
-           Bewegung - die Figur kam an und stand. Jetzt federt sie ab. */
-        player.landT = heroVisual.attackOneShot(0, 'land2', 0.46) || 0.46;
+           Bewegung - die Figur kam an und stand. Jetzt federt sie ab.
+           ("Land" aus hero-3, 0,9 s. Davor lief hier "New_land" - das ist
+           gar keine Landung, sondern ein Aufrichten samt Schritt, und
+           abgeschnitten sah es entsprechend wirr aus.) */
+        player.landT = heroVisual.attackOneShot(0, 'land2', 0.52) || 0.52;
         player.hartLandung = player.landT;
       }
     }
@@ -9837,7 +9875,13 @@ function updatePlayer(dt) {
                   player.state !== 'climb' && player.state !== 'swing';
     player.hockeT = (hoch && ruhig) ? (player.hockeT || 0) + dt : 0;
   }
-  if (KAT.aktiv && heroVisual.hatClip && heroVisual.hatClip('ziehen')) player.anim = 'ziehen';
+  /* Beim Spannen des Katapults schaut die Figur zu den Netzen und geht
+     RUECKWAERTS. Vorher lief hier eine eigene Zieh-Bewegung ("Pulling A
+     Rope") ueber einer Vorwaertsbewegung - die Fuesse liefen in die
+     falsche Richtung, und es sah aus, als werde die Figur einfach
+     geschoben. Jetzt laeuft der normale Gang rueckwaerts ab, mit dem
+     gewohnten Abgleich zwischen Schrittlaenge und echtem Tempo. */
+  if (KAT.aktiv) player.anim = 'run';
   else if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
   else if (player.state === 'swing') {
@@ -9852,7 +9896,7 @@ function updatePlayer(dt) {
   else if (player.state === 'zip') player.anim = 'air';
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
      oben geht, läuft der Absprung, danach erst der freie Fall. */
-  else if (player.gleiten) player.anim = 'gleiten';
+  else if (player.gleiten) player.anim = player.sturzflug ? 'sturzflug' : 'gleiten';
   else if (!player.onGround) player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
   else if (player.dreiPunktT > 0) player.anim = 'land';
   else if (player.hartLandung > 0) player.anim = 'fallrolle';
@@ -10074,6 +10118,15 @@ function updateHeroVisual(dt) {
       const seit = (a.x - player.pos.x) * rx + (a.z - player.pos.z) * rz;
       r.rotation.z = lerp(r.rotation.z, clamp(-seit * 0.07, -0.5, 0.5), Math.min(1, dt * 5));
     } else if (player.gleiten) {
+      if (player.sturzflug) {
+        /* Der Sturzflug-Clip ("StraightDive") liegt schon flach auf dem
+           Bauch, Kopf voraus - die Drehung steckt in der Bewegungsdatei.
+           Hier kommt nur noch der Anstellwinkel dazu: wie steil es
+           tatsaechlich nach unten geht. Die 0,62 aus dem Gleitflug
+           obendrauf haetten die Figur um 35 Grad ueberdreht. */
+        const hs = Math.hypot(player.vel.x, player.vel.z);
+        tilt = clamp(Math.atan2(Math.max(0, -player.vel.y), Math.max(2, hs)), 0, 1.15);
+      } else
       /* Im Gleitflug liegt der Körper flach in der Luft, Kopf voran – wie
          im Wingsuit. Aufrecht stehend sähe die Netzhaut sinnlos aus. */
       tilt = (0.62 + (player.gleitNase || 0) * 0.42) * clamp(player.gleitMisch || 0, 0, 1);
@@ -10141,6 +10194,10 @@ function updateHeroVisual(dt) {
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   heroVisual.play(player.anim, {
     wandKriechen: player.wandKriechen,
+    /* Geht die Figur rueckwaerts (Katapult spannen)? Dann laeuft die
+       Gangart rueckwaerts ab - sonst rudern die Beine vorwaerts, waehrend
+       der Koerper nach hinten faehrt. */
+    rueckwaerts: !!KAT.aktiv,
     wandModus: player.wandModus,
     /* Geht es die Wand hinunter? Dafuer gibt es eine eigene Bewegung -
        kopfueber die Fassade herablaufen sieht anders aus als hinauf. */
@@ -10186,7 +10243,9 @@ function updateHeroVisual(dt) {
                                player.dreiPunktSeite || 'R');
       /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
       heroVisual.bodenAusgleich(Math.min(1, dt * 16));
-    } else if (player.gleiten && player.luftSalto <= 0) {
+    } else if (player.gleiten && player.luftSalto <= 0 && !player.sturzflug) {
+      /* Im Sturzflug fuehrt die Bewegungsdatei allein - die Gleithaltung
+         wuerde ihr die Arme wieder zur Seite reissen. */
       MISCH.wunsch = 'gleiten';
       MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
                         0.9 * clamp(player.gleitMisch || 0, 0, 1)];
@@ -10442,6 +10501,8 @@ function katapultStart() {
 
 function katapultLos() {
   if (!KAT.aktiv) return;
+  KAT.lehne = 0;
+  if (heroVisual.root) heroVisual.root.rotation.x = 0;
   const t = clamp(KAT.ladung / KAT_ZUG, 0, 1);
   KAT.aktiv = false;
   KAT.strang[0].visible = false;
@@ -10483,6 +10544,12 @@ function updateKatapult(dt) {
      zurueck. Vorher wurde einfach jede Bewegung gebremst. */
   const halt = 1 - 0.55 * t;
   player.vel.x *= halt; player.vel.z *= halt;
+  /* Zu den Netzen schauen. Vorher drehte sich die Figur beim
+     Zurueckgehen um und lief dem Katapult davon - man sah die Faeden gar
+     nicht mehr, und der Zug war nicht abzulesen. */
+  player.facing = dampAngle(player.facing, Math.atan2(KAT.rx, KAT.rz), Math.min(1, dt * 10));
+  /* Sich in die Spannung legen: je straffer, desto weiter nach hinten. */
+  KAT.lehne = lerp(KAT.lehne || 0, t * 0.30, Math.min(1, dt * 8));
   heroVisual.root.updateMatrixWorld(true);
   for (let i = 0; i < 2; i++) {
     const m = katapultStrang(i);
@@ -10506,6 +10573,13 @@ function updateKatapult(dt) {
     z.scale.setScalar(0.5 + t * 0.5);
     z.visible = true;
   }
+  /* Beide Haende halten wirklich an ihrem Faden. Ohne das hingen die
+     Netze irgendwo neben der Figur in der Luft. */
+  if (heroVisual.poseSchuss) {
+    heroVisual.poseSchuss(KAT.anker[0], 'L', 0.85);
+    heroVisual.poseSchuss(KAT.anker[1], 'R', 0.85);
+  }
+  if (heroVisual.root) heroVisual.root.rotation.x = -(KAT.lehne || 0);
 }
 
 /* ======================= Ankerzeichen =======================
