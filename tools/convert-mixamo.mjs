@@ -29,10 +29,12 @@ const require = createRequire(import.meta.url);
 const { NodeIO } = require('@gltf-transform/core');
 const { prune, dedup, textureCompress } = require('@gltf-transform/functions');
 
-const SLOTS = ['hero', 'civilian', 'civilian2', 'civilian3', 'thug'];
+const SLOTS = ['hero', 'civilian', 'civilian2', 'civilian3', 'civilian4',
+               'civilian5', 'civilian6', 'thug'];
 /* Reihenfolge, in der gefundene Modelle verteilt werden.
    "hero" bleibt frei: Der Held soll standardmäßig sein Netz-Kostüm behalten. */
-const AUTO_REIHENFOLGE = ['civilian', 'civilian2', 'civilian3'];
+const AUTO_REIHENFOLGE = ['civilian', 'civilian2', 'civilian3', 'civilian4',
+                          'civilian5', 'civilian6'];
 /* Figuren, die nach Schurke aussehen -> Gegner */
 const GEGNER_NAMEN = /warrok|brute|thug|goon|zombie|mutant|monster|maw|vampire|boss|ninja|guard|swat|joe|shae|mremireh|castle/i;
 /* Figuren, die nach Held klingen */
@@ -40,6 +42,24 @@ const HELD_NAMEN = /hero|spider|spinne|held/i;
 
 /* Mixamo-Animationsnamen -> Bezeichnung im Spiel */
 const ANIM_KEYWORDS = [
+  /* civilian-3 / hero-3: Alltagsbewegungen fuer Zivilisten und zwei
+     Sonderbewegungen fuer den Helden. Sie stehen ganz oben, weil ihre
+     Namen sonst von allgemeineren Regeln gefangen wuerden
+     ("Sitting Idle" -> idle, "Standing Arguing" -> idle,
+     "Pulling A Rope" -> nichts, "Stomping" -> nichts). */
+  [/sitting[ ._-]?idle/i, 'sitzen'],
+  [/^sitting([ ._-]*\(\d+\))?$/i, 'hinsetzen'],
+  [/texting/i, 'tippen'],
+  [/talking[ ._-]?on[ ._-]?phone/i, 'telefon'],
+  [/arguing/i, 'streiten'],
+  [/^talking([ ._-]*\(\d+\))?$/i, 'reden'],
+  [/drinking/i, 'trinken'],
+  [/^bored([ ._-]*\(\d+\))?$/i, 'gelangweilt'],
+  [/happy[ ._-]?idle/i, 'froh'],
+  [/waving|wave/i, 'winken'],
+  [/pulling[ ._-]?a?[ ._-]?rope|rope[ ._-]?pull/i, 'ziehen'],
+  [/stomping|ground[ ._-]?smash/i, 'stampfen'],
+
   /* Reihenfolge zählt: Die erste passende Regel gewinnt. Mixamo-Namen
      enthalten oft mehrere Stichwörter, deshalb steht das jeweils
      genauere Wort weiter oben:
@@ -186,6 +206,28 @@ async function optimizeModel(file) {
     await doc.transform(textureCompress({
       encoder: sharp, targetFormat: 'jpeg', quality: 82, resize: [1024, 1024],
     }));
+    /* Texturen MIT Alphakanal laesst textureCompress unangetastet - JPEG
+       kann kein Alpha. Genau die sind aber die groessten: bei einem der
+       Mixamo-Modelle blieb eine 4096er PNG mit 14 MB stehen, das Modell
+       wog danach 17 MB. Sie werden hier von Hand verkleinert und als
+       Paletten-PNG neu geschrieben; das Alpha bleibt erhalten. */
+    for (const tex of doc.getRoot().listTextures()) {
+      if (tex.getMimeType() !== 'image/png') continue;
+      const bild = tex.getImage();
+      if (!bild) continue;
+      const vorher = bild.byteLength;
+      try {
+        const neu2 = await sharp(Buffer.from(bild))
+          .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+          .png({ palette: true, quality: 80, compressionLevel: 9, effort: 7 })
+          .toBuffer();
+        if (neu2.byteLength < vorher) {
+          tex.setImage(new Uint8Array(neu2));
+          console.log(`  PNG ${tex.getName() || '?'}: ` +
+                      `${(vorher / 1e6).toFixed(1)} -> ${(neu2.byteLength / 1e6).toFixed(1)} MB`);
+        }
+      } catch (e) { /* Textur bleibt, wie sie ist */ }
+    }
   }
   await doc.transform(dedup(), prune());
   await io.write(file, doc);

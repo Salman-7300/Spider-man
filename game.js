@@ -3644,9 +3644,21 @@ const GLB_SLOTS = {
   hero: 'assets/hero.glb',
   civilian: 'assets/civilian.glb',
   civilian2: 'assets/civilian2.glb',
+  /* civilian3..5 sind reine T-Pose-Modelle ohne eigene Bewegungsdateien.
+     Sie bekommen die Bewegungen von civilian (verteileZiviBewegungen) -
+     alle Mixamo-Figuren teilen sich dasselbe Skelett, und 55 zusaetzliche
+     Dateien je Modell waeren nur Ladezeit fuer nichts. */
+  civilian3: 'assets/civilian3.glb',
+  civilian4: 'assets/civilian4.glb',
+  civilian5: 'assets/civilian5.glb',
 
   thug: 'assets/thug.glb',
 };
+/* Alle Zivilistenmodelle - fuer die Auswahl beim Erzeugen und fuer die
+   Weitergabe der Bewegungen. */
+const ZIVI_SLOTS = ['civilian', 'civilian2', 'civilian3', 'civilian4', 'civilian5'];
+/* Nur diese Slots haben eigene <slot>@<teil>.glb-Dateien. */
+const GLB_ANIM_SLOTS = ['hero', 'civilian', 'civilian2', 'thug'];
 const glbModels = {}; // Slot -> {scene, clips, scale, yOffset, yaw}
 
 /* Blickrichtungs-Korrektur pro Modell: Das Spiel erwartet Blick nach +Z.
@@ -3710,7 +3722,17 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
      Spiel - sie werden erst geladen, wenn sie auch benutzt werden. */
   'symgang', 'symkombo',
   /* "Grab and Slam" als Wurfgriff und "Low Crawl" als Kriechen. */
-  'wurfgriff', 'kriechen'];
+  'wurfgriff', 'kriechen',
+  /* hero-3: Seil ziehen (Haltung beim Spannen des Katapults) und
+     Aufstampfen (der Tritt im Symbiontenanzug). */
+  'ziehen', 'stampfen'];
+
+/* Alltagsbewegungen der Zivilisten. Sie liegen NUR unter civilian@... und
+   werden danach an alle Zivilistenmodelle weitergereicht - Held und Gegner
+   brauchen sie nicht, und zwei weitere Kopien je Modell waeren nur
+   Ladezeit. */
+const ZIVI_ANIM_PARTS = ['sitzen', 'reden', 'streiten', 'tippen', 'trinken',
+                         'gelangweilt', 'froh', 'winken'];
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -3787,7 +3809,7 @@ function loadGlbAssets(done) {
            reinen Mixamo-Namen an – deshalb hier die Nummern entfernen,
            sonst greift keine Animation. */
         gltf.scene.traverse((o) => {
-          if (o.isBone && /_\d+$/.test(o.name)) o.name = o.name.replace(/_\d+$/, '');
+          if (o.isBone) o.name = knochenName(o.name);
         });
         bindeSteuerteileAnSkelett(gltf.scene);
         const mass = messeModell(gltf.scene);
@@ -3795,7 +3817,12 @@ function loadGlbAssets(done) {
         glbModels[slot] = {
           scene: gltf.scene,
           ruhe: ruheKarte(gltf.scene),
-          clips: (gltf.animations || []).slice(),
+          /* Auch die im Modell selbst mitgelieferten Bewegungen bekommen
+             die vereinheitlichten Knochennamen. */
+          clips: (gltf.animations || []).map((c) => {
+            for (const t of c.tracks) t.name = knochenName(t.name);
+            return c;
+          }),
           scale: h > 0.01 ? 1.76 / h : 1,
           yOffset: -mass.minY,
           xOffset: -(mass.mitteX || 0),
@@ -3819,15 +3846,21 @@ function loadGlbAssets(done) {
     const jobs = [];
     for (const slot of slots) {
       if (!glbModels[slot]) continue;
+      if (GLB_ANIM_SLOTS.indexOf(slot) < 0) continue;
       for (const part of GLB_ANIM_PARTS) jobs.push([slot, part]);
     }
-    if (!jobs.length) { ladeFertigMelden(); teileBewegungen(); ergaenzeSpiegelungen(); done(); return; }
+    if (glbModels.civilian) {
+      for (const part of ZIVI_ANIM_PARTS) jobs.push(['civilian', part]);
+    }
+    if (!jobs.length) { ladeFertigMelden(); verteileZiviBewegungen();
+                        teileBewegungen(); ergaenzeSpiegelungen(); done(); return; }
     ladeGesamt = slots.length + jobs.length;
     let pending2 = jobs.length;
     const finish2 = () => {
       ladeSchritt();
       if (--pending2 === 0) {
-        ladeFertigMelden(); teileBewegungen(); ergaenzeSpiegelungen();
+        ladeFertigMelden(); verteileZiviBewegungen();
+        teileBewegungen(); ergaenzeSpiegelungen();
         ladeStadtteile(loader);
         done();
       }
@@ -3838,6 +3871,7 @@ function loadGlbAssets(done) {
           const clip = (gltf.animations || [])[0];
           if (clip) {
             clip.name = part; // Clip nach dem Dateinamens-Teil benennen
+            for (const t of clip.tracks) t.name = knochenName(t.name);
             glbModels[slot].clips.push(entferneFinger(entferneVersatz(clip)));
           }
         } catch (e) { /* ignorieren */ }
@@ -3934,6 +3968,23 @@ function ruheKarte(scene) {
    Ihre Hüft-Positionsspur ist dann in fremden Maßen und würde die Figur in
    den Boden ziehen oder schweben lassen. Deshalb bleiben nur die Drehungen
    erhalten – die passen bei jedem Mixamo-Skelett. */
+/* ---- Knochennamen vereinheitlichen ----
+   Mixamo vergibt das Praefix nicht immer gleich: manche Downloads heissen
+   "mixamorig:Hips", andere "mixamorig6:Hips", manche Modelle haengen eine
+   laufende Nummer an ("mixamorig:Hips_98"). Eine Bewegungsspur findet
+   ihren Knochen nur bei EXAKT gleichem Namen. Gemessen: die Modelle
+   civilian3..5 bringen "mixamorig4Hips", "mixamorig1Hips" und
+   "mixamorig6Hips" mit, die 44 vorhandenen Bewegungen sprechen
+   "mixamorigHips" an, die acht neuen aus civilian-3 "mixamorig6Hips" -
+   ohne Normalisierung waeren die drei neuen Figuren also komplett
+   bewegungslos in der Bindehaltung stehengeblieben und die acht neuen
+   Bewegungen haetten auf keiner Figur gegriffen. (Den Doppelpunkt aus
+   "mixamorig:Hips" entfernt three.js beim Laden bereits selbst.)
+   Deshalb gehen Knochen UND Spuren durch dieselbe Normalisierung. */
+function knochenName(n) {
+  return n.replace(/^mixamorig\d*:?/i, 'mixamorig').replace(/_\d+(?=\.|$)/, '');
+}
+
 function entferneVersatz(clip) {
   clip.tracks = clip.tracks.filter((t) => !/\.position$/.test(t.name));
   return clip;
@@ -4018,6 +4069,23 @@ function bindeSteuerteileAnSkelett(scene) {
    Alle Figuren nutzen dasselbe Mixamo-Skelett, deshalb passen die Clips
    überall – so braucht ein mitgebrachtes Heldenmodell keine eigenen
    Animationsdateien. */
+/* Die Bewegungen von civilian an die uebrigen Zivilistenmodelle
+   weitergeben. Muss VOR teileBewegungen laufen: danach haben sie genug
+   Clips und werden dort uebersprungen. */
+function verteileZiviBewegungen() {
+  const quelle = glbModels.civilian || glbModels.civilian2;
+  if (!quelle || !quelle.clips.length) return;
+  for (const slot of ZIVI_SLOTS) {
+    const m = glbModels[slot];
+    if (!m || m === quelle) continue;
+    /* Nach NAMEN vergleichen, nicht nach Objekt: civilian2 bringt eigene
+       Dateien mit, und zwei Clips gleichen Namens im selben Modell wuerden
+       sich bei findClip gegenseitig ausstechen. */
+    const haben = new Set(m.clips.map((c) => c.name));
+    for (const c of quelle.clips) if (!haben.has(c.name)) m.clips.push(c);
+  }
+}
+
 function teileBewegungen() {
   const echte = (m) => m.clips.filter((c) => !/t-?pose|mixamo\.com/i.test(c.name));
   const alle = Object.keys(glbModels).map((k) => glbModels[k]).filter(Boolean);
@@ -4065,6 +4133,10 @@ const GLB_CLIP_PATTERNS = {
   telefon: [/telefon/i],
   warten: [/warten/i],
   umschauen: [/umschauen/i],
+  sitzen: [/^sitzen$/i], reden: [/^reden$/i], streiten: [/^streiten$/i],
+  tippen: [/^tippen$/i], trinken: [/^trinken$/i],
+  gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
+  ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
   klettern_frei: [/klettern_frei/i],
   klettern_seit: [/klettern_seit/i],
   ausweichenL: [/ausweichenL/],
@@ -4082,7 +4154,11 @@ const GLB_CLIP_PATTERNS = {
   taunt: [/taunt/i],
   jubel: [/jubel/i],
   kick: [/kick/i],
-  sit: [/sit/i, /hurt/i, /crouch/i, /dying/i, /death/i],
+  /* "sit" ist die Haltung eines Verletzten am Boden. Seit es eine echte
+     Sitzbewegung namens "sitzen" gibt, darf das Muster nicht mehr locker
+     auf /sit/ passen - sonst gewinnt sie hier und K.-o.-Gegner sitzen
+     plotzlich auf einem unsichtbaren Stuhl. */
+  sit: [/^sit$/i, /hurt/i, /crouch/i, /dying/i, /death/i],
   webbed: [/idle/i],
   downed: [/dying/i, /death/i, /sit/i, /idle/i],
   attack: [/punch/i, /attack/i, /kick/i, /melee/i, /combat/i],
@@ -4101,6 +4177,9 @@ const GLB_FALLBACK = {
   kante: ['climb', 'jump'], haengen: ['climb', 'idle'],
   fallrolle: ['roll', 'land'], wandlauf: ['run'], uppercut: ['punch', 'attack'],
   wurf: ['punch', 'attack'], telefon: ['idle'], warten: ['idle'], umschauen: ['idle'],
+  sitzen: ['sit', 'idle'], reden: ['idle'], streiten: ['idle'], tippen: ['telefon', 'idle'],
+  trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
+  ziehen: ['idle'], stampfen: ['kick', 'attack'],
   ausweichenL: ['roll'], ausweichenR: ['roll'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
@@ -6399,9 +6478,7 @@ function makeProceduralVisual(cfg) {
 function makeCharacterVisual(kind, cfg) {
   let m = null;
   if (kind === 'civilian') {
-    const variants = ['civilian', 'civilian2', 'civilian3'].filter((s) => glbModels[s]);
-    /* civilian3.glb gibt es nicht – der Slot bleibt vorbereitet, wird aber
-       nicht mehr angefragt, sonst gibt es bei jedem Start einen 404. */
+    const variants = ZIVI_SLOTS.filter((s) => glbModels[s]);
     if (variants.length) m = glbModels[pick(variants)];
   } else if (glbModels[kind]) {
     m = glbModels[kind];
@@ -6765,6 +6842,10 @@ const activeShots = []; // {mesh, life, from, to}
 const LUFT_DREH = 2.4;
 const _vSeil = new THREE.Vector3(), _vVorWand = new THREE.Vector3();
 const _vHalt = new THREE.Vector3();
+/* Was ein stehender Zivilist gerade tut. 'idle' steht mehrfach drin, damit
+   ruhiges Stehen haeufiger vorkommt als jede einzelne Beschaeftigung. */
+const RUHE_POSEN = ['idle', 'idle', 'telefon', 'warten', 'umschauen', 'tippen',
+                    'reden', 'streiten', 'trinken', 'gelangweilt', 'froh', 'winken'];
 const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
 const _fd = new THREE.Vector3(), _fe = new THREE.Vector3();
 
@@ -8277,12 +8358,17 @@ function tryAttack(type) {
   /* Im Symbiontenanzug ersetzt der fliegende Kniestoss aus animation-1
      den Tritt. Er dauert laenger und trifft haerter - das ist der
      spuerbare Unterschied zum normalen Anzug, nicht nur die Farbe. */
-  const symTritt = player.symAn && type === 'kick' && player.onGround &&
-                   heroVisual.hatClip && heroVisual.hatClip('symkombo');
+  /* Im Symbiontenanzug wird aus dem Tritt ein Aufstampfen ("Stomping"):
+     ein Schlag auf den Boden, dessen Druckwelle alles im Umkreis umwirft.
+     Das passt zur Flaechenwirkung, die der Treffer ohnehin hat. Fehlt die
+     Datei, bleibt es beim fliegenden Kniestoss. */
+  const symArt = heroVisual.hatClip && heroVisual.hatClip('stampfen') ? 'stampfen'
+               : (heroVisual.hatClip && heroVisual.hatClip('symkombo') ? 'symkombo' : null);
+  const symTritt = player.symAn && type === 'kick' && player.onGround && symArt;
   const k = !player.onGround
     ? { art: 'luftangriff', ziel: 0.5, arm: 'R' }
     : symTritt
-      ? { art: 'symkombo', ziel: 1.70, arm: 'R', wucht: true }
+      ? { art: symArt, ziel: symArt === 'stampfen' ? 1.25 : 1.70, arm: 'R', wucht: true }
       : type === 'kick'
         ? { art: 'kick', ziel: 1.10, arm: 'R' }
         : KOMBO[stufe % KOMBO.length];
@@ -8295,7 +8381,7 @@ function tryAttack(type) {
   /* Flinke Gegner reagieren auf das Ausholen, nicht erst auf den Treffer. */
   versucheAusweichen();
   const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie' ||
-                   k.art === 'symkombo';
+                   k.art === 'symkombo' || k.art === 'stampfen';
   player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm, art: k.art,
                     hitDone: false, finisher, stufe, dauer, wucht: !!k.wucht };
   if (player.onGround && type !== 'kick') {
@@ -9599,7 +9685,10 @@ function updatePlayer(dt) {
   /* Verliert man mitten in der Rolle den Boden (Bordstein, Kante), wird
      sie abgebrochen – sonst rollt die Figur im Fallen weiter. */
   if (player.rollT > 0 && !player.onGround && player.vel.y < -1) player.rollT = 0;
-  if (player.rollT > 0) player.anim = 'roll';
+  /* Beim Spannen des Katapults stemmt sich die Figur gegen den Zug
+     ("Pulling A Rope"). Vorher rannte sie dabei einfach rueckwaerts. */
+  if (KAT.aktiv && heroVisual.hatClip && heroVisual.hatClip('ziehen')) player.anim = 'ziehen';
+  else if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
   else if (player.state === 'swing') {
     /* Haengt man fast bewegungslos am Faden, passt die ruhige Haenge-
@@ -10560,9 +10649,10 @@ function updateBusGaeste(dt) {
     g.visual.root.visible = true;
     g.visual.root.position.copy(_bgP);
     g.visual.root.rotation.y = ry + pl.ry;
-    g.visual.play('idle', { t: elapsed }, dt);
-    if (g.visual.poseSitzen) {
-      g.visual.poseSitzen(1);
+    const echtesSitzen = g.visual.hatClip && g.visual.hatClip('sitzen');
+    g.visual.play(echtesSitzen ? 'sitzen' : 'idle', { t: elapsed }, dt);
+    {
+      if (!echtesSitzen && g.visual.poseSitzen) g.visual.poseSitzen(1);
       const m = g.visual.sitzMasse ? g.visual.sitzMasse() : null;
       if (m) g.visual.root.position.y += (bester.mesh.position.y + pl.y) - m.huefte;
     }
@@ -10622,9 +10712,10 @@ function updateZugGaeste(dt) {
     g.visual.root.visible = true;
     g.visual.root.position.set(pl.x, UB_TIEF, pl.z);
     g.visual.root.rotation.y = pl.ry;
-    g.visual.play('idle', { t: elapsed }, dt);
-    if (g.visual.poseSitzen) {
-      g.visual.poseSitzen(1);
+    const echtesSitzen = g.visual.hatClip && g.visual.hatClip('sitzen');
+    g.visual.play(echtesSitzen ? 'sitzen' : 'idle', { t: elapsed }, dt);
+    {
+      if (!echtesSitzen && g.visual.poseSitzen) g.visual.poseSitzen(1);
       /* Zwei Bedingungen, es gilt die staerkere: das Becken sitzt auf der
          Bank UND die Fuesse duerfen nicht durch den Wagenboden. Nur die
          erste zu nehmen liess die Figuren 44 cm ueber dem Boden schweben -
@@ -10684,9 +10775,14 @@ function updateInnenLeute(dt) {
     g.visual.root.rotation.y = p.ry;
     /* Der Zeitversatz sorgt dafuer, dass nicht alle im Gleichschritt
        atmen - sonst sieht man sofort, dass es dieselbe Figur ist. */
-    g.visual.play('idle', { t: elapsed + i * 2.3 }, dt);
-    if (p.sitz !== undefined && g.visual.poseSitzen) {
-      g.visual.poseSitzen(1);
+    /* Seit civilian-3 gibt es eine echte Sitzbewegung ("Sitting Idle").
+       Die selbstgebaute Haltung war nur der Notbehelf, solange keine da
+       war - sie bleibt als Rueckfall stehen. */
+    const sitzt = p.sitz !== undefined;
+    const echtesSitzen = sitzt && g.visual.hatClip && g.visual.hatClip('sitzen');
+    g.visual.play(echtesSitzen ? 'sitzen' : 'idle', { t: elapsed + i * 2.3 }, dt);
+    if (sitzt) {
+      if (!echtesSitzen && g.visual.poseSitzen) g.visual.poseSitzen(1);
       const m = g.visual.sitzMasse ? g.visual.sitzMasse() : null;
       if (m) g.visual.root.position.y +=
         Math.max(p.sitz - m.huefte, p.boden - m.fuss);
@@ -12029,14 +12125,27 @@ function updateCivilians(dtBild) {
       c.poseT = (c.poseT || 0) - dt;
       if (c.poseT <= 0) {
         c.poseT = rand(4, 11);
-        c.ruhePose = pick(['idle', 'telefon', 'warten', 'umschauen', 'idle']);
+        /* civilian-3: acht Alltagsbewegungen dazu. Vorher gab es vier
+           Haltungen fuer die ganze Stadt, jetzt zwoelf. */
+        c.ruhePose = pick(RUHE_POSEN);
       }
     } else c.poseT = 0;
 
+    /* Wer tippt oder telefoniert, hat das Geraet auch in der Hand. */
+    if (!c.gafft && speed <= 0.1 && (c.ruhePose === 'tippen' || c.ruhePose === 'telefon'))
+      c.handy.visible = !(c.schirm && c.schirm.visible);
     if (c.gafft) {
       speed = 0; dirX = 0; dirZ = 0;
       c.facing = dampAngle(c.facing, Math.atan2(player.pos.x - c.pos.x, player.pos.z - c.pos.z), dt * 6);
-    }
+      /* Nicht alle jubeln. Bei hohem Ruf riss frueher JEDER Zuschauer
+         beide Arme hoch - drei Leute nebeneinander standen dann in
+         derselben T-Haltung, und mehr als diese eine Pose bekam man kaum
+         zu sehen. Jetzt jubelt ein knappes Drittel, der Rest staunt,
+         winkt oder redet - jeder in seiner eigenen Haltung. */
+      if (c.jubelt === undefined) c.jubelt = Math.random() < 0.3;
+      if (!c.gaffPose) c.gaffPose = pick(['umschauen', 'warten', 'froh', 'winken', 'reden']);
+      if (!c.filmt && !(ruf > 45 && c.jubelt)) c.ruhePose = c.gaffPose;
+    } else c.gaffPose = null;
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
     c.pos.x += c.vel.x * dt; c.pos.z += c.vel.z * dt;
     collideBody(c);
@@ -12081,7 +12190,8 @@ function updateCivilians(dtBild) {
     /* Im Stand hat jeder Zivilist seine eigene Beschäftigung – telefonieren,
        warten, sich umsehen. Vorher standen 22 Figuren in derselben Pose. */
     let zAnim;
-    if (c.gafft && !c.filmt && ruf > 45 && c.visual.hatClip && c.visual.hatClip('jubel')) zAnim = 'jubel';
+    if (c.gafft && !c.filmt && ruf > 45 && c.jubelt &&
+        c.visual.hatClip && c.visual.hatClip('jubel')) zAnim = 'jubel';
     else if (speed > 0.1) zAnim = 'run';
     else zAnim = c.ruhePose || 'idle';
     c.visual.play(zAnim,
