@@ -1416,9 +1416,12 @@ const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
    oder Aussenwand gibt es deshalb keine.
    In x endet sie 60 cm vor den Schachtenden, damit sie nicht in die
    Aussenwand der Bahnsteighalle laeuft. */
-const UB_BE_TIEF = 10.0;                  // Tiefe der Halle neben dem Schacht
-const UB_BE_HOCH = 3.0;                   // lichte Hoehe
-const UB_BE_RAND = 0.6;                   // Abstand zu den Schachtenden
+/* Die Halle war 10 x 15 m bei 3 m Hoehe - fuer eine B-Ebene mit Laeden zu
+   klein, man stand nach zwei Schritten wieder an der Wand. Jetzt 15 m
+   tief, 3,6 m hoch und bis dicht an die Schachtenden. */
+const UB_BE_TIEF = 15.0;                  // Tiefe der Halle neben dem Schacht
+const UB_BE_HOCH = 3.6;                   // lichte Hoehe
+const UB_BE_RAND = 0.3;                   // Abstand zu den Schachtenden
 function ubBEbene(sx, sch) {
   const weg = sch.steig === 'nord' ? 1 : -1;      // Richtung weg von der Roehre
   return { x0: sx + Math.min(sch.xFuss, sch.xKopf) + UB_BE_RAND,
@@ -1440,6 +1443,27 @@ function ubDurchgang(sx, sch) {
   const a = sx + sch.xKopf + richtung * (UB_TR_OBEN - 2.6);
   const b = sx + sch.xKopf + richtung * (UB_TR_OBEN + UB_HALLE_LANG + 2.6);
   return { x0: Math.min(a, b), x1: Math.max(a, b) };
+}
+
+/* ---- Aufzug ----
+   Zu jeder Station gehoert neben der Treppe ein Aufzug, der vom Gehweg
+   geradewegs auf den Bahnsteig faehrt - wie in einer echten Station. Er
+   steht ein Stueck HINTER dem Treppenfuss, im selben Streifen des
+   Gehwegs; dort ist unter der Strasse der Bahnsteig, und Loch und Kabine
+   passen ohne Umweg uebereinander.
+   Der Schacht bekommt Loecher im Gehweg, in der Hallendecke und im
+   Erdblock (siehe ubahnLoecher). */
+const AUF_B = 2.4;                        // lichte Weite der Kabine
+const AUF_ABST = 1.4;                     // Abstand hinter dem Treppenfuss
+function ubAufzug(sx, sch) {
+  const richtung = sch.xKopf > sch.xFuss ? -1 : 1;
+  const a = sx + sch.xFuss + richtung * AUF_ABST;
+  const b = a + richtung * AUF_B;
+  const zM = (sch.z0 + sch.z1) / 2;
+  return { x0: Math.min(a, b), x1: Math.max(a, b),
+           z0: zM - AUF_B / 2, z1: zM + AUF_B / 2,
+           /* Seite, auf der man ein- und aussteigt: zum Treppenfuss hin. */
+           tuerX: sx + sch.xFuss + richtung * AUF_ABST, richtung };
 }
 
 /* Hoehe an einer Stelle des Abgangs. s = Weg vom Treppenmund aus,
@@ -1480,6 +1504,13 @@ function ubahnLoecher(art) {
                                   b = sx + s.xFuss; }
       else { a = kopf; b = sx + s.xFuss; }
       out.push({ x0: Math.min(a, b), x1: Math.max(a, b), z0: s.z0, z1: s.z1 });
+      /* Der Aufzugsschacht braucht in JEDER Decke dasselbe Loch:
+         Gehweg, Hallendecke und Erdblock. */
+      {
+        const auf = ubAufzug(sx, s);
+        out.push({ x0: auf.x0 - 0.1, x1: auf.x1 + 0.1,
+                   z0: auf.z0 - 0.1, z1: auf.z1 + 0.1 });
+      }
       /* 'erde' nimmt zusaetzlich die B-Ebene heraus. Der Erdblock zwischen
          Tunneldecke und Strasse reicht 80 cm ueber die Roehre hinaus und
          stand damit als 90 cm dicke, erdbraune Scheibe genau in der
@@ -1489,6 +1520,12 @@ function ubahnLoecher(art) {
       if (art === 'erde') {
         const be = ubBEbene(sx, s);
         out.push({ x0: be.x0 - 0.5, x1: be.x1 + 0.5, z0: be.z0, z1: be.z1 });
+        /* Auch die Schachtwaende aussparen. Sie sind 50 cm dick und
+           standen bisher MITTEN im Erdblock: Wandflaeche und Erdflaeche
+           lagen auf derselben Ebene (gemessen 61 m2 je Schacht), und
+           genau solche Paare flackern beim Zeichnen. */
+        out.push({ x0: Math.min(a, b) - 0.75, x1: Math.max(a, b) + 0.75,
+                   z0: s.z0 - 0.75, z1: s.z1 + 0.75 });
       }
     }
   }
@@ -1556,6 +1593,16 @@ function ubahnBoden(x, z, yRef) {
       /* In Stufen statt als Rampe - man soll Tritte sehen und spueren.
          Dazwischen liegt die ebene Zwischenebene. */
       return abgangHoehe(Math.abs(u.x + s.xKopf - x));
+    }
+  }
+  /* Der Aufzugsschacht ist ebenso nach oben offen. Sein Boden liegt auf
+     Bahnsteighoehe - wer hineintritt, waehrend die Kabine oben ist,
+     faellt bis nach unten. Auf der Kabine selbst steht man ueber
+     collidePlayerAufzug, das laeuft nach dieser Abfrage. */
+  for (const s of UB_SCHAECHTE) {
+    for (const u of UBAHNEN) {
+      const a2 = ubAufzug(u.x, s);
+      if (x > a2.x0 && x < a2.x1 && z > a2.z0 && z < a2.z1) return UB_TIEF;
     }
   }
   /* Halle und Tunnel liegen unter der Fahrbahn. Nur wer schon unten ist,
@@ -2236,11 +2283,16 @@ function baueBEbene(sx, sch) {
   const vorn = (d) => zAus - weg * d;       // Abstand von der Aussenwand
 
   /* ---- Huelle ---- */
-  deko(lx + 0.9, 0.30, lz + 0.9, mx, u0 - 0.15, mz, 0x5b626c);        // Boden
+  /* Zur Schachtseite hin KEIN Ueberstand: dort liegt schon der Boden der
+     Zwischenebene, und zwei Boeden auf derselben Hoehe flackern. */
+  const bz0 = weg > 0 ? r.z0 : r.z0 - 0.45;
+  const bz1 = weg > 0 ? r.z1 + 0.45 : r.z1;
+  const bzM = (bz0 + bz1) / 2, bzT = bz1 - bz0;
+  deko(lx + 0.9, 0.30, bzT, mx, u0 - 0.15, bzM, 0x5b626c);            // Boden
   /* Die Decke ist hell: unter Tage faellt auf eine nach unten zeigende
      Flaeche nur der Bodenanteil des Himmelslichts, ein dunkler Farbton
      waere dort schlicht schwarz. */
-  deko(lx + 0.9, 0.35, lz + 0.9, mx, u1 + 0.17, mz, 0x99a1ab);        // Decke
+  deko(lx + 0.9, 0.35, bzT, mx, u1 + 0.17, bzM, 0x99a1ab);            // Decke
   {
     const cz0 = Math.min(tief(0.2), vorn(-0.45)), cz1 = Math.max(tief(0.2), vorn(-0.45));
     addCollider({ x0: r.x0 - 0.45, x1: r.x1 + 0.45, z0: cz0, z1: cz1,
@@ -2377,6 +2429,115 @@ function baueBEbene(sx, sch) {
 
 /* ---- U-Bahn-Eingang ----
    Treppenschacht mit Geländer und beleuchtetem Schild. */
+/* ---- Aufzug: Schacht und Kabine ----
+   Der Schacht ist ein Geruest aus vier Ecksaeulen mit Glasfeldern
+   dazwischen; zum Treppenfuss hin bleibt er offen, dort steigt man ein.
+   Die Kabine faehrt zwischen Bahnsteig und Gehweg und traegt dabei jeden
+   mit, der auf ihr steht (siehe collidePlayerAufzug). */
+const AUFZUEGE = [];
+const AUF_TEMPO = 1.5;                    // m/s
+const AUF_HALT = 2.6;                     // Sekunden Aufenthalt oben/unten
+function baueAufzug(sx, sch) {
+  const a = ubAufzug(sx, sch);
+  const mx = (a.x0 + a.x1) / 2, mz = (a.z0 + a.z1) / 2;
+  const unten = UB_TIEF, oben = SLAB_H;
+  const hoehe = oben - unten;
+  const RAHMEN = 0.16;
+  /* Vier Ecksaeulen ueber die ganze Hoehe, oben ein Stueck ueber den
+     Gehweg hinaus - so sieht man von der Strasse aus, wo der Aufzug ist. */
+  const dach = oben + 2.5;
+  for (const [ex, ez] of [[a.x0, a.z0], [a.x0, a.z1], [a.x1, a.z0], [a.x1, a.z1]]) {
+    deko(RAHMEN, dach - unten, RAHMEN, ex, (unten + dach) / 2, ez, 0x8d99a6);
+  }
+  /* Glasfelder: die beiden Laengsseiten und die Rueckwand. Die Seite zum
+     Treppenfuss bleibt frei. */
+  const tuerSeite = a.richtung > 0 ? a.x0 : a.x1;
+  const rueckSeite = a.richtung > 0 ? a.x1 : a.x0;
+  const glas = (w, d, px, pz) => {
+    deko(w, dach - unten, d, px, (unten + dach) / 2, pz, 0x9fb4c4);
+    addCollider({ x0: px - Math.max(w, 0.12) / 2, x1: px + Math.max(w, 0.12) / 2,
+                  z0: pz - Math.max(d, 0.12) / 2, z1: pz + Math.max(d, 0.12) / 2,
+                  h: dach, y0: unten, keinKlettern: true });
+  };
+  glas(a.x1 - a.x0, 0.08, mx, a.z0);
+  glas(a.x1 - a.x0, 0.08, mx, a.z1);
+  glas(0.08, a.z1 - a.z0, rueckSeite, mz);
+  /* Dach ueber dem Gehweg. */
+  deko(a.x1 - a.x0 + 0.5, 0.18, a.z1 - a.z0 + 0.5, mx, dach, mz, 0x4a525c);
+  /* Ein blaues U ueber dem Eingang, wie am Treppenmund. */
+  deko(0.9, 0.55, 0.10, tuerSeite - a.richtung * 0.16, oben + 2.0, mz, 0x1b3fa0);
+  deko(0.34, 0.34, 0.12, tuerSeite - a.richtung * 0.16, oben + 2.0, mz, 0xf2f4f8);
+  /* Boden unten im Schacht, damit man nicht ins Leere sieht. */
+  deko(a.x1 - a.x0, 0.2, a.z1 - a.z0, mx, unten - 0.1, mz, 0x3e454e);
+
+  /* ---- Die Kabine ----
+     Eigene Meshes, denn sie bewegt sich; die Deko wird zu EINER festen
+     Geometrie verschmolzen. */
+  const g = new THREE.Group();
+  const rahmen = new THREE.MeshLambertMaterial({ color: 0x7f8b98 });
+  const boden = new THREE.MeshLambertMaterial({ color: 0x59616b });
+  const licht = new THREE.MeshBasicMaterial({ color: 0xf6f3e4 });
+  const w = a.x1 - a.x0 - 0.24, d = a.z1 - a.z0 - 0.24, h = 2.3;
+  const bo = new THREE.Mesh(new THREE.BoxGeometry(w, 0.16, d), boden);
+  bo.position.y = -0.08; bo.receiveShadow = true; g.add(bo);
+  const de = new THREE.Mesh(new THREE.BoxGeometry(w, 0.12, d), rahmen);
+  de.position.y = h; g.add(de);
+  const la = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, 0.06, d * 0.5), licht);
+  la.position.y = h - 0.1; g.add(la);
+  for (const [ex, ez] of [[-w / 2, -d / 2], [-w / 2, d / 2], [w / 2, -d / 2], [w / 2, d / 2]]) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.10, h, 0.10), rahmen);
+    p.position.set(ex, h / 2, ez); g.add(p);
+  }
+  /* Rueckwand und Seiten der Kabine - vorn bleibt sie offen. */
+  const platte = (pw, pd, px, pz) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(pw, h * 0.92, pd), rahmen);
+    m.position.set(px, h * 0.46, pz); g.add(m);
+  };
+  platte(w, 0.06, 0, -d / 2);
+  platte(w, 0.06, 0, d / 2);
+  platte(0.06, d, (a.richtung > 0 ? 1 : -1) * w / 2, 0);
+  g.position.set(mx, unten, mz);
+  scene.add(g);
+  AUFZUEGE.push({ mesh: g, x: mx, z: mz, w, d,
+                  unten, oben, y: unten, ziel: oben, warten: AUF_HALT });
+}
+
+/* Kabinen bewegen: hoch, warten, runter, warten. */
+function updateAufzuege(dt) {
+  for (const a of AUFZUEGE) {
+    if (a.warten > 0) { a.warten -= dt; a.mesh.position.y = a.y; continue; }
+    const weg = a.ziel - a.y;
+    const schritt = AUF_TEMPO * dt;
+    if (Math.abs(weg) <= schritt) {
+      a.y = a.ziel;
+      a.ziel = a.ziel === a.oben ? a.unten : a.oben;
+      a.warten = AUF_HALT;
+      a.vy = 0;
+    } else {
+      a.vy = Math.sign(weg) * AUF_TEMPO;
+      a.y += a.vy * dt;
+    }
+    a.mesh.position.y = a.y;
+  }
+}
+
+/* Auf der Kabine stehen und mitfahren. Gleiche Rechnung wie beim
+   Hubschrauber, nur dass hier auch die HOEHE mitgenommen wird. */
+function collidePlayerAufzug(prevY) {
+  const p = player.pos, r = player.radius;
+  for (const a of AUFZUEGE) {
+    if (Math.abs(p.x - a.x) > a.w / 2 + r || Math.abs(p.z - a.z) > a.d / 2 + r) continue;
+    const top = a.y;
+    if (p.y < top + 0.25 && prevY >= top - 0.45 && player.vel.y <= 0.05) {
+      p.y = top;
+      player.vel.y = 0;
+      player.onGround = true;
+      player.platform = a;
+      a.vx = 0; a.vz = 0;
+    }
+  }
+}
+
 /* ---- Eine Station ----
    Bahnsteig, Gleistrog, Decke, Waende, dazu die Treppe im Randstreifen des
    Gehwegs. Der Tunnel selbst entsteht spaeter in baueUBahnLinie(). */
@@ -2438,12 +2599,23 @@ function baueUBahn(x) {
        Schacht und drei Meter hoch - genug, um sich umzusehen, bevor es
        weiter hinuntergeht. */
     {
-      const hM = 3.0;                                  // lichte Hoehe
+      /* Dieselbe lichte Hoehe wie in der Halle nebenan - sonst reicht der
+         Durchgang zur Halle ueber die Decke der Zwischenebene hinaus. */
+      const hM = UB_BE_HOCH;
       const sA = UB_TR_OBEN - 0.5, sB = UB_TR_OBEN + UB_HALLE_LANG + 0.5;
       const mx = x + sch.xKopf + richtung * (sA + sB) / 2;
       const ml = sB - sA;
-      deko(ml, 0.30, zT + 0.9, mx, UB_MITTE - 0.15, zM, 0x3e454e);       // Boden
-      deko(ml, 0.35, zT + 1.4, mx, UB_MITTE + hM, zM, 0x454c55);         // Decke
+      /* Boden und Decke ragen nur auf der GESCHLOSSENEN Seite ueber den
+         Schacht hinaus. Zur B-Ebene hin enden sie genau an der
+         Schachtkante - dort schliesst der Hallenboden an. Vorher lagen
+         beide Boeden auf derselben Hoehe und ueberlappten sich 90 cm
+         weit: genau das war der flackernde Boden unter den Fuessen. */
+      const uz0 = weg > 0 ? sch.z0 - 0.45 : sch.z0;
+      const uz1 = weg > 0 ? sch.z1 : sch.z1 + 0.45;
+      const uzM = (uz0 + uz1) / 2, uzT = uz1 - uz0;
+      deko(ml, 0.30, uzT, mx, UB_MITTE - 0.15, uzM, 0x3e454e);           // Boden
+      deko(ml, 0.35, uzT + 0.5, mx, UB_MITTE + hM, uzM + (weg > 0 ? -0.25 : 0.25),
+           0x454c55);                                                    // Decke
       /* Wandverkleidung an beiden Laengsseiten - ohne sie sieht man in
          den Erdblock. */
       for (const s3 of [-1, 1]) {
@@ -2478,7 +2650,10 @@ function baueUBahn(x) {
     const wa0 = x + Math.min(sch.xFuss, sch.xKopf) - 0.45;
     const wa1 = x + Math.max(sch.xFuss, sch.xKopf) + 0.45;
     for (const s2 of [-1, 1]) {
-      const wz = s2 < 0 ? sch.z0 - 0.25 : sch.z1 + 0.25;
+      /* 3 cm in den Schacht hinein statt buendig: buendig lag die
+         Innenflaeche der Wand genau auf der Kante der Hallendecke, und
+         zwei Flaechen auf derselben Ebene flackern. */
+      const wz = s2 < 0 ? sch.z0 - 0.22 : sch.z1 + 0.22;
       /* Ein Stueck Schachtwand. Auf der Seite der B-Ebene bleibt ueber der
          Zwischenebene ein Durchgang frei - sonst kaeme man nicht hinein. */
       const stueck = (b0, b1, y0, y1) => {
@@ -2529,6 +2704,8 @@ function baueUBahn(x) {
 
     /* ---- B-Ebene neben dem Schacht ---- */
     baueBEbene(x, sch);
+    /* ---- Aufzug ---- */
+    baueAufzug(x, sch);
   }
 
   /* ---- Halle: Boeden, Decke, Waende ---- */
@@ -2557,9 +2734,12 @@ function baueUBahn(x) {
                     h: -0.12, y0: UB_TIEF - 0.4, keinKlettern: true });
     }
   }
-  /* Bahnsteigkanten mit Warnstreifen, beidseitig. */
+  /* Bahnsteigkanten mit Warnstreifen, beidseitig.
+     Die Kante steht 4 cm ins Gleis hinein. Buendig lag ihre Aussenflaeche
+     genau auf der Kante des Bahnsteigbodens - zwei Flaechen auf derselben
+     Ebene, und die flackerten gegeneinander (gemessen 28 m2 je Kante). */
   for (const [zk, vor] of [[UB_STEIG_Z0, 1], [UB_STEIG2_Z1, -1]]) {
-    deko(hx, 1.3, 0.4, x, UB_TIEF - 0.45, zk + vor * 0.2, 0x4a5058);
+    deko(hx, 1.3, 0.4, x, UB_TIEF - 0.45, zk + vor * 0.16, 0x4a5058);
     deko(hx, 0.12, 0.5, x, UB_TIEF + 0.06, zk + vor * 0.3, 0xd8c24a);
   }
 
@@ -2693,7 +2873,7 @@ function baueUBahnLinie() {
     }
     /* Bahnsteigkanten. */
     for (const [zk, vor] of [[UB_STEIG_Z0, 1], [UB_STEIG2_Z1, -1]]) {
-      deko(laenge, 1.3, 0.4, mitte, UB_TIEF - 0.45, zk + vor * 0.2, 0x3e444b);
+      deko(laenge, 1.3, 0.4, mitte, UB_TIEF - 0.45, zk + vor * 0.16, 0x3e444b);
     }
     const n = Math.max(3, Math.round(laenge / 7));
     for (let i = 0; i < n; i++) {
@@ -2724,11 +2904,19 @@ function baueUBahnLinie() {
   /* ---- Erdreich zwischen Tunneldecke und Strasse ----
      Von unten sah man an den Raendern der Decke vorbei bis in den Himmel.
      Ausgespart nur dort, wo ein Treppenschacht durchstoesst. */
-  const erdeUnten = UB_DECKE - 0.1, erdeOben = -0.5;
+  /* Unterkante UEBER die Tunneldecke legen, nicht hinein. Vorher lag sie
+     30 cm tiefer als die Deckenplatte - beide teilten sich damit Flaechen
+     und flackerten gegeneinander. */
+  const erdeUnten = UB_DECKE + 0.22, erdeOben = -0.5;
   const erdeH = erdeOben - erdeUnten;
   if (erdeH > 0.2) {
-    for (const t of flaecheMitLoechern(UB_X0 - 0.5, UB_X1 + 0.5,
-                                       UB_QUER_Z0 - 0.8, UB_QUER_Z1 + 0.8,
+    /* An den Enden ein Stueck weiter als die Stationswaende. Endeten Erde
+       und Stirnwand auf derselben Ebene, kaempften auch die beiden
+       Flaechen (gemessen 49 m2). Jetzt steckt die Wand ganz in der Erde. */
+    /* Auch seitlich weiter als die Roehrenwaende (die sind 50 cm dick):
+       endete die Erde genau auf deren Aussenflaeche, flackerten beide. */
+    for (const t of flaecheMitLoechern(UB_X0 - 1.6, UB_X1 + 1.6,
+                                       UB_QUER_Z0 - 1.6, UB_QUER_Z1 + 1.6,
                                        ubahnLoecher('erde'))) {
       deko(t.w, erdeH, t.d, t.x, (erdeOben + erdeUnten) / 2, t.z, 0x2a2620);
     }
@@ -9586,6 +9774,7 @@ function updatePlayer(dt) {
   collideBody(player, prevY, wandPuffer());
   collidePlayerCars(prevY);
   collidePlayerHelis(prevY);
+  collidePlayerAufzug(prevY);
 
   /* ---- Im Bogen gegen eine Wand ----
      Der Anker sitzt auf einer Dachkante, und das Pendel traegt die Figur
@@ -14381,6 +14570,7 @@ function simuliere(dt) {
   updateEffekte(dt);
   updateKlatscher(dt);
   updateZug(dt);
+  updateAufzuege(dt);
   updateKatapult(dt);
   updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
@@ -14532,6 +14722,52 @@ if (window.__WEBHERO_TEST__ === true) {
         Math.abs(t.z - z) <= t.d / 2 + 0.05)
         .map((t) => [t.w, t.h, t.d, +t.x.toFixed(2), +t.y.toFixed(2), +t.z.toFixed(2),
                      '#' + t.farbe.toString(16)]);
+    },
+    /* Flaechen, die auf derselben Ebene liegen und sich ueberlappen -
+       genau die flackern beim Zeichnen (Z-Kampf). Sucht im angegebenen
+       Quader nach solchen Paaren. */
+    dekoDoppelt(x0, x1, y0, y1, z0, z1, eps) {
+      const e = eps === undefined ? 0.004 : eps;
+      const drin = DEKO_KOPIE.filter((t) => !t.ry && !t.rz &&
+        t.x + t.w / 2 > x0 && t.x - t.w / 2 < x1 &&
+        t.y + t.h / 2 > y0 && t.y - t.h / 2 < y1 &&
+        t.z + t.d / 2 > z0 && t.z - t.d / 2 < z1);
+      const paare = [];
+      const spanne = (t, a) => a === 'x' ? [t.x - t.w / 2, t.x + t.w / 2]
+                             : a === 'y' ? [t.y - t.h / 2, t.y + t.h / 2]
+                             : [t.z - t.d / 2, t.z + t.d / 2];
+      const ueber = (a, b) => Math.min(a[1], b[1]) - Math.max(a[0], b[0]);
+      for (let i = 0; i < drin.length; i++) {
+        for (let j = i + 1; j < drin.length; j++) {
+          const A = drin[i], B = drin[j];
+          for (const achse of ['x', 'y', 'z']) {
+            const sa = spanne(A, achse), sb = spanne(B, achse);
+            const andere = ['x', 'y', 'z'].filter((k) => k !== achse);
+            const u1 = ueber(spanne(A, andere[0]), spanne(B, andere[0]));
+            const u2 = ueber(spanne(A, andere[1]), spanne(B, andere[1]));
+            if (u1 < 0.15 || u2 < 0.15) continue;
+            /* Nur echte Durchdringungen melden. Zwei Kloetze, die sich
+               nur BERUEHREN, haben zwar auch eine gemeinsame Ebene - dort
+               zeigt aber je eine Flaeche nach aussen und die andere nach
+               innen, und die innere wird gar nicht gezeichnet. Flackern
+               gibt es erst, wenn sich die Koerper ueberlappen. */
+            if (ueber(sa, sb) <= 0.001) continue;
+            for (const va of sa) for (const vb of sb) {
+              if (Math.abs(va - vb) < e) {
+                paare.push({ achse, wert: +va.toFixed(3),
+                             flaeche: +(u1 * u2).toFixed(2),
+                             a: [A.w, A.h, A.d, +A.x.toFixed(2), +A.y.toFixed(2), +A.z.toFixed(2)],
+                             b: [B.w, B.h, B.d, +B.x.toFixed(2), +B.y.toFixed(2), +B.z.toFixed(2)] });
+              }
+            }
+          }
+        }
+      }
+      return paare;
+    },
+    aufzuege() {
+      return AUFZUEGE.map((z) => ({ x: +z.x.toFixed(1), z: +z.z.toFixed(1),
+        y: +z.y.toFixed(2), unten: z.unten, oben: z.oben, ziel: z.ziel }));
     },
     ubStand() {
       return UB_SCHAECHTE.map((sch) => ({
