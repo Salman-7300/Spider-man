@@ -2443,32 +2443,47 @@ function baueAufzug(sx, sch) {
   const a = ubAufzug(sx, sch);
   const mx = (a.x0 + a.x1) / 2, mz = (a.z0 + a.z1) / 2;
   const unten = UB_TIEF, oben = SLAB_H;
-  const hoehe = oben - unten;
-  const RAHMEN = 0.16;
-  /* Vier Ecksaeulen ueber die ganze Hoehe, oben ein Stueck ueber den
-     Gehweg hinaus - so sieht man von der Strasse aus, wo der Aufzug ist. */
-  const dach = oben + 2.5;
-  for (const [ex, ez] of [[a.x0, a.z0], [a.x0, a.z1], [a.x1, a.z0], [a.x1, a.z1]]) {
-    deko(RAHMEN, dach - unten, RAHMEN, ex, (unten + dach) / 2, ez, 0x8d99a6);
-  }
-  /* Glasfelder: die beiden Laengsseiten und die Rueckwand. Die Seite zum
-     Treppenfuss bleibt frei. */
+  /* ---- Oben nur eine Bruestung, kein Haeuschen ----
+     Zuerst stand hier ein glaesernes Haeuschen mit Dach auf dem Gehweg.
+     Das war ein Fremdkoerper auf dem Buergersteig und hat zu jedem
+     Aufzug ein gutes Dutzend Zeichenaufrufe gekostet. Jetzt ist oben nur
+     die Oeffnung mit einer Bruestung ringsum - zum Treppenfuss hin offen,
+     dort steigt man ein. Der Schacht selbst steckt in der Wand. */
   const tuerSeite = a.richtung > 0 ? a.x0 : a.x1;
   const rueckSeite = a.richtung > 0 ? a.x1 : a.x0;
-  const glas = (w, d, px, pz) => {
-    deko(w, dach - unten, d, px, (unten + dach) / 2, pz, 0x9fb4c4);
-    addCollider({ x0: px - Math.max(w, 0.12) / 2, x1: px + Math.max(w, 0.12) / 2,
-                  z0: pz - Math.max(d, 0.12) / 2, z1: pz + Math.max(d, 0.12) / 2,
-                  h: dach, y0: unten, keinKlettern: true });
+  const bh = 1.05;
+  const bruestung = (bx, bz, px, pz) => {
+    const laengs = bx > bz, lang = laengs ? bx : bz;
+    deko(bx, 0.07, bz, px, SLAB_H + bh, pz, 0x9aa2ad);
+    deko(bx, 0.05, bz, px, SLAB_H + bh * 0.48, pz, 0x8b939c);
+    const n = Math.max(2, Math.round(lang / 1.0));
+    for (let i = 0; i <= n; i++) {
+      const t2 = -lang / 2 + (i / n) * lang;
+      deko(0.06, bh, 0.06, px + (laengs ? t2 : 0), SLAB_H + bh / 2,
+           pz + (laengs ? 0 : t2), 0x8b939c);
+    }
+    addCollider({ x0: px - bx / 2, x1: px + bx / 2, z0: pz - bz / 2, z1: pz + bz / 2,
+                  h: SLAB_H + bh, y0: SLAB_H - 0.05, klein: true });
   };
-  glas(a.x1 - a.x0, 0.08, mx, a.z0);
-  glas(a.x1 - a.x0, 0.08, mx, a.z1);
-  glas(0.08, a.z1 - a.z0, rueckSeite, mz);
-  /* Dach ueber dem Gehweg. */
-  deko(a.x1 - a.x0 + 0.5, 0.18, a.z1 - a.z0 + 0.5, mx, dach, mz, 0x4a525c);
-  /* Ein blaues U ueber dem Eingang, wie am Treppenmund. */
-  deko(0.9, 0.55, 0.10, tuerSeite - a.richtung * 0.16, oben + 2.0, mz, 0x1b3fa0);
-  deko(0.34, 0.34, 0.12, tuerSeite - a.richtung * 0.16, oben + 2.0, mz, 0xf2f4f8);
+  bruestung(a.x1 - a.x0 + 0.3, 0.12, mx, a.z0 - 0.15);
+  bruestung(a.x1 - a.x0 + 0.3, 0.12, mx, a.z1 + 0.15);
+  bruestung(0.12, a.z1 - a.z0, rueckSeite + (a.richtung > 0 ? 0.15 : -0.15), mz);
+  /* Ein blaues U auf einem Pfosten neben dem Eingang. */
+  deko(0.09, 2.2, 0.09, tuerSeite - a.richtung * 0.2, SLAB_H + 1.1, a.z0 - 0.3, 0x6f7681);
+  deko(0.6, 0.6, 0.09, tuerSeite - a.richtung * 0.2, SLAB_H + 2.1, a.z0 - 0.3, 0x1b3fa0);
+  deko(0.24, 0.24, 0.11, tuerSeite - a.richtung * 0.2, SLAB_H + 2.1, a.z0 - 0.3, 0xf2f4f8);
+  /* ---- Der Schacht unter der Strasse ----
+     Drei geschlossene Waende, die vierte ist der Ausstieg. */
+  const wandH = SLAB_H - unten;
+  const schachtWand = (w, d, px, pz) => {
+    deko(w, wandH, d, px, unten + wandH / 2, pz, 0x6d757f);
+    addCollider({ x0: px - Math.max(w, 0.14) / 2, x1: px + Math.max(w, 0.14) / 2,
+                  z0: pz - Math.max(d, 0.14) / 2, z1: pz + Math.max(d, 0.14) / 2,
+                  h: SLAB_H, y0: unten, keinKlettern: true });
+  };
+  schachtWand(a.x1 - a.x0 + 0.3, 0.14, mx, a.z0 - 0.07);
+  schachtWand(a.x1 - a.x0 + 0.3, 0.14, mx, a.z1 + 0.07);
+  schachtWand(0.14, a.z1 - a.z0 + 0.3, rueckSeite + (a.richtung > 0 ? 0.07 : -0.07), mz);
   /* Boden unten im Schacht, damit man nicht ins Leere sieht. */
   deko(a.x1 - a.x0, 0.2, a.z1 - a.z0, mx, unten - 0.1, mz, 0x3e454e);
 
@@ -2486,14 +2501,12 @@ function baueAufzug(sx, sch) {
   de.position.y = h; g.add(de);
   const la = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, 0.06, d * 0.5), licht);
   la.position.y = h - 0.1; g.add(la);
-  for (const [ex, ez] of [[-w / 2, -d / 2], [-w / 2, d / 2], [w / 2, -d / 2], [w / 2, d / 2]]) {
-    const p = new THREE.Mesh(new THREE.BoxGeometry(0.10, h, 0.10), rahmen);
-    p.position.set(ex, h / 2, ez); g.add(p);
-  }
-  /* Rueckwand und Seiten der Kabine - vorn bleibt sie offen. */
+  /* Rueckwand und Seiten der Kabine - vorn bleibt sie offen. Bewusst nur
+     drei Platten und keine Ecksaeulen: jede Kabine ist ein eigener
+     Zeichenaufruf, und davon gibt es acht in der Stadt. */
   const platte = (pw, pd, px, pz) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(pw, h * 0.92, pd), rahmen);
-    m.position.set(px, h * 0.46, pz); g.add(m);
+    const m2 = new THREE.Mesh(new THREE.BoxGeometry(pw, h * 0.92, pd), rahmen);
+    m2.position.set(px, h * 0.46, pz); g.add(m2);
   };
   platte(w, 0.06, 0, -d / 2);
   platte(w, 0.06, 0, d / 2);
@@ -2507,6 +2520,11 @@ function baueAufzug(sx, sch) {
 /* Kabinen bewegen: hoch, warten, runter, warten. */
 function updateAufzuege(dt) {
   for (const a of AUFZUEGE) {
+    /* Weit entfernte Kabinen gar nicht zeichnen - acht Stueck in der
+       Stadt sind sonst rund vierzig Zeichenaufrufe fuer etwas, das man
+       nur an der Station sieht. */
+    const dx = a.x - player.pos.x, dz = a.z - player.pos.z;
+    a.mesh.visible = dx * dx + dz * dz < 90 * 90;
     if (a.warten > 0) { a.warten -= dt; a.mesh.position.y = a.y; continue; }
     const weg = a.ziel - a.y;
     const schritt = AUF_TEMPO * dt;
@@ -2692,9 +2710,22 @@ function baueUBahn(x) {
     const gx0 = x + Math.min(sch.xFuss, sch.xKopf) - 0.3;
     const gx1 = x + Math.max(sch.xFuss, sch.xKopf) + 0.3;
     const gz0 = sch.z0 - 0.32, gz1 = sch.z1 + 0.32;
+    /* Ein Gelaender, kein Sichtschutz. Die Fuellung war EINE Platte ueber
+       35 % der Laenge - bei 16,6 m Schacht also ein massiver Block von
+       5,81 m Laenge und 1,05 m Hoehe mitten auf dem Gehweg. Genau das war
+       "die Wand auf der Strasse". Jetzt Handlauf, Knieholm und einzelne
+       Staebe: man sieht hindurch, und der Schacht bleibt trotzdem zu. */
     const gelaender = (bx, bz, px, pz) => {
-      deko(bx, 0.09, bz, px, SLAB_H + gh, pz, 0x9aa2ad);          // Handlauf
-      deko(bx * 0.35, gh, bz * 0.35, px, SLAB_H + gh / 2, pz, 0x6f7681);  // Fuellung
+      const laengs = bx > bz;                         // laeuft in x oder in z?
+      const lang = laengs ? bx : bz;
+      deko(bx, 0.07, bz, px, SLAB_H + gh, pz, 0x9aa2ad);           // Handlauf
+      deko(bx, 0.05, bz, px, SLAB_H + gh * 0.48, pz, 0x8b939c);    // Knieholm
+      const n = Math.max(2, Math.round(lang / 1.1));
+      for (let i = 0; i <= n; i++) {
+        const t = -lang / 2 + (i / n) * lang;
+        deko(0.06, gh, 0.06, px + (laengs ? t : 0), SLAB_H + gh / 2,
+             pz + (laengs ? 0 : t), 0x8b939c);
+      }
       addCollider({ x0: px - bx / 2, x1: px + bx / 2, z0: pz - bz / 2, z1: pz + bz / 2,
                     h: SLAB_H + gh, y0: SLAB_H - 0.05, klein: true });
     };
@@ -3919,12 +3950,11 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   /* Aus dem Unreal-Projekt in hero-3, ueber tools/uasset-zu-glb.mjs und
      tools/retarget-ue4.mjs geholt: seitliches Kriechen nach links und
      rechts (fuer die Hauswand) und die Hocke auf der Dachkante. */
-  'kriech_l', 'kriech_r', 'hocke',
   /* Netzschwung, Wandlauf, Netz-Zug und Landung - alle aus demselben
      Projekt und fuer genau diese Bewegungen gemacht. */
-  'schwung2', 'flip_v', 'flip_h', 'wandruhe',
+  'schwung2', 'flip_v', 'flip_h',
   'sturzflug', 'sturzflug2',
-  'zip_ab', 'zip_zug', 'sturz2', 'land2'];
+  'zip_ab', 'zip_zug'];
 
 /* Alltagsbewegungen der Zivilisten. Sie liegen NUR unter civilian@... und
    werden danach an alle Zivilistenmodelle weitergereicht - Held und Gegner
@@ -4348,12 +4378,9 @@ const GLB_CLIP_PATTERNS = {
   tippen: [/^tippen$/i], trinken: [/^trinken$/i],
   gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
-  kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/], hocke: [/^hocke$/],
-  wandruhe: [/^wandruhe$/],
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
   sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
   zip_ab: [/^zip_ab$/], zip_zug: [/^zip_zug$/],
-  sturz2: [/^sturz2$/], land2: [/^land2$/],
   ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
   ausw_hr: [/^ausw_hr$/], ausw_h: [/^ausw_h$/], ausw_hl: [/^ausw_hl$/],
   ausw_l: [/^ausw_l$/], ausw_vl: [/^ausw_vl$/],
@@ -4404,13 +4431,9 @@ const GLB_FALLBACK = {
   sitzen: ['sit', 'idle'], reden: ['idle'], streiten: ['idle'], tippen: ['telefon', 'idle'],
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
-  kriech_l: ['klettern_seit', 'climb'], kriech_r: ['klettern_seit', 'climb'],
-  hocke: ['ducken', 'idle'],
-  wandruhe: ['haengen', 'climb'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
   sturzflug: ['gleiten', 'air'], sturzflug2: ['sturzflug', 'gleiten', 'air'],
   zip_ab: ['jump', 'air'], zip_zug: ['air'],
-  sturz2: ['sturzland', 'land'], land2: ['land'],
   ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
   ausw_hr: ['ausweichenR', 'roll'], ausw_h: ['roll'], ausw_hl: ['ausweichenL', 'roll'],
   ausw_l: ['ausweichenL', 'roll'], ausw_vl: ['ausweichenL', 'roll'],
@@ -4481,14 +4504,33 @@ function hebeSchatten(tex) {
   if (fertig) return fertig;
   try {
     const bild = tex.image;
-    const w = bild.width || bild.videoWidth, h = bild.height || bild.videoHeight;
-    if (!w || !h) return tex;
+    const bw = bild.width || bild.videoWidth, bh = bild.height || bild.videoHeight;
+    if (!bw || !bh) return tex;
+    /* ---- Warum das Bild verkleinert wird ----
+       Die Anzugtextur ist 4096 x 4096. Ein Canvas dieser Groesse belegt
+       67 MB, und getImageData verlangt die gleiche Menge noch einmal.
+       Auf dem iPad gibt Safari dafuer stillschweigend eine LEERE Flaeche
+       zurueck - kein Fehler, keine Ausnahme, einfach Nullen. Die
+       angehobene Textur war dort also durchgehend schwarz, und weil jede
+       Figur durch diese Funktion geht, waren ALLE Figuren schwarz.
+       Auf 2048 gerechnet sind es 16 MB; das haelt jedes Geraet aus, und
+       an einer Figur sieht man den Unterschied nicht. */
+    const HOECHST = 2048;
+    const f = Math.min(1, HOECHST / Math.max(bw, bh));
+    const w = Math.max(1, Math.round(bw * f)), h = Math.max(1, Math.round(bh * f));
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d', { willReadFrequently: true });
-    g.drawImage(bild, 0, 0);
+    g.drawImage(bild, 0, 0, bw, bh, 0, 0, w, h);
     const d = g.getImageData(0, 0, w, h);
     const a = d.data;
+    /* Ist wirklich etwas angekommen? Eine leere Flaeche waere schwarz -
+       dann lieber die Originaltextur behalten als eine schwarze Figur. */
+    let summe = 0;
+    for (let i = 0; i < a.length; i += Math.max(4, (a.length >> 10) & ~3)) {
+      summe += a[i] + a[i + 1] + a[i + 2];
+    }
+    if (summe < 8) return tex;
     /* Kurve einmal als Tabelle - 256 Werte statt Millionen Potenzen. */
     const tab = new Uint8Array(256);
     for (let i = 0; i < 256; i++) tab[i] = Math.round(255 * Math.pow(i / 255, 0.62));
@@ -4531,12 +4573,17 @@ function symbiontTextur(tex) {
   if (fertig) return fertig;
   try {
     const bild = tex.image;
-    const w = bild.width || bild.videoWidth, h = bild.height || bild.videoHeight;
-    if (!w || !h) return null;
+    const bw = bild.width || bild.videoWidth, bh = bild.height || bild.videoHeight;
+    if (!bw || !bh) return null;
+    /* Gleiche Deckelung wie in hebeSchatten: ein Canvas von 4096 x 4096
+       liefert auf dem iPad nur Nullen, und der Anzug waere schwarz. */
+    const HOECHST = 2048;
+    const f = Math.min(1, HOECHST / Math.max(bw, bh));
+    const w = Math.max(1, Math.round(bw * f)), h = Math.max(1, Math.round(bh * f));
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d', { willReadFrequently: true });
-    g.drawImage(bild, 0, 0);
+    g.drawImage(bild, 0, 0, bw, bh, 0, 0, w, h);
     const scharf = g.getImageData(0, 0, w, h).data;
     /* Weichzeichnen ueber Verkleinern und wieder Vergroessern - das macht
        die Grafikkarte und kostet nichts. Der Faktor 10 entspricht bei
@@ -6441,7 +6488,6 @@ function makeGlbVisual(m) {
                          findClip(m.clips, key);
         if (!richtung && findClip(m.clips, 'kriechen')) want = 'kriechen';
       }
-      if (key === 'haengen' && findClip(m.clips, 'wandruhe')) want = 'wandruhe';
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
 
@@ -9319,12 +9365,9 @@ function updatePlayer(dt) {
        Hand ueber Hand, Koerper an der Wand. Sie passt fuer das
        Wandkriechen deutlich besser als "Climbing Up Wall", das eher ein
        einmaliges Hochziehen ist. */
-    /* Seitwaerts an der Wand: aus dem Unreal-Projekt gibt es ein echtes
-       Kriechen nach links und nach rechts. Die bisherige Bewegung
-       ("Shimmy") ist ein Hangeln an einer Kante - an der Fassade sah das
-       aus, als haenge die Figur an einem unsichtbaren Sims. */
-    const seitClip = side > 0 ? 'kriech_r' : 'kriech_l';
-    const hatSeit = heroVisual.hatClip && heroVisual.hatClip(seitClip);
+    /* Seitwaerts an der Wand bleibt es beim Hangeln. Der Versuch, dafuer
+       die Wandbewegungen aus dem Unreal-Projekt zu nehmen, hat die Figur
+       quer an die Fassade gelegt. */
     /* Vier Richtungen an der Wand, jede mit eigener Bewegung: hinauf,
        hinunter, links, rechts. Rueckwaerts abgespielt sieht Klettern
        falsch aus - hinunter greifen die Haende anders herum. */
@@ -9333,7 +9376,7 @@ function updatePlayer(dt) {
     const senkrecht = hatK('klettern') ? 'klettern' : 'climb';
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
-                : seitlich ? (hatSeit ? seitClip : 'klettern_seit')
+                : seitlich ? 'klettern_seit'
                 : senkrecht;                          // hoch und runter
     updateHeroVisual(dt);
     return;
@@ -9519,8 +9562,18 @@ function updatePlayer(dt) {
       /* Schnelle Figuren drehen träger – sonst wirkt jede Kurve wie ein
          Sprung auf der Stelle. */
       const drehRate = lerp(14, 6.5, clamp(hs / CFG.sprintSpeed, 0, 1));
-      player.facing = dampAngle(player.facing, Math.atan2(dir.x, dir.z),
-                                Math.min(1, dt * drehRate));
+      /* Beim Spannen des Katapults schaut die Figur zu den Netzen, nicht
+         in die Laufrichtung - sie geht ja rueckwaerts.
+         Das MUSS hier stehen: updateHeroVisual liest player.facing noch in
+         diesem Bild aus. Wurde die Blickrichtung erst spaeter in
+         updateKatapult gesetzt, hat sie die Laufrichtung im selben Bild
+         schon wieder ueberschrieben - die Figur schaute nie zu den
+         Netzen. */
+      const zumNetz = KAT.aktiv && (KAT.rx || KAT.rz);
+      player.facing = dampAngle(player.facing,
+                                zumNetz ? Math.atan2(KAT.rx, KAT.rz)
+                                        : Math.atan2(dir.x, dir.z),
+                                Math.min(1, dt * (zumNetz ? 10 : drehRate)));
     } else {
       /* ---- Auslauf ----
          Vorher stand die Figur nach 0,05 s still und der Rest wurde hart
@@ -9868,15 +9921,12 @@ function updatePlayer(dt) {
         player.hartLandung = player.landT;
         player.vel.x *= 0.25; player.vel.z *= 0.25;
         player.warSchwung = 0;
-      } else if (heroVisual.hatClip && heroVisual.attackOneShot &&
-                 (heroVisual.hatClip('sturz2') || heroVisual.hatClip('sturzland'))) {
+      } else if (heroVisual.hatClip && heroVisual.hatClip('sturzland') &&
+                 heroVisual.attackOneShot) {
         /* Von oben: die tiefe Landehocke aus "Jumping Down" - beide Haende
            am Boden. Von zwei Varianten hat diese die deutlich bessere
            Haltung; die andere war ein zaghafter Schritt von der Kante. */
-        /* "LandInCrouch" aus hero-3 faengt den Sturz sauber in der Hocke
-           ab; die aeltere Bewegung bleibt als Rueckfall. */
-        const sturzClip = heroVisual.hatClip('sturz2') ? 'sturz2' : 'sturzland';
-        player.landT = heroVisual.attackOneShot(0, sturzClip, 0.75) || 0.75;
+        player.landT = heroVisual.attackOneShot(0, 'sturzland', 0.75) || 0.75;
         player.hartLandung = player.landT;
         player.vel.x *= 0.1; player.vel.z *= 0.1;
       } else {
@@ -9898,10 +9948,8 @@ function updatePlayer(dt) {
            Figur auch aus dem freien Fall nach vorn weg - aus dem Stand
            heraus sah das aus, als stolpere sie beim Aufkommen. */
         const vorwaerts = Math.hypot(player.vel.x, player.vel.z) > 4.5;
-        const hockeClip = heroVisual.hatClip && heroVisual.hatClip('sturz2')
-                            ? 'sturz2'
-                            : (heroVisual.hatClip && heroVisual.hatClip('sturzland')
-                                 ? 'sturzland' : null);
+        const hockeClip = heroVisual.hatClip && heroVisual.hatClip('sturzland')
+                            ? 'sturzland' : null;
         if (!vorwaerts && hockeClip) {
           player.landT = heroVisual.attackOneShot(0, hockeClip, 0.7) || 0.7;
           player.hartLandung = player.landT;
@@ -9915,15 +9963,6 @@ function updatePlayer(dt) {
         camShake = Math.max(camShake, 0.16);
         staubWolke(player.pos, 1.4);
         SFX.swoosh();
-      } else if (heroVisual.hatClip && heroVisual.hatClip('land2') &&
-                 heroVisual.attackOneShot) {
-        /* Die gewoehnliche Landung war bisher nur eine kurze Sperre ohne
-           Bewegung - die Figur kam an und stand. Jetzt federt sie ab.
-           ("Land" aus hero-3, 0,9 s. Davor lief hier "New_land" - das ist
-           gar keine Landung, sondern ein Aufrichten samt Schritt, und
-           abgeschnitten sah es entsprechend wirr aus.) */
-        player.landT = heroVisual.attackOneShot(0, 'land2', 0.52) || 0.52;
-        player.hartLandung = player.landT;
       }
     }
     player.state = 'ground';
@@ -10074,14 +10113,6 @@ function updatePlayer(dt) {
   if (player.rollT > 0 && !player.onGround && player.vel.y < -1) player.rollT = 0;
   /* Beim Spannen des Katapults stemmt sich die Figur gegen den Zug
      ("Pulling A Rope"). Vorher rannte sie dabei einfach rueckwaerts. */
-  /* Zaehler fuer die Hocke: still, am Boden, hoch ueber der Strasse. */
-  {
-    const hoch = player.pos.y - SLAB_H > 12;
-    const ruhig = player.onGround && !dir && hSpeed < 0.4 && !player.attack &&
-                  player.rollT <= 0 && player.hitT <= 0 && !player.duckt &&
-                  player.state !== 'climb' && player.state !== 'swing';
-    player.hockeT = (hoch && ruhig) ? (player.hockeT || 0) + dt : 0;
-  }
   /* Beim Spannen des Katapults schaut die Figur zu den Netzen und geht
      RUECKWAERTS. Vorher lief hier eine eigene Zieh-Bewegung ("Pulling A
      Rope") ueber einer Vorwaertsbewegung - die Fuesse liefen in die
@@ -10117,14 +10148,6 @@ function updatePlayer(dt) {
      genommen und an einer Stelle angehalten, an der beide Fuesse stehen. */
   else if (player.duckMisch > 0.3 && hSpeed <= 0.4) {
     player.anim = (heroVisual.hatClip && heroVisual.hatClip('ducken')) ? 'duckstand' : 'idle';
-  }
-  /* ---- Hocke auf der Dachkante ----
-     Wer hoch ueber der Strasse still steht, geht in die Hocke - die
-     Haltung, in der Spider-Man ueber der Stadt sitzt. Sie kommt aus dem
-     Unreal-Projekt ("Perch"). Unten in der Stadt bleibt es beim normalen
-     Stehen, sonst kauerte die Figur an jeder Ampel. */
-  else if (player.hockeT > 0.9 && heroVisual.hatClip && heroVisual.hatClip('hocke')) {
-    player.anim = 'hocke';
   }
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
@@ -10759,10 +10782,6 @@ function updateKatapult(dt) {
      haenge das Spiel. Genau das war der Fehler auf dem iPad. */
   const halt = Math.pow(1 - 0.40 * t, clamp(dt, 0, 0.1) * 60);
   player.vel.x *= halt; player.vel.z *= halt;
-  /* Zu den Netzen schauen. Vorher drehte sich die Figur beim
-     Zurueckgehen um und lief dem Katapult davon - man sah die Faeden gar
-     nicht mehr, und der Zug war nicht abzulesen. */
-  player.facing = dampAngle(player.facing, Math.atan2(KAT.rx, KAT.rz), Math.min(1, dt * 10));
   /* Sich in die Spannung legen: je straffer, desto weiter nach hinten. */
   KAT.lehne = lerp(KAT.lehne || 0, t * 0.30, Math.min(1, dt * 8));
   heroVisual.root.updateMatrixWorld(true);
@@ -14794,6 +14813,18 @@ if (window.__WEBHERO_TEST__ === true) {
     aufzuege() {
       return AUFZUEGE.map((z) => ({ x: +z.x.toFixed(1), z: +z.z.toFixed(1),
         y: +z.y.toFixed(2), unten: z.unten, oben: z.oben, ziel: z.ziel }));
+    },
+    /* Alle Deko-Kloetze in einem Quader - zum Aufspueren von Geometrie,
+       die dort steht, wo sie nicht hingehoert. */
+    dekoIm(x0, x1, y0, y1, z0, z1, minLang) {
+      const L = minLang === undefined ? 0 : minLang;
+      return DEKO_KOPIE.filter((t) =>
+        t.x + t.w / 2 > x0 && t.x - t.w / 2 < x1 &&
+        t.y + t.h / 2 > y0 && t.y - t.h / 2 < y1 &&
+        t.z + t.d / 2 > z0 && t.z - t.d / 2 < z1 &&
+        Math.max(t.w, t.d) >= L)
+        .map((t) => [t.w, t.h, t.d, +t.x.toFixed(1), +t.y.toFixed(1), +t.z.toFixed(1),
+                     '#' + t.farbe.toString(16)]);
     },
     ubStand() {
       return UB_SCHAECHTE.map((sch) => ({
