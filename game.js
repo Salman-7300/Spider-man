@@ -1454,7 +1454,9 @@ function ubDurchgang(sx, sch) {
    Der Schacht bekommt Loecher im Gehweg, in der Hallendecke und im
    Erdblock (siehe ubahnLoecher). */
 const AUF_B = 2.4;                        // lichte Weite der Kabine
-const AUF_ABST = 1.4;                     // Abstand hinter dem Treppenfuss
+/* Vier Meter hinter dem Treppenfuss. Bei 1,4 m stand der Aufzug oben wie
+   unten direkt an der Treppe - man kam kaum dazwischen. */
+const AUF_ABST = 4.0;                     // Abstand hinter dem Treppenfuss
 function ubAufzug(sx, sch) {
   const richtung = sch.xKopf > sch.xFuss ? -1 : 1;
   const a = sx + sch.xFuss + richtung * AUF_ABST;
@@ -3920,9 +3922,9 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'kriech_l', 'kriech_r', 'hocke',
   /* Netzschwung, Wandlauf, Netz-Zug und Landung - alle aus demselben
      Projekt und fuer genau diese Bewegungen gemacht. */
-  'schwung2', 'flip_v', 'flip_h', 'wandlauf2', 'kriech_v', 'wandruhe',
+  'schwung2', 'flip_v', 'flip_h', 'wandruhe',
   'sturzflug', 'sturzflug2',
-  'zip_ab', 'zip_zug', 'sturz2', 'land2', 'kriech_b'];
+  'zip_ab', 'zip_zug', 'sturz2', 'land2'];
 
 /* Alltagsbewegungen der Zivilisten. Sie liegen NUR unter civilian@... und
    werden danach an alle Zivilistenmodelle weitergereicht - Held und Gegner
@@ -4347,9 +4349,8 @@ const GLB_CLIP_PATTERNS = {
   gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
   kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/], hocke: [/^hocke$/],
-  kriech_b: [/^kriech_b$/], wandruhe: [/^wandruhe$/],
+  wandruhe: [/^wandruhe$/],
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
-  wandlauf2: [/^wandlauf2$/], kriech_v: [/^kriech_v$/],
   sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
   zip_ab: [/^zip_ab$/], zip_zug: [/^zip_zug$/],
   sturz2: [/^sturz2$/], land2: [/^land2$/],
@@ -4404,10 +4405,9 @@ const GLB_FALLBACK = {
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
   kriech_l: ['klettern_seit', 'climb'], kriech_r: ['klettern_seit', 'climb'],
-  hocke: ['ducken', 'idle'], kriech_b: ['kriechen', 'climb'],
+  hocke: ['ducken', 'idle'],
   wandruhe: ['haengen', 'climb'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
-  wandlauf2: ['wandlauf', 'run'], kriech_v: ['kriechen', 'climb'],
   sturzflug: ['gleiten', 'air'], sturzflug2: ['sturzflug', 'gleiten', 'air'],
   zip_ab: ['jump', 'air'], zip_zug: ['air'],
   sturz2: ['sturzland', 'land'], land2: ['land'],
@@ -5092,6 +5092,21 @@ function makeGlbVisual(m) {
     if (o.isMesh || o.isSkinnedMesh) {
       o.castShadow = true; o.frustumCulled = false;
       originale.push(o);
+      /* ---- Metallanteil zuruecknehmen ----
+         Ein voll metallisches Material hat KEINE eigene Farbe: es zeigt
+         nur die Spiegelung seiner Umgebung. Eine Umgebungskarte gibt es
+         hier nicht, also bleibt so ein Teil schwarz - egal wie hell die
+         Sonne scheint.
+         Gemessen bringt das Heldenmodell fuer den groessten Teil des
+         Anzugs metalness = 1 mit (Object_3), die Zivilisten und Gegner
+         0,4. Genau das war "alle Charaktere sind schwarz": nicht das
+         Licht war zu dunkel, sondern die Haut hat gar keine Farbe
+         zurueckgegeben. */
+      for (const mat of (Array.isArray(o.material) ? o.material : [o.material])) {
+        if (!mat || mat.metalness === undefined) continue;
+        if (mat.metalness > 0.08) mat.metalness = 0.08;
+        if (mat.roughness !== undefined) mat.roughness = clamp(mat.roughness, 0.35, 0.9);
+      }
       /* Sehr dunkle Anzüge verschwinden im Schatten der Häuserschluchten –
          ein Hauch Eigenleuchten hält die Silhouette sichtbar. */
       if (m.aufhellen) {
@@ -6407,16 +6422,22 @@ function makeGlbVisual(m) {
          tools/anim-ausrichten.mjs). In Unreal bringt jede ihre eigene
          Wanddrehung mit; ungedreht klebte die Figur mit dem Ruecken an der
          Fassade oder lag quer. */
+      /* Die Wand HINAUFRENNEN bleibt der aufrechte Laufschritt. Der
+         Versuch, dafuer die Wandbewegung aus hero-3 zu nehmen, war ein
+         Rueckschritt: das ist ein flaches Kriechen, und aus dem Rennen die
+         Wand hoch wurde damit ein Wuehlen. */
       if (p.wandModus === 'lauf') {
-        if (findClip(m.clips, 'wandlauf2')) want = 'wandlauf2';
-        else if (findClip(m.clips, 'run')) want = 'run';
+        if (findClip(m.clips, 'run')) want = 'run';
       } else if (p.wandModus === 'kriechen') {
         /* Fuer die vier Richtungen an der Wand gibt es eigene Bewegungen.
            Nur wenn keine davon gewuenscht ist, laeuft das allgemeine
            Kriechen. Vorher hat diese Zeile den Wunsch immer
            ueberschrieben - die Richtungsclips kamen nie an. */
-        const richtung = (key === 'kriech_l' || key === 'kriech_r' ||
-                          key === 'kriech_b' || key === 'kriech_v') &&
+        /* Senkrecht hinauf und hinunter fuehrt weiter die Kriech-
+           bewegung, mit der die Wandkippung gebaut wurde - die hat sich
+           bewaehrt. Eigene Dateien gibt es nur fuer SEITWAERTS; die gab es
+           vorher gar nicht. */
+        const richtung = (key === 'kriech_l' || key === 'kriech_r') &&
                          findClip(m.clips, key);
         if (!richtung && findClip(m.clips, 'kriechen')) want = 'kriechen';
       }
@@ -9309,14 +9330,11 @@ function updatePlayer(dt) {
        falsch aus - hinunter greifen die Haende anders herum. */
     player.wandAb = !seitlich && up < 0;
     const hatK = heroVisual.hatClip || (() => false);
-    const aufwaerts = hatK('kriech_v') ? 'kriech_v'
-                    : hatK('klettern') ? 'klettern' : 'climb';
-    const abwaerts = hatK('kriech_b') ? 'kriech_b' : aufwaerts;
+    const senkrecht = hatK('klettern') ? 'klettern' : 'climb';
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
                 : seitlich ? (hatSeit ? seitClip : 'klettern_seit')
-                : player.wandAb ? abwaerts
-                : aufwaerts;
+                : senkrecht;                          // hoch und runter
     updateHeroVisual(dt);
     return;
   }
@@ -10070,7 +10088,9 @@ function updatePlayer(dt) {
      falsche Richtung, und es sah aus, als werde die Figur einfach
      geschoben. Jetzt laeuft der normale Gang rueckwaerts ab, mit dem
      gewohnten Abgleich zwischen Schrittlaenge und echtem Tempo. */
-  if (KAT.aktiv) player.anim = 'run';
+  /* Steht die Figur beim Spannen still, soll sie auch stehen - der
+     Laufschritt wuerde sonst auf der Stelle weiterlaufen. */
+  if (KAT.aktiv) player.anim = hSpeed > 0.5 ? 'run' : 'idle';
   else if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
   else if (player.state === 'swing') {
@@ -10730,8 +10750,14 @@ function updateKatapult(dt) {
   KAT.ladung = clamp(zug, 0, KAT_ZUG);
   const t = clamp(KAT.ladung / KAT_ZUG, 0, 1);
   /* Je straffer, desto schwerer kommt man weiter zurueck - das Netz zieht
-     zurueck. Vorher wurde einfach jede Bewegung gebremst. */
-  const halt = 1 - 0.55 * t;
+     zurueck.
+     WICHTIG: die Bremse muss auf die Zeit gerechnet werden, nicht auf das
+     BILD. Vorher stand hier ein fester Faktor je Bild. Auf einem Geraet
+     mit 120 Bildern je Sekunde wirkte er doppelt so oft wie auf einem mit
+     60 - die Figur kam dort ueberhaupt nicht mehr von der Stelle, das
+     Katapult liess sich nicht spannen und alles fuehlte sich an, als
+     haenge das Spiel. Genau das war der Fehler auf dem iPad. */
+  const halt = Math.pow(1 - 0.40 * t, clamp(dt, 0, 0.1) * 60);
   player.vel.x *= halt; player.vel.z *= halt;
   /* Zu den Netzen schauen. Vorher drehte sich die Figur beim
      Zurueckgehen um und lief dem Katapult davon - man sah die Faeden gar
