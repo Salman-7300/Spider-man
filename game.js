@@ -3725,7 +3725,11 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'wurfgriff', 'kriechen',
   /* hero-3: Seil ziehen (Haltung beim Spannen des Katapults) und
      Aufstampfen (der Tritt im Symbiontenanzug). */
-  'ziehen', 'stampfen'];
+  'ziehen', 'stampfen',
+  /* Aus dem Unreal-Projekt in hero-3, ueber tools/uasset-zu-glb.mjs und
+     tools/retarget-ue4.mjs geholt: seitliches Kriechen nach links und
+     rechts (fuer die Hauswand) und die Hocke auf der Dachkante. */
+  'kriech_l', 'kriech_r', 'hocke'];
 
 /* Alltagsbewegungen der Zivilisten. Sie liegen NUR unter civilian@... und
    werden danach an alle Zivilistenmodelle weitergereicht - Held und Gegner
@@ -4149,6 +4153,7 @@ const GLB_CLIP_PATTERNS = {
   tippen: [/^tippen$/i], trinken: [/^trinken$/i],
   gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
+  kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/], hocke: [/^hocke$/],
   ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
   ausw_hr: [/^ausw_hr$/], ausw_h: [/^ausw_h$/], ausw_hl: [/^ausw_hl$/],
   ausw_l: [/^ausw_l$/], ausw_vl: [/^ausw_vl$/],
@@ -4199,6 +4204,8 @@ const GLB_FALLBACK = {
   sitzen: ['sit', 'idle'], reden: ['idle'], streiten: ['idle'], tippen: ['telefon', 'idle'],
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
+  kriech_l: ['klettern_seit', 'climb'], kriech_r: ['klettern_seit', 'climb'],
+  hocke: ['ducken', 'idle'],
   ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
   ausw_hr: ['ausweichenR', 'roll'], ausw_h: ['roll'], ausw_hl: ['ausweichenL', 'roll'],
   ausw_l: ['ausweichenL', 'roll'], ausw_vl: ['ausweichenL', 'roll'],
@@ -9043,9 +9050,15 @@ function updatePlayer(dt) {
        Hand ueber Hand, Koerper an der Wand. Sie passt fuer das
        Wandkriechen deutlich besser als "Climbing Up Wall", das eher ein
        einmaliges Hochziehen ist. */
+    /* Seitwaerts an der Wand: aus dem Unreal-Projekt gibt es ein echtes
+       Kriechen nach links und nach rechts. Die bisherige Bewegung
+       ("Shimmy") ist ein Hangeln an einer Kante - an der Fassade sah das
+       aus, als haenge die Figur an einem unsichtbaren Sims. */
+    const seitClip = side > 0 ? 'kriech_r' : 'kriech_l';
+    const hatSeit = heroVisual.hatClip && heroVisual.hatClip(seitClip);
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
-                : seitlich ? 'klettern_seit'          // seitlich hangeln
+                : seitlich ? (hatSeit ? seitClip : 'klettern_seit')
                 : (heroVisual.hatClip && heroVisual.hatClip('klettern')
                     ? 'klettern' : 'climb');          // senkrecht hoch/runter
     updateHeroVisual(dt);
@@ -9726,6 +9739,14 @@ function updatePlayer(dt) {
   if (player.rollT > 0 && !player.onGround && player.vel.y < -1) player.rollT = 0;
   /* Beim Spannen des Katapults stemmt sich die Figur gegen den Zug
      ("Pulling A Rope"). Vorher rannte sie dabei einfach rueckwaerts. */
+  /* Zaehler fuer die Hocke: still, am Boden, hoch ueber der Strasse. */
+  {
+    const hoch = player.pos.y - SLAB_H > 12;
+    const ruhig = player.onGround && !dir && hSpeed < 0.4 && !player.attack &&
+                  player.rollT <= 0 && player.hitT <= 0 && !player.duckt &&
+                  player.state !== 'climb' && player.state !== 'swing';
+    player.hockeT = (hoch && ruhig) ? (player.hockeT || 0) + dt : 0;
+  }
   if (KAT.aktiv && heroVisual.hatClip && heroVisual.hatClip('ziehen')) player.anim = 'ziehen';
   else if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
@@ -9751,6 +9772,14 @@ function updatePlayer(dt) {
      genommen und an einer Stelle angehalten, an der beide Fuesse stehen. */
   else if (player.duckMisch > 0.3 && hSpeed <= 0.4) {
     player.anim = (heroVisual.hatClip && heroVisual.hatClip('ducken')) ? 'duckstand' : 'idle';
+  }
+  /* ---- Hocke auf der Dachkante ----
+     Wer hoch ueber der Strasse still steht, geht in die Hocke - die
+     Haltung, in der Spider-Man ueber der Stadt sitzt. Sie kommt aus dem
+     Unreal-Projekt ("Perch"). Unten in der Stadt bleibt es beim normalen
+     Stehen, sonst kauerte die Figur an jeder Ampel. */
+  else if (player.hockeT > 0.9 && heroVisual.hatClip && heroVisual.hatClip('hocke')) {
+    player.anim = 'hocke';
   }
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
