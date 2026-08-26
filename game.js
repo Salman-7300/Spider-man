@@ -3956,6 +3956,9 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
      beide aus dem Unreal-Projekt, beide auf die Ausgangslage des Spiels
      gedreht (siehe tools/anim-ausrichten.mjs). */
   'kriech_l', 'kriech_r',
+  /* Absprung von der Wand, der Netzwurf beim Anschwingen, die Drehung im
+     Netzzug und der freie Fall mit ausgebreiteten Armen. */
+  'wandsprung', 'netzwurf', 'zip_dreh', 'freifall',
   'schwung2', 'flip_v', 'flip_h',
   'sturzflug', 'sturzflug2',
   'zip_ab', 'zip_zug'];
@@ -4385,6 +4388,8 @@ const GLB_CLIP_PATTERNS = {
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
   sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
   kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/],
+  wandsprung: [/^wandsprung$/], netzwurf: [/^netzwurf$/],
+  zip_dreh: [/^zip_dreh$/], freifall: [/^freifall$/],
   zip_ab: [/^zip_ab$/], zip_zug: [/^zip_zug$/],
   ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
   ausw_hr: [/^ausw_hr$/], ausw_h: [/^ausw_h$/], ausw_hl: [/^ausw_hl$/],
@@ -4439,6 +4444,8 @@ const GLB_FALLBACK = {
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
   sturzflug: ['gleiten', 'air'], sturzflug2: ['sturzflug', 'gleiten', 'air'],
   kriech_l: ['kriechen', 'climb'], kriech_r: ['kriechen', 'climb'],
+  wandsprung: ['jump', 'air'], netzwurf: ['schwung2', 'swing'],
+  zip_dreh: ['zip_zug', 'air'], freifall: ['gleiten', 'air'],
   zip_ab: ['jump', 'air'], zip_zug: ['air'],
   ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
   ausw_hr: ['ausweichenR', 'roll'], ausw_h: ['roll'], ausw_hl: ['ausweichenL', 'roll'],
@@ -6699,6 +6706,26 @@ function makeGlbVisual(m) {
        aber nur einen knappen Satz dauern. Sie wird deshalb beschleunigt
        abgespielt, damit die Rolle wirklich zu Ende geht, statt mittendrin
        in den Stand zu springen. */
+    /* Wie attackOneShot, faengt aber an einer BESTIMMTEN Stelle des Clips
+       an. Gebraucht fuer das Aufrichten aus der Hocke: die Duckbewegung
+       wird ab der Hockstelle nach vorn abgespielt, statt von vorn. */
+    abOneShot(art, vonZeit, zielDauer) {
+      const a = actionFor(art);
+      if (!a) return 0;
+      const d = a.getClip().duration;
+      const rest = Math.max(0.05, d - vonZeit);
+      const v = clamp(rest / zielDauer, 0.6, 3.0);
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = true;
+      if (angriff && angriff !== a) angriff.fadeOut(0.09);
+      else if (current && !angriff) current.fadeOut(0.09);
+      a.reset(); a.fadeIn(0.09);
+      a.time = vonZeit;
+      a.timeScale = v; a.play();
+      angriff = a;
+      angriffT = Math.min(zielDauer, rest / v);
+      return angriffT;
+    },
     /* Kantenzug: einmalige Bewegung mit fester Spieldauer. */
     kanteOneShot(zielDauer) {
       const a = actionFor('kante');
@@ -6810,6 +6837,7 @@ function makeProceduralVisual(cfg) {
     play(key, p, dt) { poseHuman(human, key, p, dt); },
     attackOneShot() {},
     brichOneShot() { return false; },
+    abOneShot() { return 0; },
     get einmalLaeuft() { return false; },
     rolleOneShot() { return 0; },
     clipDauer() { return 0; },
@@ -8322,6 +8350,12 @@ function startSwing() {
      herangerissen – das war der Sprung nach oben beim Anschwingen. */
   player.swing = { anchor, hand, len: Math.max(abstand, zielLen), zielLen, t: 0 };
   player.state = 'swing';
+  /* Der Wurf selbst ist eine eigene kurze Bewegung: der Arm holt aus und
+     schiesst den Faden. Vorher hing die Figur im ersten Bild einfach schon
+     am Netz - man sah nie, wie das Netz losging. */
+  if (heroVisual.hatClip && heroVisual.hatClip('netzwurf') && heroVisual.attackOneShot) {
+    heroVisual.attackOneShot(0, 'netzwurf', 0.3);
+  }
   SFX.thwip();
   return true;
 }
@@ -8469,7 +8503,7 @@ function webZip() {
      Strecke ab, und der Angriff kam nie zustande. */
   const weg = Math.hypot(target.x - player.pos.x, target.y - player.pos.y - 1.1,
                          target.z - player.pos.z);
-  player.zip = { target, enemy: enemy || null, hand,
+  player.zip = { target, enemy: enemy || null, hand, weit: weg > 16,
                  t: enemy ? clamp(weg / 13 + 0.7, 0.9, 3.2) : 0.9,
                  tempo: Math.max(16, Math.hypot(player.vel.x, player.vel.z)) };
   /* Kein zusätzlicher Blitz-Faden: der Zip zieht den Faden ohnehin die
@@ -8517,6 +8551,12 @@ function tryJump() {
     player.vel.set(w.nx * 7.5, 9.5, w.nz * 7.5);
     if (dir) { player.vel.x += dir.x * 3; player.vel.z += dir.z * 3; }
     player.wallInfo = null;
+    /* Der Absprung von der Wand ist eine eigene Bewegung: abstossen,
+       einmal ueberschlagen, dann in den Fall. Vorher schaltete die Figur
+       im selben Bild von der Kletterhaltung auf freien Fall um. */
+    if (heroVisual.hatClip && heroVisual.hatClip('wandsprung') && heroVisual.attackOneShot) {
+      player.luftSalto = heroVisual.attackOneShot(0, 'wandsprung', 0.75) || 0;
+    }
     SFX.swoosh();
     return;
   }
@@ -9431,8 +9471,13 @@ function updatePlayer(dt) {
          wird hier gesetzt, nicht in der allgemeinen Auswahl weiter unten -
          der Zug kehrt vorher zurueck. Genau deshalb lief bisher der freie
          Fall, obwohl unten eine Zip-Haltung stand. */
+      /* Auf langer Strecke dreht sich die Figur im Zug einmal um die
+         eigene Achse ("HorizontalSwirl") - kurze Zuege bleiben ruhig. */
+      const hatDreh = !z.enemy && z.weit &&
+                      heroVisual.hatClip && heroVisual.hatClip('zip_dreh');
       const hatZug = heroVisual.hatClip && heroVisual.hatClip('zip_zug');
-      player.anim = hatZug ? 'zip_zug' : (z.enemy ? 'knie' : 'air');
+      player.anim = hatDreh ? 'zip_dreh'
+                  : hatZug ? 'zip_zug' : (z.enemy ? 'knie' : 'air');
       updateHeroVisual(dt);
       return;
     }
@@ -9972,6 +10017,10 @@ function updatePlayer(dt) {
         SFX.swoosh();
       }
     }
+    /* Hoch ueber der Strasse gelandet? Dann gleich in die Hocke, ohne
+       erst eine Sekunde still stehen zu muessen - so kommt man aus dem
+       Flug direkt auf die Dachkante. */
+    if (!wasOnGround && player.pos.y - SLAB_H > 12) player.hockeT = 1.0;
     player.state = 'ground';
     player.jumps = 0;
     player.swingLock = keys['Space'] || swingHeld; // Space am Boden gedrückt → erst loslassen
@@ -10134,7 +10183,16 @@ function updatePlayer(dt) {
     const ruhig = player.onGround && !dir && hSpeed < 0.4 && !player.attack &&
                   player.rollT <= 0 && player.hitT <= 0 && !player.duckt &&
                   !KAT.aktiv && player.state !== 'climb' && player.state !== 'swing';
+    const warHocke = (player.hockeT || 0) > 0.9;
     player.hockeT = (hoch && ruhig) ? (player.hockeT || 0) + dt : 0;
+    /* Aufrichten: die Duckbewegung ab der Hockstelle nach vorn abspielen.
+       Vorher wechselte die Figur in einem Bild von der Hocke in den
+       Stand. */
+    if (warHocke && player.hockeT === 0 && heroVisual.abOneShot &&
+        heroVisual.hatClip && heroVisual.hatClip('ducken')) {
+      player.aufrichtT = heroVisual.abOneShot('ducken', DUCK_STAND_T, 0.42) || 0;
+    }
+    if (player.aufrichtT > 0) player.aufrichtT -= dt;
   }
   if (KAT.aktiv) player.anim = hSpeed > 0.5 ? 'run' : 'idle';
   else if (player.rollT > 0) player.anim = 'roll';
@@ -10152,7 +10210,14 @@ function updatePlayer(dt) {
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – solange es nach
      oben geht, läuft der Absprung, danach erst der freie Fall. */
   else if (player.gleiten) player.anim = player.sturzflug ? 'sturzflug' : 'gleiten';
-  else if (!player.onGround) player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
+  else if (!player.onGround) {
+    /* Wer lange faellt und dabei nichts tut, breitet die Arme aus
+       ("Cristo Redentor"). Kurze Spruenge behalten die Sprunghaltung. */
+    const langerFall = player.vel.y < -14 && player.luftSalto <= 0 &&
+                       !player.attack && player.rollT <= 0 &&
+                       heroVisual.hatClip && heroVisual.hatClip('freifall');
+    player.anim = player.vel.y > 1.5 ? 'jump' : (langerFall ? 'freifall' : 'air');
+  }
   else if (player.dreiPunktT > 0) player.anim = 'land';
   else if (player.hartLandung > 0) player.anim = 'fallrolle';
   else if (player.landT > 0) player.anim = 'land';
