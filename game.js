@@ -3952,6 +3952,10 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
      rechts (fuer die Hauswand) und die Hocke auf der Dachkante. */
   /* Netzschwung, Wandlauf, Netz-Zug und Landung - alle aus demselben
      Projekt und fuer genau diese Bewegungen gemacht. */
+  /* Seitliches Kriechen an der Wand und die Hocke auf der Dachkante -
+     beide aus dem Unreal-Projekt, beide auf die Ausgangslage des Spiels
+     gedreht (siehe tools/anim-ausrichten.mjs). */
+  'kriech_l', 'kriech_r',
   'schwung2', 'flip_v', 'flip_h',
   'sturzflug', 'sturzflug2',
   'zip_ab', 'zip_zug'];
@@ -4380,6 +4384,7 @@ const GLB_CLIP_PATTERNS = {
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
   sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
+  kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/],
   zip_ab: [/^zip_ab$/], zip_zug: [/^zip_zug$/],
   ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
   ausw_hr: [/^ausw_hr$/], ausw_h: [/^ausw_h$/], ausw_hl: [/^ausw_hl$/],
@@ -4433,6 +4438,7 @@ const GLB_FALLBACK = {
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
   sturzflug: ['gleiten', 'air'], sturzflug2: ['sturzflug', 'gleiten', 'air'],
+  kriech_l: ['kriechen', 'climb'], kriech_r: ['kriechen', 'climb'],
   zip_ab: ['jump', 'air'], zip_zug: ['air'],
   ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
   ausw_hr: ['ausweichenR', 'roll'], ausw_h: ['roll'], ausw_hl: ['ausweichenL', 'roll'],
@@ -6476,17 +6482,18 @@ function makeGlbVisual(m) {
       if (p.wandModus === 'lauf') {
         if (findClip(m.clips, 'run')) want = 'run';
       } else if (p.wandModus === 'kriechen') {
-        /* Fuer die vier Richtungen an der Wand gibt es eigene Bewegungen.
-           Nur wenn keine davon gewuenscht ist, laeuft das allgemeine
-           Kriechen. Vorher hat diese Zeile den Wunsch immer
-           ueberschrieben - die Richtungsclips kamen nie an. */
-        /* Senkrecht hinauf und hinunter fuehrt weiter die Kriech-
-           bewegung, mit der die Wandkippung gebaut wurde - die hat sich
-           bewaehrt. Eigene Dateien gibt es nur fuer SEITWAERTS; die gab es
-           vorher gar nicht. */
-        const richtung = (key === 'kriech_l' || key === 'kriech_r') &&
-                         findClip(m.clips, key);
-        if (!richtung && findClip(m.clips, 'kriechen')) want = 'kriechen';
+        /* An der Wand fuehrt die Kriechbewegung - die, mit der die
+           Wandkippung gebaut wurde.
+           AUSGENOMMEN das seitliche Hangeln: dafuer gibt es eine eigene
+           Bewegung, und diese Zeile hat sie immer ueberschrieben.
+           Seitwaerts sah deshalb genauso aus wie hinauf - das Hangeln war
+           im Spiel praktisch nicht vorhanden. */
+        /* Seitwaerts gibt es eine eigene Bewegung. Sie ist so gedreht,
+           dass der Kopf dabei NACH OBEN zeigt - der erste Versuch legte
+           die Figur laengs an die Fassade, das sah aus wie ein Sturz. */
+        const seit = (key === 'kriech_l' || key === 'kriech_r') &&
+                     findClip(m.clips, key);
+        if (!seit && findClip(m.clips, 'kriechen')) want = 'kriechen';
       }
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
@@ -9365,9 +9372,9 @@ function updatePlayer(dt) {
        Hand ueber Hand, Koerper an der Wand. Sie passt fuer das
        Wandkriechen deutlich besser als "Climbing Up Wall", das eher ein
        einmaliges Hochziehen ist. */
-    /* Seitwaerts an der Wand bleibt es beim Hangeln. Der Versuch, dafuer
-       die Wandbewegungen aus dem Unreal-Projekt zu nehmen, hat die Figur
-       quer an die Fassade gelegt. */
+    /* Seitwaerts an der Wand: eigene Bewegung, Kopf bleibt oben. */
+    const seitClip = side > 0 ? 'kriech_r' : 'kriech_l';
+    const hatSeit = heroVisual.hatClip && heroVisual.hatClip(seitClip);
     /* Vier Richtungen an der Wand, jede mit eigener Bewegung: hinauf,
        hinunter, links, rechts. Rueckwaerts abgespielt sieht Klettern
        falsch aus - hinunter greifen die Haende anders herum. */
@@ -9376,7 +9383,7 @@ function updatePlayer(dt) {
     const senkrecht = hatK('klettern') ? 'klettern' : 'climb';
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
-                : seitlich ? 'klettern_seit'
+                : seitlich ? (hatSeit ? seitClip : 'klettern_seit')
                 : senkrecht;                          // hoch und runter
     updateHeroVisual(dt);
     return;
@@ -10121,6 +10128,14 @@ function updatePlayer(dt) {
      gewohnten Abgleich zwischen Schrittlaenge und echtem Tempo. */
   /* Steht die Figur beim Spannen still, soll sie auch stehen - der
      Laufschritt wuerde sonst auf der Stelle weiterlaufen. */
+  /* Zaehler fuer die Hocke: still, am Boden, hoch ueber der Strasse. */
+  {
+    const hoch = player.pos.y - SLAB_H > 12;
+    const ruhig = player.onGround && !dir && hSpeed < 0.4 && !player.attack &&
+                  player.rollT <= 0 && player.hitT <= 0 && !player.duckt &&
+                  !KAT.aktiv && player.state !== 'climb' && player.state !== 'swing';
+    player.hockeT = (hoch && ruhig) ? (player.hockeT || 0) + dt : 0;
+  }
   if (KAT.aktiv) player.anim = hSpeed > 0.5 ? 'run' : 'idle';
   else if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
@@ -10148,6 +10163,18 @@ function updatePlayer(dt) {
      genommen und an einer Stelle angehalten, an der beide Fuesse stehen. */
   else if (player.duckMisch > 0.3 && hSpeed <= 0.4) {
     player.anim = (heroVisual.hatClip && heroVisual.hatClip('ducken')) ? 'duckstand' : 'idle';
+  }
+  /* ---- Hocke auf der Dachkante ----
+     Wer hoch ueber der Strasse still steht, geht in die Hocke - die
+     Haltung, in der Spider-Man ueber der Stadt sitzt. Unten in der Stadt
+     bleibt es beim normalen Stehen, sonst kauerte die Figur an jeder
+     Ampel. */
+  else if (player.hockeT > 0.9 && heroVisual.hatClip && heroVisual.hatClip('ducken')) {
+    /* Dafuer die Duckhaltung, an der Stelle festgehalten, an der beide
+       Fuesse stehen (das macht 'duckstand'). Die Hocke aus dem
+       Unreal-Projekt ("Crouching_Idle") ist gar keine Hocke - gedreht
+       stand die Figur damit aufrecht mit abgespreiztem Bein da. */
+    player.anim = 'duckstand';
   }
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
@@ -14825,6 +14852,35 @@ if (window.__WEBHERO_TEST__ === true) {
         Math.max(t.w, t.d) >= L)
         .map((t) => [t.w, t.h, t.d, +t.x.toFixed(1), +t.y.toFixed(1), +t.z.toFixed(1),
                      '#' + t.farbe.toString(16)]);
+    },
+    /* Welcher Bewegungsname landet auf welcher Datei? Findet Doppelungen:
+       zwei Namen auf derselben Datei, eine Datei die auf mehrere Namen
+       passt, und Namen ohne jede Datei. */
+    clipKarte() {
+      const m = glbModels.hero;
+      if (!m || !m.clips) return null;
+      const namen = m.clips.map((c) => c.name);
+      const karte = {};
+      /* Alle Namen, die das Spiel ueberhaupt aufloesen kann. */
+      for (const key of Object.keys(GLB_CLIP_PATTERNS)) {
+        const c = findClip(m.clips, key);
+        karte[key] = c ? c.name : null;
+      }
+      /* Welche Datei passt auf MEHRERE Namen? */
+      const proClip = {};
+      for (const [key, cl] of Object.entries(karte)) {
+        if (!cl) continue;
+        (proClip[cl] = proClip[cl] || []).push(key);
+      }
+      /* Welcher Name steht in einer der Ladelisten, hat aber gar kein
+         Muster - der kann nie gefunden werden. */
+      const geladen = [].concat(GLB_ANIM_PARTS,
+        typeof HELD_ANIM_PARTS !== 'undefined' ? HELD_ANIM_PARTS : [],
+        typeof ZIVI_ANIM_PARTS !== 'undefined' ? ZIVI_ANIM_PARTS : []);
+      const ohneMuster = geladen.filter((k) => !GLB_CLIP_PATTERNS[k]);
+      return { anzahlClips: namen.length, karte, proClip, ohneMuster,
+               ohneDatei: Object.keys(karte).filter((k) => !karte[k]),
+               nieBenutzt: namen.filter((n) => !proClip[n]) };
     },
     ubStand() {
       return UB_SCHAECHTE.map((sch) => ({
