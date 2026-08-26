@@ -3955,11 +3955,16 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   /* Seitliches Kriechen an der Wand und die Hocke auf der Dachkante -
      beide aus dem Unreal-Projekt, beide auf die Ausgangslage des Spiels
      gedreht (siehe tools/anim-ausrichten.mjs). */
-  'kriech_l', 'kriech_r',
-  /* Absprung von der Wand, der Netzwurf beim Anschwingen, die Drehung im
-     Netzzug und der freie Fall mit ausgebreiteten Armen. */
-  'wandsprung', 'netzwurf', 'zip_dreh', 'freifall',
+  /* Absprung von der Wand, der Netzwurf beim Anschwingen und die Drehung
+     im Netzzug. */
+  'wandsprung', 'netzwurf', 'zip_dreh',
   'schwung2', 'flip_v', 'flip_h',
+  /* Zwei echte Luftakrobatiken aus demselben Projekt ("NewCrazyFlip" und
+     "CrazyFlip_Right"). Sie sind der Spass am Netzschwung: beim Loslassen
+     und zwischen zwei Boegen dreht sich die Figur um die eigene Achse
+     oder ueberschlaegt sich seitlich. Reine Schau - die Flugbahn bleibt
+     unveraendert. */
+  'kunst_a', 'kunst_b',
   'sturzflug', 'sturzflug2',
   'zip_ab', 'zip_zug'];
 
@@ -4387,9 +4392,8 @@ const GLB_CLIP_PATTERNS = {
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
   sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
-  kriech_l: [/^kriech_l$/], kriech_r: [/^kriech_r$/],
   wandsprung: [/^wandsprung$/], netzwurf: [/^netzwurf$/],
-  zip_dreh: [/^zip_dreh$/], freifall: [/^freifall$/],
+  zip_dreh: [/^zip_dreh$/],
   zip_ab: [/^zip_ab$/], zip_zug: [/^zip_zug$/],
   ausw_v: [/^ausw_v$/], ausw_vr: [/^ausw_vr$/], ausw_r: [/^ausw_r$/],
   ausw_hr: [/^ausw_hr$/], ausw_h: [/^ausw_h$/], ausw_hl: [/^ausw_hl$/],
@@ -4398,6 +4402,7 @@ const GLB_CLIP_PATTERNS = {
   rolle_hr: [/^rolle_hr$/], rolle_h: [/^rolle_h$/], rolle_hl: [/^rolle_hl$/],
   rolle_l: [/^rolle_l$/], rolle_vl: [/^rolle_vl$/],
   spin_l: [/^spin_l$/], spin_r: [/^spin_r$/],
+  kunst_a: [/^kunst_a$/], kunst_b: [/^kunst_b$/],
   klettern_frei: [/klettern_frei/i],
   klettern_seit: [/klettern_seit/i],
   ausweichenL: [/ausweichenL/],
@@ -4443,9 +4448,8 @@ const GLB_FALLBACK = {
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
   sturzflug: ['gleiten', 'air'], sturzflug2: ['sturzflug', 'gleiten', 'air'],
-  kriech_l: ['kriechen', 'climb'], kriech_r: ['kriechen', 'climb'],
   wandsprung: ['jump', 'air'], netzwurf: ['schwung2', 'swing'],
-  zip_dreh: ['zip_zug', 'air'], freifall: ['gleiten', 'air'],
+  zip_dreh: ['zip_zug', 'air'],
   zip_ab: ['jump', 'air'], zip_zug: ['air'],
   ausw_v: ['roll'], ausw_vr: ['ausweichenR', 'roll'], ausw_r: ['ausweichenR', 'roll'],
   ausw_hr: ['ausweichenR', 'roll'], ausw_h: ['roll'], ausw_hl: ['ausweichenL', 'roll'],
@@ -5137,6 +5141,17 @@ function makeGlbVisual(m) {
   const inner = THREE.SkeletonUtils.clone(m.scene);
   inner.scale.setScalar(m.scale);
   inner.position.y = m.yOffset * m.scale;
+  /* Reihenfolge Z-X-Y, also R = Rz . Rx . Ry:
+       Ry  richtet das Modell aus (jede Datei schaut anders herum),
+       Rx  kippt die Figur an die Wand (siehe wandKriechen),
+       Rz  rollt sie danach um die WANDNORMALE - damit zeigt der Kopf in
+           die Richtung, in die sie an der Fassade unterwegs ist.
+     Mit der Standardreihenfolge XYZ waere Rz die INNERSTE Drehung
+     gewesen, also eine Drehung um die eigene Laengsachse - die Figur
+     haette sich um sich selbst geschraubt, statt sich an der Wand zu
+     drehen. Solange rotation.z null ist, sind beide Reihenfolgen
+     identisch. */
+  inner.rotation.order = 'ZXY';
   inner.rotation.y = m.yaw;
   /* Die Figur waagerecht ueber ihren Punkt schieben. Der Versatz wird
      mitgedreht, weil inner selbst um yaw gedreht ist. */
@@ -5962,10 +5977,21 @@ function makeGlbVisual(m) {
        -90 Grad bilden ab: Koerper-vorn -> Wand hinauf, Koerper-oben ->
        von der Wand weg. Genau die Haltung eines Kletterers.
        tiefe = wie weit der Setzpunkt von der Wand weg liegt. */
-    wandKriechen(k, tiefe) {
+    /* roll = Drehung um die Wandnormale. 0 heisst Kopf nach oben, +-PI/2
+       heisst quer zur Fassade. Damit passt die Bewegung endlich zur
+       Richtung: seitwaerts lief bisher die AUFWAERTS-Bewegung ab, die
+       Beine stiegen also nach oben, waehrend die Figur zur Seite glitt.
+       Gedreht wird ueber den kuerzesten Weg, sonst nimmt die Figur beim
+       Wechsel von links nach rechts den ganzen Kreis. */
+    wandKriechen(k, tiefe, roll) {
       const kk = clamp(k === undefined ? 1 : k, 0, 1);
       innerKipp = lerp(innerKipp, -Math.PI / 2 * kk, 0.28);
       inner.rotation.x = innerKipp;
+      const zZ = (roll || 0) * kk;
+      let dz = zZ - inner.rotation.z;
+      while (dz > Math.PI) dz -= Math.PI * 2;
+      while (dz < -Math.PI) dz += Math.PI * 2;
+      inner.rotation.z += dz * 0.14;
       /* Solange gekippt wird, liegt "unter der Figur" die Wand. Die
          Bodenkorrektur (inner.position.y) wuerde sie an der Wand
          entlangschieben - sie wird deshalb ausgeblendet. */
@@ -5983,6 +6009,11 @@ function makeGlbVisual(m) {
         innerKipp = lerp(innerKipp, 0, Math.max(k, 0.12));
         inner.rotation.x = innerKipp;
       } else if (inner.rotation.x !== 0) { innerKipp = 0; inner.rotation.x = 0; }
+      /* Die Rolle um die Wandnormale genauso zuruecknehmen - sonst haengt
+         die Figur nach dem Loslassen quer in der Luft. */
+      if (Math.abs(inner.rotation.z) > 0.0005) {
+        inner.rotation.z = lerp(inner.rotation.z, 0, Math.max(k, 0.12));
+      } else inner.rotation.z = 0;
       /* Zurueck auf den GRUNDVERSATZ, nicht auf null: der haelt die Figur
          ueber ihrem Punkt. Frueher lief er auf null und schob die Figur
          wieder zurueck neben sich selbst. */
@@ -6147,6 +6178,50 @@ function makeGlbVisual(m) {
     /* Drei-Punkt-Landung: tief in die Hocke, eine Faust am Boden, der
        andere Arm nach hinten ausgestreckt. Die klassische Pose, mit der
        Spider-Man aus großer Höhe aufkommt. */
+    /* ---- Kauern auf der Dachkante ----
+       Die Haltung, in der Spider-Man ueber der Stadt hockt: tief in der
+       Hocke, beide Fuesse nebeneinander, Knie hoch, beide Haende vor den
+       Fuessen auf der Kante, Ruecken rund, Kopf aber oben - er schaut ja
+       auf die Strasse.
+       Warum von Hand und nicht als Datei: keine Bewegung aus dem Paket
+       gibt diese Haltung her. "Crouching_Idle" ist ein Stand mit
+       abgespreiztem Bein, die Duckbewegung ist ein Schleichschritt. Eine
+       gesetzte Pose trifft es genau und kann nicht verrutschen. */
+    poseKauern(k) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      root.updateMatrixWorld(true);
+      _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();   // rechts
+      _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();   // vorn
+      for (const p of ['left', 'right']) {
+        const vz = p === 'left' ? 1 : -1;    // Skelett ist gespiegelt benannt
+        /* Oberschenkel an den Bauch, Unterschenkel darunter: tiefe Hocke. */
+        drehZuRuhe(knochen[p + 'upleg'], 1.75, 0, vz * 0.20, w);
+        drehZuRuhe(knochen[p + 'leg'], 2.05, 0, 0, w);
+        if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.55, 0, 0, w * 0.9);
+        /* Beide Haende nach vorn unten auf die Kante. */
+        const arm = knochen[p + 'arm'], unter = knochen[p + 'forearm'];
+        if (!arm || !unter) continue;
+        arm.getWorldPosition(_vw3);
+        _vw4.copy(_vw3).addScaledVector(_vw2, 0.55)
+            .addScaledVector(_vw1, vz * 0.16)
+            .addScaledVector(_fh.set(0, 1, 0), -1.5);
+        zieleKnochen(arm, unter, _vw4, w);
+        const hand = knochen[p + 'hand'];
+        if (hand) {
+          unter.getWorldPosition(_vw3);
+          _vw4.copy(_vw3).addScaledVector(_vw2, 0.40)
+              .addScaledVector(_vw1, vz * 0.10)
+              .addScaledVector(_fh.set(0, 1, 0), -1.5);
+          zieleKnochen(unter, hand, _vw4, w);
+        }
+      }
+      /* Rumpf rund nach vorn, Kopf dagegen wieder hoch. */
+      drehe(knochen.spine, 0.30 * w, 0, 0, w);
+      drehe(knochen.spine1, 0.34 * w, 0, 0, w);
+      drehe(knochen.spine2, 0.20 * w, 0, 0, w);
+      drehZuRuhe(knochen.neck, -0.40, 0, 0, w * 0.9);
+      drehZuRuhe(knochen.head, -0.45, 0, 0, w * 0.9);
+    },
     poseDreiPunkt(k, seite) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
       const p = seite === 'L' ? 'left' : 'right';
@@ -6495,12 +6570,7 @@ function makeGlbVisual(m) {
            Bewegung, und diese Zeile hat sie immer ueberschrieben.
            Seitwaerts sah deshalb genauso aus wie hinauf - das Hangeln war
            im Spiel praktisch nicht vorhanden. */
-        /* Seitwaerts gibt es eine eigene Bewegung. Sie ist so gedreht,
-           dass der Kopf dabei NACH OBEN zeigt - der erste Versuch legte
-           die Figur laengs an die Fassade, das sah aus wie ein Sturz. */
-        const seit = (key === 'kriech_l' || key === 'kriech_r') &&
-                     findClip(m.clips, key);
-        if (!seit && findClip(m.clips, 'kriechen')) want = 'kriechen';
+        if (findClip(m.clips, 'kriechen')) want = 'kriechen';
       }
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
@@ -8360,6 +8430,67 @@ function startSwing() {
   return true;
 }
 
+/* ---- Kunststuecke im Netzschwung ---------------------------------------
+   Spider-Man fliegt nicht nur geradeaus durch die Stadt. Er dreht sich um
+   die eigene Achse, ueberschlaegt sich seitlich, kommt kopfueber aus dem
+   Bogen heraus - genau das war der "Spass", der hier gefehlt hat. Der
+   Bogen selbst war richtig gerechnet, sah aber leer aus.
+
+   Alles hier ist REINE SCHAU: es wird eine Bewegungsdatei einmal
+   abgespielt, sonst nichts. Geschwindigkeit, Schwerkraft und Flugbahn
+   bleiben unangetastet, deshalb kann ein Kunststueck nie dazu fuehren,
+   dass man einen Anker verfehlt oder woanders landet als ohne.
+
+   Drei Sperren halten es sauber:
+     - genug Luft nach unten (ein Salto, der im Boden endet, sieht kaputt
+       aus),
+     - die Dauer richtet sich nach der verbleibenden FALLZEIT, damit das
+       Kunststueck fertig ist, bevor der Boden kommt, und
+     - eine Pause danach, damit nicht ein Ueberschlag in den naechsten
+       faellt.                                                            */
+const KUNST_GROSS = ['kunst_a', 'kunst_b', 'flip_v', 'flip_h',
+                     'frontflip', 'backflip'];
+function schwungKunst(mindestHoehe) {
+  if (player.dead || player.onGround || player.state === 'climb') return 0;
+  if (player.attack || player.rollT > 0 || player.gleiten) return 0;
+  if (player.luftSalto > 0 || player.saltoCd > 0) return 0;
+  if (!heroVisual.rolleOneShot) return 0;
+  const hoch = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
+  const mind = mindestHoehe === undefined ? 14 : mindestHoehe;
+  if (hoch < mind) return 0;
+  const hat = heroVisual.hatClip || (() => false);
+  /* Wie lange bleibt noch Luft? y(t) = y0 + vy·t - g/2·t². */
+  const g = Math.max(1, CFG.gravity);
+  const vy = player.vel.y;
+  const fallZeit = (vy + Math.sqrt(Math.max(0, vy * vy + 2 * g * hoch))) / g;
+  /* Genommen wird nur, was in der LUFT stimmt. spin_l und spin_r standen
+     hier zuerst mit drin, weil sie "Drehung" heissen - gerendert sind es
+     aber Ausweichschritte MIT BODENKONTAKT: die Figur machte im freien
+     Flug einen Seitwaertsschritt auf nichts. Deshalb bleiben sie draussen. */
+  const moeglich = KUNST_GROSS.filter((k) => hat(k));
+  if (!moeglich.length) return 0;
+  /* Nicht zweimal dasselbe hintereinander - sonst faellt die Wiederholung
+     mehr auf als das Kunststueck selbst. */
+  const ohneLetztes = moeglich.length > 1
+    ? moeglich.filter((k) => k !== player.kunstArt) : moeglich;
+  const art = ohneLetztes[(Math.random() * ohneLetztes.length) | 0];
+  /* Das Tempo, mit dem abgespielt wird, muss zur Bewegung passen. Die
+     Dateien sind zwischen 1,7 und 4,1 Sekunden lang; eine feste Zieldauer
+     haette den kurzen Ueberschlag gedehnt und den langen mit dreifachem
+     Tempo durchgehetzt. Deshalb wird die Zieldauer aus der EIGENEN Laenge
+     der Datei bestimmt (rund doppeltes Tempo) und nur noch von der
+     Fallzeit gedeckelt. */
+  const eigen = heroVisual.clipDauer ? heroVisual.clipDauer(art) : 0;
+  const ziel = clamp((eigen > 0 ? eigen / 2.0 : 0.8),
+                     0.42, Math.max(0.42, Math.min(1.3, fallZeit * 0.6)));
+  const dauer = heroVisual.rolleOneShot(ziel, art);
+  if (!dauer) return 0;
+  player.luftSalto = dauer;
+  player.saltoCd = dauer + rand(0.5, 1.3);
+  player.kunstArt = art;
+  return dauer;
+}
+
 function stopSwing(boost) {
   if (player.state !== 'swing') return;
   player.swing = null;
@@ -8371,21 +8502,12 @@ function stopSwing(boost) {
     if (player.vel.y > -2) player.vel.y += 1.7;
     else player.vel.y += 0.8;
     if (vh > 6) { player.vel.x *= 1.03; player.vel.z *= 1.03; }
-    /* Wer am Tiefpunkt mit Tempo loslaesst, dreht einen Salto. Reine
-       Schau - die Flugbahn bleibt dieselbe -, aber genau das macht den
-       Absprung aus dem Bogen aus. Nur mit Luft nach oben, sonst landet
-       man mitten im Ueberschlag. */
-    const hoch = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
-    if (vh > 13 && hoch > 14 && heroVisual.rolleOneShot && player.saltoCd <= 0) {
-      /* Aus hero-3 kommen zwei echte Ueberschlaege ("FrontRollFlip" und
-         "BackflipToApex"). Sie sind fuer den Absprung aus dem Bogen
-         gemacht; die Mixamo-Saltos bleiben als Rueckfall. */
-      const hat = heroVisual.hatClip || (() => false);
-      const vorn = hat('flip_v') ? 'flip_v' : 'frontflip';
-      const hint = hat('flip_h') ? 'flip_h' : 'backflip';
-      const dauer = heroVisual.rolleOneShot(0.85, Math.random() < 0.5 ? vorn : hint);
-      if (dauer) { player.saltoCd = 3.0; player.luftSalto = dauer; }
-    }
+    /* Wer mit Tempo aus dem Bogen geht, dreht ein Kunststueck. Vorher
+       verlangte das hier vh > 13 UND hoch > 14 UND drei Sekunden Pause -
+       gemessen kam es dadurch fast nie vor, und wenn, dann immer derselbe
+       Ueberschlag. Jetzt reicht ordentliches Tempo, und welche Bewegung
+       kommt, entscheidet die Lenkung. */
+    if (vh > 9) schwungKunst(12);
   }
   /* Wer eben noch am Faden hing, landet mit der Abrollbewegung aus
      animation-1 statt mit der allgemeinen Sturzlandung. */
@@ -9412,9 +9534,11 @@ function updatePlayer(dt) {
        Hand ueber Hand, Koerper an der Wand. Sie passt fuer das
        Wandkriechen deutlich besser als "Climbing Up Wall", das eher ein
        einmaliges Hochziehen ist. */
-    /* Seitwaerts an der Wand: eigene Bewegung, Kopf bleibt oben. */
-    const seitClip = side > 0 ? 'kriech_r' : 'kriech_l';
-    const hatSeit = heroVisual.hatClip && heroVisual.hatClip(seitClip);
+    /* Seitwaerts an der Wand laeuft DIESELBE Kriechbewegung wie hinauf.
+       Zwei Anlaeufe mit eigenen Seitwaerts-Dateien aus dem Paket sind
+       gescheitert: einmal lag die Figur laengs an der Fassade, einmal
+       ruderte sie mit dem Bein ueber dem Kopf. Der Koerper steht so
+       richtig an der Wand, und man bewegt sich sichtbar zur Seite. */
     /* Vier Richtungen an der Wand, jede mit eigener Bewegung: hinauf,
        hinunter, links, rechts. Rueckwaerts abgespielt sieht Klettern
        falsch aus - hinunter greifen die Haende anders herum. */
@@ -9423,7 +9547,7 @@ function updatePlayer(dt) {
     const senkrecht = hatK('klettern') ? 'klettern' : 'climb';
     player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
-                : seitlich ? (hatSeit ? seitClip : 'klettern_seit')
+                : seitlich ? senkrecht
                 : senkrecht;                          // hoch und runter
     updateHeroVisual(dt);
     return;
@@ -10150,6 +10274,16 @@ function updatePlayer(dt) {
   if (player.saltoCd > 0) player.saltoCd -= dt;
   if (player.luftSalto > 0) player.luftSalto -= dt;
   if (player.warSchwung > 0) player.warSchwung -= dt;
+  /* Zwischen zwei Boegen: wer schnell und hoch durch die Stadt fliegt und
+     gerade KEIN neues Netz haelt, dreht ab und zu ein Kunststueck. Die
+     Wahrscheinlichkeit ist auf die Sekunde gerechnet, nicht auf das Bild -
+     sonst kaeme es auf einem Geraet mit 120 Bildern doppelt so oft wie auf
+     einem mit 60. Ueber Kopf muss genug Platz sein, deshalb die Hoehe. */
+  if (player.state === 'air' && !keys['Space'] && !swingHeld &&
+      Math.hypot(player.vel.x, player.vel.z) > 15 &&
+      Math.random() < 1.6 * clamp(dt, 0, 0.1)) {
+    schwungKunst(24);
+  }
   if (player.dreiPunktT > 0) {
     player.dreiPunktT -= dt;
     /* Bewegt man sich, bricht die Pose sofort ab – sonst klebt man fest. */
@@ -10211,12 +10345,13 @@ function updatePlayer(dt) {
      oben geht, läuft der Absprung, danach erst der freie Fall. */
   else if (player.gleiten) player.anim = player.sturzflug ? 'sturzflug' : 'gleiten';
   else if (!player.onGround) {
-    /* Wer lange faellt und dabei nichts tut, breitet die Arme aus
-       ("Cristo Redentor"). Kurze Spruenge behalten die Sprunghaltung. */
-    const langerFall = player.vel.y < -14 && player.luftSalto <= 0 &&
-                       !player.attack && player.rollT <= 0 &&
-                       heroVisual.hatClip && heroVisual.hatClip('freifall');
-    player.anim = player.vel.y > 1.5 ? 'jump' : (langerFall ? 'freifall' : 'air');
+    /* Wer lange faellt und dabei nichts tut, breitet die Arme aus.
+       Die Haltung wird GESETZT (siehe unten, poseGleiten ohne Netzhaut) -
+       die Pose aus dem Paket zog dabei ein Bein bis vor den Kopf. */
+    player.freiFall = player.vel.y < -14 && player.luftSalto <= 0 &&
+                      !player.attack && player.rollT <= 0 && !player.gleiten &&
+                      player.state === 'air';
+    player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
   }
   else if (player.dreiPunktT > 0) player.anim = 'land';
   else if (player.hartLandung > 0) player.anim = 'fallrolle';
@@ -10234,12 +10369,10 @@ function updatePlayer(dt) {
      Haltung, in der Spider-Man ueber der Stadt sitzt. Unten in der Stadt
      bleibt es beim normalen Stehen, sonst kauerte die Figur an jeder
      Ampel. */
-  else if (player.hockeT > 0.9 && heroVisual.hatClip && heroVisual.hatClip('ducken')) {
-    /* Dafuer die Duckhaltung, an der Stelle festgehalten, an der beide
-       Fuesse stehen (das macht 'duckstand'). Die Hocke aus dem
-       Unreal-Projekt ("Crouching_Idle") ist gar keine Hocke - gedreht
-       stand die Figur damit aufrecht mit abgespreiztem Bein da. */
-    player.anim = 'duckstand';
+  else if (player.hockeT > 0.9) {
+    /* Die Haltung selbst wird gesetzt (poseKauern); als Unterlage genuegt
+       die ruhige Stehbewegung. */
+    player.anim = 'idle';
   }
   else if (dir && hSpeed > 0.4) {
     /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
@@ -10560,6 +10693,11 @@ function updateHeroVisual(dt) {
       MISCH.schwungArg = [(MISCH.ankerGlatt || player.swing.anchor).clone(),
                           player.swing.hand, elapsed,
                           player.bogenGlatt, r.rotation.x, beideHaende];
+    } else if (player.hockeT > 0.9 && heroVisual.poseKauern) {
+      /* Auf der Dachkante wird die Hocke GESETZT, nicht abgespielt. Keine
+         Bewegung aus dem Paket gibt diese Haltung her. */
+      heroVisual.poseKauern(clamp((player.hockeT - 0.9) * 4, 0, 1));
+      heroVisual.bodenAusgleich(Math.min(1, dt * 14));
     } else if (player.dreiPunktT > 0) {
       /* Ein- und wieder ausblenden, damit die Pose nicht umspringt. */
       const p = player.dreiPunktT / 0.62;
@@ -10567,6 +10705,10 @@ function updateHeroVisual(dt) {
                                player.dreiPunktSeite || 'R');
       /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
       heroVisual.bodenAusgleich(Math.min(1, dt * 16));
+    } else if (player.freiFall && heroVisual.poseGleiten) {
+      /* Arme weit zur Seite, Beine leicht gespreizt - dieselbe Haltung wie
+         im Gleitflug, nur ohne Netzhaut (die haengt an player.gleiten). */
+      heroVisual.poseGleiten(0, 0, elapsed, 0.85);
     } else if (player.gleiten && player.luftSalto <= 0 && !player.sturzflug) {
       /* Im Sturzflug fuehrt die Bewegungsdatei allein - die Gleithaltung
          wuerde ihr die Arme wieder zur Seite reissen. */
@@ -10588,7 +10730,26 @@ function updateHeroVisual(dt) {
            den Lauf hat die Figur ins Haus geschoben (gemessen 95 cm hinter
            der Fassade), und herausgedrueckt wird sie ohnehin von
            wandFreiraum(). */
-        heroVisual.wandKriechen(1, KRIECH_TIEFE);
+        /* Wohin geht es an der Fassade? Die Geschwindigkeit wird in die
+           beiden Richtungen der Wandebene zerlegt:
+             hoch   = nach oben (Welt-Y),
+             quer   = an der Wand entlang (senkrecht zur Normalen).
+           Daraus ergibt sich der Winkel, um den die Figur um die
+           Wandnormale gerollt werden muss, damit ihr Kopf in die
+           Laufrichtung zeigt. Steht sie still, geht die Rolle sanft auf
+           null zurueck - dann haengt sie wieder aufrecht.
+           Hergeleitet: der Koerper zeigt nach der Kippung um -90 Grad in
+           Richtung (sin(phi)*nz, cos(phi), -sin(phi)*nx). Sein Anteil
+           laengs der Wand ist -sin(phi), der nach oben cos(phi) - also
+           phi = atan2(-quer, hoch). */
+        const vq = -player.vel.x * w.nz + player.vel.z * w.nx;
+        const vh = player.vel.y;
+        const tempo = Math.hypot(vq, vh);
+        /* Erst ab einem spuerbaren Tempo drehen. Sonst zappelt die Figur
+           im Stand um jede kleine Restbewegung. */
+        const wunsch = tempo > 0.9 ? Math.atan2(-vq, vh) : 0;
+        player.wandRoll = wunsch;
+        heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch);
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
         MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
@@ -10879,7 +11040,10 @@ function updateKatapult(dt) {
   heroVisual.root.updateMatrixWorld(true);
   for (let i = 0; i < 2; i++) {
     const m = katapultStrang(i);
-    const hand = heroHandPos(_v3, i === 0 ? 'L' : 'R');
+    /* Gleiche Zuordnung wie in poseSchuss weiter unten: Anker 0 haengt am
+       Knochen "rightarm". Stand hier 'L', lief der Faden ueber Kreuz zur
+       falschen Hand, obwohl die Arme selbst richtig standen. */
+    const hand = heroHandPos(_v3, i === 0 ? 'R' : 'L');
     /* Ohne Hand keine Linie - dann lieber die Schulter nehmen als gar
        nichts zu zeigen. Vorher blieb der Strang in dem Fall unsichtbar,
        und man sah beim Spannen ueberhaupt kein Netz. */
@@ -10902,8 +11066,12 @@ function updateKatapult(dt) {
   /* Beide Haende halten wirklich an ihrem Faden. Ohne das hingen die
      Netze irgendwo neben der Figur in der Luft. */
   if (heroVisual.poseSchuss) {
-    heroVisual.poseSchuss(KAT.anker[0], 'L', 0.85);
-    heroVisual.poseSchuss(KAT.anker[1], 'R', 0.85);
+    /* ACHTUNG, gespiegelte Knochennamen: der Knochen "leftarm" liegt auf
+       der RECHTEN Koerperseite. Anker 0 liegt links von der Figur, gehoert
+       also an den Knochen "rightarm" - und umgekehrt. Vertauscht griffen
+       die Arme ueber Kreuz, genau das war "die Arme sind verkreuzt". */
+    heroVisual.poseSchuss(KAT.anker[0], 'R', 0.85);
+    heroVisual.poseSchuss(KAT.anker[1], 'L', 0.85);
   }
   if (heroVisual.root) heroVisual.root.rotation.x = -(KAT.lehne || 0);
 }
