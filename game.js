@@ -3982,7 +3982,13 @@ const ZIVI_ANIM_PARTS = ['sitzen', 'reden', 'streiten', 'tippen', 'trinken',
 const RICHT_8 = ['v', 'vr', 'r', 'hr', 'h', 'hl', 'l', 'vl'];
 const HELD_ANIM_PARTS = RICHT_8.map((r) => 'ausw_' + r)
   .concat(RICHT_8.map((r) => 'rolle_' + r))
-  .concat(['spin_l', 'spin_r']);
+  .concat(['spin_l', 'spin_r',
+    /* Ruhiges Kleben an der Fassade ("CrawlIdle_B" aus dem
+       Unreal-Projekt). Vorher lief im Stillstand an der Wand die
+       Haengebewegung am Faden - die ist aufrecht gebaut, und die Figur
+       stand deshalb an der Hauswand, statt daran zu kleben. Nur der Held
+       klettert, also gehoert die Datei auch nur zu ihm. */
+    'wandhalt']);
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -4351,6 +4357,18 @@ function teileBewegungen() {
 }
 
 /* Animations-Zuordnung: Spielzustand -> Clip-Name (per Muster) */
+/* ---- Masse der Hocke auf der Dachkante ----
+   Eingestellt und im Spiel nachgemessen (scratchpad/hocke2.js): Fuesse auf
+   der Kante, Haende davor auf der Kante, Knie hoch, Ruecken rund, Kopf
+   oben. Alle Laengen in Metern. */
+const KAU_R1 = 0.70, KAU_R2 = 0.70, KAU_R3 = 0.42;   // Rumpf nach vorn
+const KAU_NACKEN = -0.95, KAU_KOPF = -0.88;          // Kopf wieder hoch
+const KAU_KNIE_V = 0.34, KAU_KNIE_Q = 0.20, KAU_KNIE_H = 0.02;
+const KAU_FUSS_V = 0.05, KAU_FUSS_Q = 0.17, KAU_FUSS_H = -0.42;
+const KAU_FUSS_DREH = 0.62;
+const KAU_ARM_V = 0.10, KAU_ARM_Q = 0.05;            // Oberarm fast senkrecht
+const KAU_UARM_V = 0.06, KAU_UARM_Q = 0.02;          // Unterarm senkrecht
+
 const GLB_CLIP_PATTERNS = {
   idle: [/idle/i, /stand/i, /breath/i],
   walk: [/walk/i],
@@ -4360,6 +4378,7 @@ const GLB_CLIP_PATTERNS = {
   sprint: [/^sprint$/i, /sprint/i],
   symgang: [/^symgang$/i], symkombo: [/^symkombo$/i],
   wurfgriff: [/^wurfgriff$/i], kriechen: [/^kriechen$/i],
+  wandhalt: [/^wandhalt$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
   schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
@@ -6104,14 +6123,19 @@ function makeGlbVisual(m) {
           zieleKnochen(unter, hand, _vw4, w * 0.95);
         }
       }
-      /* Beine gespreizt und leicht angewinkelt – wie beim Fallschirmsprung. */
-      const beinAn = 0.30 - (nase || 0) * 0.16;
-      drehZuRuhe(knochen.leftupleg,  beinAn, 0,  0.34 + roll * 0.4, w);
-      drehZuRuhe(knochen.rightupleg, beinAn, 0, -0.34 + roll * 0.4, w);
-      drehZuRuhe(knochen.leftleg,  0.42 + flattern * 2, 0, 0, w);
-      drehZuRuhe(knochen.rightleg, 0.42 - flattern * 2, 0, 0, w);
-      if (knochen.leftfoot)  drehZuRuhe(knochen.leftfoot,  0.34, 0, 0, w * 0.8);
-      if (knochen.rightfoot) drehZuRuhe(knochen.rightfoot, 0.34, 0, 0, w * 0.8);
+      /* Beine fast geschlossen und nur leicht angewinkelt. Vorher standen
+         sie mit 0,34 rad weit auseinander und waren stark gebeugt - die
+         Silhouette wurde dadurch zum Seestern, und die Netzhaut zwischen
+         Arm und Rumpf ging in der Luecke unter. Enge Beine geben die
+         Deltaform, die den Gleitflug lesbar macht. */
+      const beinAn = 0.16 - (nase || 0) * 0.14;
+      drehZuRuhe(knochen.leftupleg,  beinAn, 0,  0.13 + roll * 0.4, w);
+      drehZuRuhe(knochen.rightupleg, beinAn, 0, -0.13 + roll * 0.4, w);
+      drehZuRuhe(knochen.leftleg,  0.22 + flattern * 2, 0, 0, w);
+      drehZuRuhe(knochen.rightleg, 0.22 - flattern * 2, 0, 0, w);
+      /* Fussspitzen gestreckt nach hinten - wie beim Springen vom Brett. */
+      if (knochen.leftfoot)  drehZuRuhe(knochen.leftfoot,  -0.30, 0, 0, w * 0.8);
+      if (knochen.rightfoot) drehZuRuhe(knochen.rightfoot, -0.30, 0, 0, w * 0.8);
       /* Rumpf: bei gedrückter Nase mehr Vorlage, dazu Kurvenlage. */
       drehe(knochen.spine1, -0.1 + (nase || 0) * 0.1, (kurve || 0) * 0.16, 0, 0.5);
       drehe(knochen.spine,  -0.06, (kurve || 0) * 0.1, 0, 0.4);
@@ -6187,40 +6211,85 @@ function makeGlbVisual(m) {
        gibt diese Haltung her. "Crouching_Idle" ist ein Stand mit
        abgespreiztem Bein, die Duckbewegung ist ein Schleichschritt. Eine
        gesetzte Pose trifft es genau und kann nicht verrutschen. */
+    /* Masse der Hocke, alle in Metern und relativ zur Huefte bzw. zur
+       Schulter. Sie sind hier als Konstanten herausgezogen, weil sie
+       gemessen eingestellt wurden: Fusshoehe, Handhoehe und Kopfhoehe
+       ueber der Kante lassen sich im Spiel nachrechnen. */
     poseKauern(k) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
+      const hueft = knochen.hips;
+      if (!hueft) return;
+      /* Erst der Rumpf: rund nach vorn, Kopf dagegen wieder hoch. Er wird
+         VOR den Gliedmassen gesetzt, weil Arme und Beine gleich auf
+         Weltpunkte gezielt werden - und die haengen an der Lage von
+         Huefte und Schultern. */
+      /* drehZuRuhe statt drehe: drehe setzt den Eulerwinkel ABSOLUT, und
+         die Mixamo-Wirbel stehen in Ruhe nicht auf null - aus einer
+         gewuenschten Beuge von 69 Grad wurden dadurch gemessene 42, und
+         die Schultern blieben 20 cm zu hoch, sodass die Haende die Kante
+         nicht erreichten. drehZuRuhe legt die Drehung an die RUHELAGE an,
+         der Winkel stimmt dann wirklich. */
+      drehZuRuhe(knochen.spine, KAU_R1, 0, 0, w);
+      drehZuRuhe(knochen.spine1, KAU_R2, 0, 0, w);
+      drehZuRuhe(knochen.spine2, KAU_R3, 0, 0, w);
+      drehZuRuhe(knochen.neck, KAU_NACKEN, 0, 0, w * 0.9);
+      drehZuRuhe(knochen.head, KAU_KOPF, 0, 0, w * 0.9);
       root.updateMatrixWorld(true);
       _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();   // rechts
       _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();   // vorn
+      hueft.getWorldPosition(_hp);
+      /* Alle Ziele liegen als WELTPUNKTE relativ zur Huefte fest. Der
+         erste Anlauf hat die Beine ueber feste Eulerwinkel gedreht
+         (drehZuRuhe) - dabei kippten die Oberschenkel nach HINTEN, die
+         Knie zeigten nach unten weg und die Figur kniete eher, als dass
+         sie hockte. Genau das war "die Beine sind falschherum".
+         Mit Zielpunkten kann das nicht passieren: das Knie liegt vorn
+         oben, der Fuss darunter am Boden, und der Winkel dazwischen
+         ergibt sich von selbst.
+         Masse aus dem Vorbild: Fuesse flach nebeneinander, Knie fast auf
+         Schulterhoehe, beide Haende VOR den Fuessen auf der Kante. */
+      const ziel = (vorn, quer, hoch) => _vw4.copy(_hp)
+        .addScaledVector(_vw2, vorn)
+        .addScaledVector(_vw1, quer)
+        .addScaledVector(_fh.set(0, 1, 0), hoch);
       for (const p of ['left', 'right']) {
         const vz = p === 'left' ? 1 : -1;    // Skelett ist gespiegelt benannt
-        /* Oberschenkel an den Bauch, Unterschenkel darunter: tiefe Hocke. */
-        drehZuRuhe(knochen[p + 'upleg'], 1.75, 0, vz * 0.20, w);
-        drehZuRuhe(knochen[p + 'leg'], 2.05, 0, 0, w);
-        if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.55, 0, 0, w * 0.9);
-        /* Beide Haende nach vorn unten auf die Kante. */
-        const arm = knochen[p + 'arm'], unter = knochen[p + 'forearm'];
-        if (!arm || !unter) continue;
-        arm.getWorldPosition(_vw3);
-        _vw4.copy(_vw3).addScaledVector(_vw2, 0.55)
-            .addScaledVector(_vw1, vz * 0.16)
-            .addScaledVector(_fh.set(0, 1, 0), -1.5);
-        zieleKnochen(arm, unter, _vw4, w);
-        const hand = knochen[p + 'hand'];
-        if (hand) {
-          unter.getWorldPosition(_vw3);
-          _vw4.copy(_vw3).addScaledVector(_vw2, 0.40)
-              .addScaledVector(_vw1, vz * 0.10)
-              .addScaledVector(_fh.set(0, 1, 0), -1.5);
-          zieleKnochen(unter, hand, _vw4, w);
+        const ober = knochen[p + 'upleg'], unter = knochen[p + 'leg'];
+        const fuss = knochen[p + 'foot'];
+        if (ober && unter) {
+          /* Knie nach VORN OBEN - das macht die Hocke aus. */
+          zieleKnochen(ober, unter, ziel(KAU_KNIE_V, vz * KAU_KNIE_Q, KAU_KNIE_H), w);
+          if (fuss) {
+            /* Unterschenkel wieder nach hinten unten auf den Boden. */
+            zieleKnochen(unter, fuss, ziel(KAU_FUSS_V, vz * KAU_FUSS_Q, KAU_FUSS_H), w);
+            /* Fussohle flach: die Zehen zeigen nach vorn, nicht nach
+               unten. Der Fuss haengt am Unterschenkel, deshalb reicht
+               hier eine kleine Nachdrehung. */
+            drehZuRuhe(fuss, KAU_FUSS_DREH, 0, 0, w * 0.85);
+          }
         }
+        /* Die Arme haengen fast SENKRECHT nach unten, damit die Haende
+           wirklich bis auf die Kante kommen. Ein Ziel relativ zur Huefte
+           hat das nicht geschafft: zieleKnochen dreht nur die Richtung,
+           die Armlaenge bleibt - stand das Ziel schraeg vorn, blieb die
+           Hand einen Drittelmeter ueber dem Boden haengen. Deshalb wird
+           hier von SCHULTER und ELLBOGEN aus gezielt, jeweils weit nach
+           unten, sodass die Richtung sauber senkrecht wird. */
+        const arm = knochen[p + 'arm'], varm = knochen[p + 'forearm'];
+        if (!arm || !varm) continue;
+        arm.getWorldPosition(_vw3);
+        _vw4.copy(_vw3).addScaledVector(_vw2, KAU_ARM_V)
+            .addScaledVector(_vw1, vz * KAU_ARM_Q)
+            .addScaledVector(_fh.set(0, 1, 0), -1.0);
+        zieleKnochen(arm, varm, _vw4, w);
+        const hand = knochen[p + 'hand'];
+        if (!hand) continue;
+        varm.getWorldPosition(_vw3);
+        _vw4.copy(_vw3).addScaledVector(_vw2, KAU_UARM_V)
+            .addScaledVector(_vw1, vz * KAU_UARM_Q)
+            .addScaledVector(_fh.set(0, 1, 0), -1.0);
+        zieleKnochen(varm, hand, _vw4, w);
       }
-      /* Rumpf rund nach vorn, Kopf dagegen wieder hoch. */
-      drehe(knochen.spine, 0.30 * w, 0, 0, w);
-      drehe(knochen.spine1, 0.34 * w, 0, 0, w);
-      drehe(knochen.spine2, 0.20 * w, 0, 0, w);
-      drehZuRuhe(knochen.neck, -0.40, 0, 0, w * 0.9);
-      drehZuRuhe(knochen.head, -0.45, 0, 0, w * 0.9);
     },
     poseDreiPunkt(k, seite) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
@@ -6563,6 +6632,8 @@ function makeGlbVisual(m) {
          Wand hoch wurde damit ein Wuehlen. */
       if (p.wandModus === 'lauf') {
         if (findClip(m.clips, 'run')) want = 'run';
+      } else if (p.wandModus === 'halten') {
+        if (findClip(m.clips, 'wandhalt')) want = 'wandhalt';
       } else if (p.wandModus === 'kriechen') {
         /* An der Wand fuehrt die Kriechbewegung - die, mit der die
            Wandkippung gebaut wurde.
@@ -7493,6 +7564,7 @@ const player = {
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
   hartLandung: 0, saltoCd: 0, luftSalto: 0, warSchwung: 0, schrittT: 0,
+  eckT: 0, eckSperre: 0, sichtPos: null,
   /* ---- Symbiont ----
      Kaempfen fuellt den Balken. Ist er voll, laesst sich der schwarze
      Anzug zuschalten: haerter, schneller, aber nur fuer eine Weile. */
@@ -8697,6 +8769,17 @@ function tryJump() {
   } else if (player.jumps < 2) {
     player.vel.y = CFG.jumpVel * 0.92;
     player.jumps = 2;
+    /* Der zweite Sprung hatte bisher gar keine eigene Bewegung: die Figur
+       stieg noch einmal, zeigte dabei aber weiter die Absprunghaltung mit
+       dem einen Arm ueber dem Kopf. Jetzt dreht sie sich dabei - so, wie
+       man einen Doppelsprung erwartet. Nur Schau, die Flughoehe bleibt.
+       Eine kurze Zieldauer, damit der Ueberschlag noch im Steigen fertig
+       wird und nicht in die Landung hineinlaeuft. */
+    if (heroVisual.rolleOneShot) {
+      const hat = heroVisual.hatClip || (() => false);
+      const art = hat('kunst_a') ? 'kunst_a' : hat('frontflip') ? 'frontflip' : null;
+      if (art) player.luftSalto = heroVisual.rolleOneShot(0.58, art) || 0;
+    }
     SFX.swoosh();
   }
 }
@@ -9447,7 +9530,8 @@ function updatePlayer(dt) {
 
     /* Am Rand der Wand um die Ecke wechseln. Vorher wurde die Figur dort
        einfach festgehalten – an jeder Hauskante war Schluss. */
-    if (side !== 0) {
+    if (player.eckSperre > 0) player.eckSperre -= dt;
+    if (side !== 0 && player.eckSperre <= 0) {
       const rand = 0.25;
       let neuNx = 0, neuNz = 0;
       if (w.nx !== 0) {
@@ -9458,13 +9542,30 @@ function updatePlayer(dt) {
         else if (player.pos.x > c.x1 - rand) neuNx = 1;
       }
       if (neuNx !== 0 || neuNz !== 0) {
+        /* Der Wechsel um die Ecke sah aus wie ein Sprung: die Figur wurde
+           in EINEM Bild um gut einen halben Meter versetzt (gemessen 0,57 m
+           - 0,35 m davon allein durch den Sicherheitsabstand, mit dem sie
+           hinter die Kante gesetzt wurde), und dazu klappte die
+           Blickrichtung um 90 Grad.
+           Zwei Aenderungen: der Versatz wird auf das Noetige verkleinert
+           (nur der Kletterabstand), und was uebrig bleibt, wandert in
+           einen VISUELLEN Versatz, der ueber etwa eine Fuenftelsekunde
+           auf null laeuft. Die Physik springt also weiterhin sauber um
+           die Ecke, das Bild folgt aber weich - man klettert um die Ecke,
+           statt hinueberzuspringen. */
         player.wallInfo = player.wall = { nx: neuNx, nz: neuNz, col: c };
+        /* Der Sicherheitsabstand hinter der Kante MUSS groesser sein als
+           das Suchband (rand), sonst steht die Figur auf der neuen Seite
+           sofort wieder im Suchband und wechselt im naechsten Bild
+           zurueck. Ein Versuch mit knappem Abstand hat genau das erzeugt:
+           gemessen 200 Eckenwechsel in acht Sekunden, hin und her. */
+        const hinter = rand + 0.10;
         if (neuNx !== 0) player.pos.x = (neuNx > 0 ? c.x1 : c.x0) + neuNx * CFG.climbGap;
         else player.pos.z = (neuNz > 0 ? c.z1 : c.z0) + neuNz * CFG.climbGap;
-        // knapp hinter die Kante setzen, damit man nicht sofort zurückspringt
-        if (neuNx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.35, c.z1 - 0.35);
-        else player.pos.x = clamp(player.pos.x, c.x0 + 0.35, c.x1 - 0.35);
-        SFX.swoosh();
+        if (neuNx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + hinter, c.z1 - hinter);
+        else player.pos.x = clamp(player.pos.x, c.x0 + hinter, c.x1 - hinter);
+        player.eckT = 0.45;
+        player.eckSperre = 0.45;
       }
     }
     // seitlich begrenzen
@@ -9545,7 +9646,11 @@ function updatePlayer(dt) {
     player.wandAb = !seitlich && up < 0;
     const hatK = heroVisual.hatClip || (() => false);
     const senkrecht = hatK('klettern') ? 'klettern' : 'climb';
-    player.anim = bewegt === 0 ? 'haengen'            // ruhig an der Wand hängen
+    /* Stillstand an der Wand: das ruhige KLEBEN, nicht das Haengen am
+       Faden. Die Haengebewegung ist aufrecht gebaut - damit stand die
+       Figur an der Hauswand, statt daran zu kleben ("ich stehe da
+       sozusagen, aber stehe nicht richtig"). */
+    player.anim = bewegt === 0 ? (hatK('wandhalt') ? 'wandhalt' : 'haengen')
                 : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
                 : seitlich ? senkrecht
                 : senkrecht;                          // hoch und runter
@@ -10328,6 +10433,19 @@ function updatePlayer(dt) {
     }
     if (player.aufrichtT > 0) player.aufrichtT -= dt;
   }
+  /* Wer lange faellt und dabei nichts tut, breitet die Arme aus. Die
+     Haltung wird GESETZT (siehe unten, poseGleiten ohne Netzhaut) - die
+     Bewegung aus dem Paket zog dabei ein Bein bis vor den Kopf.
+     WICHTIG: Diese Zeile muss VOR der Kette stehen und in JEDEM Bild
+     laufen. Vorher stand sie im Zweig "nicht am Boden"; beim Aufsetzen
+     wurde der Zweig nicht mehr betreten, das Merkmal blieb auf wahr
+     stehen - und die Figur lief mit weit ausgebreiteten Armen und
+     gespreizten Beinen ueber die Strasse. Genau das war der Fehler nach
+     dem Doppelsprung. */
+  player.freiFall = !player.onGround && player.state === 'air' &&
+                    player.vel.y < -14 && player.luftSalto <= 0 &&
+                    !player.attack && player.rollT <= 0 && !player.gleiten;
+
   if (KAT.aktiv) player.anim = hSpeed > 0.5 ? 'run' : 'idle';
   else if (player.rollT > 0) player.anim = 'roll';
   else if (player.hitT > 0 && player.onGround && !player.attack) player.anim = 'hit';
@@ -10345,12 +10463,6 @@ function updatePlayer(dt) {
      oben geht, läuft der Absprung, danach erst der freie Fall. */
   else if (player.gleiten) player.anim = player.sturzflug ? 'sturzflug' : 'gleiten';
   else if (!player.onGround) {
-    /* Wer lange faellt und dabei nichts tut, breitet die Arme aus.
-       Die Haltung wird GESETZT (siehe unten, poseGleiten ohne Netzhaut) -
-       die Pose aus dem Paket zog dabei ein Bein bis vor den Kopf. */
-    player.freiFall = player.vel.y < -14 && player.luftSalto <= 0 &&
-                      !player.attack && player.rollT <= 0 && !player.gleiten &&
-                      player.state === 'air';
     player.anim = player.vel.y > 1.5 ? 'jump' : 'air';
   }
   else if (player.dreiPunktT > 0) player.anim = 'land';
@@ -10479,7 +10591,10 @@ function updateHeroVisual(dt) {
      am Boden fast sofort (das Lenken soll knackig bleiben), in der Luft
      und am Netz gedaempft. */
   {
-    const schnell = player.onGround || player.state === 'climb' ? 30 : 11;
+    /* Am Eck herum darf sich die Figur ruhig Zeit lassen - 30 je Sekunde
+       liessen die 90 Grad in zwei Bildern umklappen. */
+    const schnell = player.eckT > 0 ? 7
+                  : player.onGround || player.state === 'climb' ? 30 : 11;
     r.rotation.y = dampAngle(r.rotation.y, player.facing, Math.min(1, dt * schnell));
   }
   /* ---- In die Kurve legen ----
@@ -10646,6 +10761,10 @@ function updateHeroVisual(dt) {
                  player.anim !== 'haengen' && !!heroVisual.wandKriechen;
   player.wandModus = !anWand ? null
     : player.wandlauf && heroVisual.hatClip && heroVisual.hatClip('run') ? 'lauf'
+    /* Das ruhige Kleben bringt seine eigene Bewegung mit und wird genauso
+       an die Wand gekippt wie das Kriechen. */
+    : player.anim === 'wandhalt' && heroVisual.hatClip &&
+      heroVisual.hatClip('wandhalt') ? 'halten'
     : heroVisual.hatClip && heroVisual.hatClip('kriechen') ? 'kriechen' : null;
   player.wandKriechen = !!player.wandModus;
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
@@ -10835,7 +10954,36 @@ function updateHeroVisual(dt) {
   }
 
   /* Ganz zum Schluss: nachmessen, ob etwas in der Fassade steckt. */
-  wandFreiraum();
+  wandFreiraum(dt);
+
+  /* ---- Weicher Eckenwechsel an der Hauswand ----
+     Beim Wechsel um eine Hausecke aendert sich in EINEM Bild alles auf
+     einmal: die Wandnormale klappt um 90 Grad, die Figur wird auf die
+     neue Seite gesetzt, und wandFreiraum() rechnet die Figur - die noch
+     zur alten Wand steht - als tief in der neuen Fassade steckend und
+     schiebt sie weit heraus. Gemessen sprang das Bild dabei um 2,4 Meter,
+     waehrend die Physik nur 0,5 Meter weiterging. Das war das
+     "Hinueberspringen".
+     Statt jede einzelne Quelle zu entschaerfen, wird hier die FERTIGE
+     Bildlage nachgezogen: waehrend der Ecke folgt der Koerper seiner
+     Sollstelle gedaempft, danach sitzt er wieder genau darauf. Die Physik
+     bleibt unangetastet - man kann also weiterhin nichts verfehlen. */
+  if (!player.sichtPos) player.sichtPos = new THREE.Vector3().copy(r.position);
+  if (player.eckT > 0) player.eckT -= dt;
+  /* Reisst der Abstand doch einmal weit auf (Sturz, Umsetzen, Wiederbeleben),
+     lieber hart nachsetzen als hinterherschweben. */
+  if (player.sichtPos.distanceToSquared(r.position) > 9) {
+    player.sichtPos.copy(r.position);
+  } else {
+    /* Waehrend der Ecke gedaempft, sonst praktisch sofort. Ein harter
+       Schnitt am Ende der Ecke hat den Rest in einem Bild nachgeholt -
+       gemessen noch einmal 47 cm. Deshalb laeuft die Daempfung durch und
+       wird nur schneller. */
+    const rate = player.eckT > 0 ? 7 : 45;
+    player.sichtPos.lerp(r.position, Math.min(1, dt * rate));
+    r.position.copy(player.sichtPos);
+    r.updateMatrixWorld(true);
+  }
 }
 
 /* ---- Nichts darf in der Wand stecken ----
@@ -10850,8 +10998,18 @@ const WAND_KNOCHEN = ['leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase',
                       'leftforearm', 'rightforearm', 'head', 'hips'];
 const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
 const _wk = V3(0, 0, 0);
-function wandFreiraum() {
-  if (player.state !== 'climb' || !player.wallInfo) return;
+const _wl = new THREE.Vector3();
+let dtWand = 1 / 60;
+function wandFreiraum(dt) {
+  dtWand = dt === undefined ? 1 / 60 : dt;
+  /* Nicht an der Wand: die Korrektur sanft ausblenden, damit sie beim
+     Loslassen nicht als Ruck stehen bleibt. */
+  if (player.state !== 'climb' || !player.wallInfo) {
+    if (player.wandLuft && player.wandLuft.lengthSq() > 1e-8) {
+      player.wandLuft.multiplyScalar(Math.pow(0.02, clamp(dtWand, 0, 0.1) / 0.15));
+    }
+    return;
+  }
   const kn = heroVisual && heroVisual.knochen;
   if (!kn) return;
   const w = player.wallInfo, c = w.col;
@@ -10875,10 +11033,20 @@ function wandFreiraum() {
      die Korrektur stieg dann aus und man sah gar nichts mehr. Mit -3,0
      greift sie auch dort; weiter entfernt ist es wirklich eine andere
      Wand. */
-  if (min >= WAND_LUFT || min < -3.0) return;
-  const s = WAND_LUFT - min;
-  r.position.x += w.nx * s;
-  r.position.z += w.nz * s;
+  /* Die Korrektur wird WEICH nachgezogen, nicht hart gesetzt. Grund: am
+     Eck wechselt die Wandnormale in einem Bild um 90 Grad. Der Koerper
+     steht in diesem Bild aber noch zur alten Wand (die Blickrichtung
+     zieht ueber mehrere Bilder nach), also steckt er nach der neuen
+     Rechnung tief in der Fassade - und wurde entsprechend weit
+     herausgeschoben. Gemessen sprang das Bild dabei um 2,4 bis 2,6 Meter,
+     waehrend die Physik nur 0,5 Meter weiterging. Genau das sah aus, als
+     "springe" die Figur um die Ecke, statt herumzuklettern. */
+  const ziel = (min >= WAND_LUFT || min < -3.0) ? 0 : (WAND_LUFT - min);
+  if (!player.wandLuft) player.wandLuft = new THREE.Vector3();
+  _wl.set(w.nx * ziel, 0, w.nz * ziel);
+  player.wandLuft.lerp(_wl, Math.min(1, dtWand * 14));
+  if (player.wandLuft.lengthSq() < 1e-8) player.wandLuft.set(0, 0, 0);
+  r.position.add(player.wandLuft);
   r.updateMatrixWorld(true);
 }
 
