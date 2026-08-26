@@ -25,6 +25,10 @@ const CFG = {
      greifende Hand bleibt dabei an der Fassade stehen. Ein Haus von 28 m
      dauert damit elf Sekunden statt sechs. */
   climbSpeed: 2.6,
+  /* Seitwaerts geht es schneller als hinauf. Hinauf zieht man sich Hand
+     ueber Hand hoch, quer haengelt man - und mit demselben Tempo wie beim
+     Steigen fuehlte sich das Ausweichen an der Fassade zaeh an. */
+  climbSpeedSeit: 4.4,
   /* Abstand der Körpermitte zur Wand beim Klettern. Vorher wurde der volle
      Kollisionsradius (0,45 m) benutzt – dadurch schwebte die Figur sichtbar
      vor dem Haus, statt daran zu kleben. */
@@ -78,6 +82,7 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const TAU = Math.PI * 2;
 
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const _v4 = new THREE.Vector3();
 
 function dampAngle(cur, target, k) {
   let d = target - cur;
@@ -3982,13 +3987,7 @@ const ZIVI_ANIM_PARTS = ['sitzen', 'reden', 'streiten', 'tippen', 'trinken',
 const RICHT_8 = ['v', 'vr', 'r', 'hr', 'h', 'hl', 'l', 'vl'];
 const HELD_ANIM_PARTS = RICHT_8.map((r) => 'ausw_' + r)
   .concat(RICHT_8.map((r) => 'rolle_' + r))
-  .concat(['spin_l', 'spin_r',
-    /* Ruhiges Kleben an der Fassade ("CrawlIdle_B" aus dem
-       Unreal-Projekt). Vorher lief im Stillstand an der Wand die
-       Haengebewegung am Faden - die ist aufrecht gebaut, und die Figur
-       stand deshalb an der Hauswand, statt daran zu kleben. Nur der Held
-       klettert, also gehoert die Datei auch nur zu ihm. */
-    'wandhalt']);
+  .concat(['spin_l', 'spin_r']);
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -4361,10 +4360,14 @@ function teileBewegungen() {
    Eingestellt und im Spiel nachgemessen (scratchpad/hocke2.js): Fuesse auf
    der Kante, Haende davor auf der Kante, Knie hoch, Ruecken rund, Kopf
    oben. Alle Laengen in Metern. */
+/* Wie stark sich die Finger zur Faust kruemmen. Gemessen eingestellt:
+   Fingerspitze zum Handgelenk unter 6 cm. */
+const FAUST_KRUEMM = -1.35, FAUST_DAUMEN = -0.55;
+const BLEND_ROLLE = 0.012;   // praktisch harter Schnitt, siehe rolleOneShot
 const KAU_R1 = 0.70, KAU_R2 = 0.70, KAU_R3 = 0.42;   // Rumpf nach vorn
 const KAU_NACKEN = -0.95, KAU_KOPF = -0.88;          // Kopf wieder hoch
 const KAU_KNIE_V = 0.34, KAU_KNIE_Q = 0.20, KAU_KNIE_H = 0.02;
-const KAU_FUSS_V = 0.05, KAU_FUSS_Q = 0.17, KAU_FUSS_H = -0.42;
+const KAU_FUSS_V = 0.02, KAU_FUSS_Q = 0.21, KAU_FUSS_H = -0.42;
 const KAU_FUSS_DREH = 0.62;
 const KAU_ARM_V = 0.10, KAU_ARM_Q = 0.05;            // Oberarm fast senkrecht
 const KAU_UARM_V = 0.06, KAU_UARM_Q = 0.02;          // Unterarm senkrecht
@@ -4378,7 +4381,6 @@ const GLB_CLIP_PATTERNS = {
   sprint: [/^sprint$/i, /sprint/i],
   symgang: [/^symgang$/i], symkombo: [/^symkombo$/i],
   wurfgriff: [/^wurfgriff$/i], kriechen: [/^kriechen$/i],
-  wandhalt: [/^wandhalt$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
   schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
@@ -4391,7 +4393,11 @@ const GLB_CLIP_PATTERNS = {
   /* Steigen und Fallen sind zwei verschiedene Bewegungen – erst die
      passende suchen, sonst rudert die Figur beim Fallen mit den Beinen. */
   jump: [/jump/i, /leap/i],
-  air: [/fall/i, /air/i, /jump/i],
+  /* Der EXAKTE Name zuerst. Locker gesucht passt /fall/ auch auf
+     "fallrolle" - welche der beiden Dateien gewann, hing dann an der
+     Ladereihenfolge, und die aendert sich mit jeder neuen Bewegung. Der
+     freie Fall lief dadurch plotzlich mit der Landerolle. */
+  air: [/^fall$/i, /^air$/i, /fall/i, /air/i, /jump/i],
   land: [/land/i, /landing/i],
   swing: [/swing/i, /hang/i, /fly/i, /brachiat/i],
   climb: [/^climb$/i, /climb/i, /crawl/i, /ladder/i],
@@ -6215,6 +6221,70 @@ function makeGlbVisual(m) {
        Schulter. Sie sind hier als Konstanten herausgezogen, weil sie
        gemessen eingestellt wurden: Fusshoehe, Handhoehe und Kopfhoehe
        ueber der Kante lassen sich im Spiel nachrechnen. */
+    /* ---- Ruhig an der Fassade kleben ----
+       Beide Haende ueber dem Kopf an der Wand, Knie weit zur Seite
+       abgespreizt, Fuesse fest an der Fassade - die Spinnenhaltung.
+       Warum von Hand und nicht als Datei: die Kriechbewegung des Pakets
+       friert an einer beliebigen Stelle ein (mal mit angehobenem Bein),
+       und die Steh-Bewegung aus dem Paket ist eine Haengebewegung am
+       Faden, also aufrecht gebaut - damit STAND die Figur an der
+       Hauswand, statt daran zu kleben.
+       Gezielt wird ueber RICHTUNGEN, nicht ueber Punkte: zieleKnochen
+       dreht nur die Achse eines Knochens, seine Laenge bleibt. Ein fester
+       Zielpunkt haette also je nach Koerpergroesse danebengelegen.
+         hoch = die Wand hinauf, quer = an der Wand entlang,
+         raus = von der Wand weg.                                        */
+    poseWandhalt(nx, nz, k) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      root.updateMatrixWorld(true);
+      const rx = -nz, rz = nx;                    // Tangente laengs der Wand
+      const richt = (bone, hoch, quer, raus) => {
+        bone.getWorldPosition(_vw3);
+        return _vw4.set(_vw3.x + rx * quer + nx * raus,
+                        _vw3.y + hoch,
+                        _vw3.z + rz * quer + nz * raus);
+      };
+      for (const p of ['left', 'right']) {
+        const vz = p === 'left' ? 1 : -1;   // Skelett ist gespiegelt benannt
+        const arm = knochen[p + 'arm'], varm = knochen[p + 'forearm'];
+        const hand = knochen[p + 'hand'];
+        if (arm && varm) {
+          /* Oberarm nach oben aussen, Unterarm wieder an die Wand. */
+          zieleKnochen(arm, varm, richt(arm, 0.62, vz * 0.52, 0.30), w);
+          if (hand) zieleKnochen(varm, hand, richt(varm, 0.80, vz * 0.16, -0.55), w);
+        }
+        const ober = knochen[p + 'upleg'], unter = knochen[p + 'leg'];
+        const fuss = knochen[p + 'foot'];
+        if (ober && unter) {
+          /* Knie weit zur Seite - das macht die Spinnenhaltung aus. */
+          zieleKnochen(ober, unter, richt(ober, -0.18, vz * 0.90, 0.40), w);
+          if (fuss) {
+            zieleKnochen(unter, fuss, richt(unter, -0.80, vz * 0.22, -0.55), w);
+            drehZuRuhe(fuss, 0.35, 0, 0, w * 0.7);
+          }
+        }
+      }
+      /* Kopf leicht angehoben - der Blick geht die Wand hinauf. */
+      drehZuRuhe(knochen.neck, -0.22, 0, 0, w * 0.8);
+      drehZuRuhe(knochen.head, -0.20, 0, 0, w * 0.8);
+    },
+    /* Faust: die vier Finger und der Daumen werden eingerollt. Beim
+       Katapult haelt die Figur zwei Netze - mit flacher Hand sah das aus,
+       als winke sie damit. */
+    faust(seite, k) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      const p = seite === 'L' ? 'left' : 'right';
+      for (const f of ['index', 'middle', 'ring', 'pinky']) {
+        for (let g = 1; g <= 3; g++) {
+          const b = knochen[p + 'hand' + f + g];
+          if (b) drehZuRuhe(b, 0, 0, FAUST_KRUEMM * (g === 1 ? 0.9 : 1), w);
+        }
+      }
+      for (let g = 1; g <= 3; g++) {
+        const b = knochen[p + 'handthumb' + g];
+        if (b) drehZuRuhe(b, 0, FAUST_DAUMEN, FAUST_KRUEMM * 0.5, w);
+      }
+    },
     poseKauern(k) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
       const hueft = knochen.hips;
@@ -6632,8 +6702,6 @@ function makeGlbVisual(m) {
          Wand hoch wurde damit ein Wuehlen. */
       if (p.wandModus === 'lauf') {
         if (findClip(m.clips, 'run')) want = 'run';
-      } else if (p.wandModus === 'halten') {
-        if (findClip(m.clips, 'wandhalt')) want = 'wandhalt';
       } else if (p.wandModus === 'kriechen') {
         /* An der Wand fuehrt die Kriechbewegung - die, mit der die
            Wandkippung gebaut wurde.
@@ -6888,8 +6956,22 @@ function makeGlbVisual(m) {
       const v = clamp(d / zielDauer, 1, 3.2);
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
-      if (current) current.fadeOut(0.08);
-      a.reset(); a.fadeIn(0.08); a.timeScale = v; a.play();
+      /* Eine noch laufende Einmal-Bewegung muss mit weg. Vorher blieb sie
+         mit vollem Gewicht stehen, und ihre festgehaltene Endhaltung
+         mischte sich in die Rolle. */
+      if (angriff && angriff !== a) angriff.fadeOut(0.05);
+      else if (current) current.fadeOut(BLEND_ROLLE);
+      /* HART umschalten, nicht ueberblenden. Beim Ueberblenden vom Lauf in
+         die Rolle liegen die Schulterdrehungen so weit auseinander, dass
+         der kuerzeste Weg zwischen ihnen UEBER DEN KOPF fuehrt: gemessen
+         schoss die linke Hand fuer drei Bilder auf 1,73 m hoch, obwohl
+         weder der Lauf (1,09 m) noch die Rolle (0,95 m) den Arm dort hat.
+         Genau das war der Arm, der nach dem Ausweichen hochgeht. Eine
+         kuerzere Blende macht den Ausschlag nicht kleiner, nur kuerzer -
+         der Ausschlag steckt in der Mischung selbst, nicht in ihrer
+         Dauer. Ein Ausweichsatz darf ruhig hart einsetzen; er ist schnell
+         und soll knackig wirken. */
+      a.reset(); a.fadeIn(BLEND_ROLLE); a.timeScale = v; a.play();
       angriff = a;
       angriffT = Math.min(zielDauer, d / v);
       return angriffT;
@@ -7564,7 +7646,7 @@ const player = {
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
   hartLandung: 0, saltoCd: 0, luftSalto: 0, warSchwung: 0, schrittT: 0,
-  eckT: 0, eckSperre: 0, sichtPos: null,
+  eckT: 0, eckSperre: 0, sichtPos: null, wandStill: false, wandRuhe: 0,
   /* ---- Symbiont ----
      Kaempfen fuellt den Balken. Ist er voll, laesst sich der schwarze
      Anzug zuschalten: haerter, schneller, aber nur fuer eine Weile. */
@@ -9487,12 +9569,13 @@ function updatePlayer(dt) {
       if (player.wandSchwung < 0) player.wandSchwung = 0;
     }
     const kTempo = CFG.climbSpeed;
+    const sTempo = CFG.climbSpeedSeit || kTempo;
     const hoch = up * kTempo + Math.max(0, player.wandSchwung);
     /* Ohne Eingabe ist es kein Lauf mehr. Vorher blieb die waagerechte
        Laufhaltung stehen, solange noch Schwung da war - man klebte quer
        an der Fassade, obwohl man stand. */
     player.wandlauf = player.wandSchwung > 1.5 && (Math.abs(up) + Math.abs(side)) > 0.05;
-    player.vel.set(tx * side * kTempo, hoch, tz * side * kTempo);
+    player.vel.set(tx * side * sTempo, hoch, tz * side * sTempo);
     player.pos.addScaledVector(player.vel, dt);
     /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
        der Fassade heraus. Vorher steckte die Figur mit dem Oberkörper darin
@@ -9646,14 +9729,15 @@ function updatePlayer(dt) {
     player.wandAb = !seitlich && up < 0;
     const hatK = heroVisual.hatClip || (() => false);
     const senkrecht = hatK('klettern') ? 'klettern' : 'climb';
-    /* Stillstand an der Wand: das ruhige KLEBEN, nicht das Haengen am
-       Faden. Die Haengebewegung ist aufrecht gebaut - damit stand die
-       Figur an der Hauswand, statt daran zu kleben ("ich stehe da
-       sozusagen, aber stehe nicht richtig"). */
-    player.anim = bewegt === 0 ? (hatK('wandhalt') ? 'wandhalt' : 'haengen')
-                : player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
-                : seitlich ? senkrecht
-                : senkrecht;                          // hoch und runter
+    /* Stillstand an der Wand: dieselbe Kriechbewegung als Unterlage, die
+       Haltung selbst wird GESETZT (poseWandhalt). Zwei Anlaeufe davor sind
+       gescheitert: die Haengebewegung am Faden ist aufrecht gebaut - damit
+       STAND die Figur an der Hauswand -, und die Kriechruhe aus dem Paket
+       fror an einer beliebigen Stelle ein, mal mit angehobenem Bein und
+       Arm auf derselben Seite. */
+    player.wandStill = bewegt === 0;
+    player.anim = player.wandlauf ? 'wandlauf'        // die Wand hochlaufen
+                : senkrecht;                          // hoch, runter, quer
     updateHeroVisual(dt);
     return;
   }
@@ -10761,10 +10845,6 @@ function updateHeroVisual(dt) {
                  player.anim !== 'haengen' && !!heroVisual.wandKriechen;
   player.wandModus = !anWand ? null
     : player.wandlauf && heroVisual.hatClip && heroVisual.hatClip('run') ? 'lauf'
-    /* Das ruhige Kleben bringt seine eigene Bewegung mit und wird genauso
-       an die Wand gekippt wie das Kriechen. */
-    : player.anim === 'wandhalt' && heroVisual.hatClip &&
-      heroVisual.hatClip('wandhalt') ? 'halten'
     : heroVisual.hatClip && heroVisual.hatClip('kriechen') ? 'kriechen' : null;
   player.wandKriechen = !!player.wandModus;
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
@@ -10869,6 +10949,13 @@ function updateHeroVisual(dt) {
         const wunsch = tempo > 0.9 ? Math.atan2(-vq, vh) : 0;
         player.wandRoll = wunsch;
         heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch);
+        /* Im Stillstand die Klebehaltung darueberlegen. Sie blendet ein
+           und aus, damit der Uebergang zur Kriechbewegung weich ist. */
+        player.wandRuhe = clamp((player.wandRuhe || 0) +
+          dt * (player.wandStill ? 5 : -8), 0, 1);
+        if (player.wandRuhe > 0.02 && heroVisual.poseWandhalt) {
+          heroVisual.poseWandhalt(w.nx, w.nz, player.wandRuhe);
+        }
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
         MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
@@ -10981,6 +11068,27 @@ function updateHeroVisual(dt) {
        wird nur schneller. */
     const rate = player.eckT > 0 ? 7 : 45;
     player.sichtPos.lerp(r.position, Math.min(1, dt * rate));
+    /* Der gedaempfte Punkt darf NIE im Haus liegen. Eine gerade Strecke
+       zwischen zwei Punkten an zwei verschiedenen Seiten eines Hauses
+       fuehrt durch die Ecke hindurch - man lief also sichtbar durch die
+       Wand, statt aussen herumzuklettern. Deshalb wird der Punkt hier auf
+       die naechstgelegene Aussenseite geschoben; damit folgt er der
+       Fassade um die Ecke. */
+    const hk = player.wallInfo && player.wallInfo.col;
+    if (hk) {
+      const m = CFG.climbGap;
+      const p2 = player.sichtPos;
+      if (p2.x > hk.x0 - m && p2.x < hk.x1 + m &&
+          p2.z > hk.z0 - m && p2.z < hk.z1 + m) {
+        const dx0 = p2.x - (hk.x0 - m), dx1 = (hk.x1 + m) - p2.x;
+        const dz0 = p2.z - (hk.z0 - m), dz1 = (hk.z1 + m) - p2.z;
+        const kl = Math.min(dx0, dx1, dz0, dz1);
+        if (kl === dx0) p2.x = hk.x0 - m;
+        else if (kl === dx1) p2.x = hk.x1 + m;
+        else if (kl === dz0) p2.z = hk.z0 - m;
+        else p2.z = hk.z1 + m;
+      }
+    }
     r.position.copy(player.sichtPos);
     r.updateMatrixWorld(true);
   }
@@ -11215,7 +11323,15 @@ function updateKatapult(dt) {
     /* Ohne Hand keine Linie - dann lieber die Schulter nehmen als gar
        nichts zu zeigen. Vorher blieb der Strang in dem Fall unsichtbar,
        und man sah beim Spannen ueberhaupt kein Netz. */
-    const von = hand || _v3.set(player.pos.x, player.pos.y + 1.4, player.pos.z);
+    /* Der Faden beginnt an den FINGERSPITZEN, nicht am Handgelenk. Der
+       Handknochen sitzt rund neun Zentimeter vor dem Gelenk; ohne diesen
+       Versatz setzte der Faden sichtbar neben der Faust an. Verschoben
+       wird entlang der Richtung zum Anker - dorthin zeigt die Hand. */
+    let von = hand || _v3.set(player.pos.x, player.pos.y + 1.4, player.pos.z);
+    if (hand) {
+      _v4.copy(KAT.anker[i]).sub(von);
+      if (_v4.lengthSq() > 1e-6) von.addScaledVector(_v4.normalize(), 0.11);
+    }
     /* Beim Spannen wird der Faden straffer, dicker und heller - man soll
        sehen, wie die Spannung steigt. Die Dicke geht in placeStrand hinein;
        ein mesh.scale haette die Weltpunkte des Fadens verschoben. */
@@ -11240,6 +11356,9 @@ function updateKatapult(dt) {
        die Arme ueber Kreuz, genau das war "die Arme sind verkreuzt". */
     heroVisual.poseSchuss(KAT.anker[0], 'R', 0.85);
     heroVisual.poseSchuss(KAT.anker[1], 'L', 0.85);
+    /* Wer zwei Netze haelt, macht dabei die Faust zu. Mit flacher Hand sah
+       es aus, als winke die Figur mit den Faeden. */
+    if (heroVisual.faust) { heroVisual.faust('L', 1); heroVisual.faust('R', 1); }
   }
   if (heroVisual.root) heroVisual.root.rotation.x = -(KAT.lehne || 0);
 }
