@@ -4442,6 +4442,65 @@ function teileBewegungen() {
    Fingerspitze zum Handgelenk unter 6 cm. */
 const FAUST_KRUEMM = -1.35, FAUST_DAUMEN = -0.55;
 const BLEND_ROLLE = 0.012;   // praktisch harter Schnitt, siehe rolleOneShot
+/* Kunststuecke in der Luft (Doppelsprung, Ueberschlag zwischen zwei
+   Boegen) blenden weich ein. Mit dem harten Schnitt sprangen Knie und
+   Schultern in einem einzigen Bild um mehr als 100 Grad - das war der
+   sichtbare Ruck beim Abspringen und Anschwingen. */
+const BLEND_KUNST = 0.14;
+/* Bis hierher greift die Figur nach der Fassade, und ueber diese Strecke
+   blendet der Griff aus (siehe wandGriff). */
+const WAND_GRIFF_WEIT = 0.45;
+const WAND_GRIFF_BAND = 0.20;
+
+/* ---- Blenden, die beim WIRKLICHEN Gewicht anfangen ----
+   three.js setzt fadeOut() immer bei Gewicht 1 an und fadeIn() immer bei 0
+   - unabhaengig davon, wo die Bewegung gerade tatsaechlich steht. Wird
+   eine Bewegung ausgeblendet, waehrend sie noch einblendet, springt ihr
+   Gewicht dadurch in einem einzigen Bild auf 1.
+   Genau das war der Ruck beim Anschwingen: der Ueberschlag aus dem
+   Doppelsprung lief mit 12 Prozent Gewicht, der Netzwurf blendete ihn im
+   selben Bild aus - und damit stand er schlagartig auf 92 Prozent.
+   Gemessen sprangen Knie und Schultern um ueber 100 Grad, die Hand um
+   87 Zentimeter. Hier wird der Startwert der Blende auf das aktuelle
+   Gewicht gesetzt, dann bleibt der Uebergang stetig. */
+/* Das aktuelle Gewicht einer Bewegung - null, wenn sie gar nicht laeuft.
+   getEffectiveWeight() allein reicht nicht: der Wert stammt aus dem
+   letzten Mischerdurchlauf. Wurde die Blende erst in DIESEM Bild
+   eingerichtet - etwa weil Doppelsprung und Netzwurf im selben Bild
+   ausgeloest wurden - steht dort noch der alte Wert, bei einer frisch
+   angelegten Bewegung sogar die volle Eins. Deshalb wird die Blendenkurve
+   direkt an der aktuellen Mischerzeit ausgewertet. */
+function gewichtVon(a) {
+  if (!a || !a.isRunning || !a.isRunning()) return 0;
+  const iv = a._weightInterpolant;
+  const mx = a._mixer;
+  if (iv && mx && iv.parameterPositions && iv.sampleValues) {
+    const p = iv.parameterPositions, v = iv.sampleValues, t = mx.time;
+    const grund = a.weight === undefined ? 1 : a.weight;
+    let anteil;
+    if (!(p[1] > p[0])) anteil = v[1];
+    else if (t <= p[0]) anteil = v[0];
+    else if (t >= p[1]) anteil = v[1];
+    else anteil = v[0] + (v[1] - v[0]) * (t - p[0]) / (p[1] - p[0]);
+    return clamp(grund * anteil, 0, 1);
+  }
+  return clamp(a.getEffectiveWeight(), 0, 1);
+}
+function blendeAus(a, dauer) {
+  if (!a) return;
+  if (a._scheduleFading) a._scheduleFading(dauer, gewichtVon(a), 0);
+  else a.fadeOut(dauer);
+}
+function blendeEin(a, dauer, vonGewicht) {
+  if (!a) return;
+  const w = clamp(vonGewicht === undefined ? 0 : vonGewicht, 0, 1);
+  /* Vorsicht: getEffectiveWeight() liefert auch fuer eine Bewegung, die
+     noch nie lief, den vollen Wert 1. Der Startwert darf deshalb nur von
+     einer WIRKLICH laufenden Bewegung kommen - das prueft der Aufrufer
+     mit gewichtVon(). */
+  if (a._scheduleFading) a._scheduleFading(dauer, w, 1);
+  else a.fadeIn(dauer);
+}
 const KAU_R1 = 0.70, KAU_R2 = 0.70, KAU_R3 = 0.42;   // Rumpf nach vorn
 const KAU_NACKEN = -0.95, KAU_KOPF = -0.88;          // Kopf wieder hoch
 const KAU_KNIE_V = 0.34, KAU_KNIE_Q = 0.20, KAU_KNIE_H = 0.02;
@@ -5613,6 +5672,40 @@ function makeGlbVisual(m) {
     bone.updateMatrixWorld(true);
   }
 
+  /* ---- Ein Glied ZUM ZIEL NACHDREHEN, ohne die Haltung zu verwerfen ----
+     zieleKnochen() setzt eine ABSOLUTE Ausrichtung: der Knochen zeigt
+     danach zum Ziel, seine gesamte animierte Verdrehung ist weg. Fuer den
+     Griff an der Fassade ist das falsch. Dort greift die Korrektur nur,
+     solange das Glied nahe an der Wand ist - geht es im Kletterschritt aus
+     der Reichweite heraus, fiel die Haltung schlagartig auf die reine
+     Bewegungsdatei zurueck. Gemessen sprang die Fussspitze dabei 86
+     Zentimeter in EINEM Bild, und zwar in jedem Kletterschritt aufs Neue.
+     Hier wird stattdessen nur die DIFFERENZ gedreht: um genau den Winkel
+     zwischen der jetzigen und der gewuenschten Richtung. Ist die Korrektur
+     klein, ist auch die Drehung klein - und die animierte Verdrehung des
+     Beins bleibt erhalten (deshalb stehen die Fuesse jetzt auch richtig
+     herum an der Wand). */
+  const _gp0 = new THREE.Vector3(), _gp1 = new THREE.Vector3();
+  const _gu = new THREE.Vector3(), _gv = new THREE.Vector3(), _gax = new THREE.Vector3();
+  function griffKnochen(bone, child, zielWelt, staerke, maxWinkel) {
+    if (!bone || !child) return;
+    bone.updateMatrixWorld(true);
+    _gp0.setFromMatrixPosition(bone.matrixWorld);
+    child.getWorldPosition(_gp1);
+    _gu.subVectors(_gp1, _gp0);
+    _gv.subVectors(zielWelt, _gp0);
+    if (_gu.lengthSq() < 1e-8 || _gv.lengthSq() < 1e-8) return;
+    _gu.normalize(); _gv.normalize();
+    const winkel = Math.acos(clamp(_gu.dot(_gv), -1, 1));
+    if (winkel < 0.0015) return;
+    _gax.crossVectors(_gu, _gv);
+    if (_gax.lengthSq() < 1e-8) return;
+    _gax.normalize();
+    const grenze = maxWinkel === undefined ? 0.5 : maxWinkel;
+    drehKnochenWelt(bone, _gax, Math.min(winkel * clamp(staerke, 0, 1), grenze), 1);
+    bone.updateMatrixWorld(true);
+  }
+
   /* Einen Knochen um eine WELTACHSE weiterdrehen, ohne seine bisherige
      Haltung zu verwerfen. Object3D.rotateOnWorldAxis rechnet bei gedrehtem
      Elternknochen falsch, deshalb hier von Hand. */
@@ -6377,11 +6470,20 @@ function makeGlbVisual(m) {
         /* Abstand zur Fassade, positiv heisst davor. */
         const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
         const ziel = WAND_LUFT + rest;
-        if (d < ziel + 0.005 || d > 0.45) continue;   // schon dran oder zu weit weg
+        /* Ab 45 cm Abstand liess der Griff das Glied frueher SCHLAGARTIG
+           los - das Schwungbein im Kletterschritt geht durch diese Marke,
+           und die Fussspitze sprang dabei in einem Bild um 86 Zentimeter.
+           Jetzt blendet der Griff ueber die letzten zwanzig Zentimeter aus:
+           bei 25 cm haelt er ganz, bei 45 gar nicht mehr. */
+        const nah = clamp((WAND_GRIFF_WEIT - d) / WAND_GRIFF_BAND, 0, 1);
+        /* In BEIDE Richtungen: der Griff hat frueher nur herangezogen, nie
+           herausgeschoben. Gemessen steckten die Fuesse dabei bis zu 52 cm
+           IN der Fassade - genau die Fuesse, die im Haus verschwanden. */
+        if (Math.abs(d - ziel) < 0.005 || nah <= 0.001) continue;  // sitzt schon oder zu weit weg
         _vw4.copy(_vw3);
         if (nx !== 0) _vw4.x -= nx * (d - ziel);
         else _vw4.z -= nz * (d - ziel);
-        zieleKnochen(a, b, _vw4, w);
+        griffKnochen(a, b, _vw4, w * nah * nah * (3 - 2 * nah), 0.45);
       }
     },
     /* Faust: die vier Finger und der Daumen werden eingerollt. Beim
@@ -6771,7 +6873,7 @@ function makeGlbVisual(m) {
         /* Gleiche Blenddauer wie beim Einblenden der Grundanimation – sonst
            sinkt die Gesamtgewichtung kurz unter 1 und das Modell rutscht
            sichtbar in die T-Pose zurück. */
-        angriff.fadeOut(0.22); angriff = null; current = null;
+        blendeAus(angriff, 0.22); angriff = null; current = null;
       }
       if (dist2 > 45 * 45) {
         lodAcc += dt;
@@ -6884,13 +6986,14 @@ function makeGlbVisual(m) {
           const cd = current.getClip().duration || 1;
           phase = (current.time % cd) / cd;
         }
-        if (current) current.fadeOut(0.22);
+        const wAlt = gewichtVon(a);
+        blendeAus(current, 0.22);
         /* Umfallen und Liegenbleiben laufen genau einmal und bleiben im
            letzten Bild stehen – sonst fällt die Figur endlos immer wieder. */
         const einmal = want === 'downed' || want === 'sit' || want === 'taunt';
         a.setLoop(einmal ? THREE.LoopOnce : THREE.LoopRepeat, einmal ? 1 : Infinity);
         a.clampWhenFinished = einmal;
-        a.reset().fadeIn(0.22).play();
+        a.reset(); blendeEin(a, 0.22, wAlt); a.play();
         if (beideLauf) a.time = phase * (a.getClip().duration || 1);
         current = a;
       }
@@ -7019,10 +7122,11 @@ function makeGlbVisual(m) {
          85 Zentimeter. */
       const blende = verkette === 1 ? 0.05 : verkette === 2 ? 0.012
                    : verkette === 3 ? 0.22 : 0.09;
-      if (angriff && !gleiche) angriff.fadeOut(blende);
-      else if (current && !angriff) current.fadeOut(blende);
+      const wAlt = gewichtVon(a);
+      if (angriff && !gleiche) blendeAus(angriff, blende);
+      else if (current && !angriff) blendeAus(current, blende);
       if (gleiche) a.reset();
-      else { a.reset(); a.fadeIn(blende); }
+      else { a.reset(); blendeEin(a, blende, wAlt); }
       const ab = verkette === 1 ? d * 0.18 : 0;
       a.time = ab;
       a.timeScale = v; a.play();
@@ -7036,7 +7140,7 @@ function makeGlbVisual(m) {
        rollt sie frei schwebend in der Luft weiter. */
     brichOneShot(blende) {
       if (!angriff) return false;
-      angriff.fadeOut(blende === undefined ? 0.14 : blende);
+      blendeAus(angriff, blende === undefined ? 0.14 : blende);
       angriff = null; angriffT = 0; current = null;
       return true;
     },
@@ -7062,9 +7166,10 @@ function makeGlbVisual(m) {
       const v = clamp(rest / zielDauer, 0.6, 3.0);
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
-      if (angriff && angriff !== a) angriff.fadeOut(0.09);
-      else if (current && !angriff) current.fadeOut(0.09);
-      a.reset(); a.fadeIn(0.09);
+      const wAlt = gewichtVon(a);
+      if (angriff && angriff !== a) blendeAus(angriff, 0.09);
+      else if (current && !angriff) blendeAus(current, 0.09);
+      a.reset(); blendeEin(a, 0.09, wAlt);
       a.time = vonZeit;
       a.timeScale = v; a.play();
       angriff = a;
@@ -7079,24 +7184,33 @@ function makeGlbVisual(m) {
       const v = clamp(d / zielDauer, 1, 4.5);
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
-      if (current) current.fadeOut(0.1);
-      a.reset(); a.fadeIn(0.1); a.timeScale = v; a.play();
+      const wAlt = gewichtVon(a);
+      blendeAus(current, 0.1);
+      a.reset(); blendeEin(a, 0.1, wAlt); a.timeScale = v; a.play();
       angriff = a;
       angriffT = Math.min(zielDauer, d / v);
       return angriffT;
     },
-    rolleOneShot(zielDauer, welche) {
+    rolleOneShot(zielDauer, welche, blende) {
       const a = actionFor(welche || 'roll') || actionFor('roll');
       if (!a) return 0;
       const d = a.getClip().duration;
       const v = clamp(d / zielDauer, 1, 3.2);
+      /* Der harte Schnitt gilt fuer die AUSWEICHROLLE am Boden (siehe
+         unten). Kunststuecke in der Luft brauchen ihn nicht - dort liegen
+         Ausgangs- und Zielhaltung nicht so weit auseinander, dass die
+         Schulter ueber den Kopf laeuft, und der harte Schnitt war genau
+         der Ruck beim Anschwingen: gemessen sprang die Hand im ersten Bild
+         um 87 Zentimeter. Wer eine Blende mitgibt, bekommt sie. */
+      const bl = blende === undefined ? BLEND_ROLLE : blende;
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
       /* Eine noch laufende Einmal-Bewegung muss mit weg. Vorher blieb sie
          mit vollem Gewicht stehen, und ihre festgehaltene Endhaltung
          mischte sich in die Rolle. */
-      if (angriff && angriff !== a) angriff.fadeOut(0.05);
-      else if (current) current.fadeOut(BLEND_ROLLE);
+      const wAlt = gewichtVon(a);
+      if (angriff && angriff !== a) blendeAus(angriff, blende === undefined ? 0.05 : bl);
+      else if (current) blendeAus(current, bl);
       /* HART umschalten, nicht ueberblenden. Beim Ueberblenden vom Lauf in
          die Rolle liegen die Schulterdrehungen so weit auseinander, dass
          der kuerzeste Weg zwischen ihnen UEBER DEN KOPF fuehrt: gemessen
@@ -7107,7 +7221,7 @@ function makeGlbVisual(m) {
          der Ausschlag steckt in der Mischung selbst, nicht in ihrer
          Dauer. Ein Ausweichsatz darf ruhig hart einsetzen; er ist schnell
          und soll knackig wirken. */
-      a.reset(); a.fadeIn(BLEND_ROLLE); a.timeScale = v; a.play();
+      a.reset(); blendeEin(a, bl, wAlt); a.timeScale = v; a.play();
       angriff = a;
       angriffT = Math.min(zielDauer, d / v);
       return angriffT;
@@ -8911,9 +9025,13 @@ function schwungKunst(mindestHoehe) {
      der Datei bestimmt (rund doppeltes Tempo) und nur noch von der
      Fallzeit gedeckelt. */
   const eigen = heroVisual.clipDauer ? heroVisual.clipDauer(art) : 0;
-  const ziel = clamp((eigen > 0 ? eigen / 2.0 : 0.8),
-                     0.42, Math.max(0.42, Math.min(1.3, fallZeit * 0.6)));
-  const dauer = heroVisual.rolleOneShot(ziel, art);
+  /* Doppeltes Tempo war zu schnell: gemessen legte die Fussspitze dabei
+     54 Zentimeter je Bild zurueck, der Ueberschlag wurde zum Wisch. In
+     seinem eigenen Takt sind es 28. Mit dem Faktor 1,6 bleibt es zuegig,
+     aber lesbar. */
+  const ziel = clamp((eigen > 0 ? eigen / 1.6 : 0.8),
+                     0.42, Math.max(0.42, Math.min(1.45, fallZeit * 0.6)));
+  const dauer = heroVisual.rolleOneShot(ziel, art, BLEND_KUNST);
   if (!dauer) return 0;
   player.luftSalto = dauer;
   player.saltoCd = dauer + rand(0.5, 1.3);
@@ -9172,6 +9290,15 @@ function tryJump() {
     player.swingLock = true;
     player.haltenT = 0;
   } else if (player.jumps < 2) {
+    /* ---- In der Luft ist die Sprungtaste zuerst der NETZSCHWUNG ----
+       Der Doppelsprung ist nur der Rueckfall, wenn kein Haus in Reichweite
+       ist. Vorher lief beides im SELBEN Bild: der Ueberschlag begann, und
+       der Netzwurf blendete ihn sofort wieder weg. Gemessen sprangen Knie
+       und Schultern dabei um ueber hundert Grad und die Hand um 87
+       Zentimeter - genau das Gezappel von Armen und Beinen beim
+       Anschwingen. */
+    const hoehe = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
+    if (!player.swingLock && (hoehe > 0.8 || player.vel.y < 0) && startSwing()) return;
     player.vel.y = CFG.jumpVel * 0.92;
     player.jumps = 2;
     /* Der zweite Sprung hatte bisher gar keine eigene Bewegung: die Figur
@@ -9183,8 +9310,20 @@ function tryJump() {
     if (heroVisual.rolleOneShot) {
       const hat = heroVisual.hatClip || (() => false);
       const art = hat('kunst_a') ? 'kunst_a' : hat('frontflip') ? 'frontflip' : null;
-      if (art) player.luftSalto = heroVisual.rolleOneShot(0.58, art) || 0;
+      /* 0,58 s pressten die 1,9-s-Datei mit dem Hoechsttempo 3,2 zusammen -
+         davon war nichts mehr zu erkennen. Der Ueberschlag laeuft jetzt
+         etwas laenger und damit auch noch im Sinken weiter; das sieht
+         einem Doppelsprung aehnlicher als ein Zucken im Steigen. */
+      if (art) player.luftSalto = heroVisual.rolleOneShot(0.75, art, BLEND_KUNST) || 0;
     }
+    /* Dieselbe Sperre wie beim Absprung vom Boden. Ohne sie loesten
+       Doppelsprung UND Netzwurf im SELBEN Bild aus: der Ueberschlag
+       begann und wurde von der Wurfbewegung sofort wieder ueberblendet -
+       gemessen sprangen Knie und Schultern dabei um ueber 100 Grad. Jetzt
+       laeuft erst der Ueberschlag, und wer die Taste haelt, geht danach in
+       den Bogen. */
+    player.swingLock = true;
+    player.haltenT = 0;
     SFX.swoosh();
   }
 }
