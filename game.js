@@ -6868,7 +6868,7 @@ function makeGlbVisual(m) {
        hing die Figur nach jedem Schlag sekundenlang im Nachschwingen und
        eine Kombo war nicht mehr möglich. Die Bewegung wird deshalb
        beschleunigt und der ausklingende Rest weggeblendet. */
-    attackOneShot(tempo, art, zielDauer) {
+    attackOneShot(tempo, art, zielDauer, verkette) {
       const a = actionFor(art || 'attack') || actionFor('attack');
       if (!a) return 0;
       const d = a.getClip().duration;
@@ -6886,13 +6886,25 @@ function makeGlbVisual(m) {
          sprang die Figur bei jedem Klick zurück auf das erste Bild und der
          Schlag sah abgehackt aus. */
       const gleiche = angriff === a;
-      if (angriff && !gleiche) angriff.fadeOut(0.09);
-      else if (current && !angriff) current.fadeOut(0.09);
+      /* ---- Verketten in der Schlagfolge ----
+         Jede Schlagdatei faengt in der Ruhehaltung an und holt erst aus.
+         Beim schnellen Klicken sah man deshalb, wie der Arm ZURUECKGEHT,
+         bevor der naechste Schlag beginnt - die Kombo zerfiel sichtbar in
+         Einzelteile. Beim Verketten wird die Ausholphase deshalb
+         uebersprungen: der naechste Schlag setzt dort an, wo der Arm
+         ohnehin schon ist, und die Blende ist kurz. Damit lesen sich die
+         Schlaege als EINE Bewegung. */
+      const blende = verkette ? 0.05 : 0.09;
+      if (angriff && !gleiche) angriff.fadeOut(blende);
+      else if (current && !angriff) current.fadeOut(blende);
       if (gleiche) a.reset();
-      else { a.reset(); a.fadeIn(0.09); }
+      else { a.reset(); a.fadeIn(blende); }
+      const ab = verkette ? d * 0.18 : 0;
+      a.time = ab;
       a.timeScale = v; a.play();
       angriff = a;
-      angriffT = zielDauer ? Math.min(zielDauer, d / v) : d / v;
+      const rest = (d - ab) / v;
+      angriffT = zielDauer ? Math.min(zielDauer, rest) : rest;
       return angriffT;
     },
     /* Eine laufende Einmal-Bewegung sofort abbrechen. Nötig, wenn die
@@ -9072,7 +9084,9 @@ function tryAttack(type) {
   /* Die Dauer kommt aus der Bewegungsdatei selbst. Vorher war sie fest
      verdrahtet und viel kürzer als der Clip – deshalb startete die
      Animation bei schnellem Klicken immer wieder von vorn. */
-  const dauer = heroVisual.attackOneShot(0, k.art, k.ziel) || k.ziel || 0.42;
+  /* Zweiter Schlag und weiter: verkettet abspielen (ohne Ausholphase). */
+  const verkette = player.onGround && stufe > 0 && player.comboTimer > 0;
+  const dauer = heroVisual.attackOneShot(0, k.art, k.ziel, verkette) || k.ziel || 0.42;
   /* Flinke Gegner reagieren auf das Ausholen, nicht erst auf den Treffer. */
   versucheAusweichen();
   const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie' ||
@@ -9968,11 +9982,23 @@ function updatePlayer(dt) {
        geglättet und die Drehrate lag bei 1,5 rad/s – eine Kehrtwende
        dauerte über zwei Sekunden und man konnte einem Haus nicht mehr
        ausweichen. */
-    player.gleitNase = lerp(player.gleitNase || 0, clamp(nase, -1, 1), Math.min(1, dt * 6.5));
+    /* Die Nase darf nur begrenzt nach OBEN. Ganz nach oben gezogen wurde
+       die Figur aufrecht gestellt - und genau in dieser Haltung stieg sie
+       auch noch (siehe sinkMax). Beides zusammen war der Gleitflug, der
+       nach oben statt nach unten ging. */
+    player.gleitNase = lerp(player.gleitNase || 0, clamp(nase, -0.55, 1),
+                            Math.min(1, dt * 6.5));
     player.gleitKurve = lerp(player.gleitKurve || 0, clamp(kurve, -1, 1), Math.min(1, dt * 8));
 
-    /* Sinkgeschwindigkeit begrenzen – das ist der eigentliche Flügel. */
-    const sinkMax = -(4.2 + player.gleitNase * 7.5);      // 3,3 … 11,7 m/s
+    /* Sinkgeschwindigkeit begrenzen - das ist der eigentliche Fluegel.
+       WICHTIG: die Grenze muss NEGATIV bleiben. Mit der Nase nach oben
+       ergab die alte Rechnung -(4,2 - 7,5) = +3,3 - also eine Grenze
+       OBERHALB von null. Die Zeile darunter zieht die Figur an diese
+       Grenze heran, und aus der Sinkbremse wurde damit ein Aufzug: die
+       Figur stieg mit gut drei Metern je Sekunde, ohne jeden Antrieb.
+       Ein Gleiter kann aus dem Nichts keine Hoehe gewinnen; mit der Nase
+       oben sinkt er nur LANGSAMER (1,6 m/s). */
+    const sinkMax = -Math.max(1.6, 4.2 + player.gleitNase * 7.5);   // -1,6 … -11,7
     if (player.vel.y < sinkMax) player.vel.y = lerp(player.vel.y, sinkMax, Math.min(1, dt * 3.2));
 
     /* Kurve: die Blickrichtung dreht, das Tempo folgt der Nase. */
