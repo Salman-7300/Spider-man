@@ -3333,6 +3333,7 @@ function baueHausMeshes() {
     const m = new THREE.Mesh(fasseGeometrien(liste), wandMats[+schluessel.split('|')[0]]);
     m.castShadow = true; m.receiveShadow = true;
     cityGroup.add(m);
+    HAUS_FASSADEN.push(m);
   }
   for (const [, liste] of hausDaecher) {
     if (!liste.length) continue;
@@ -3343,8 +3344,16 @@ function baueHausMeshes() {
   hausWaende.clear(); hausDaecher.clear();
 }
 
+/* Jedes Haus wird gemerkt: Grundriss, Hoehe, Ort. Sobald der Haeusersatz
+   geladen ist, wird ueber jede dieser Kisten ein echtes Gebaeudemodell
+   gestellt (siehe setzeHausModelle). Die KOLLISION bleibt die Kiste - sie
+   ist es, an der geklettert, geschwungen und angestossen wird. Deshalb
+   aendert sich am Spielgefuehl nichts, nur am Bild. */
+const HAUS_KISTEN = [];
+const HAUS_FASSADEN = [];        // die selbstgebauten Fassadenmeshes
 function makeBuildingMesh(w, h, d, x, z) {
   const texIdx = randi(0, facadeTexes.length - 1);
+  HAUS_KISTEN.push({ w, h, d, x, z });
   sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx);
   /* Die Häuserkollision endet einen Meter unter der Straße. Ohne diese
      Untergrenze reicht sie beliebig tief ins Erdreich – in der U-Bahn-
@@ -4120,6 +4129,7 @@ function loadGlbAssets(done) {
         ladeFertigMelden(); verteileZiviBewegungen();
         teileBewegungen(); ergaenzeSpiegelungen();
         ladeStadtteile(loader);
+        ladeHaeuser(loader);
         done();
       }
     };
@@ -4149,6 +4159,74 @@ function loadGlbAssets(done) {
    Stadt zusammen kosten damit EINEN Zeichenaufruf, alle Poller einen
    weiteren, und so fort. Die Stellen sammelt der Stadtbau schon beim
    Bauen ein - die Datei kommt erst spaeter an. */
+/* ---- Echte Gebaeudemodelle ueber die Kisten stellen ----
+   Aus zwei Modellsaetzen ("Brownstone Building Set", "Downtown Buildings
+   Set") kommen 18 fertige Haeuser, ueber tools/convert-haeuser.mjs auf
+   einen EINHEITSWUERFEL normiert: Grundriss -0,5..0,5, Hoehe 0..1. Ein
+   Modell passt damit auf jede Kiste, indem man es einfach auf deren Masse
+   skaliert.
+   Ausgewaehlt wird nach der HOEHE - ein Modell, das fuer 100 m gebaut ist,
+   auf 15 m gestaucht, verliert seine Geschosseinteilung. Innerhalb der
+   passenden Hoehenklasse entscheidet der Ort, damit dasselbe Haus an
+   derselben Stelle immer gleich aussieht. */
+const HAUS_MODELLE = [];
+function ladeHaeuser(loader) {
+  if (!HAUS_KISTEN.length) return;
+  loader.load('assets/haeuser.glb', (gltf) => {
+    try { setzeHausModelle(gltf.scene); }
+    catch (e) { window.__hausFehler = String(e && e.message || e); }
+  }, undefined, (e) => { window.__hausFehler = 'laden: ' + String(e && e.message || e); });
+}
+
+function setzeHausModelle(szene) {
+  const bau = [];
+  szene.children.slice().forEach((o) => {
+    let hatMesh = false;
+    o.traverse((k) => { if (k.isMesh) hatMesh = true; });
+    if (hatMesh) bau.push(o);
+  });
+  if (!bau.length) return;
+  /* Eigenhoehe je Modell merken - sie steht im Namen nicht drin, also
+     wird sie einmal aus dem Satz gelesen, bevor normiert skaliert wird.
+     Da alle Modelle auf den Einheitswuerfel normiert sind, steckt die
+     urspruengliche Hoehe in der Reihenfolge: der Satz ist nach Hoehe
+     sortiert erzeugt worden, deshalb wird hier nach dem NAMEN gruppiert. */
+  const klasse = (n) => /ModernOffice_5$|ModernOffice_4$/.test(n) ? 3
+                      : /ModernOffice_1_B$|ModernOffice_5_B$|ArtDeco|ClassicOffice/.test(n) ? 2
+                      : /Downtown_/.test(n) ? 1 : 0;
+  const nachKlasse = [[], [], [], []];
+  for (const o of bau) nachKlasse[klasse(o.name)].push(o);
+  for (let i = 0; i < 4; i++) if (!nachKlasse[i].length) nachKlasse[i] = bau;
+  /* Materialien einmal auf die Zeichenart des Spiels bringen. */
+  const gesehen = new Set();
+  for (const o of bau) {
+    o.traverse((k) => {
+      if (!k.isMesh || !k.material || gesehen.has(k.material)) return;
+      gesehen.add(k.material);
+      if (k.material.metalness !== undefined) k.material.metalness = 0;
+      if (k.material.roughness !== undefined) k.material.roughness = 0.85;
+      k.material.side = THREE.FrontSide;
+    });
+  }
+  let gesetzt = 0;
+  for (const e of HAUS_KISTEN) {
+    const kl = e.h > 62 ? 3 : e.h > 38 ? 2 : e.h > 19 ? 1 : 0;
+    const liste = nachKlasse[kl];
+    /* Ortsabhaengige Wahl: gleiches Haus, gleiches Modell - auch nach
+       einem Neustart. */
+    const i = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % liste.length;
+    const kopie = liste[i].clone(true);
+    kopie.position.set(e.x, SLAB_H, e.z);
+    kopie.scale.set(e.w, e.h, e.d);
+    kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    cityGroup.add(kopie);
+    HAUS_MODELLE.push(kopie);
+    gesetzt++;
+  }
+  /* Erst wenn wirklich Modelle stehen, verschwinden die alten Fassaden. */
+  if (gesetzt) for (const m of HAUS_FASSADEN) m.visible = false;
+}
+
 function ladeStadtteile(loader) {
   const stellen = Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length);
   if (!stellen.length && !HAUS_STELLEN.length) return;
@@ -15382,6 +15460,12 @@ if (window.__WEBHERO_TEST__ === true) {
         }
       }
       return paare;
+    },
+    hausInfo() {
+      return { kisten: HAUS_KISTEN.length, modelle: HAUS_MODELLE.length,
+               fassaden: HAUS_FASSADEN.length,
+               fassadeSichtbar: HAUS_FASSADEN.some((m) => m.visible),
+               fehler: window.__hausFehler || null };
     },
     aufzuege() {
       return AUFZUEGE.map((z) => ({ x: +z.x.toFixed(1), z: +z.z.toFixed(1),
