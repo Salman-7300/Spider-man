@@ -6346,6 +6346,44 @@ function makeGlbVisual(m) {
       drehZuRuhe(knochen.neck, -0.22, 0, 0, w * 0.8);
       drehZuRuhe(knochen.head, -0.20, 0, 0, w * 0.8);
     },
+    /* ---- Haende und Fuesse einzeln an die Fassade legen ----
+       wandFreiraum() schiebt den GANZEN Koerper so weit heraus, dass der
+       tiefste Knochen gerade nicht mehr in der Wand steckt. Damit beruehrt
+       genau EIN Glied die Fassade, alle anderen schweben davor - beim
+       ruhigen Kleben sah man das an den Haenden und Fuessen sofort.
+       Hier wird deshalb jedes der vier Glieder noch einmal einzeln
+       nachgezogen: der Elternknochen (Unterarm bzw. Unterschenkel) dreht
+       so weit, dass seine Spitze auf der Wandebene landet. Gedreht wird
+       nur - die Gliedlaenge bleibt, es kann also nichts ausleiern. */
+    wandGriff(nx, nz, flaeche, k) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      root.updateMatrixWorld(true);
+      /* Zwei Durchgaenge: erst das obere Gelenk (Oberarm, Oberschenkel),
+         dann das untere. Mit dem unteren allein blieb die Hand auf einer
+         Kugel um den Ellbogen - lag die Wand weiter weg als der Radius,
+         kam sie nie ganz heran (gemessen 11 bis 16 cm statt 7). */
+      /* Das obere Gelenk zielt NICHT bis auf die Wand, sondern laesst
+         einen Rest von zwoelf Zentimetern stehen - den holt das untere
+         Gelenk danach. Zielten beide auf dieselbe Ebene, schob der zweite
+         Durchgang die Hand hinter die Fassade (gemessen -10 cm). */
+      const paare = [['leftarm', 'leftforearm', 0.12], ['rightarm', 'rightforearm', 0.12],
+                     ['leftupleg', 'leftleg', 0.12], ['rightupleg', 'rightleg', 0.12],
+                     ['leftforearm', 'lefthand', 0], ['rightforearm', 'righthand', 0],
+                     ['leftleg', 'leftfoot', 0], ['rightleg', 'rightfoot', 0]];
+      for (const [eltern, spitze, rest] of paare) {
+        const a = knochen[eltern], b = knochen[spitze];
+        if (!a || !b) continue;
+        b.getWorldPosition(_vw3);
+        /* Abstand zur Fassade, positiv heisst davor. */
+        const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
+        const ziel = WAND_LUFT + rest;
+        if (d < ziel + 0.005 || d > 0.45) continue;   // schon dran oder zu weit weg
+        _vw4.copy(_vw3);
+        if (nx !== 0) _vw4.x -= nx * (d - ziel);
+        else _vw4.z -= nz * (d - ziel);
+        zieleKnochen(a, b, _vw4, w);
+      }
+    },
     /* Faust: die vier Finger und der Daumen werden eingerollt. Beim
        Katapult haelt die Figur zwei Netze - mit flacher Hand sah das aus,
        als winke sie damit. */
@@ -6972,12 +7010,20 @@ function makeGlbVisual(m) {
          uebersprungen: der naechste Schlag setzt dort an, wo der Arm
          ohnehin schon ist, und die Blende ist kurz. Damit lesen sich die
          Schlaege als EINE Bewegung. */
-      const blende = verkette ? 0.05 : 0.09;
+      /* verkette: 0 = gewoehnlich, 1 = Schlagfolge (harter Schnitt UND
+         Ausholphase ueberspringen), 2 = nur harter Schnitt.
+         Der harte Schnitt ist noetig, wo die Ausgangshaltung weit von der
+         Zielhaltung entfernt liegt: beim Ueberblenden nimmt die Drehung
+         der Schulter den kuerzesten Weg, und der fuehrt dann ueber den
+         Kopf. Gemessen sprang die Hand beim Netzwurf im ersten Bild um
+         85 Zentimeter. */
+      const blende = verkette === 1 ? 0.05 : verkette === 2 ? 0.012
+                   : verkette === 3 ? 0.22 : 0.09;
       if (angriff && !gleiche) angriff.fadeOut(blende);
       else if (current && !angriff) current.fadeOut(blende);
       if (gleiche) a.reset();
       else { a.reset(); a.fadeIn(blende); }
-      const ab = verkette ? d * 0.18 : 0;
+      const ab = verkette === 1 ? d * 0.18 : 0;
       a.time = ab;
       a.timeScale = v; a.play();
       angriff = a;
@@ -7686,6 +7732,113 @@ function staubWolke(pos, groesse) {
   }
 }
 
+/* ======================= Netz-Zug an Objekten =======================
+   Spider-Man reisst mit dem Netz Dinge von der Strasse an sich und
+   schleudert sie weiter. Dafuer stehen an den Gehwegen lose Gegenstaende
+   herum - Muelltonnen, Hydranten, Briefkaesten. Sie sind KEINE
+   Hindernisse: man laeuft durch sie hindurch, sie sind nur Munition.
+
+   Ablauf mit Q, wenn kein Gegner im Kegel steht:
+     1. der naechste lose Gegenstand im Blickkegel bekommt einen Faden,
+     2. er fliegt zur Figur (Zustand "zu"),
+     3. sobald er da ist, wird er in Blickrichtung weitergeschleudert
+        (Zustand "weg") und nimmt Gegner mit, die im Weg stehen.
+   Ein Wurf in einem Zug also, ohne Tragen - das haelt die Steuerung
+   einfach und sieht aus wie im Vorbild.                                */
+const ZIEH = [];
+const ZIEH_TEMPO_HIN = 34, ZIEH_TEMPO_WEG = 40;
+function baueZiehObjekte() {
+  if (ZIEH.length || typeof scene === 'undefined') return;
+  const arten = [
+    { w: 0.62, h: 0.95, d: 0.62, f: 0x2f6b3a, m: 26 },   // Muelltonne
+    { w: 0.34, h: 0.78, d: 0.34, f: 0xc23b30, m: 34 },   // Hydrant
+    { w: 0.46, h: 1.10, d: 0.42, f: 0x2b4f8a, m: 24 },   // Briefkasten
+  ];
+  const geo = new Map();
+  for (let i = 0; i < 46; i++) {
+    const a = arten[i % arten.length];
+    const schl = a.w + '|' + a.h + '|' + a.d;
+    if (!geo.has(schl)) geo.set(schl, new THREE.BoxGeometry(a.w, a.h, a.d));
+    const mesh = new THREE.Mesh(geo.get(schl),
+      new THREE.MeshLambertMaterial({ color: a.f }));
+    mesh.castShadow = true;
+    /* An den Gehwegkanten entlang verteilen. */
+    const ax = (i % 2) === 0;
+    const gasse = (Math.floor(i / 2) % 4 - 1.5) * 100;
+    const laengs = ((i * 37) % 180) - 90 + Math.floor(i / 8) * 12;
+    const px = ax ? laengs : gasse + (i % 3 - 1) * 9.5;
+    const pz = ax ? gasse + (i % 3 - 1) * 9.5 : laengs;
+    const boden = groundY(px, pz, 40);
+    mesh.position.set(px, boden + a.h / 2, pz);
+    scene.add(mesh);
+    ZIEH.push({ mesh, hoehe: a.h, wucht: a.m, zustand: 'ruht',
+                vel: new THREE.Vector3(), heim: mesh.position.clone(), t: 0 });
+  }
+}
+
+/* Den nächstliegenden losen Gegenstand im Blickkegel suchen. */
+function ziehZiel(weite, minDot) {
+  const f = camForward();
+  let best = null, bestW = weite;
+  for (const o of ZIEH) {
+    if (o.zustand !== 'ruht') continue;
+    const dx = o.mesh.position.x - player.pos.x, dz = o.mesh.position.z - player.pos.z;
+    const dy = o.mesh.position.y - (player.pos.y + 1.2);
+    const w = Math.hypot(dx, dy, dz);
+    if (w > bestW || w < 1.2) continue;
+    if ((dx * f.x + dz * f.z) / (Math.hypot(dx, dz) || 1) < minDot) continue;
+    best = o; bestW = w;
+  }
+  return best;
+}
+
+function updateZiehObjekte(dt) {
+  if (!ZIEH.length) return;
+  for (const o of ZIEH) {
+    if (o.zustand === 'ruht') continue;
+    o.t += dt;
+    const p = o.mesh.position;
+    if (o.zustand === 'zu') {
+      /* Zur Figur ziehen. Das Netz bleibt sichtbar am Gegenstand. */
+      _v1.set(player.pos.x - p.x, player.pos.y + 1.25 - p.y, player.pos.z - p.z);
+      const w = _v1.length();
+      player.fadenZiel = p; player.fadenHand = o.hand;
+      if (w < 1.5 || o.t > 1.6) {
+        /* Angekommen: in Blickrichtung weiterschleudern. */
+        const f = camForward();
+        o.vel.set(f.x * ZIEH_TEMPO_WEG, 3.2 + clamp(camPitch, -0.3, 0.8) * 16,
+                  f.z * ZIEH_TEMPO_WEG);
+        o.zustand = 'weg'; o.t = 0;
+        SFX.swoosh();
+      } else {
+        _v1.multiplyScalar(ZIEH_TEMPO_HIN / (w || 1));
+        p.addScaledVector(_v1, dt);
+      }
+    } else if (o.zustand === 'weg') {
+      o.vel.y -= CFG.gravity * dt;
+      p.addScaledVector(o.vel, dt);
+      /* Gegner umwerfen, die im Weg stehen. */
+      for (const e of enemies) {
+        if (e.dead || o.getroffen === e) continue;
+        if (Math.hypot(e.pos.x - p.x, e.pos.z - p.z) > 1.4) continue;
+        if (Math.abs(e.pos.y + 0.9 - p.y) > 1.6) continue;
+        o.getroffen = e;
+        damageEnemy(e, o.wucht, 'wurf');
+        treffEffekt(p.clone(), 0.8, 0xdff0ff);
+        o.vel.multiplyScalar(0.35);
+      }
+      const boden = groundY(p.x, p.z, p.y) + o.hoehe / 2;
+      if (p.y <= boden || o.t > 4) {
+        p.y = Math.max(p.y, boden);
+        o.zustand = 'ruht'; o.getroffen = null; o.t = 0;
+        staubWolke(p, 0.5);
+      }
+    }
+    o.mesh.rotation.x += dt * (o.zustand === 'weg' ? 7 : 2);
+    o.mesh.rotation.z += dt * (o.zustand === 'weg' ? 5 : 1.4);
+  }
+}
+
 function updateEffekte(dt) {
   for (const r of staubRinge) {
     if (r.t <= 0) continue;
@@ -7749,7 +7902,7 @@ const player = {
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
-  schussT: 0, schussZiel: V3(0, 0, 0),
+  schussT: 0, schussZiel: V3(0, 0, 0), wurfT: 0, freiFallMisch: 0,
   hurtCd: 0, regenCd: 0,
   platform: null,
   lastDamageFrom: null,
@@ -8480,6 +8633,13 @@ function wandPuffer() {
   return clamp((v - 4) / 16, 0, 1) * (flach ? 0.55 : 0.25);
 }
 
+/* Die Lage VOR dem Schritt merken. collideBody entscheidet damit, auf
+   welcher Seite eines Klotzes die Figur wieder herauskommt. */
+function merkeVorPos(body) {
+  if (!body.vorPos) body.vorPos = new THREE.Vector3();
+  body.vorPos.copy(body.pos);
+}
+
 function collideBody(body, prevY, radiusExtra) {
   // body: {pos, vel, radius, onGround, wall, platform}
   const p = body.pos, r = body.radius + (radiusExtra || 0);
@@ -8509,14 +8669,36 @@ function collideBody(body, prevY, radiusExtra) {
         p.y = Math.min(p.y, c.y0 - 1.75);
         continue;
       }
-      // horizontal herausdrücken
+      /* ---- Horizontal herausdruecken ----
+         Der naheliegende Weg ist die KUERZESTE Strecke nach draussen. Der
+         ist aber falsch, sobald die Figur ein Stueck weit im Klotz steckt:
+         hat sie die Mitte ueberschritten, liegt die kuerzeste Strecke auf
+         der GEGENUEBERLIEGENDEN Seite - und die Figur wird durch das Haus
+         hindurchgeschoben, statt davor. Genau das war das
+         "Ins-Haus-Buggen" bei hohem Tempo.
+         Deshalb wird zuerst gefragt, von WELCHER Seite sie gekommen ist:
+         war sie vor dem Schritt links des Klotzes, kann sie nur links
+         wieder heraus. Nur wenn das nicht zu klaeren ist (etwa weil sie
+         schon vorher drin stand), entscheidet wieder die kuerzeste
+         Strecke. */
       const dxL = p.x - (c.x0 - r), dxR = (c.x1 + r) - p.x;
       const dzL = p.z - (c.z0 - r), dzR = (c.z1 + r) - p.z;
-      const m = Math.min(dxL, dxR, dzL, dzR);
+      const vor = body.vorPos;
+      const seiten = [];
+      if (vor) {
+        if (vor.x <= c.x0 - r) seiten.push(0);
+        if (vor.x >= c.x1 + r) seiten.push(1);
+        if (vor.z <= c.z0 - r) seiten.push(2);
+        if (vor.z >= c.z1 + r) seiten.push(3);
+      }
+      if (!seiten.length) { seiten.push(0, 1, 2, 3); }
+      const weiten = [dxL, dxR, dzL, dzR];
+      let wahl = seiten[0];
+      for (const k of seiten) if (weiten[k] < weiten[wahl]) wahl = k;
       let nx = 0, nz = 0;
-      if (m === dxL) { p.x = c.x0 - r; nx = -1; }
-      else if (m === dxR) { p.x = c.x1 + r; nx = 1; }
-      else if (m === dzL) { p.z = c.z0 - r; nz = -1; }
+      if (wahl === 0) { p.x = c.x0 - r; nx = -1; }
+      else if (wahl === 1) { p.x = c.x1 + r; nx = 1; }
+      else if (wahl === 2) { p.z = c.z0 - r; nz = -1; }
       else { p.z = c.z1 + r; nz = 1; }
       const into = body.vel.x * -nx + body.vel.z * -nz;
       if (into > 0) { body.vel.x += nx * into; body.vel.z += nz * into; }
@@ -8668,7 +8850,11 @@ function startSwing() {
      schiesst den Faden. Vorher hing die Figur im ersten Bild einfach schon
      am Netz - man sah nie, wie das Netz losging. */
   if (heroVisual.hatClip && heroVisual.hatClip('netzwurf') && heroVisual.attackOneShot) {
-    heroVisual.attackOneShot(0, 'netzwurf', 0.3);
+    /* Der Wurf lief mit 1,4-fachem Tempo (0,41-s-Datei in 0,3 s gepresst).
+       Die Arme peitschten dadurch, und die Beine bekamen im selben Moment
+       noch die Flughaltung mit - genau das war das Zappeln am Anfang des
+       Bogens. Jetzt laeuft er in seinem EIGENEN Takt und blendet lang ein. */
+    player.wurfT = heroVisual.attackOneShot(0, 'netzwurf', 0.46, 3) || 0.46;
   }
   SFX.thwip();
   return true;
@@ -8795,6 +8981,16 @@ function webShot() {
   if (heroVisual.poseSchuss) heroVisual.poseSchuss(ziel, hand, 1);
   flashWebShot(heroHandPos(_v1, hand).clone(), ziel);
   SFX.web();
+  /* Kein Gegner im Kegel? Dann einen losen Gegenstand heranreissen. */
+  if (!target) {
+    const obj = ziehZiel(24, 0.55);
+    if (obj) {
+      obj.zustand = 'zu'; obj.t = 0; obj.hand = hand; obj.getroffen = null;
+      player.schussZiel.copy(obj.mesh.position);
+      if (heroVisual.poseSchuss) heroVisual.poseSchuss(obj.mesh.position, hand, 1);
+      popupWorld('Netz-Zug!', obj.mesh.position, '#bfe8ff');
+    }
+  }
   if (target) {
     applyWeb(target);
     treffEffekt(ziel, 0.6, 0xdff0ff);
@@ -8908,6 +9104,43 @@ function zipAngriff(e) {
 /* ======================= Spieler-Aktionen ======================= */
 function tryJump() {
   if (player.dead) return;
+  /* ---- Absprung aus dem Netz-Zug ----
+     Wer sich an einen Punkt heranziehen laesst und im RICHTIGEN MOMENT
+     abspringt, nimmt den ganzen Zug als Schub mit und schiesst nach vorn.
+     Das Fenster ist die letzte Handbreit vor dem Ziel: zwischen drei und
+     neun Metern. Zu frueh gedrueckt gibt es nur einen gewoehnlichen
+     Absprung - das Fenster zu treffen ist die Belohnung. */
+  if (player.state === 'zip' && player.zip) {
+    const z = player.zip;
+    const weg = Math.hypot(z.target.x - player.pos.x, z.target.y - player.pos.y,
+                           z.target.z - player.pos.z);
+    const perfekt = weg > 2.5 && weg < 9.0;
+    const vh = Math.hypot(player.vel.x, player.vel.z);
+    const richt = vh > 0.001
+      ? _v1.set(player.vel.x / vh, 0, player.vel.z / vh)
+      : _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+    /* Der Schub geht in die FLUGRICHTUNG, nicht senkrecht nach oben -
+       sonst bremst der Absprung den Zug aus, statt ihn zu verlaengern. */
+    const schub = perfekt ? Math.max(26, vh * 1.45) : Math.max(11, vh * 0.6);
+    player.vel.x = richt.x * schub;
+    player.vel.z = richt.z * schub;
+    player.vel.y = perfekt ? 11.5 : 6.0;
+    player.zip = null;
+    player.state = 'air';
+    player.jumps = 1;
+    swingStrand.visible = false;
+    if (perfekt) {
+      /* Ein Kunststueck obendrauf - der perfekte Absprung soll sich auch
+         ansehen lassen. */
+      if (typeof schwungKunst === 'function') schwungKunst(16);
+      camShake = Math.max(camShake, 0.24);
+      popupScreen('Perfekter Absprung!');
+      addScore(30, '', player.pos);
+      SFX.zip();
+    }
+    SFX.swoosh();
+    return;
+  }
   if (player.state === 'climb') {
     // Wandabsprung
     const w = player.wallInfo;
@@ -10167,8 +10400,13 @@ function updatePlayer(dt) {
      geprüft wurde – das war das Hineinbuggen beim Anfliegen eines Hauses.
      Bei hohem Tempo wird der Weg deshalb in mehrere Teilschritte zerlegt
      und nach jedem geprüft. */
+  /* Die Schrittweite muss KLEINER als der Koerperradius bleiben, sonst
+     springt die Figur in einem Teilschritt ganz durch eine Wand. Der
+     Deckel lag bei sechs Schritten; bei einem Bildhaenger (dt = 0,1 s)
+     und 40 m/s waren das 0,67 m je Schritt - fast das Doppelte des
+     Radius. Jetzt sind bis zu 16 Schritte erlaubt. */
   const wegProBild = player.vel.length() * dt;
-  const teile = wegProBild > 0.35 ? Math.min(6, Math.ceil(wegProBild / 0.3)) : 1;
+  const teile = wegProBild > 0.30 ? Math.min(16, Math.ceil(wegProBild / 0.25)) : 1;
   if (teile > 1) {
     /* Zusätzlicher Puffer: der sichtbare Körper ist breiter als der
        Kollisionsradius – Schultern und Arme steckten sonst in der Wand. */
@@ -10176,12 +10414,15 @@ function updatePlayer(dt) {
     const tdt = dt / teile;
     for (let i = 0; i < teile - 1; i++) {
       const vy = player.pos.y;
+      merkeVorPos(player);
       player.pos.addScaledVector(player.vel, tdt);
       collideBody(player, vy, puffer);
       if (player.wall) break;      // angekommen – der Rest wird oben erledigt
     }
+    merkeVorPos(player);
     player.pos.addScaledVector(player.vel, tdt);
   } else {
+    merkeVorPos(player);
     player.pos.addScaledVector(player.vel, dt);
   }
 
@@ -10630,6 +10871,13 @@ function updatePlayer(dt) {
      stehen - und die Figur lief mit weit ausgebreiteten Armen und
      gespreizten Beinen ueber die Strasse. Genau das war der Fehler nach
      dem Doppelsprung. */
+  /* Die Fallhaltung wird EIN- UND AUSGEBLENDET, nicht hart gesetzt.
+     Vorher verschwand sie in dem Bild, in dem der Netzschwung begann -
+     die weit ausgebreiteten Arme sprangen dadurch in einem Bild in die
+     Wurfhaltung (gemessen 87 cm Handweg in einem Bild). Genau das war das
+     Zappeln beim Anschwingen. */
+  player.freiFallMisch = clamp((player.freiFallMisch || 0) +
+    dt * (player.freiFall ? 6 : -7), 0, 1);
   player.freiFall = !player.onGround && player.state === 'air' &&
                     player.vel.y < -14 && player.luftSalto <= 0 &&
                     !player.attack && player.rollT <= 0 && !player.gleiten;
@@ -10992,7 +11240,22 @@ function updateHeroVisual(dt) {
       const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4 ||
                              player.vel.y < -2);
       player.beideAmFaden = beideHaende;
-      MISCH.wunsch = 'schwung';
+      /* Kommt man aus dem freien Fall in den Bogen, laeuft die Fallhaltung
+         hier noch kurz aus - sonst springt sie in einem Bild weg. */
+      if (player.freiFallMisch > 0.02 && heroVisual.poseGleiten) {
+        heroVisual.poseGleiten(0, 0, elapsed, 0.85 * player.freiFallMisch);
+      }
+      /* ---- Der Start des Bogens ----
+         In den ersten Zehnteln laeuft der Netzwurf: der Arm holt aus und
+         schiesst den Faden. Gleichzeitig legte sich bisher schon die
+         Schwunghaltung darueber und griff nach denselben Armen - und die
+         Beine bekamen aus der Laufbewegung, dem Wurf UND der Schwunghaltung
+         drei verschiedene Vorgaben auf einmal. Genau das war das Zappeln
+         beim Anschwingen.
+         Solange der Wurf laeuft, fuehrt er allein; die Schwunghaltung
+         blendet sich danach ueber ihre eigene Blende ein. */
+      if (player.wurfT > 0) { player.wurfT -= dt; }
+      else MISCH.wunsch = 'schwung';
       MISCH.schwungArg = [(MISCH.ankerGlatt || player.swing.anchor).clone(),
                           player.swing.hand, elapsed,
                           player.bogenGlatt, r.rotation.x, beideHaende];
@@ -11008,10 +11271,10 @@ function updateHeroVisual(dt) {
                                player.dreiPunktSeite || 'R');
       /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
       heroVisual.bodenAusgleich(Math.min(1, dt * 16));
-    } else if (player.freiFall && heroVisual.poseGleiten) {
+    } else if (player.freiFallMisch > 0.02 && heroVisual.poseGleiten) {
       /* Arme weit zur Seite, Beine leicht gespreizt - dieselbe Haltung wie
          im Gleitflug, nur ohne Netzhaut (die haengt an player.gleiten). */
-      heroVisual.poseGleiten(0, 0, elapsed, 0.85);
+      heroVisual.poseGleiten(0, 0, elapsed, 0.85 * player.freiFallMisch);
     } else if (player.gleiten && player.luftSalto <= 0 && !player.sturzflug) {
       /* Im Sturzflug fuehrt die Bewegungsdatei allein - die Gleithaltung
          wuerde ihr die Arme wieder zur Seite reissen. */
@@ -11260,6 +11523,13 @@ function wandFreiraum(dt) {
   if (player.wandLuft.lengthSq() < 1e-8) player.wandLuft.set(0, 0, 0);
   r.position.add(player.wandLuft);
   r.updateMatrixWorld(true);
+  /* Und jetzt jedes Glied einzeln auf die Fassade. Waehrend eines
+     Eckenwechsels nicht - dort stimmt die Wandebene fuer ein paar Bilder
+     noch gar nicht zum Koerper. */
+  if (heroVisual.wandGriff && player.eckT <= 0) {
+    heroVisual.wandGriff(w.nx, w.nz, flaeche, 0.9);
+    r.updateMatrixWorld(true);
+  }
 }
 
 /* ======================= Netz-Katapult =======================
@@ -12747,6 +13017,11 @@ function spawnCars() {
 }
 spawnCars();
 spawnHelis();
+/* Die losen Gegenstaende erst HIER aufstellen, nicht in buildCity: die
+   Liste ZIEH wird weiter unten im Modul angelegt, und buildCity laeuft
+   frueher - ein Aufruf von dort traf auf eine noch nicht angelegte
+   Konstante ("Cannot access before initialization"). */
+baueZiehObjekte();
 
 /* Verkehrsdichte nach Tageszeit: morgens und am späten Nachmittag ist
    Berufsverkehr, nachts ist die Stadt fast leer. Autos werden dazu nicht
@@ -15264,6 +15539,7 @@ function simuliere(dt) {
   updateEnemies(dt);
   updateCamera(dt);
   updateEffekte(dt);
+  updateZiehObjekte(dt);
   updateKlatscher(dt);
   updateZug(dt);
   updateAufzuege(dt);
