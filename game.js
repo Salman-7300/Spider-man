@@ -6993,7 +6993,16 @@ function makeGlbVisual(m) {
         const einmal = want === 'downed' || want === 'sit' || want === 'taunt';
         a.setLoop(einmal ? THREE.LoopOnce : THREE.LoopRepeat, einmal ? 1 : Infinity);
         a.clampWhenFinished = einmal;
-        a.reset(); blendeEin(a, 0.22, wAlt); a.play();
+        /* reset() setzt die Abspielstelle auf null. Fuer eine Bewegung,
+           die schon laeuft, ist das ein Sprung mitten im Takt: nach einem
+           Kunststueck in der Luft wird current geleert, die Fallbewegung
+           gilt danach als "neu" - und wurde mit fast vollem Gewicht auf
+           ihr erstes Bild zurueckgesetzt. Gemessen sprang die Fussspitze
+           dabei um 79 Zentimeter, obwohl der Mischer nur 15 hergab.
+           Eine laufende Schleife behaelt deshalb ihre Stelle. */
+        if (!einmal && a.isRunning()) { a.enabled = true; a.paused = false; }
+        else a.reset();
+        blendeEin(a, 0.22, wAlt); a.play();
         if (beideLauf) a.time = phase * (a.getClip().duration || 1);
         current = a;
       }
@@ -11010,13 +11019,19 @@ function updatePlayer(dt) {
      stehen - und die Figur lief mit weit ausgebreiteten Armen und
      gespreizten Beinen ueber die Strasse. Genau das war der Fehler nach
      dem Doppelsprung. */
-  /* Die Fallhaltung wird EIN- UND AUSGEBLENDET, nicht hart gesetzt.
-     Vorher verschwand sie in dem Bild, in dem der Netzschwung begann -
-     die weit ausgebreiteten Arme sprangen dadurch in einem Bild in die
-     Wurfhaltung (gemessen 87 cm Handweg in einem Bild). Genau das war das
-     Zappeln beim Anschwingen. */
+  /* Die Fallhaltung wird EIN- UND AUSGEBLENDET, nicht hart gesetzt -
+     sonst verschwaende sie in dem Bild, in dem der Netzschwung beginnt,
+     und die weit ausgebreiteten Arme spraengen in die Wurfhaltung.
+     (Nachtrag: der grosse Ruck beim Anschwingen - 87 cm Handweg in einem
+     Bild - kam NICHT von hier. Nachgemessen mit abgeschalteter
+     Fallhaltung blieb er unveraendert; seine Ursache lag im Mischer,
+     siehe blendeAus/blendeEin.)
+     Herein kommt sie mit 3,5 je Sekunde, also in knapp drei Zehnteln. Mit
+     6 war es zu schnell: direkt nach einem Kunststueck legte sie sich so
+     zuegig ueber die noch auslaufende Bewegung, dass die Fussspitze in
+     einem Bild um 79 Zentimeter sprang. */
   player.freiFallMisch = clamp((player.freiFallMisch || 0) +
-    dt * (player.freiFall ? 6 : -7), 0, 1);
+    dt * (player.freiFall ? 3.5 : -7), 0, 1);
   player.freiFall = !player.onGround && player.state === 'air' &&
                     player.vel.y < -14 && player.luftSalto <= 0 &&
                     !player.attack && player.rollT <= 0 && !player.gleiten;
