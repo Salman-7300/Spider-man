@@ -2909,9 +2909,19 @@ function baueUBahnLinie(linie) {
     }
   }
 
-  /* Enden der Linie zumauern. */
+  /* ---- Enden der Linie zumauern ----
+     Die Stirnwand war 12 m hoch und sass auf UB_GLEIS_TIEF + 6,0 - sie
+     reichte damit von -10,2 bis +1,8, also fast zwei Meter AUS DER
+     STRASSE HERAUS. Am Ende jeder Linie stand deshalb ein schwarzer
+     Riegel quer ueber der Fahrbahn; genau das war die "Wand" auf der
+     Uferstrasse.
+     Jetzt endet sie knapp ueber der Tunneldecke (UB_DECKE = -4,0), wo sie
+     hingehoert: von 30 cm unter der Gleissohle bis 30 cm ueber die
+     Decke. */
+  const stirnU = UB_GLEIS_TIEF - 0.3, stirnO = UB_DECKE + 0.3;
   for (const ex of [UB_X0 - 0.25, UB_X1 + 0.25]) {
-    ubDeko(0.5, 12.0, UB_QUER_Z1 - UB_QUER_Z0 + 1, ex, UB_GLEIS_TIEF + 6.0,
+    ubDeko(0.5, stirnO - stirnU, UB_QUER_Z1 - UB_QUER_Z0 + 1, ex,
+         (stirnU + stirnO) / 2,
          (UB_QUER_Z0 + UB_QUER_Z1) / 2, 0x2a2f36);
     ubCollider({ x0: ex - 0.25, x1: ex + 0.25, z0: UB_QUER_Z0 - 0.5,
                   z1: UB_QUER_Z1 + 0.5, h: -0.12, y0: UB_GLEIS_TIEF - 0.4,
