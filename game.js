@@ -3422,7 +3422,14 @@ function buildBlockBuildings(cx, cz, loecher) {
   }
 }
 
+/* ---- Feste Punkte, an denen sich der Netz-Zug festhaelt ----
+   Laternen und Ampelmasten stehen fest im Boden. Sie kommen nicht zur
+   Figur, die Figur kommt zu IHNEN - genau wie beim Netz-Zip, samt dem
+   Absprung im richtigen Moment. Lose Sachen wie Muelltonnen liegen in
+   ZIEH und werden umgekehrt behandelt. */
+const ZIEH_FEST = [];
 function addLamp(x, z) {
+  ZIEH_FEST.push(V3(x, SLAB_H + 4.0, z));
   const g = new THREE.Group();
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.4, 6),
     new THREE.MeshLambertMaterial({ color: 0x2c2f33 }));
@@ -7782,6 +7789,21 @@ function ziehZiel(weite, minDot) {
   return best;
 }
 
+/* Den naechsten FESTEN Zugpunkt im Blickkegel suchen (Laterne, Ampel). */
+function ziehFestZiel(weite, minDot) {
+  const f = camForward();
+  let best = null, bestW = weite;
+  for (const p of ZIEH_FEST) {
+    const dx = p.x - player.pos.x, dz = p.z - player.pos.z;
+    const dy = p.y - (player.pos.y + 1.2);
+    const w = Math.hypot(dx, dy, dz);
+    if (w > bestW || w < 3.0) continue;
+    if ((dx * f.x + dz * f.z) / (Math.hypot(dx, dz) || 1) < minDot) continue;
+    best = p; bestW = w;
+  }
+  return best;
+}
+
 function updateZiehObjekte(dt) {
   if (!ZIEH.length) return;
   for (const o of ZIEH) {
@@ -8975,14 +8997,35 @@ function webShot() {
   if (heroVisual.poseSchuss) heroVisual.poseSchuss(ziel, hand, 1);
   flashWebShot(heroHandPos(_v1, hand).clone(), ziel);
   SFX.web();
-  /* Kein Gegner im Kegel? Dann einen losen Gegenstand heranreissen. */
+  /* ---- Kein Gegner im Kegel? Dann zieht das Netz an einem Gegenstand ----
+     Und zwar in BEIDE Richtungen, je nachdem, was da steht:
+       fest im Boden (Laterne, Ampelmast) -> die Figur zieht sich HIN,
+         und wer im richtigen Moment die Leertaste drueckt, nimmt den Zug
+         als Schub mit (siehe tryJump),
+       lose (Muelltonne, Hydrant, Briefkasten) -> der Gegenstand kommt zur
+         Figur und wird gleich weitergeschleudert - auf Gegner, die im Weg
+         stehen.
+     Bisher gab es nur den zweiten Fall; an einer Laterne passierte gar
+     nichts. */
   if (!target) {
     const obj = ziehZiel(24, 0.55);
-    if (obj) {
+    const fest = ziehFestZiel(26, 0.6);
+    const wObj = obj ? Math.hypot(obj.mesh.position.x - player.pos.x,
+                                  obj.mesh.position.z - player.pos.z) : 1e9;
+    const wFest = fest ? Math.hypot(fest.x - player.pos.x, fest.z - player.pos.z) : 1e9;
+    /* Was naeher dran ist, gewinnt. Der lose Gegenstand bekommt einen
+       kleinen Bonus: er ist die Munition, und wer danach zielt, will
+       werfen, nicht umziehen. */
+    if (obj && wObj * 0.8 <= wFest) {
       obj.zustand = 'zu'; obj.t = 0; obj.hand = hand; obj.getroffen = null;
       player.schussZiel.copy(obj.mesh.position);
       if (heroVisual.poseSchuss) heroVisual.poseSchuss(obj.mesh.position, hand, 1);
       popupWorld('Netz-Zug!', obj.mesh.position, '#bfe8ff');
+    } else if (fest) {
+      player.schussZiel.copy(fest);
+      if (heroVisual.poseSchuss) heroVisual.poseSchuss(fest, hand, 1);
+      zipZuPunkt(fest.clone(), hand);
+      popupWorld('Ranziehen!', fest, '#bfe8ff');
     }
   }
   if (target) {
@@ -9045,8 +9088,15 @@ function webZip() {
     if (player.keinHaltCd <= 0) { popupScreen('Kein Halt in Reichweite'); player.keinHaltCd = 1.4; }
     return;
   }
+  zipZuPunkt(target, wechsleNetzHand(), enemy || null);
+}
+
+/* Den Zug wirklich starten. Ausgelagert, weil ihn zwei Wege ausloesen:
+   E zieht zum Gegner oder an eine Hauskante, Q an einen festen Gegenstand
+   (Laterne, Ampel). Beide sollen sich gleich anfuehlen - samt dem
+   Absprung im richtigen Moment. */
+function zipZuPunkt(target, hand, enemy) {
   stopSwing(false);
-  const hand = wechsleNetzHand();
   player.state = 'zip';
   /* Kein harter Geschwindigkeitsstoss mehr. Vorher wurde die
      Geschwindigkeit in EINEM Bild auf 27 m/s in Zielrichtung gesetzt -
@@ -12990,6 +13040,7 @@ function baueAmpeln() {
       for (const [sx, sz] of [[1, 1], [-1, -1]]) {
         const px = x + sx * (ROAD_HALF + 1.2), pz = z + sz * (ROAD_HALF + 1.2);
         stellen.push([px, pz]);
+        ZIEH_FEST.push(V3(px, SLAB_H + 4.6, pz));      // Mast als Zugpunkt
         deko(0.22, 5.2, 0.22, px, SLAB_H + 2.6, pz, 0x2c3037);          // Mast
         /* Zwei getrennte Signalköpfe: einer für die Ost-West-Richtung,
            einer für Nord-Süd. Vorher saßen beide an derselben Stelle und
@@ -15654,6 +15705,8 @@ if (window.__WEBHERO_TEST__ === true) {
     get actorsReady() { return actorsReady; },
     get heroVisual() { return heroVisual; },
     colliders,
+    get ziehFest() { return ZIEH_FEST; },
+    get ziehLose() { return ZIEH; },
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     setzeKamYaw(v) { camYaw = v; },
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
