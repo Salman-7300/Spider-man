@@ -52,18 +52,29 @@ const PITCH = 50;           // Rasterabstand (Block + Straße)
 const ORIGIN = -175;        // Rasterursprung (Straßenlinien bei -175..175)
 const ROAD_HALF = 6;        // halbe Asphaltbreite
 const SLAB_H = 0.25;        // Gehweg-/Blocksockelhöhe
-const RIVER_X0 = 186, RIVER_X1 = 330;   // Fluss
-/* Die Uferpromenade zwischen der letzten Querstrasse und der Kaimauer.
+const RIVER_X0 = 192, RIVER_X1 = 330;   // Fluss
+/* Aeusserste Rasterlinie der Stadt: die Uferstrasse. */
+const RASTER_X1 = ORIGIN + BLOCKS * PITCH;    // 175
+/* Die Uferpromenade zwischen der Uferstrasse und der Kaimauer.
    Sie liegt als Gehweg auf SLAB_H - der Bodenhoehe war das aber nie
    bekannt: dort galt weiter das Strassenraster, und in den Fahrbahnbaendern
-   kam 0 heraus. Die Figur sank deshalb 25 cm in die Promenade ein. */
-const PROM_X0 = 175;
+   kam 0 heraus. Die Figur sank deshalb 25 cm in die Promenade ein.
+   Sie beginnt am RAND der Uferstrasse. Vorher stand PROM_X0 auf der
+   Rasterlinie x = 175, also auf der Strassenmitte: die oestliche Fahrspur
+   (x = 178) lag damit unter dem erhoehten Gehweg, und die Autos dieser
+   Spur fuhren und parkten sichtbar auf der Promenade. Damit die Promenade
+   dabei nicht schmaler wird, ist die Kaimauer um dieselben 6 m nach
+   Osten gerueckt (RIVER_X0). */
+const PROM_X0 = RASTER_X1 + ROAD_HALF;        // 181
 /* Weiter oestlich faehrt kein Auto - dahinter liegen Promenade und Fluss.
-   Die aeusserste Strassenlinie des Rasters liegt bei x = 175, ihre beiden
-   Spuren also bei 172 und 178; beide sind erlaubt. */
-const AUTO_X_MAX = PROM_X0 + 4;
+   Die beiden Spuren der Uferstrasse liegen bei 172 und 178. */
+const AUTO_X_MAX = RASTER_X1 + 4;
 const SHORE_X0 = 330, SHORE_X1 = 400;   // gegenüberliegendes Ufer
 const BRIDGE_Z = -25, BRIDGE_HW = 7.5;  // Brücke entlang der Straße z=-25
+/* Die Bruecke setzt genau an der Bordsteinkante der Uferstrasse an und
+   endet drueben am Ufer. Die Fahrbahn liegt 30 cm ueber der Strasse; an
+   beiden Enden fuehrt eine Rampe hinauf, damit dort keine Stufe steht. */
+const BR_X0 = PROM_X0, BR_X1 = RIVER_X1 + 4, BR_RAMPE = 6, BR_HOCH = 0.3;
 /* Eigenes, etwas engeres Raster für den Stadtteil am anderen Ufer.
    Vorher standen dort nur 16 nackte Quader auf einer leeren Platte –
    deshalb wirkte die andere Seite leer und unfertig. */
@@ -1218,7 +1229,18 @@ function collidersNear(x, z) {
 }
 
 function onBridge(x, z) {
-  return Math.abs(z - BRIDGE_Z) < BRIDGE_HW && x > 178 && x < RIVER_X1 + 4;
+  return Math.abs(z - BRIDGE_Z) < BRIDGE_HW &&
+         x > BR_X0 - BR_RAMPE && x < BR_X1 + BR_RAMPE;
+}
+/* Hoehe der Brueckenfahrbahn. Frueher war das eine feste 0,3 und die
+   Bruecke begann mitten auf der Uferstrasse - man fuhr gegen eine 30 cm
+   hohe Kante, und der erhoehte Gehweg der Promenade lag als Buckel quer
+   ueber der Auffahrt. Jetzt laeuft sie an beiden Enden ueber eine Rampe
+   auf Strassenhoehe aus. */
+function bridgeY(x) {
+  if (x < BR_X0) return BR_HOCH * clamp((x - (BR_X0 - BR_RAMPE)) / BR_RAMPE, 0, 1);
+  if (x > BR_X1) return BR_HOCH * clamp((BR_X1 + BR_RAMPE - x) / BR_RAMPE, 0, 1);
+  return BR_HOCH;
 }
 function inWater(x, z) {
   return x > RIVER_X0 && x < RIVER_X1 && !onBridge(x, z);
@@ -1652,7 +1674,7 @@ function groundY(x, z, yRef) {
   /* Uferpromenade: durchgehend Gehweghoehe, kein Strassenraster. */
   if (x >= PROM_X0 && x <= RIVER_X0 && Math.abs(z) < 198 && !onBridge(x, z)) return SLAB_H;
   if (x >= SHORE_X1 || x <= -195 || Math.abs(z) >= 195) return 0;
-  if (onBridge(x, z)) return 0.3;
+  if (onBridge(x, z)) return bridgeY(x);
   if (x > RIVER_X0) {
     if (x < SHORE_X0) return WATER_Y;
     /* Auch drüben gibt es Gehwege – sonst steckten die Füße im Sockel. */
@@ -3599,8 +3621,12 @@ function buildRiverAndBridge() {
   cityGroup.add(prom);
   /* Sockel, damit die Promenade wie ein Gehweg über der Straße liegt. */
   deko(PROM_X1 - PROM_X0, SLAB_H * 2, 400, (PROM_X0 + PROM_X1) / 2, 0, 0, 0x9aa0a6);
-  /* Bordstein zur Straße hin. */
-  deko(0.4, 0.34, 400, PROM_X0, SLAB_H - 0.04, 0, 0x7c8288);
+  /* Bordstein zur Straße hin - aber NICHT vor der Bruecke. Dort faehrt
+     man auf die Bruecke, und ein 38 cm hoher Bordstein quer ueber der
+     Auffahrt waere genau die Kante, die es zu vermeiden gilt. */
+  for (const [a, b] of [[-200, BRIDGE_Z - BRIDGE_HW], [BRIDGE_Z + BRIDGE_HW, 200]]) {
+    deko(0.4, 0.34, b - a, PROM_X0, SLAB_H - 0.04, (a + b) / 2, 0x7c8288);
+  }
 
   const kroneMatU = new THREE.MeshLambertMaterial({ color: 0x2f6b38 });
   for (let z = -190; z < 190; z += 8) {
@@ -3631,7 +3657,6 @@ function buildRiverAndBridge() {
      wirklich anfängt (x = BR_X0). Vorher ragten die knallroten Geländer
      bis weit in die Stadtstraße hinein und standen als große rote Keile
      mitten auf der Fahrbahn – genau das war der Fehler vor der Brücke. */
-  const BR_X0 = 178, BR_X1 = RIVER_X1 + 4;
   const deck = new THREE.Mesh(new THREE.BoxGeometry(BR_X1 - BR_X0, 0.6, BRIDGE_HW * 2),
     new THREE.MeshLambertMaterial({ map: asphaltTex }));
   deck.position.set((BR_X0 + BR_X1) / 2, 0, BRIDGE_Z);
@@ -3639,57 +3664,96 @@ function buildRiverAndBridge() {
   cityGroup.add(deck);
   // Mittelstreifen, damit die Brücke als Straße lesbar bleibt
   for (let x = BR_X0 + 5; x < BR_X1 - 5; x += 9) {
-    deko(3.6, 0.04, 0.35, x, 0.32, BRIDGE_Z, 0xd9c979);
+    deko(3.6, 0.04, 0.35, x, BR_HOCH + 0.02, BRIDGE_Z, 0xd9c979);
   }
-  /* Sanfte Auffahrt an beiden Enden: die Fahrbahn liegt 30 cm höher als
-     die Straße, ohne Rampe war dort eine harte Kante. */
-  for (const [rx, dir] of [[BR_X0, -1], [BR_X1, 1]]) {
-    const rampe = new THREE.Mesh(new THREE.BoxGeometry(6, 0.6, BRIDGE_HW * 2),
+  /* Sanfte Auffahrt an beiden Enden. Sie liegt VOR der Bruecke, auf der
+     Strasse - genau in dem Stueck, das bridgeY() ansteigen laesst.
+     Frueher war sie um 0,05 in die FALSCHE Richtung gekippt (das hohe
+     Ende zeigte zur Strasse), und die westliche lag ausserdem unter dem
+     erhoehten Gehweg der Promenade. */
+  for (const [xm, dir] of [[BR_X0 - BR_RAMPE / 2, -1], [BR_X1 + BR_RAMPE / 2, 1]]) {
+    const rampe = new THREE.Mesh(new THREE.BoxGeometry(BR_RAMPE, 0.6, BRIDGE_HW * 2),
       new THREE.MeshLambertMaterial({ map: asphaltTex }));
-    rampe.position.set(rx + dir * 3, -0.16, BRIDGE_Z);
-    rampe.rotation.z = dir * 0.05;
+    rampe.position.set(xm, BR_HOCH / 2 - 0.3, BRIDGE_Z);
+    rampe.rotation.z = -dir * (BR_HOCH / BR_RAMPE);
+    rampe.receiveShadow = true;
     cityGroup.add(rampe);
   }
   for (const s of [-1, 1]) {
     const zr = BRIDGE_Z + s * (BRIDGE_HW - 0.25);
     // schlanker Handlauf statt massiver Wand
     for (const hy of [1.05, 0.62]) {
-      deko(BR_X1 - BR_X0, 0.14, 0.16, (BR_X0 + BR_X1) / 2, hy, zr, 0x9a3a3a);
+      deko(BR_X1 - BR_X0, 0.14, 0.16, (BR_X0 + BR_X1) / 2, hy + BR_HOCH, zr, 0x9a3a3a);
     }
     for (let x = BR_X0 + 2; x < BR_X1; x += 4.5) {
-      deko(0.16, 1.15, 0.16, x, 0.85, zr, 0x6f2b2b);
+      deko(0.16, 1.15, 0.16, x, 0.85 + BR_HOCH, zr, 0x6f2b2b);
     }
     /* Unsichtbare Brüstung: man fällt nicht mehr einfach seitlich von der
        Brücke ins Wasser, sondern stößt am Geländer an. */
-    addCollider({ x0: BR_X0, x1: BR_X1, z0: zr - 0.25, z1: zr + 0.25, h: 1.4 });
+    addCollider({ x0: BR_X0, x1: BR_X1, z0: zr - 0.25, z1: zr + 0.25, h: 1.4 + BR_HOCH });
   }
-  // Pylonen + Tragseile
+  /* ---- Seilebene ----
+     Die Tragseile laufen ueber die Pylonen, also ein Stueck AUSSERHALB
+     der Fahrbahn. Damit die Haenger nicht ueber dem Wasser enden, traegt
+     die Bruecke dort einen Randtraeger - so wie eine echte Haengebruecke,
+     bei der die Querträger unter der Fahrbahn bis zur Seilebene reichen. */
+  const SEIL_Z = BRIDGE_HW + 0.5;
+  for (const s of [-1, 1]) {
+    deko(BR_X1 - BR_X0, 0.34, 2.4, (BR_X0 + BR_X1) / 2, BR_HOCH - 0.17,
+         BRIDGE_Z + s * (BRIDGE_HW + 0.2), 0x7a3232);
+  }
+  // Pylonen
   const pylMat = new THREE.MeshLambertMaterial({ color: 0x8e3b3b });
-  for (const px of [225, 285]) {
+  const PYL_X = [225, 285], PYL_TOP = 44;
+  for (const px of PYL_X) {
     for (const s of [-1, 1]) {
       const py = new THREE.Mesh(new THREE.BoxGeometry(3, 46, 3), pylMat);
-      py.position.set(px, 23 - 2, BRIDGE_Z + s * (BRIDGE_HW + 1));
+      py.position.set(px, PYL_TOP - 23, BRIDGE_Z + s * SEIL_Z);
       py.castShadow = true;
       cityGroup.add(py);
-      addCollider({ x0: px - 1.5, x1: px + 1.5, z0: py.position.z - 1.5, z1: py.position.z + 1.5, h: 44 });
+      addCollider({ x0: px - 1.5, x1: px + 1.5, z0: py.position.z - 1.5,
+                    z1: py.position.z + 1.5, h: PYL_TOP });
     }
-    const cross = new THREE.Mesh(new THREE.BoxGeometry(3, 3, BRIDGE_HW * 2 + 5), pylMat);
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(3, 3, SEIL_Z * 2 + 3), pylMat);
     cross.position.set(px, 40, BRIDGE_Z);
     cityGroup.add(cross);
   }
-  // Seile (einfache Linien)
-  const cableMat = new THREE.LineBasicMaterial({ color: 0x222222 });
+  /* ---- Tragseile ----
+     Die alte Formel rechnete zwischen den Pylonen
+       y = 40 + ((x-255)/30)^2 * 22 + 18
+     und lieferte damit 58 m in der Mitte und 80 m an den Pylonen - das
+     Seil schwebte also weit UEBER den 44 m hohen Pylonen und beruehrte
+     die Bruecke nirgends. Genau das waren die "Seile in der Luft".
+     Jetzt haengt es, wie es soll: von der Fahrbahn am Brueckenanfang
+     hinauf auf die Pylonspitze, dazwischen in einer Parabel durch, und
+     Haenger verbinden es mit dem Randtraeger. */
+  const SEIL_TOP = 39, SEIL_DURCH = 11;
+  const seilY = (x) => {
+    if (x <= PYL_X[0]) return lerp(BR_HOCH + 0.9, SEIL_TOP,
+                                   clamp((x - BR_X0) / (PYL_X[0] - BR_X0), 0, 1));
+    if (x >= PYL_X[1]) return lerp(SEIL_TOP, BR_HOCH + 0.9,
+                                   clamp((x - PYL_X[1]) / (BR_X1 - PYL_X[1]), 0, 1));
+    const m = (PYL_X[0] + PYL_X[1]) / 2, hw = (PYL_X[1] - PYL_X[0]) / 2;
+    const t = (x - m) / hw;
+    return SEIL_DURCH + (SEIL_TOP - SEIL_DURCH) * t * t;
+  };
   for (const s of [-1, 1]) {
-    const pts = [];
-    for (let x = 178; x <= RIVER_X1; x += 4) {
-      let y;
-      if (x < 225) y = lerp(6, 40, (x - 178) / (225 - 178));
-      else if (x < 285) y = 40 - Math.sin(((x - 225) / 60) * Math.PI) * 0 + (Math.pow((x - 255) / 30, 2) * 22 + 18);
-      else y = lerp(40, 6, (x - 285) / (RIVER_X1 - 285));
-      pts.push(V3(x, y, BRIDGE_Z + s * (BRIDGE_HW + 1)));
+    const zc = BRIDGE_Z + s * SEIL_Z;
+    let px = BR_X0, py = seilY(BR_X0);
+    for (let x = BR_X0 + 2.5; x <= BR_X1 + 0.01; x += 2.5) {
+      const xx = Math.min(x, BR_X1), yy = seilY(xx);
+      const dx = xx - px, dy = yy - py;
+      deko(Math.hypot(dx, dy), 0.24, 0.24, (px + xx) / 2, (py + yy) / 2, zc,
+           0x23262b, 0, Math.atan2(dy, dx));
+      px = xx; py = yy;
     }
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), cableMat);
-    cityGroup.add(line);
+    /* Haenger. Nur dort, wo das Seil hoch genug ueber der Fahrbahn
+       laeuft - sonst stuenden an den Enden lauter Stummel. */
+    for (let x = BR_X0 + 5; x < BR_X1 - 3; x += 5) {
+      const y = seilY(x);
+      if (y < BR_HOCH + 2.2) continue;
+      deko(0.16, y - BR_HOCH, 0.16, x, (BR_HOCH + y) / 2, zc, 0x2c3038);
+    }
   }
 }
 
