@@ -2042,8 +2042,13 @@ function buildCity() {
       else if (!loecher.length && KIT_BLOCKS.some(([a3, b3]) => a3 === bi && b3 === bj)) {
         baueAltbauBlock(cx, cz, size);
       } else buildBlockBuildings(cx, cz, loecher);
-      // Straßenlampen an jeder zweiten Ecke
-      if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz - size / 2 + 1);
+      /* ---- Strassenlampen ----
+         Sie standen an der Blockecke, einen Meter vom Rand. Genau dort
+         steht aber auch der Ampelmast: der sitzt auf Linie plus 7,2, die
+         Lampe auf Linie plus 7 - gemessen zwanzig Zentimeter nebeneinander.
+         Jetzt stehen sie in der MITTE der Blockkante, also weit weg von
+         jeder Kreuzung - so wie Laternen an einer Strasse wirklich stehen. */
+      if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz);
       /* Poller und Pflanzkuebel am Bordstein. Sie stehen genau dort, wo
          man laeuft und kaempft, und geben dem Gehweg Massstab. */
       for (const [ex, ez] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
@@ -3832,7 +3837,7 @@ function buildFarShore() {
             cx + sx * off + rand(-0.8, 0.8), cz + sz * off + rand(-0.8, 0.8));
         }
       }
-      if ((bi + bj) % 2 === 0) addLamp(cx - innen / 2 + 1, cz - innen / 2 + 1);
+      if ((bi + bj) % 2 === 0) addLamp(cx - innen / 2 + 1, cz);
     }
   }
 
@@ -6824,6 +6829,24 @@ function makeGlbVisual(m) {
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.35));
       inner.position.y = basisY + bodenKorrektur;
     },
+    /* ---- Ein Arm greift zum Netzfaden ----
+       Wer eine Muelltonne am Faden vor sich her traegt, laesst den Arm
+       nicht herunterhaengen. Vorher tat er genau das: der Gegenstand
+       schwebte vor der Figur und der Faden lief vom Handruecken schraeg
+       nach oben ins Leere. Jetzt zeigt der Arm dorthin, wo der Faden
+       hingeht. */
+    poseFadenArm(seite, ziel, k) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      if (w <= 0.001) return;
+      const hand = haende[seite] || haende.R || haende.L;
+      if (!hand) return;
+      const varm = hand.parent, arm = varm && varm.parent;
+      if (!arm || !varm) return;
+      root.updateMatrixWorld(true);
+      zieleKnochen(arm, varm, ziel, w * 0.8);
+      varm.updateMatrixWorld(true);
+      zieleKnochen(varm, hand, ziel, w * 0.9);
+    },
     /* Dachhocke: Hände und Füße sollen wirklich AUFLIEGEN.
        Der allgemeine bodenAusgleich zielt auf den Knöchel in Bindehöhe.
        In der Hocke stimmt dieses Ziel nicht: der Fuß ist abgewinkelt, die
@@ -8037,6 +8060,40 @@ function staubWolke(pos, groesse) {
    einfach und sieht aus wie im Vorbild.                                */
 const ZIEH = [];
 const ZIEH_TEMPO_HIN = 34, ZIEH_TEMPO_WEG = 40;
+/* ---- Nichts auf der Fahrbahn liegen lassen ----
+   Die Gegenstaende wurden laengs der Gehwegkante verteilt, quer dazu
+   aber frei: lag der Wert auf einer Querstrasse, stand die Muelltonne
+   mitten auf der Fahrbahn, wo die Autos fahren. Und wer eine geworfen
+   hatte, liess sie liegen, wo sie hinfiel.
+   ausDerFahrbahn() schiebt EINE Koordinate aus dem Fahrbahnband heraus,
+   aufDenGehweg() sucht daraus die kuerzeste Verschiebung, die wirklich
+   auf dem Gehweg endet - an einer Kreuzung muessen beide Achsen heraus. */
+const ZIEH_GEHWEG = ROAD_HALF + 1.4;
+/* Die beiden Gehwegkanten links und rechts der naechsten Strassenachse. */
+function fahrbahnRaus(a) {
+  const linie = Math.round((a - ORIGIN) / PITCH) * PITCH + ORIGIN;
+  return [linie + ZIEH_GEHWEG, linie - ZIEH_GEHWEG];
+}
+function aufDemGehweg(x, z, y) {
+  return groundY(x, z, y === undefined ? 3 : y) >= SLAB_H - 0.02;
+}
+function aufDenGehweg(x, z, y) {
+  if (aufDemGehweg(x, z, y)) return null;
+  /* Neun Kandidaten: jede Achse bleibt oder geht an eine der beiden
+     Kanten. Der naechstgelegene, der wirklich auf dem Gehweg endet,
+     gewinnt. Ein einzelner Ausweichpunkt reichte nicht - gemessen landete
+     eine Tonne dabei genau in einem U-Bahn-Treppenschacht. */
+  const xs = [x, fahrbahnRaus(x)[0], fahrbahnRaus(x)[1]];
+  const zs = [z, fahrbahnRaus(z)[0], fahrbahnRaus(z)[1]];
+  let best = null, bestD = Infinity;
+  for (const kx of xs) for (const kz of zs) {
+    const dd = Math.abs(kx - x) + Math.abs(kz - z);
+    if (dd >= bestD || !aufDemGehweg(kx, kz, y)) continue;
+    best = { x: kx, z: kz }; bestD = dd;
+  }
+  return best;
+}
+
 function baueZiehObjekte() {
   if (ZIEH.length || typeof scene === 'undefined') return;
   const arten = [
@@ -8056,8 +8113,10 @@ function baueZiehObjekte() {
     const ax = (i % 2) === 0;
     const gasse = (Math.floor(i / 2) % 4 - 1.5) * 100;
     const laengs = ((i * 37) % 180) - 90 + Math.floor(i / 8) * 12;
-    const px = ax ? laengs : gasse + (i % 3 - 1) * 9.5;
-    const pz = ax ? gasse + (i % 3 - 1) * 9.5 : laengs;
+    let px = ax ? laengs : gasse + (i % 3 - 1) * 9.5;
+    let pz = ax ? gasse + (i % 3 - 1) * 9.5 : laengs;
+    const weg = aufDenGehweg(px, pz, 3);
+    if (weg) { px = weg.x; pz = weg.z; }
     const boden = groundY(px, pz, 40);
     mesh.position.set(px, boden + a.h / 2, pz);
     scene.add(mesh);
@@ -8139,6 +8198,7 @@ function updateZiehObjekte(dt) {
       _v1.set(player.pos.x - p.x, player.pos.y + 1.25 - p.y, player.pos.z - p.z);
       const w = _v1.length();
       player.fadenZiel = p; player.fadenHand = o.hand;
+      player.ziehtObjekt = true;
       if (w < 1.6 || o.t > 1.6) {
         /* ---- Angekommen: der Gegenstand bleibt am Netz ----
            Vorher flog er im selben Moment weiter, in die Richtung, in die
@@ -8182,12 +8242,30 @@ function updateZiehObjekte(dt) {
       const boden = groundY(p.x, p.z, p.y) + o.hoehe / 2;
       if (p.y <= boden || o.t > 4) {
         p.y = Math.max(p.y, boden);
-        o.zustand = 'ruht'; o.getroffen = null; o.t = 0;
+        o.getroffen = null; o.t = 0;
         staubWolke(p, 0.5);
+        /* Auf der Fahrbahn bleibt nichts liegen: von dort rollt der
+           Gegenstand noch bis an den Bordstein. */
+        const weg = aufDenGehweg(p.x, p.z, p.y);
+        if (weg) { o.zustand = 'roll'; o.rollVon = p.clone();
+                   o.rollZiel = new THREE.Vector3(weg.x, p.y, weg.z); }
+        else o.zustand = 'ruht';
       }
+    } else if (o.zustand === 'roll') {
+      const f = clamp(o.t / 0.8, 0, 1);
+      p.lerpVectors(o.rollVon, o.rollZiel, f * f * (3 - 2 * f));
+      p.y = groundY(p.x, p.z, p.y + 2) + o.hoehe / 2;
+      if (f >= 1) { o.zustand = 'ruht'; o.t = 0; }
     }
-    o.mesh.rotation.x += dt * (o.zustand === 'weg' ? 7 : 2);
-    o.mesh.rotation.z += dt * (o.zustand === 'weg' ? 5 : 1.4);
+    if (o.zustand === 'halt') {
+      /* Am Faden pendelt der Gegenstand nur leicht - er wirbelt nicht.
+         Das Weiterdrehen sah aus, als schwebte er von allein. */
+      o.mesh.rotation.x = Math.sin(elapsed * 1.6) * 0.10;
+      o.mesh.rotation.z = Math.cos(elapsed * 1.3) * 0.08;
+    } else {
+      o.mesh.rotation.x += dt * (o.zustand === 'weg' ? 7 : o.zustand === 'roll' ? 3.2 : 2);
+      o.mesh.rotation.z += dt * (o.zustand === 'weg' ? 5 : o.zustand === 'roll' ? 2.4 : 1.4);
+    }
   }
 }
 
@@ -8239,6 +8317,7 @@ const player = {
   attack: null,           // {type, t, arm, hitDone}
   attackBuffer: null,     // gepufferte Eingabe für flüssige Ketten
   fadenZiel: null, fadenHand: 'R',   // wohin der Netzfaden zeigt
+  ziehtObjekt: false,                // ein Gegenstand fliegt gerade heran
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
   hartLandung: 0, saltoCd: 0, luftSalto: 0, warSchwung: 0, schrittT: 0,
   eckT: 0, eckSperre: 0, sichtPos: null, wandStill: false, wandRuhe: 0,
@@ -9594,7 +9673,13 @@ function tryJump() {
        wird und nicht in die Landung hineinlaeuft. */
     if (heroVisual.rolleOneShot) {
       const hat = heroVisual.hatClip || (() => false);
-      const art = hat('kunst_a') ? 'kunst_a' : hat('frontflip') ? 'frontflip' : null;
+      /* Reihenfolge geaendert. 'kunst_a' stand vorn - das ist aber eine
+         gespreizte Kunstfigur: nachgestellt sah der Doppelsprung damit
+         aus wie ein Spagat in der Luft, Arme und Beine weit auseinander.
+         Ein Doppelsprung ist ein Ueberschlag, deshalb zuerst der
+         Vorwaertssalto. */
+      const art = hat('frontflip') ? 'frontflip' : hat('flip_v') ? 'flip_v'
+                : hat('kunst_a') ? 'kunst_a' : null;
       /* 0,58 s pressten die 1,9-s-Datei mit dem Hoechsttempo 3,2 zusammen -
          davon war nichts mehr zu erkennen. Der Ueberschlag laeuft jetzt
          etwas laenger und damit auch noch im Sinken weiter; das sieht
@@ -11611,15 +11696,18 @@ function updateHeroVisual(dt) {
         const hs = Math.hypot(player.vel.x, player.vel.z);
         tilt = clamp(Math.atan2(Math.max(0, -player.vel.y), Math.max(2, hs)), 0, 1.15);
       } else
-      /* Im Gleitflug liegt der Körper flach in der Luft, Kopf voran – wie
-         im Wingsuit.
-         0,62 rad sind aber nur 35 Grad: die Figur hing schraeg im Raum,
-         mehr stehend als liegend, und genau so sah es aus - "wie ein Stock
-         in der Luft". Der Rumpf gehoert bei neutraler Nase auf gut 70 Grad
-         und legt sich mit gedrueckter Nase noch weiter nach vorn.
-         Nach oben gezogen richtet er sich auf, so wie ein Gleiter, der
-         abfaengt. */
-      tilt = (1.24 + (player.gleitNase || 0) * 0.30) * clamp(player.gleitMisch || 0, 0, 1);
+      /* Im Gleitflug liegt der Körper FLACH in der Luft, Kopf voran - wie
+         im Wingsuit. Kopf nach unten gehoert zum Sturzflug (W), nicht
+         hierher.
+         Der Wert stand auf 1,24 rad. Das war zu viel: die Gleithaltung
+         selbst liegt schon fast waagerecht, die Drehung kam obendrauf,
+         und nachgemessen zeigte der Kopf 59 Grad nach UNTEN und lag 1,2 m
+         tiefer als die Fuesse - steiler als im Sturzflug, der auf 23 Grad
+         kam. Mit 0,32 liegt die Figur bei neutraler Nase auf gut sechs
+         Grad Neigung, also praktisch waagerecht.
+         Die Nase wirkt jetzt staerker: gedrueckt legt sie sich nach vorn,
+         gezogen richtet sie sich auf, so wie ein Gleiter, der abfaengt. */
+      tilt = (0.32 + (player.gleitNase || 0) * 0.45) * clamp(player.gleitMisch || 0, 0, 1);
       r.rotation.z = lerp(r.rotation.z, clamp(-(player.gleitKurve || 0) * 0.5, -0.5, 0.5),
                           Math.min(1, dt * 5));
     } else if (player.onGround) {
@@ -11872,6 +11960,11 @@ function updateHeroVisual(dt) {
   /* Netzfaden ganz zum Schluss setzen – erst jetzt steht die Hand wirklich
      dort, wo sie im Bild zu sehen ist. Vorher hing der Faden ein Bild
      hinterher und schnitt durch den Körper. */
+  /* Haelt die Figur einen Gegenstand am Netz, greift der Arm danach. */
+  if (player.haeltObjekt && heroVisual.poseFadenArm && !heroVisual.procedural) {
+    heroVisual.poseFadenArm(player.fadenHand,
+                            _v2.copy(player.haeltObjekt.mesh.position), 1);
+  }
   if (player.fadenZiel) {
     heroVisual.root.updateMatrixWorld(true);
     heroHandPos(_v3, player.fadenHand);
@@ -16379,7 +16472,14 @@ function simuliere(dt) {
     s.mesh.material.opacity = clamp(s.life / 0.14, 0, 1);
     if (s.life <= 0) { s.mesh.visible = false; activeShots.splice(i, 1); }
   }
-  if (player.state !== 'swing' && player.state !== 'zip') swingStrand.visible = false;
+  /* Der Faden gehoert nicht nur zum Schwung und zum Zip: solange ein
+     Gegenstand am Netz haengt oder herangezogen wird, muss er auch zu
+     sehen sein. Vorher wurde er hier in JEDEM Bild ausgeblendet, sobald
+     man am Boden stand - der Gegenstand schwebte dann ohne Verbindung
+     vor der Figur. */
+  if (player.state !== 'swing' && player.state !== 'zip' &&
+      !player.haeltObjekt && !player.ziehtObjekt) swingStrand.visible = false;
+  player.ziehtObjekt = false;
 
   /* Tempogefühl kommt jetzt allein aus Sichtfeld und Windgeräusch. Die
      Linien über dem ganzen Bild haben mehr verdeckt als sie beigetragen
@@ -16402,6 +16502,7 @@ if (window.__WEBHERO_TEST__ === true) {
     get heroVisual() { return heroVisual; },
     colliders,
     kau: KAU,
+    faden: swingStrand,
     get ziehFest() { return ZIEH_FEST; },
     get ziehLose() { return ZIEH; },
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
