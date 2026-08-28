@@ -823,82 +823,8 @@ const wegTex = canvasTex(64, 64, (g) => {
 });
 wegTex.repeat.set(6, 6);
 
-/* Schaufenster: nicht nur eine helle Fläche, sondern ein gemalter Laden
-   dahinter – Theke, Regale, Hängelampe, manchmal jemand drin. Auf
-   Straßenhöhe steht man direkt davor, dort fällt die fehlende Tiefe am
-   meisten auf. Dasselbe Verfahren wie bei den Fassadenfenstern. */
-/* Vier verschiedene Laeden in EINER Textur (2x2). Vorher teilten sich alle
-   Schaufenster der Stadt dasselbe Bild - eine ganze Strasse mit demselben
-   Regal, derselben Lampe, derselben Person dahinter. Ueber die UV bekommt
-   jede Scheibe jetzt eine der vier Kacheln, und es bleibt bei einem
-   einzigen Zeichenaufruf. */
-const LADEN_KACHELN = 2;
-function malLaden(g, x0, y0, w, h) {
-  g.save();
-  g.translate(x0, y0);
-  g.beginPath(); g.rect(0, 0, w, h); g.clip();
-  /* Warmer Innenraum mit Verlauf nach hinten. Die Grundtoene wechseln je
-     Laden, damit eine Zeile Schaufenster nicht wie eine Kette derselben
-     Filiale aussieht. */
-  const toene = [
-    ['#4a3a1e', '#5f4a24', '#241a0e', '#6b5326'],   // warmer Krimskrams
-    ['#1e3242', '#25455c', '#0e1a22', '#3f6b86'],   // kuehler Laden
-    ['#3d1e28', '#582b38', '#1c0e12', '#8a4a5c'],   // Baecker/Blumen
-    ['#2a3320', '#3d4a2e', '#141a0f', '#6a7d4a'],   // Gruenzeug
-  ][Math.floor(Math.random() * 4)];
-  const vl = g.createLinearGradient(0, 0, 0, h);
-  vl.addColorStop(0, toene[0]); vl.addColorStop(0.55, toene[1]); vl.addColorStop(1, toene[2]);
-  g.fillStyle = vl; g.fillRect(0, 0, w, h);
-  /* Rückwand mit Regalbrettern – die waagerechten Linien geben Tiefe. */
-  g.fillStyle = 'rgba(0,0,0,0.35)';
-  g.fillRect(w * 0.08, h * 0.12, w * 0.84, h * 0.5);
-  for (let i = 0; i < 3; i++) {
-    const y = h * (0.2 + i * 0.14);
-    g.fillStyle = toene[3]; g.fillRect(w * 0.1, y, w * 0.8, 3);
-    /* Ware auf dem Brett. */
-    for (let k = 0; k < 9; k++) {
-      if (Math.random() < 0.3) continue;
-      const bw = rand(5, 13), bh = rand(6, 13);
-      g.fillStyle = ['#8a3f2e', '#2e5a7a', '#7a6a2e', '#5a3f6a'][randi(0, 3)];
-      g.fillRect(w * 0.11 + k * (w * 0.087), y - bh, bw, bh);
-    }
-  }
-  /* Theke vorn – schräg gezeichnet, damit sie nach vorn zu kommen scheint. */
-  g.fillStyle = 'rgba(0,0,0,0.55)';
-  g.beginPath();
-  g.moveTo(0, h); g.lineTo(w * 0.06, h * 0.72); g.lineTo(w * 0.94, h * 0.72); g.lineTo(w, h);
-  g.closePath(); g.fill();
-  g.fillStyle = toene[3]; g.fillRect(w * 0.05, h * 0.7, w * 0.9, 4);
-  /* Hängelampe. */
-  g.strokeStyle = '#2a2015'; g.lineWidth = 2;
-  g.beginPath(); g.moveTo(w * 0.5, 0); g.lineTo(w * 0.5, h * 0.14); g.stroke();
-  const lg = g.createRadialGradient(w * 0.5, h * 0.18, 2, w * 0.5, h * 0.18, 26);
-  lg.addColorStop(0, 'rgba(255,236,180,0.95)'); lg.addColorStop(1, 'rgba(255,236,180,0)');
-  g.fillStyle = lg; g.fillRect(w * 0.5 - 26, h * 0.18 - 26, 52, 52);
-  /* Ab und zu jemand hinter der Theke. */
-  if (Math.random() < 0.5) {
-    g.fillStyle = '#1c1408';
-    g.beginPath(); g.arc(w * (0.3 + Math.random() * 0.5), h * 0.52, 7, 0, TAU); g.fill();
-    g.fillRect(w * 0.7 - 8, h * 0.58, 16, h * 0.16);
-  }
-  /* Rahmen und ein senkrechter Pfosten in der Mitte: eine Scheibe ohne
-     Teilung sah aus wie ein aufgeklebtes Bild, nicht wie ein Fenster. */
-  g.fillStyle = '#1a1d22';
-  g.fillRect(0, 0, w, h * 0.045); g.fillRect(0, h * 0.955, w, h * 0.045);
-  g.fillRect(0, 0, w * 0.022, h); g.fillRect(w * 0.978, 0, w * 0.022, h);
-  g.fillRect(w * 0.49, 0, w * 0.02, h);
-  /* Spiegelung auf der Scheibe – erst dadurch wirkt Glas davor. */
-  g.fillStyle = 'rgba(190,215,235,0.14)';
-  g.beginPath();
-  g.moveTo(0, h * 0.1); g.lineTo(w * 0.42, 0); g.lineTo(w * 0.62, 0); g.lineTo(0, h * 0.52);
-  g.closePath(); g.fill();
-  g.restore();
-}
-const ladenTex = canvasTex(512, 256, (g, w, h) => {
-  const kw = w / LADEN_KACHELN, kh = h / LADEN_KACHELN;
-  for (let j = 0; j < LADEN_KACHELN; j++)
-    for (let i = 0; i < LADEN_KACHELN; i++) malLaden(g, i * kw, j * kh, kw, kh);
-});
+/* (Die Ladentextur ist entfallen - es gibt keine selbstgebauten
+   Schaufenster mehr, siehe schmueckeHaus.) */
 
 const waterTex = canvasTex(128, 128, (g) => {
   g.fillStyle = '#20537c'; g.fillRect(0, 0, 128, 128);
@@ -1849,74 +1775,21 @@ function baueDekoMesh() {
   dekoTeile.length = 0;
 }
 
-/* Ladenzeile, Gesims, Feuerleiter und Dachaufbauten für ein Haus. */
-const MARKISEN = [0x7d3029, 0x2e4f3c, 0x2b3f5e, 0x6b5730, 0x4f3350];
+/* Gesims, Feuerleiter und Dachaufbauten für ein Haus. */
 /* frei = Grundflaeche des Staffelturms, der spaeter aus diesem Dach
    waechst (oder null). Alles, was aufs Dach kommt, muss aussen herum. */
 function schmueckeHaus(w, h, d, x, z, frei) {
   const unten = SLAB_H, oben = SLAB_H + h;
 
-  /* Erdgeschoss: dunkler Sockel mit Schaufensterband und Vordach.
-     Auf Straßenhöhe spielt der Kampf – dort fällt Detail am meisten auf. */
-  deko(w + 0.5, 3.0, d + 0.5, x, unten + 1.5, z, 0x23272f);
-  /* Namensband ueber der Scheibe (2,47 bis 3,09 m). Vorher lag es auf
-     1,65 bis 2,55 m und schnitt damit oben in die Schaufenster. */
-  deko(w + 0.62, 0.62, d + 0.62, x, unten + 2.78, z, 0xe8cf94);  // Namensband
-  const markise = pick(MARKISEN);
-  deko(w + 1.05, 0.15, d + 1.05, x, unten + 3.2, z, markise);    // Vordach
-
-  /* Ladenzeile im Erdgeschoss: Schild über dem Eingang, ein paar
-     beleuchtete Auslagen und der dunkle Türrahmen. Auf Straßenhöhe
-     spielt der Kampf – dort lohnt sich das Detail. */
-  const LADEN = [0xd8452f, 0x2f7ad8, 0x27a05c, 0xd8a02f, 0x7a3fd8];
-  for (const [nx, nz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
-    if (Math.random() < 0.18) continue;
-    const laengs = nx === 0 ? w : d;
-    if (laengs < 6) continue;
-    const px = x + nx * (w / 2 + 0.34), pz = z + nz * (d / 2 + 0.34);
-    const bw = nx === 0 ? Math.min(4.2, laengs * 0.5) : 0.14;
-    const bd = nx === 0 ? 0.14 : Math.min(4.2, laengs * 0.5);
-    // Schild über dem Eingang
-    deko(bw, 0.7, bd, px, unten + 2.85, pz, pick(LADEN));
-    /* Eingang: echter Tuerrahmen mit Tuer aus dem Baukasten. Vorher war
-       das eine flache dunkle Platte - auf Strassenhoehe steht man direkt
-       davor, dort faellt genau das auf.
-       Die Modelle schauen in +z; ry dreht sie auf die jeweilige Wand. */
-    const ry = nz === 1 ? 0 : nz === -1 ? Math.PI
-             : nx === 1 ? Math.PI / 2 : -Math.PI / 2;
-    /* Nur die beiden schlanken Rahmen. "DoorFrame_Trim" hat 860 Dreiecke
-       gegen 239 bzw. 438 - bei rund sechshundert Eingaengen in der Stadt
-       macht allein der den Unterschied von einem Drittel mehr Dreiecken
-       aus, und man sieht ihn im Vorbeilaufen nicht. */
-    merkeTeil(pick(['DoorFrame_Metal_Single', 'DoorFrame_Wooden']), px, unten, pz, ry);
-    merkeTeil(pick(['Door_1', 'Door_2', 'Door_3']),
-              px + nx * 0.06, unten, pz + nz * 0.06, ry);
-    /* Zwei Schaufenster links und rechts der Tür – mit gemaltem Innenraum
-       statt einer hellen Platte.
-       Frueher waren sie 2,10 x 1,06 m und begannen erst auf 0,80 m: das
-       sah aus wie ein Briefkastenschlitz, nicht wie ein Laden. Und sie
-       ragten 21 cm in das Namensband hinein, weil das Band inzwischen
-       hoeher sitzt als beim ersten Entwurf.
-       Jetzt echte Schaufenstermasse: Sockel bis 0,62 m, Scheibe von dort
-       bis 2,42 m, das Band beginnt darueber. */
-    const sb = Math.min(4.4, laengs * 0.40);
-    for (const s2 of [-1, 1]) {
-      const ox = nx === 0 ? s2 * (laengs * 0.25) : 0;
-      const oz = nx === 0 ? 0 : s2 * (laengs * 0.25);
-      const bx = nx === 0 ? sb : 0.2, bz = nx === 0 ? 0.2 : sb;
-      /* Sockel unter der Scheibe - ohne ihn stand das Glas auf dem Gehweg. */
-      deko(bx, 0.37, bz, px + ox, unten + 0.185, pz + oz, 0x1b1e24);
-      ladenFenster.push({ x: px + ox, y: unten + 1.52, z: pz + oz,
-                          breite: sb, hoehe: 1.80, nx, nz,
-                          zelle: randi(0, LADEN_KACHELN * LADEN_KACHELN - 1) });
-    }
-  }
-  /* Das Vordach ist nur eine 15 cm dicke Platte. Man klettert daran vorbei,
-     statt sich daraufzuziehen – sonst endet jeder Aufstieg von der Straße
-     schon nach drei Metern auf der Markise. */
-  addCollider({ x0: x - (w + 1.05) / 2, x1: x + (w + 1.05) / 2,
-                z0: z - (d + 1.05) / 2, z1: z + (d + 1.05) / 2,
-                h: unten + 3.28, y0: unten + 2.9, klein: true, keinHalt: true });
+  /* ---- Kein selbstgebautes Erdgeschoss mehr ----
+     Sockel, Namensband, Markise, Ladenschilder, Tueren und Schaufenster
+     sind weg. Sie stammen aus der Zeit, als die Haeuser einfache Quader
+     mit einer aufgemalten Fassade waren. Die echten Gebaeudemodelle
+     bringen ihr eigenes Erdgeschoss mit; das selbstgebaute lag als bunter
+     Streifen davor und passte weder zur Farbe noch zur Fensterteilung.
+     Nebenbei fallen damit rund sechshundert Tuerrahmen, ebenso viele
+     Tueren und zwoelfhundert Schaufenster aus der Stadt - das ist auch
+     fuer die Bildrate keine schlechte Nachricht. */
 
   /* Gesims am Dachrand – gibt dem Haus oben einen Abschluss. Es steht
      45 cm über die Wand hinaus; ohne Kollision stand man mit den Beinen
@@ -1971,32 +1844,9 @@ function schmueckeHaus(w, h, d, x, z, frei) {
     const ax = x + rand(-w / 4, w / 4), az = z + rand(-d / 4, d / 4);
     if (dachFrei(ax, az, 0.3, 0.3)) deko(0.22, ah, 0.22, ax, oben + ah / 2, az, 0x484d55);
   }
-  if (h > 30 && Math.random() < 0.3) {              // Reklametafel
-    const bw = Math.min(w * 0.9, 10), bh = rand(3, 5);
-    const quer = Math.random() < 0.5;
-    const tw = quer ? bw : 0.3, td = quer ? 0.3 : bw;
-    /* Die Tafel stand IMMER genau in der Dachmitte - dort, wo bei hohen
-       Haeusern der Staffelturm hochkommt. Sie wird deshalb an den Rand
-       gerueckt, sobald ein Turm folgt: sie steht dann quer vor der
-       Turmwand, so wie eine Reklametafel wirklich steht. */
-    let tx = x, tz = z;
-    if (frei) {
-      const seite = Math.random() < 0.5 ? 1 : -1;
-      if (quer) tz = z + seite * Math.min(d / 2 - td / 2 - 0.6, frei.d / 2 + td / 2 + 1.4);
-      else      tx = x + seite * Math.min(w / 2 - tw / 2 - 0.6, frei.w / 2 + tw / 2 + 1.4);
-      /* Passt die Tafel gar nicht mehr aufs Dach, faellt sie weg. */
-      if (Math.abs(tx - x) + tw / 2 > w / 2 || Math.abs(tz - z) + td / 2 > d / 2) return;
-    }
-    deko(tw, bh, td, tx, oben + bh / 2 + 0.6, tz,
-         pick([0xc8402f, 0x2f6fc8, 0xe0b23a, 0x35a06a]));
-    deko(quer ? bw : 0.5, 0.5, quer ? 0.5 : bw, tx, oben + 0.3, tz, 0x3a3f47);
-    /* Die Tafel hatte kein Hindernis – man lief einfach hindurch. Jetzt
-       ist sie fest: man kann sich davorstellen und daran hochklettern,
-       aber nicht mehr durch sie durchspazieren. Die Fläche ist dünn, der
-       Netzanker soll sie deshalb nicht als Haus behandeln ("klein"). */
-    addCollider({ x0: tx - tw / 2, x1: tx + tw / 2, z0: tz - td / 2, z1: tz + td / 2,
-                  h: oben + bh + 0.6, y0: oben + 0.05, klein: true });
-  }
+  /* Die Reklametafeln auf den Daechern sind weg - sie waren einfarbige
+     Platten ohne Aufschrift und standen zwischen den echten Gebaeude-
+     modellen wie ein Fremdkoerper. */
 }
 
 function buildCity() {
@@ -2180,7 +2030,6 @@ function buildCity() {
   baueAmpeln();
   baueHausMeshes();
   baueWassertuerme();
-  baueLadenFenster();
   baueDekoMesh();
   baueZuege();
 }
@@ -3340,6 +3189,11 @@ function baueHausMeshes() {
     const m = new THREE.Mesh(fasseGeometrien(liste), dachMat);
     m.castShadow = true; m.receiveShadow = true;
     cityGroup.add(m);
+    /* Die Dachplatten gehoeren zur selbstgebauten Kiste und muessen mit
+       ihr verschwinden, sobald echte Gebaeudemodelle stehen. Vorher blieben
+       sie sichtbar: das Modell bringt sein eigenes Dach mit, die alte
+       Platte lag genau darauf und flimmerte dagegen an. */
+    HAUS_FASSADEN.push(m);
   }
   hausWaende.clear(); hausDaecher.clear();
 }
@@ -3370,41 +3224,21 @@ function makeBuildingMesh(w, h, d, x, z) {
      dem Dach. Gemessen steckten 10 von 34 Tafeln im eigenen Turm; auf dem
      Bild ragte eine gruene Tafel mitten durch die Fassade. Jetzt kennt
      das Schmuecken die Grundflaeche des Turms und laesst sie frei. */
-  const staffel = h > 45 ? (() => {
-    const stufen = h > 75 ? 2 : 1;
-    const masse = [];
-    let sw = w, sd = d;
-    for (let i = 0; i < stufen; i++) {
-      sw *= rand(0.62, 0.78); sd *= rand(0.62, 0.78);
-      masse.push({ sw, sd, sh: rand(6, 14) });
-    }
-    return masse;
-  })() : null;
-  /* Die unterste Stufe ist die groesste - sie bestimmt die Sperrflaeche. */
-  const frei = staffel ? { w: staffel[0].sw, d: staffel[0].sd } : null;
-  schmueckeHaus(w, h, d, x, z, frei);
-  if (staffel) {
-    let sy = SLAB_H + h;
-    for (const st of staffel) {
-      const sw = st.sw, sd = st.sd, sh = st.sh;
-      sammleHausBox(sw, sh, sd, x, sy + sh / 2, z, texIdx);
-      addCollider({ x0: x - sw / 2, x1: x + sw / 2, z0: z - sd / 2, z1: z + sd / 2,
-                    h: sy + sh, y0: -1.0 });
-      deko(sw + 0.7, 0.45, sd + 0.7, x, sy + sh - 0.22, z, 0x8b9099);
-      sy += sh;
-    }
-  }
-  /* Einen Platz auf dem Dach suchen, der NICHT unter dem Staffelturm
-     liegt. Gibt es keinen Staffelturm, ist das ganze Dach frei. */
-  const dachPlatz = (rand2, breite) => {
-    for (let versuch = 0; versuch < 12; versuch++) {
-      const px = x + rand(-w / 2 + rand2, w / 2 - rand2);
-      const pz = z + rand(-d / 2 + rand2, d / 2 - rand2);
-      if (!frei || Math.abs(px - x) > frei.w / 2 + breite ||
-                   Math.abs(pz - z) > frei.d / 2 + breite) return { px, pz };
-    }
-    return null;
-  };
+  /* ---- Keine Staffeltuerme mehr ----
+     Sie stammen aus der Zeit der selbstgebauten Quader. Das echte
+     Gebaeudemodell wird auf die GRUNDKISTE skaliert und hoert an ihrer
+     Oberkante auf; der Staffelturm darueber wurde beim Umstellen
+     unsichtbar - sein Hindernis und sein Gesims blieben aber stehen.
+     Auf dem Bild schwebten dadurch graue Dachplatten in der Luft, und
+     ueber jedem hohen Haus stand eine unsichtbare Wand. Beides ist damit
+     weg; die Silhouette bringt jetzt das Modell selbst mit. */
+  schmueckeHaus(w, h, d, x, z, null);
+  /* Das ganze Dach ist frei - es steht nichts mehr darauf, was Platz
+     braeuchte. */
+  const dachPlatz = (rand2) => ({
+    px: x + rand(-w / 2 + rand2, w / 2 - rand2),
+    pz: z + rand(-d / 2 + rand2, d / 2 - rand2),
+  });
   // Dachaufbauten – gehen ins gemeinsame Deko-Mesh
   if (Math.random() < 0.6) {
     const bh = rand(1, 2);
@@ -3430,59 +3264,7 @@ function makeBuildingMesh(w, h, d, x, z) {
 
 /* ---- Wassertürme als Instanzen ---- */
 const wassertuerme = [];
-/* Alle Schaufenster der Stadt in EINEM Mesh mit EINER Textur – das kostet
-   einen einzigen Zeichenaufruf. */
-const ladenFenster = [];
-function baueLadenFenster() {
-  if (!ladenFenster.length) return;
-  const n = ladenFenster.length * 6;
-  const p = new Float32Array(n * 3), nn = new Float32Array(n * 3), u = new Float32Array(n * 2);
-  let o = 0;
-  for (const f of ladenFenster) {
-    /* Achsen der Scheibe: quer zur Wandnormalen, dazu senkrecht nach oben. */
-    const qx = f.nx === 0 ? f.breite / 2 : 0;
-    const qz = f.nx === 0 ? 0 : f.breite / 2;
-    const hy = f.hoehe / 2;
-    /* Ein Hauch vor der Wand, damit nichts durchblitzt. */
-    const ex = f.nx * 0.02, ez = f.nz * 0.02;
-    const ecken = [
-      [-qx, -hy, -qz], [qx, -hy, qz], [qx, hy, qz],
-      [-qx, -hy, -qz], [qx, hy, qz], [-qx, hy, -qz],
-    ];
-    /* Eine der vier Kacheln der Ladentextur. Der kleine Rand (1/512)
-       verhindert, dass die weiche Filterung die Nachbarkachel anschneidet. */
-    const ku = (f.zelle % LADEN_KACHELN) / LADEN_KACHELN;
-    const kv = Math.floor(f.zelle / LADEN_KACHELN) / LADEN_KACHELN;
-    const ks = 1 / LADEN_KACHELN, rd = 0.002;
-    const kachel = (uu, vv) => [ku + (rd + uu * (1 - 2 * rd)) * ks,
-                                kv + (rd + vv * (1 - 2 * rd)) * ks];
-    const uvs = [kachel(0, 0), kachel(1, 0), kachel(1, 1),
-                 kachel(0, 0), kachel(1, 1), kachel(0, 1)];
-    for (let i = 0; i < 6; i++) {
-      p[(o + i) * 3] = f.x + ecken[i][0] + ex;
-      p[(o + i) * 3 + 1] = f.y + ecken[i][1];
-      p[(o + i) * 3 + 2] = f.z + ecken[i][2] + ez;
-      nn[(o + i) * 3] = f.nx; nn[(o + i) * 3 + 1] = 0; nn[(o + i) * 3 + 2] = f.nz;
-      u[(o + i) * 2] = uvs[i][0]; u[(o + i) * 2 + 1] = uvs[i][1];
-    }
-    o += 6;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nn, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(u, 2));
-  geo.computeBoundingSphere();
-  /* Basic statt Lambert: der Laden ist von innen beleuchtet und soll auch
-     im Schatten der Häuserschlucht leuchten. */
-  /* Beidseitig: die Eckenreihenfolge stimmt nur für zwei der vier
-     Wandseiten, die anderen beiden wurden sonst weggeschnitten und man sah
-     die Scheibe gar nicht. */
-  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    map: ladenTex, side: THREE.DoubleSide }));
-  mesh.frustumCulled = false;
-  cityGroup.add(mesh);
-  ladenFenster.length = 0;
-}
+/* (Die Schaufenster im Erdgeschoss sind entfallen - siehe schmueckeHaus.) */
 
 function baueWassertuerme() {
   if (!wassertuerme.length) return;
@@ -3694,7 +3476,10 @@ function buildRiverAndBridge() {
   const kroneMatU = new THREE.MeshLambertMaterial({ color: 0x2f6b38 });
   for (let z = -190; z < 190; z += 8) {
     if (Math.abs(z - BRIDGE_Z) < BRIDGE_HW + 3) continue;
-    deko(0.2, 1, 7, RIVER_X0 - 0.3, SLAB_H + 0.5, z + 3.5, 0x22343f);
+    /* Frueher stand hier ein durchgehender dunkler Riegel als "Gelaender".
+       Massiv und mannshoch sah er nicht wie ein Gelaender aus, sondern wie
+       eine Mauer quer ueber die Uferstrasse - und er verstellte den Blick
+       aufs Wasser. Die Kante bleibt jetzt offen. */
     /* Alle 24 m ein Baum mit Bank, dazwischen eine Laterne. */
     const takt = Math.round((z + 190) / 8) % 3;
     if (takt === 0) {
@@ -3858,12 +3643,8 @@ function buildFarShore() {
     }
   }
 
-  /* Uferpromenade: Geländer entlang der Kaimauer, damit die Kante nicht
-     einfach im Nichts endet. */
-  for (let z = -190; z < 190; z += 8) {
-    if (Math.abs(z - BRIDGE_Z) < BRIDGE_HW + 3) continue;
-    deko(0.2, 1, 7, SHORE_X0 + 0.3, 0.5, z + 3.5, 0x22343f);
-  }
+  /* Auf dieser Seite stand derselbe massive Riegel als "Gelaender" - aus
+     demselben Grund wie drueben ist er weg. */
 }
 
 buildCity();
@@ -4208,6 +3989,78 @@ function setzeHausModelle(szene) {
       k.material.side = THREE.FrontSide;
     });
   }
+  /* ---- Wo hoert das Haus auf und wo faengt der Zierabschluss an? ----
+     Die Modelle sind auf den Einheitswuerfel normiert - aber ihre HOEHE
+     misst den ganzen Umriss, samt Turmspitze, Mast und Dachkrone. Das
+     begehbare Dach liegt darunter: gemessen zwischen 78 und 100 Prozent
+     der Modellhoehe.
+     Skaliert man ein solches Modell einfach auf die Haushoehe, sitzt sein
+     Dach entsprechend tiefer als das Hindernis. Auf dem Bild schwebten
+     dadurch Dachgesimse, Wassertuerme und Klimageraete meterhoch ueber dem
+     Haus in der Luft, und beim Klettern griff man ins Leere, weil die Wand
+     erst hinter dem Hindernis anfing.
+     Deshalb wird je Modell EINMAL gemessen, auf welcher Hoehe der Baukoerper
+     endet, und danach so skaliert, dass GENAU DIESES DACH auf der
+     Haushoehe liegt. Was darueber steht - Krone, Mast, Spitze - ragt wie im
+     Vorbild ueber die Dachkante hinaus und bekommt ein eigenes Hindernis. */
+  const _dv = new THREE.Vector3(), _dm = new THREE.Matrix4(), _di = new THREE.Matrix4();
+  function vermessen(o) {
+    if (o.userData.dachAnteil) return o.userData;
+    o.updateMatrixWorld(true);
+    _di.copy(o.matrixWorld).invert();
+    const N = 40;
+    const sx0 = [], sx1 = [], sz0 = [], sz1 = [];
+    for (let i = 0; i < N; i++) { sx0.push(1e9); sx1.push(-1e9); sz0.push(1e9); sz1.push(-1e9); }
+    let X0 = 1e9, X1 = -1e9, Z0 = 1e9, Z1 = -1e9, Y0 = 1e9, Y1 = -1e9;
+    const alle = [];
+    o.traverse((k) => {
+      if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+      _dm.multiplyMatrices(_di, k.matrixWorld);
+      const p = k.geometry.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        _dv.fromBufferAttribute(p, i).applyMatrix4(_dm);
+        alle.push(_dv.x, _dv.y, _dv.z);
+        if (_dv.x < X0) X0 = _dv.x; if (_dv.x > X1) X1 = _dv.x;
+        if (_dv.y < Y0) Y0 = _dv.y; if (_dv.y > Y1) Y1 = _dv.y;
+        if (_dv.z < Z0) Z0 = _dv.z; if (_dv.z > Z1) Z1 = _dv.z;
+      }
+    });
+    const H = Y1 - Y0, W = X1 - X0, D = Z1 - Z0;
+    if (!(H > 0) || !(W > 0) || !(D > 0)) {
+      o.userData.dachAnteil = 1; o.userData.krone = null; return o.userData;
+    }
+    for (let i = 0; i < alle.length; i += 3) {
+      const k = clamp(Math.floor((alle[i + 1] - Y0) / H * N), 0, N - 1);
+      if (alle[i] < sx0[k]) sx0[k] = alle[i];
+      if (alle[i] > sx1[k]) sx1[k] = alle[i];
+      if (alle[i + 2] < sz0[k]) sz0[k] = alle[i + 2];
+      if (alle[i + 2] > sz1[k]) sz1[k] = alle[i + 2];
+    }
+    /* Von oben nach unten die erste Schicht suchen, die noch fast den
+       ganzen Grundriss ausfuellt - dort endet der Baukoerper. */
+    let dach = N;
+    for (let k = N - 1; k >= 0; k--) {
+      if (sx1[k] < sx0[k]) continue;
+      if ((sx1[k] - sx0[k]) / W > 0.6 && (sz1[k] - sz0[k]) / D > 0.6) { dach = k + 1; break; }
+    }
+    const anteil = clamp(dach / N, 0.5, 1);
+    /* Grundriss dessen, was oben herausragt - als Anteil der Hausbreite. */
+    let kx0 = 1e9, kx1 = -1e9, kz0 = 1e9, kz1 = -1e9;
+    const yK = Y0 + H * anteil;
+    for (let i = 0; i < alle.length; i += 3) {
+      if (alle[i + 1] < yK + H * 0.005) continue;
+      if (alle[i] < kx0) kx0 = alle[i]; if (alle[i] > kx1) kx1 = alle[i];
+      if (alle[i + 2] < kz0) kz0 = alle[i + 2]; if (alle[i + 2] > kz1) kz1 = alle[i + 2];
+    }
+    o.userData.dachAnteil = anteil;
+    o.userData.krone = (anteil < 0.995 && kx1 > kx0) ? {
+      x0: (kx0 - X0) / W - 0.5, x1: (kx1 - X0) / W - 0.5,
+      z0: (kz0 - Z0) / D - 0.5, z1: (kz1 - Z0) / D - 0.5,
+      hoch: (1 - anteil) / anteil,           // in Haushoehen ueber dem Dach
+    } : null;
+    return o.userData;
+  }
+
   let gesetzt = 0;
   for (const e of HAUS_KISTEN) {
     const kl = e.h > 62 ? 3 : e.h > 38 ? 2 : e.h > 19 ? 1 : 0;
@@ -4215,9 +4068,17 @@ function setzeHausModelle(szene) {
     /* Ortsabhaengige Wahl: gleiches Haus, gleiches Modell - auch nach
        einem Neustart. */
     const i = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % liste.length;
+    const mass = vermessen(liste[i]);
     const kopie = liste[i].clone(true);
     kopie.position.set(e.x, SLAB_H, e.z);
-    kopie.scale.set(e.w, e.h, e.d);
+    kopie.scale.set(e.w, e.h / mass.dachAnteil, e.d);
+    if (mass.krone) {
+      const k = mass.krone;
+      addCollider({ x0: e.x + k.x0 * e.w, x1: e.x + k.x1 * e.w,
+                    z0: e.z + k.z0 * e.d, z1: e.z + k.z1 * e.d,
+                    h: SLAB_H + e.h + k.hoch * e.h, y0: SLAB_H + e.h - 0.2,
+                    klein: true });
+    }
     kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     cityGroup.add(kopie);
     HAUS_MODELLE.push(kopie);
