@@ -13352,14 +13352,34 @@ function updateCars(dt) {
       }
     }
 
-    /* Hält jemand auf der Fahrbahn? Bremsen und hupen. */
+    /* ---- Hält jemand auf der Fahrbahn? Bremsen und hupen ----
+       Das galt bisher nur fuer den Helden: Passanten wurden ueberfahren,
+       ohne dass ein Auto auch nur langsamer wurde. Jetzt zaehlt jeder, der
+       vor dem Wagen auf der Strasse steht. */
     const px = car.axis === 'x' ? car.s : car.lane;
     const pz = car.axis === 'x' ? car.lane : car.s;
-    const dx = player.pos.x - px, dz = player.pos.z - pz;
-    const vorne = car.axis === 'x' ? dx * car.dir : dz * car.dir;
-    const seitlich = Math.abs(car.axis === 'x' ? dz : dx);
-    if (!car.flucht && player.pos.y < 2.2 && vorne > 0 && vorne < 14 && seitlich < 2.4) {
-      ziel = Math.min(ziel, Math.max(0, (vorne - 4) * 1.2));
+    let hindernis = 0;                 // Abstand nach vorn, 0 = keins
+    const pruefe = (ox, oz, oy) => {
+      if (oy > 2.2) return;
+      const dx2 = ox - px, dz2 = oz - pz;
+      const vorne2 = car.axis === 'x' ? dx2 * car.dir : dz2 * car.dir;
+      const seit2 = Math.abs(car.axis === 'x' ? dz2 : dx2);
+      if (vorne2 <= 0 || vorne2 > 14 || seit2 > 2.4) return;
+      if (!hindernis || vorne2 < hindernis) hindernis = vorne2;
+    };
+    if (!car.flucht) {
+      pruefe(player.pos.x, player.pos.z, player.pos.y);
+      /* Nur die Passanten in der Naehe pruefen - alle waeren bei
+         zweiundzwanzig Leuten und achtzig Autos ueber tausend Vergleiche
+         je Bild, ohne dass es besser wuerde. */
+      for (const c of civilians) {
+        if (c.state === 'hurt') continue;
+        if (Math.abs(c.pos.x - px) > 16 || Math.abs(c.pos.z - pz) > 16) continue;
+        pruefe(c.pos.x, c.pos.z, c.pos.y);
+      }
+    }
+    if (hindernis) {
+      ziel = Math.min(ziel, Math.max(0, (hindernis - 4) * 1.2));
       car.hupCd -= dt;
       if (car.hupCd <= 0) { SFX.hupe(); car.hupCd = rand(1.4, 3); }
     } else if (car.hupCd > 0) car.hupCd -= dt;
@@ -13754,6 +13774,31 @@ function updateCivilians(dtBild) {
     const threat = nearestThreatTo(c.pos, 13);
     if (threat && c.state !== 'flee') { c.state = 'flee'; c.fleeT = 3.5; }
 
+    /* ---- Vor einem Auto von der Fahrbahn ----
+       Passanten liefen bisher stur ueber die Strasse, auch wenn ein Wagen
+       heranfuhr. Wer ein Auto in Fahrtrichtung dicht vor sich hat, springt
+       quer zur Fahrbahn zur Seite - dorthin, wo der naechste Gehweg ist. */
+    if (c.state !== 'hurt' && c.pos.y < 2.5 && (c.autoWeg || 0) <= 0) {
+      for (const car of cars) {
+        if (car.aus || (car.tempoJetzt || 0) < 3) continue;
+        const cx = car.mesh.position.x, cz = car.mesh.position.z;
+        if (Math.abs(cx - c.pos.x) > 22 || Math.abs(cz - c.pos.z) > 22) continue;
+        const dx = c.pos.x - cx, dz = c.pos.z - cz;
+        const vorne = car.axis === 'x' ? dx * car.dir : dz * car.dir;
+        /* dx/dz sind schon die Abstaende ZUM AUTO - die Spur darf hier
+           nicht noch einmal abgezogen werden, sonst kam als Querabstand
+           die doppelte Spurlage heraus und niemand wich je aus. */
+        const seit = car.axis === 'x' ? dz : dx;
+        if (vorne < 1 || vorne > 13 || Math.abs(seit) > 2.6) continue;
+        /* Zur Seite, auf der man ohnehin schon steht - der kuerzere Weg. */
+        c.autoWeg = 1.1;
+        c.autoWegX = car.axis === 'x' ? 0 : (seit >= 0 ? 1 : -1);
+        c.autoWegZ = car.axis === 'x' ? (seit >= 0 ? 1 : -1) : 0;
+        break;
+      }
+    }
+    if (c.autoWeg > 0) c.autoWeg -= dt;
+
     /* Reaktion auf den Helden: stehenbleiben, hinschauen, filmen, rufen.
        Nur wenn gerade keine Gefahr in der Nähe ist. */
     if (!c.handy) { c.handy = makeHandy(); c.visual.root.add(c.handy); }
@@ -13795,7 +13840,12 @@ function updateCivilians(dtBild) {
        !(c.schirm && c.schirm.visible)));
 
     let dirX = 0, dirZ = 0, speed = c.speed;
-    if (c.state === 'flee') {
+    if (c.autoWeg > 0) {
+      /* Ausweichen hat Vorrang vor allem anderen - auch vor der Flucht
+         vor Ganoven. Ein Auto ist schneller da. */
+      dirX = c.autoWegX; dirZ = c.autoWegZ;
+      speed = 5.6;
+    } else if (c.state === 'flee') {
       c.fleeT -= dt;
       const t = threat || nearestThreatTo(c.pos, 25);
       if (t) {
@@ -14635,6 +14685,23 @@ function checkCivilianSaved(deadEnemy) {
   }
 }
 
+/* ---- Wie viele duerfen gleichzeitig auf den Helden losgehen? ----
+   Vorher holten alle zugleich aus: wer von vier Ganoven umringt war,
+   bekam vier Schlaege im selben Moment und konnte nur noch ausweichen
+   oder sterben. Und zu sehen war davon nichts, weil alles gleichzeitig
+   passierte. Jetzt schlagen hoechstens zwei, die uebrigen umkreisen -
+   so liest sich der Kampf, und man kann auf einen Angriff nach dem
+   anderen reagieren. */
+const KAMPF_GLEICHZEITIG = 2;
+function angreiferZahl() {
+  let n = 0;
+  for (const e of enemies) {
+    if (e.dead || e.target !== 'player') continue;
+    if (e.attack || e.warnT > 0) n++;
+  }
+  return n;
+}
+
 function updateEnemies(dtBild) {
   /* Der Klingenbogen gehört immer nur zum gerade laufenden Hieb. */
   if (klingenBogen) klingenBogen.visible = false;
@@ -14845,6 +14912,24 @@ function updateEnemies(dtBild) {
     /* Kurz benommen nach einem Konter: steht still und wehrt sich nicht. */
     if (e.betaeubtT > 0) e.betaeubtT -= dt;
 
+    /* ---- Angeschlagen? Dann erst einmal Abstand ----
+       Vorher kaempfte jeder Ganove bis zum Umfallen weiter, egal wie
+       schwer getroffen. Wer unter ein Viertel seiner Kraft faellt, geht
+       jetzt ein paar Sekunden auf Abstand, sammelt sich und kommt dann
+       wieder. Wer allein uebrig ist und fast am Ende, laeuft ganz weg -
+       einen letzten Schlag von jemandem einzustecken, der eigentlich
+       schon aufgegeben hat, ist kein guter Kampf. */
+    if (e.rueckzugT === undefined) { e.rueckzugT = 0; e.rueckzugCd = 0; }
+    if (e.rueckzugT > 0) e.rueckzugT -= dt;
+    if (e.rueckzugCd > 0) e.rueckzugCd -= dt;
+    const angeschlagen = e.hp < (e.hpMax || CFG.enemyHP) * 0.26;
+    if (angeschlagen && e.rueckzugT <= 0 && e.rueckzugCd <= 0 &&
+        e.target === 'player' && dp < 7 && !e.dieb && e.betaeubtT <= 0) {
+      e.rueckzugT = rand(1.4, 2.6);
+      e.rueckzugCd = e.rueckzugT + rand(3.5, 6.0);
+      if (Math.random() < 0.4) popupWorld('Rueckzug!', e.pos, '#ffd0a8');
+    }
+
     /* Der Dieb rennt vom Helden weg statt auf ihn zu. */
     if (e.dieb) {
       const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
@@ -14854,6 +14939,14 @@ function updateEnemies(dtBild) {
       anim = 'run';
       e.facing = dampAngle(e.facing, Math.atan2(moveX, moveZ), dt * 8);
       e.state = 'patrol'; e.target = null;
+    } else if (e.rueckzugT > 0) {
+      /* Rueckwaerts aus der Reichweite - das Gesicht bleibt zum Helden,
+         sonst sieht es wie Weglaufen aus statt wie Deckung suchen. */
+      const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
+      const dd = Math.hypot(dx, dz) || 1;
+      if (dd < 6.5) { moveX = dx / dd; moveZ = dz / dd; speed = (e.typ ? e.typ.tempo : 5) * 0.8; }
+      anim = speed > 0.2 ? 'run' : 'idle';
+      e.facing = dampAngle(e.facing, Math.atan2(-moveX, -moveZ), dt * 6);
     } else if (e.state === 'chase') {
       const tp = e.target === 'player' ? player.pos : (e.target ? e.target.pos : null);
       if (!tp || (e.target !== 'player' && e.target.state === 'hurt')) {
@@ -14880,14 +14973,29 @@ function updateEnemies(dtBild) {
           speed = (e.target === 'player' ? 1 : 0.85) * (e.typ ? e.typ.tempo : 5);
           anim = 'run';
           if (e.target === 'player' && dy > 3 && d < 4) { anim = 'idle'; speed = 0; } // kommt nicht hoch
-        } else if (e.attackCd <= 0 && !e.attack && e.warnT <= 0 && e.blockT <= 0 && e.betaeubtT <= 0) {
+        } else if (e.attackCd <= 0 && !e.attack && e.warnT <= 0 && e.blockT <= 0 &&
+                   e.betaeubtT <= 0 && e.rueckzugT <= 0) {
           /* Wer in Deckung steht, holt nicht gleichzeitig aus. */
           /* Erst ausholen und warnen, dann schlagen. Vorher kam der Treffer
              ohne Vorankündigung – ausweichen war reine Glückssache. */
-          /* Jeder vierte Angriff ist ein Klingenhieb – mit doppelt so
-             langer Vorwarnung, damit man ihn kontern kann. */
-          e.klingeGeplant = Math.random() < 0.26;
-          e.warnT = e.klingeGeplant ? 0.95 : 0.55;
+          if (e.target !== 'player' || angreiferZahl() < KAMPF_GLEICHZEITIG) {
+            /* Jeder vierte Angriff ist ein Klingenhieb – mit doppelt so
+               langer Vorwarnung, damit man ihn kontern kann. */
+            e.klingeGeplant = Math.random() < 0.26;
+            e.warnT = e.klingeGeplant ? 0.95 : 0.55;
+          } else {
+            /* Kein Angriffsrecht: seitlich um den Helden herumgehen statt
+               reglos danebenzustehen. Die Richtung wechselt langsam, damit
+               es nicht wie ein Karussell aussieht. */
+            e.ringWinkel = (e.ringWinkel || 0) + dt * (e.ringDreh || 0.9);
+            if (Math.random() < dt * 0.35) e.ringDreh = -(e.ringDreh || 0.9);
+            const zx = tp.x + Math.sin(e.ringWinkel) * 1.7 - e.pos.x;
+            const zz = tp.z + Math.cos(e.ringWinkel) * 1.7 - e.pos.z;
+            const zd = Math.hypot(zx, zz) || 1;
+            moveX = zx / zd; moveZ = zz / zd;
+            speed = (e.typ ? e.typ.tempo : 5) * 0.5;
+            anim = 'walk';
+          }
         }
       }
     } else if (e.bewacht) {
