@@ -58,6 +58,10 @@ const RIVER_X0 = 186, RIVER_X1 = 330;   // Fluss
    bekannt: dort galt weiter das Strassenraster, und in den Fahrbahnbaendern
    kam 0 heraus. Die Figur sank deshalb 25 cm in die Promenade ein. */
 const PROM_X0 = 175;
+/* Weiter oestlich faehrt kein Auto - dahinter liegen Promenade und Fluss.
+   Die aeusserste Strassenlinie des Rasters liegt bei x = 175, ihre beiden
+   Spuren also bei 172 und 178; beide sind erlaubt. */
+const AUTO_X_MAX = PROM_X0 + 4;
 const SHORE_X0 = 330, SHORE_X1 = 400;   // gegenüberliegendes Ufer
 const BRIDGE_Z = -25, BRIDGE_HW = 7.5;  // Brücke entlang der Straße z=-25
 /* Eigenes, etwas engeres Raster für den Stadtteil am anderen Ufer.
@@ -4369,10 +4373,19 @@ function blendeEin(a, dauer, vonGewicht) {
   if (a._scheduleFading) a._scheduleFading(dauer, w, 1);
   else a.fadeIn(dauer);
 }
-const KAU_R1 = 0.70, KAU_R2 = 0.70, KAU_R3 = 0.42;   // Rumpf nach vorn
-const KAU_NACKEN = -0.95, KAU_KOPF = -0.88;          // Kopf wieder hoch
-const KAU_KNIE_V = 0.34, KAU_KNIE_Q = 0.20, KAU_KNIE_H = 0.02;
-const KAU_FUSS_V = 0.02, KAU_FUSS_Q = 0.21, KAU_FUSS_H = -0.42;
+/* ---- Masse der Dachhocke ----
+   Nachgemessen an der Vorlage und am eigenen Skelett. Vorher war der
+   Rumpf mit zusammen 104 Grad so weit nach vorn gerollt, dass das Becken
+   hinten herausstand und der Kopf UNTER den Schultern sass (gemessen 62
+   gegen 64 cm ueber dem Dach) - die Figur schaute auf ihre eigenen Fuesse
+   statt ueber die Stadt. Und die Knie standen 20 cm auseinander, das sah
+   o-beinig aus statt gesammelt.
+   Jetzt: 86 Grad Rumpf, Kopf deutlich weiter hoch, Knie enger und hoeher,
+   Fuesse dichter beieinander und ein Stueck weiter unter dem Koerper. */
+const KAU_R1 = 0.58, KAU_R2 = 0.58, KAU_R3 = 0.34;   // Rumpf nach vorn
+const KAU_NACKEN = -1.15, KAU_KOPF = -1.05;          // Kopf wieder hoch
+const KAU_KNIE_V = 0.30, KAU_KNIE_Q = 0.13, KAU_KNIE_H = 0.06;
+const KAU_FUSS_V = -0.04, KAU_FUSS_Q = 0.15, KAU_FUSS_H = -0.44;
 const KAU_FUSS_DREH = 0.62;
 const KAU_ARM_V = 0.10, KAU_ARM_Q = 0.05;            // Oberarm fast senkrecht
 const KAU_UARM_V = 0.06, KAU_UARM_Q = 0.02;          // Unterarm senkrecht
@@ -13109,14 +13122,20 @@ function spawnCars() {
     const sMin = -186, sMax = isBridgeRoad ? SHORE_X1 - 10 : 186;
     cars.push({
       axis, lane, dir: laneSign, // Rechtsverkehr angenähert
-      s: rand(sMin, sMax), sMin, sMax,
+      /* Startpunkt INNERHALB des Strassenrasters. Ein Auto, das zwischen
+         der aeussersten Kreuzung und dem Kartenrand startet, erreicht nie
+         eine Kreuzung - es fuhr geradewegs aus der Karte und wurde auf die
+         andere Seite gesetzt. Auf der Brueckenstrasse darf es weiter
+         draussen anfangen, dort geht es ja ueber den Fluss. */
+      s: isBridgeRoad ? rand(sMin, sMax)
+                      : rand(ORIGIN, ORIGIN + BLOCKS * PITCH), sMin, sMax,
       speed: rand(8, 13) * (typ.art === 'bus' || typ.art === 'lkw' ? 0.72 : 1),
       tempoJetzt: 0, hupCd: 0,
       typ,
       mesh: makeFahrzeugMesh(typ, typ.art === 'bus' ? pick([0x2f6fc8, 0x3b7a3f, 0xc23b30])
                                  : typ.art === 'lkw' ? pick([0x4a5058, 0x2f4f7a]) : pick(CAR_COLORS)),
       vx: 0, vz: 0,
-      hitCd: 0,
+      hitCd: 0, kurve: 0, kreuzung: null,
     });
   }
 }
@@ -13141,6 +13160,49 @@ function verkehrsAnteil() {
   if (t < 0.76) return 1.0;                 // Feierabend
   if (t < 0.88) return 0.7;                 // Abend
   return 0.4;
+}
+
+/* ---- An Kreuzungen abbiegen ----
+   Frueher fuhr jedes Auto stur geradeaus bis zum Kartenrand und wurde
+   dort auf die andere Seite gesetzt: es war weg und tauchte am
+   gegenueberliegenden Stadtrand wieder auf. Beim Fluchtauto hiess das,
+   dass man es genau dann verlor, wenn man es fast hatte.
+
+   Jetzt wird an jeder Kreuzung entschieden. Ist dahinter noch eine
+   Kreuzung, biegt das Auto nur manchmal ab; ist der Rand erreicht, biegt
+   es immer ab und bleibt damit in der Stadt.
+
+   Koordinaten: bei axis 'x' ist s die x- und lane die z-Koordinate, bei
+   axis 'z' andersherum. Beim Abbiegen tauschen die beiden ihre Rolle -
+   die bisherige Querlage wird zur neuen Laengslage. */
+function autoKreuzung(car, linie) {
+  const weiter = linie + car.dir * PITCH;
+  const drin = weiter > car.sMin + 6 && weiter < car.sMax - 6 &&
+               !(car.axis === 'x' && weiter > AUTO_X_MAX);
+  if (drin && Math.random() > (car.flucht ? 0.30 : 0.14)) return false;
+  /* Am Rand geht es in die Stadt hinein, sonst nach Lust und Laune. */
+  const nd = !drin ? (car.lane > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
+  const neueLane = linie + nd * 3;
+  const neuesS = car.lane;
+  /* Nicht ins Wasser und nicht aus der Karte abbiegen.
+     Welche der beiden Zahlen eine x-Koordinate ist, haengt von der
+     BISHERIGEN Achse ab: faehrt das Auto in x, wird die neue Spur zur
+     x-Koordinate; faehrt es in z, wird die neue Laengslage zur
+     x-Koordinate. Der Fluss beginnt bei RIVER_X0. */
+  const neuesX = car.axis === 'x' ? neueLane : neuesS;
+  if (neuesX > AUTO_X_MAX) return false;
+  if (neuesS < car.sMin + 4 || neuesS > car.sMax - 4) return false;
+  car.axis = car.axis === 'x' ? 'z' : 'x';
+  car.lane = neueLane;
+  car.s = neuesS;
+  car.dir = nd;
+  car.kreuzung = null;
+  /* In der Kurve wird abgebremst - sonst rutscht das Auto quer ueber die
+     Kreuzung. Und das Bild zieht ueber ein paar Zehntel weich nach, statt
+     die drei Meter Fahrbahnwechsel in einem Bild zu springen. */
+  car.tempoJetzt *= 0.55;
+  car.kurve = 0.55;
+  return true;
 }
 
 function updateCars(dt) {
@@ -13194,18 +13256,54 @@ function updateCars(dt) {
     car.tempoJetzt = car.tempoJetzt + clamp(ziel - car.tempoJetzt, -rampe * dt, rampe * dt);
     const speed = car.tempoJetzt;
     car.s += car.dir * speed * dt;
-    if (car.s > car.sMax) car.s = car.sMin;
-    if (car.s < car.sMin) car.s = car.sMax;
+    /* Auf einer Kreuzung? Dann wird ueber das Abbiegen entschieden. */
+    const kIdx = Math.round((car.s - ORIGIN) / PITCH);
+    if (car.kreuzung !== kIdx && Math.abs(car.s - (ORIGIN + kIdx * PITCH)) < 1.4) {
+      car.kreuzung = kIdx;
+      autoKreuzung(car, ORIGIN + kIdx * PITCH);
+    }
+    /* Rueckfall: die Brueckenstrasse fuehrt ueber den Fluss zum anderen
+       Ufer und hat dort keine Kreuzung mehr - dort bleibt es beim alten
+       Umsetzen. Alle anderen kehren an der aeussersten Kreuzung um, statt
+       quer durch die Stadt versetzt zu werden. */
+    if (car.s > car.sMax || car.s < car.sMin) {
+      const bruecke = car.axis === 'x' && Math.abs(car.lane - BRIDGE_Z) < 6;
+      if (bruecke) {
+        car.s = car.s > car.sMax ? car.sMin : car.sMax;
+        car.kurve = 0;
+      } else {
+        car.s = clamp(car.s, ORIGIN, ORIGIN + BLOCKS * PITCH);
+        car.dir = -car.dir;
+        car.lane += car.dir * 6;               // auf die Gegenspur
+        car.tempoJetzt *= 0.4;
+        car.kurve = 0.7;                       // Bild zieht weich nach
+      }
+      car.kreuzung = null;
+    }
+    if (car.kurve > 0) car.kurve -= dt;
     if (car.hitCd > 0) car.hitCd -= dt;
 
+    /* Sollstellung und Sollrichtung. In der Kurve zieht das Bild weich
+       nach, sonst steht es sofort dort. */
+    let zx, zz, zy;
     if (car.axis === 'x') {
-      car.mesh.position.set(car.s, 0, car.lane);
-      car.mesh.rotation.y = car.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      zx = car.s; zz = car.lane; zy = car.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       car.vx = car.dir * speed; car.vz = 0;
     } else {
-      car.mesh.position.set(car.lane, 0, car.s);
-      car.mesh.rotation.y = car.dir > 0 ? 0 : Math.PI;
+      zx = car.lane; zz = car.s; zy = car.dir > 0 ? 0 : Math.PI;
       car.vx = 0; car.vz = car.dir * speed;
+    }
+    if (car.kurve > 0) {
+      const k = Math.min(1, dt * 7);
+      car.mesh.position.x = lerp(car.mesh.position.x, zx, k);
+      car.mesh.position.z = lerp(car.mesh.position.z, zz, k);
+      let dw = zy - car.mesh.rotation.y;
+      while (dw > Math.PI) dw -= Math.PI * 2;
+      while (dw < -Math.PI) dw += Math.PI * 2;
+      car.mesh.rotation.y += dw * k;
+    } else {
+      car.mesh.position.set(zx, 0, zz);
+      car.mesh.rotation.y = zy;
     }
     const bl = car.mesh.userData && car.mesh.userData.blaulicht;
     if (bl) {
