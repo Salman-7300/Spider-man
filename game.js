@@ -4470,7 +4470,13 @@ const GLB_FALLBACK = {
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
-  sturzflug: ['gleiten', 'air'], sturzflug2: ['sturzflug', 'gleiten', 'air'],
+  /* Fuer den Gleitflug gibt es keine eigene Datei. Ersatz war bisher die
+     RUHEHALTUNG - deshalb stand die Figur im Gleitflug kerzengerade in der
+     Luft und nur die Arme waren zur Seite gelegt. Der Sturzflug ("Straight
+     Dive") liegt dagegen flach auf dem Bauch, Kopf voran: genau die
+     Grundhaltung, die ein Gleitflug braucht. */
+  gleiten: ['sturzflug', 'sturzflug2', 'air'],
+  sturzflug: ['sturzflug2', 'air'], sturzflug2: ['sturzflug', 'air'],
   wandsprung: ['jump', 'air'], netzwurf: ['schwung2', 'swing'],
   zip_dreh: ['zip_zug', 'air'],
   zip_ab: ['jump', 'air'], zip_zug: ['air'],
@@ -10731,9 +10737,14 @@ function updatePlayer(dt) {
   if (player.wall && !player.onGround && player.state !== 'swing' && player.state !== 'zip') {
     const w = player.wall;
     const movingIn = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.3;
-    /* Halte-Taste zum Ankleben. Früher lag sie auf C – die Taste macht
-       jetzt Erste Hilfe. */
-    const kleben = keys['KeyX'] || touchKleben;
+    /* ---- Eigene Taste zum Ankleben ----
+       Sie lag zusammen mit dem Ducken auf X. Das ging schief, sobald beide
+       Bedeutungen im selben Moment gelten konnten: an der Wand hat man
+       gedrueckt, um zu kleben, und im Bild darauf am Boden geduckt - oder
+       umgekehrt. Jetzt duckt X am Boden und die Taste LINKS DANEBEN haelt
+       an der Wand. Der Tastencode KeyZ meint die physische Taste links von
+       X; auf einer deutschen Tastatur steht darauf ein Y. */
+    const kleben = keys['KeyZ'] || touchKleben;
     /* Im Gleitflug klebt man nicht sofort an jeder Fassade, an der man
        vorbeistreift: mit 25 m/s in die Wand zu greifen sah aus wie ein
        Fehler. Erst ein kurzer Moment Kontakt (oder die Halte-Taste) lässt
@@ -11151,8 +11162,14 @@ function updateHeroVisual(dt) {
         tilt = clamp(Math.atan2(Math.max(0, -player.vel.y), Math.max(2, hs)), 0, 1.15);
       } else
       /* Im Gleitflug liegt der Körper flach in der Luft, Kopf voran – wie
-         im Wingsuit. Aufrecht stehend sähe die Netzhaut sinnlos aus. */
-      tilt = (0.62 + (player.gleitNase || 0) * 0.42) * clamp(player.gleitMisch || 0, 0, 1);
+         im Wingsuit.
+         0,62 rad sind aber nur 35 Grad: die Figur hing schraeg im Raum,
+         mehr stehend als liegend, und genau so sah es aus - "wie ein Stock
+         in der Luft". Der Rumpf gehoert bei neutraler Nase auf gut 70 Grad
+         und legt sich mit gedrueckter Nase noch weiter nach vorn.
+         Nach oben gezogen richtet er sich auf, so wie ein Gleiter, der
+         abfaengt. */
+      tilt = (1.24 + (player.gleitNase || 0) * 0.30) * clamp(player.gleitMisch || 0, 0, 1);
       r.rotation.z = lerp(r.rotation.z, clamp(-(player.gleitKurve || 0) * 0.5, -0.5, 0.5),
                           Math.min(1, dt * 5));
     } else if (player.onGround) {
@@ -11553,6 +11570,7 @@ function wandFreiraum(dt) {
    Weg zum nächsten Häuserblock, ohne erst einen Bogen aufbauen zu müssen.
    Taste V (Gamepad: Y), gedrückt halten zum Spannen. */
 const KAT = { aktiv: false, ladung: 0, anker: [null, null], strang: [null, null],
+  seite: ['R', 'L'],
               zeichen: [null, null], start: null, rx: 0, rz: 0 };
 /* Gespannt wird nicht mehr ueber die Zeit, sondern ueber den WEG: die
    beiden Netze kleben vor der Figur, und je weiter man rueckwaerts geht,
@@ -11645,6 +11663,23 @@ function katapultStart() {
   const mz = (anker[0].z + anker[1].z) / 2 - player.pos.z;
   const L = Math.hypot(mx, mz) || 1;
   KAT.rx = mx / L; KAT.rz = mz / L;
+  /* ---- Welcher Faden gehoert in welche Faust? ----
+     Das Skelett ist gespiegelt benannt: der Knochen "leftarm" sitzt auf
+     der RECHTEN Koerperseite. Die Zuordnung war deshalb schon zweimal
+     vertauscht, einmal in jede Richtung. Sie wird jetzt nicht mehr
+     geraten, sondern EINMAL BEIM ANSCHIESSEN GEMESSEN: der Anker, der
+     weiter rechts liegt, gehoert an die Hand, die weiter rechts liegt.
+     Gemessen wird vor dem ersten Stellen der Arme - danach zeigen die
+     Haende ohnehin schon zu ihren Ankern und die Messung waere
+     selbstbestaetigend. */
+  const qrx = KAT.rz, qrz = -KAT.rx;                 // rechts zur Flugrichtung
+  const quer = (p) => (p.x - player.pos.x) * qrx + (p.z - player.pos.z) * qrz;
+  const hL = heroHandPos(_v1, 'L'), qL = hL ? quer(hL) : -1;
+  const hR = heroHandPos(_v2, 'R'), qR = hR ? quer(hR) : 1;
+  const rechteHand = qR >= qL ? 'R' : 'L';
+  const linkeHand = rechteHand === 'R' ? 'L' : 'R';
+  KAT.seite = quer(anker[0]) >= quer(anker[1]) ? [rechteHand, linkeHand]
+                                               : [linkeHand, rechteHand];
   popupScreen('Rueckwaerts gehen zum Spannen');
   SFX.thwip(); SFX.web();
 }
@@ -11702,20 +11737,38 @@ function updateKatapult(dt) {
   player.vel.x *= halt; player.vel.z *= halt;
   /* Sich in die Spannung legen: je straffer, desto weiter nach hinten. */
   KAT.lehne = lerp(KAT.lehne || 0, t * 0.30, Math.min(1, dt * 8));
+  if (heroVisual.root) heroVisual.root.rotation.x = -(KAT.lehne || 0);
+
+  /* ---- ERST die Haende stellen, DANN die Faeden legen ----
+     Vorher lief es andersherum: die Faeden wurden an die Handpunkte des
+     VORIGEN Bildes gehaengt und die Arme erst danach neu ausgerichtet.
+     Beim Zurueckgehen wandern die Arme in jedem Bild ein Stueck - der
+     Faden setzte deshalb sichtbar neben der Faust an, und zwar umso
+     weiter, je schneller man ging. Jetzt steht die Haltung fest, bevor
+     der Faden gemessen wird. */
+  if (heroVisual.poseSchuss) {
+    /* Die Seiten stehen seit dem Anschiessen fest, siehe katapultStart. */
+    const seite = KAT.seite || ['R', 'L'];
+    heroVisual.poseSchuss(KAT.anker[0], seite[0], 0.85);
+    heroVisual.poseSchuss(KAT.anker[1], seite[1], 0.85);
+    /* Wer zwei Netze haelt, macht dabei die Faust zu. Mit flacher Hand sah
+       es aus, als winke die Figur mit den Faeden. */
+    if (heroVisual.faust) { heroVisual.faust('L', 1); heroVisual.faust('R', 1); }
+  }
   heroVisual.root.updateMatrixWorld(true);
+
   for (let i = 0; i < 2; i++) {
     const m = katapultStrang(i);
-    /* Gleiche Zuordnung wie in poseSchuss weiter unten: Anker 0 haengt am
-       Knochen "rightarm". Stand hier 'L', lief der Faden ueber Kreuz zur
-       falschen Hand, obwohl die Arme selbst richtig standen. */
-    const hand = heroHandPos(_v3, i === 0 ? 'R' : 'L');
+    /* Dieselbe Zuordnung wie beim Stellen der Arme. */
+    const hand = heroHandPos(_v3, (KAT.seite || ['R', 'L'])[i]);
     /* Ohne Hand keine Linie - dann lieber die Schulter nehmen als gar
-       nichts zu zeigen. Vorher blieb der Strang in dem Fall unsichtbar,
-       und man sah beim Spannen ueberhaupt kein Netz. */
-    /* Der Faden beginnt an den FINGERSPITZEN, nicht am Handgelenk. Der
-       Handknochen sitzt rund neun Zentimeter vor dem Gelenk; ohne diesen
-       Versatz setzte der Faden sichtbar neben der Faust an. Verschoben
-       wird entlang der Richtung zum Anker - dorthin zeigt die Hand. */
+       nichts zu zeigen. */
+    /* ---- Wo genau faengt der Faden an? ----
+       Am HANDGELENK, und von dort laeuft er ueber den Handruecken nach
+       aussen - so, wie Spider-Man ihn aus dem Werfer am Unterarm schiesst
+       und mit der Faust festhaelt. Der Mixamo-Handknochen SITZT im
+       Handgelenk; die 11 cm nach aussen legen den Ansatzpunkt genau auf
+       die geschlossene Faust. */
     let von = hand || _v3.set(player.pos.x, player.pos.y + 1.4, player.pos.z);
     if (hand) {
       _v4.copy(KAT.anker[i]).sub(von);
@@ -11736,20 +11789,6 @@ function updateKatapult(dt) {
     z.scale.setScalar(0.5 + t * 0.5);
     z.visible = true;
   }
-  /* Beide Haende halten wirklich an ihrem Faden. Ohne das hingen die
-     Netze irgendwo neben der Figur in der Luft. */
-  if (heroVisual.poseSchuss) {
-    /* ACHTUNG, gespiegelte Knochennamen: der Knochen "leftarm" liegt auf
-       der RECHTEN Koerperseite. Anker 0 liegt links von der Figur, gehoert
-       also an den Knochen "rightarm" - und umgekehrt. Vertauscht griffen
-       die Arme ueber Kreuz, genau das war "die Arme sind verkreuzt". */
-    heroVisual.poseSchuss(KAT.anker[0], 'R', 0.85);
-    heroVisual.poseSchuss(KAT.anker[1], 'L', 0.85);
-    /* Wer zwei Netze haelt, macht dabei die Faust zu. Mit flacher Hand sah
-       es aus, als winke die Figur mit den Faeden. */
-    if (heroVisual.faust) { heroVisual.faust('L', 1); heroVisual.faust('R', 1); }
-  }
-  if (heroVisual.root) heroVisual.root.rotation.x = -(KAT.lehne || 0);
 }
 
 /* ======================= Ankerzeichen =======================
@@ -15659,7 +15698,18 @@ if (window.__WEBHERO_TEST__ === true) {
     katStand() {
       return { aktiv: KAT.aktiv, ladung: KAT.ladung,
         anker: KAT.anker.map((a) => a ? [+a.x.toFixed(1), +a.y.toFixed(1), +a.z.toFixed(1)] : null),
-        rx: KAT.rx, rz: KAT.rz,
+        rx: KAT.rx, rz: KAT.rz, seite: KAT.seite,
+        /* Wo faengt der sichtbare Faden an? Erster Eckpunkt der Geometrie
+           in Weltkoordinaten - damit laesst sich messen, ob er wirklich an
+           der Faust sitzt. */
+        strangAnfang: KAT.strang.map((m) => {
+          if (!m || !m.visible || !m.geometry.attributes.position) return null;
+          m.updateMatrixWorld(true);
+          const p = m.geometry.attributes.position;
+          const v = new THREE.Vector3(p.getX(0), p.getY(0), p.getZ(0));
+          v.applyMatrix4(m.matrixWorld);
+          return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)];
+        }),
         straenge: KAT.strang.map((m) => m ? { sicht: m.visible, s: +m.scale.x.toFixed(2),
           r: m.geometry.boundingSphere ? +m.geometry.boundingSphere.radius.toFixed(1) : null } : null) };
     },
