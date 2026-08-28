@@ -1877,30 +1877,12 @@ function schmueckeHaus(w, h, d, x, z, frei) {
                 h: oben, y0: oben - 0.9, klein: true });
   deko(w + 0.5, 0.7, d + 0.5, x, oben - 1.1, z, 0x6f757e);
 
-  /* Feuerleiter an einer Seitenwand – beim Klettern und Schwingen
-     ständig im Blick. */
-  if (h > 22 && Math.random() < 0.55) {
-    const anX = Math.random() < 0.5;
-    const seite = Math.random() < 0.5 ? 1 : -1;
-    const ebenen = Math.min(7, Math.floor((h - 6) / 4.5));
-    for (let e = 0; e < ebenen; e++) {
-      const y = unten + 4.5 + e * 4.5;
-      if (y > oben - 2) break;
-      const px = anX ? x + seite * (w / 2 + 0.5) : x + rand(-w / 4, w / 4);
-      const pz = anX ? z + rand(-d / 4, d / 4) : z + seite * (d / 2 + 0.5);
-      const bw = anX ? 1.4 : 3.0, bd = anX ? 3.0 : 1.4;
-      deko(bw, 0.16, bd, px, y, pz, 0x30343a);                    // Podest
-      deko(bw, 0.75, 0.07, px, y + 0.45, pz + (anX ? 0 : seite * 0.45), 0x4a5058);
-      if (anX) deko(0.07, 0.75, bd, px + seite * 0.45, y + 0.45, pz, 0x4a5058);
-      /* Das Podest ist begehbar. Ohne Kollision ist man bisher glatt
-         hindurchgefallen bzw. mitten im Balkon gestanden.
-         "klein" heißt: kein Ziel für den Netzanker. */
-      addCollider({ x0: px - bw / 2, x1: px + bw / 2, z0: pz - bd / 2, z1: pz + bd / 2,
-                    h: y + 0.08, y0: y - 0.3, klein: true });
-      // Leiter zur nächsten Ebene
-      if (e < ebenen - 1) deko(0.5, 4.5, 0.09, px, y + 2.25, pz, 0x3d4249);
-    }
-  }
+  /* ---- Keine Feuerleitern mehr ----
+     Die Balkone hingen als dunkle Blechkaesten vor den echten
+     Gebaeudemodellen und passten weder zur Fassade noch zum Massstab.
+     Ausserdem standen ihre Podeste bis zu anderthalb Meter VOR der Wand:
+     beim Wandlauf lief man in sie hinein, statt an der Fassade
+     hochzurennen. Beides ist damit erledigt. */
 
   /* Dachaufbauten: Lüftungskästen, Rohre, Antenne, manchmal Reklame. */
   const anzahl = 2 + Math.floor(Math.random() * 3);
@@ -8045,7 +8027,7 @@ const player = {
   luftKombo: 0, konterT: 0, konterZiel: null,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
-  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, katFlug: 0, zug: null,
+  altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, wandBoostCd: 0, katFlug: 0, zug: null,
   haltenT: 0, duckt: false, duckMisch: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
@@ -10079,6 +10061,21 @@ function updatePlayer(dt) {
        nur der Schwung, und der laeuft aus. Sprint verzoegert das nur.
        Aus 13 m/s Anlauf werden so knapp drei Sekunden Wandlauf und rund
        zwanzig Meter, danach klettert die Figur ganz normal weiter. */
+    /* ---- Shift AN DER WAND: ein Satz nach oben ----
+       In der Hilfe steht "Shift = Wandlauf", ausgeloest wurde er aber nur
+       durch den Anlauf am Boden. Wer an der Fassade hing und Shift
+       drueckte, bei dem passierte gar nichts - genau das war "auf den
+       Haeusern kann ich keinen Wandlauf machen".
+       Jetzt gibt es an der Wand alle gut zwei Sekunden einen neuen Satz.
+       Er traegt rund sechs Meter; danach klettert man weiter oder setzt
+       neu an. Dauerlauf die Fassade hinauf wird es dadurch nicht. */
+    if (player.wandBoostCd > 0) player.wandBoostCd -= dt;
+    if (sprintAn() && up > 0.05 && player.wandSchwung < 2.0 &&
+        (player.wandBoostCd || 0) <= 0) {
+      player.wandSchwung = 9.5;
+      player.wandBoostCd = 2.2;
+      SFX.swoosh();
+    }
     if (player.wandSchwung > 0) {
       /* Die Bremse stand auf 11 je Sekunde. Aus dem normalen Lauf (7 m/s)
          ergab das einen Schwung von 6,3 - also 0,57 s und ganze DREI Meter
@@ -10899,7 +10896,7 @@ function updatePlayer(dt) {
       player.state !== 'zip' && player.rollT <= 0) {
     const w = player.wall;
     const tempoRein = -(player.altVelX * w.nx + player.altVelZ * w.nz);
-    const rein = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.5;
+    const rein = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.35;
     /* Nur an richtigen Hauswänden – nicht an Brüstungen, Bänken oder den
        Wänden der U-Bahn-Station. Sonst trägt der Anlauf die Figur an einer
        viereinhalb Meter hohen Mauer wieder aus der Station heraus. */
@@ -10907,7 +10904,11 @@ function updatePlayer(dt) {
     /* 5,5 war zu streng: wer leicht schraeg auf die Wand zulaeuft, kommt
        mit dem Anteil senkrecht zur Wand kaum darueber und blieb einfach
        stehen. Gehtempo (2,8) loest weiterhin nichts aus. */
-    if (rein && hochGenug && tempoRein > 4.5) {
+    /* 4,5 und ein Kegel von 60 Grad waren zu streng: auf dem Gehweg hat
+       man selten mehr als ein paar Meter Anlauf, und schon eine leichte
+       Schraege liess den Anteil senkrecht zur Wand darunter fallen. Der
+       normale Lauf (7 m/s) traegt jetzt auch leicht schraeg. */
+    if (rein && hochGenug && tempoRein > 3.8) {
       player.state = 'climb';
       player.wallInfo = w;
       player.onGround = false;
@@ -14703,18 +14704,34 @@ function checkCivilianSaved(deadEnemy) {
    so liest sich der Kampf, und man kann auf einen Angriff nach dem
    anderen reagieren. */
 const KAMPF_GLEICHZEITIG = 2;
-function angreiferZahl() {
-  let n = 0;
+/* Wer gerade angreifen darf. Die Auswahl wird EINMAL je Bild getroffen und
+   nicht von jedem Gegner einzeln erwuerfelt: die naechsten zwei bekommen
+   das Recht, wer schon ausholt behaelt es. Alle anderen halten Abstand -
+   sie gehen auf einen weiteren Ring, statt sich an die Figur zu draengen.
+   Vorher standen alle vier auf demselben Ring von 1,15 m; auch ohne
+   Angriffsrecht sah das aus, als stuermten alle gleichzeitig. */
+const KAMPF_RECHT = new Set();
+function verteileAngriffsrechte() {
+  KAMPF_RECHT.clear();
+  const anwaerter = [];
   for (const e of enemies) {
     if (e.dead || e.target !== 'player') continue;
-    if (e.attack || e.warnT > 0) n++;
+    if (e.betaeubtT > 0 || e.rueckzugT > 0 || e.webT > 0) continue;
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    /* Wer schon ausholt oder zuschlaegt, behaelt sein Recht - sonst
+       bricht ein Angriff mitten in der Bewegung ab. */
+    anwaerter.push({ e, rang: (e.attack || e.warnT > 0 ? -1000 : 0) + d });
   }
-  return n;
+  anwaerter.sort((a, b) => a.rang - b.rang);
+  for (let i = 0; i < anwaerter.length && i < KAMPF_GLEICHZEITIG; i++) {
+    KAMPF_RECHT.add(anwaerter[i].e);
+  }
 }
 
 function updateEnemies(dtBild) {
   /* Der Klingenbogen gehört immer nur zum gerade laufenden Hieb. */
   if (klingenBogen) klingenBogen.visible = false;
+  verteileAngriffsrechte();
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     /* Ganoven weit weg vom Helden ebenfalls nur jedes dritte Bild. Wer
@@ -14935,8 +14952,11 @@ function updateEnemies(dtBild) {
     const angeschlagen = e.hp < (e.hpMax || CFG.enemyHP) * 0.26;
     if (angeschlagen && e.rueckzugT <= 0 && e.rueckzugCd <= 0 &&
         e.target === 'player' && dp < 7 && !e.dieb && e.betaeubtT <= 0) {
-      e.rueckzugT = rand(1.4, 2.6);
-      e.rueckzugCd = e.rueckzugT + rand(3.5, 6.0);
+      /* 1,4 bis 2,6 s und 6,5 m waren zu wenig: der Ganove war sofort
+         wieder da, es sah nach einem Schritt zurueck aus statt nach
+         Rueckzug. Jetzt drei bis viereinhalb Sekunden und elf Meter. */
+      e.rueckzugT = rand(3.0, 4.5);
+      e.rueckzugCd = e.rueckzugT + rand(5.0, 8.0);
       if (Math.random() < 0.4) popupWorld('Rueckzug!', e.pos, '#ffd0a8');
     }
 
@@ -14954,7 +14974,7 @@ function updateEnemies(dtBild) {
          sonst sieht es wie Weglaufen aus statt wie Deckung suchen. */
       const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
       const dd = Math.hypot(dx, dz) || 1;
-      if (dd < 6.5) { moveX = dx / dd; moveZ = dz / dd; speed = (e.typ ? e.typ.tempo : 5) * 0.8; }
+      if (dd < 11.0) { moveX = dx / dd; moveZ = dz / dd; speed = (e.typ ? e.typ.tempo : 5) * 0.9; }
       anim = speed > 0.2 ? 'run' : 'idle';
       e.facing = dampAngle(e.facing, Math.atan2(-moveX, -moveZ), dt * 6);
     } else if (e.state === 'chase') {
@@ -14971,13 +14991,38 @@ function updateEnemies(dtBild) {
            der Gegner dauerhaft knapp außerhalb seiner eigenen Reichweite
            und rannte nur noch auf der Stelle, ohne je zuzuschlagen.
            Die Freigabe liegt jetzt sicher außerhalb des Rings. */
-        if (d > 1.25 || dy > 1.6) {
+        /* Ohne Angriffsrecht wird nicht herangelaufen: dann steht der
+           Platz auf einem weiteren Ring, gut zweieinhalb Meter vom Helden
+           entfernt. So sieht man, wer gerade dran ist. */
+        const darfAngreifen = e.target !== 'player' || KAMPF_RECHT.has(e);
+        const ringR = darfAngreifen ? 1.15 : 3.0;
+        if (!darfAngreifen) {
+          /* ---- Wer nicht dran ist, haelt Abstand ----
+             Und zwar IMMER, nicht nur wenn er gerade schlagbereit waere.
+             Vorher fiel ein Gegner mit laufender Schlagpause (attackCd)
+             durch alle Zweige und blieb reglos stehen, wo er gerade war -
+             oft mitten im Nahkampf. Deshalb standen trotz Angriffsrecht
+             im Schnitt zweieinhalb Ganoven direkt am Helden.
+             Jetzt geht er auf seinen Platz auf dem weiteren Ring und
+             wandert dort seitlich weiter. */
+          e.ringWinkel = (e.ringWinkel || 0) + dt * (e.ringDreh || 0.9);
+          if (Math.random() < dt * 0.35) e.ringDreh = -(e.ringDreh || 0.9);
+          const zx = tp.x + Math.sin(e.ringWinkel) * ringR - e.pos.x;
+          const zz = tp.z + Math.cos(e.ringWinkel) * ringR - e.pos.z;
+          const zd = Math.hypot(zx, zz) || 1;
+          if (zd > 0.3) {
+            moveX = zx / zd; moveZ = zz / zd;
+            const raus = d < ringR - 0.7;          // zu dicht dran
+            speed = (e.typ ? e.typ.tempo : 5) * (raus ? 0.9 : 0.5);
+            anim = raus ? 'run' : 'walk';
+          }
+        } else if (d > 1.25 || dy > 1.6) {
           /* Nicht alle auf denselben Punkt zulaufen – sonst stapeln sich
              die Ganoven zu einem einzigen Klumpen. Jeder steuert seinen
              eigenen Platz auf einem Ring um das Ziel an. */
           if (e.ringWinkel === undefined) e.ringWinkel = Math.random() * Math.PI * 2;
-          const zx = tp.x + Math.sin(e.ringWinkel) * 1.15 - e.pos.x;
-          const zz = tp.z + Math.cos(e.ringWinkel) * 1.15 - e.pos.z;
+          const zx = tp.x + Math.sin(e.ringWinkel) * ringR - e.pos.x;
+          const zz = tp.z + Math.cos(e.ringWinkel) * ringR - e.pos.z;
           const zd = Math.hypot(zx, zz) || 1;
           moveX = zx / zd; moveZ = zz / zd;
           speed = (e.target === 'player' ? 1 : 0.85) * (e.typ ? e.typ.tempo : 5);
@@ -14988,24 +15033,10 @@ function updateEnemies(dtBild) {
           /* Wer in Deckung steht, holt nicht gleichzeitig aus. */
           /* Erst ausholen und warnen, dann schlagen. Vorher kam der Treffer
              ohne Vorankündigung – ausweichen war reine Glückssache. */
-          if (e.target !== 'player' || angreiferZahl() < KAMPF_GLEICHZEITIG) {
-            /* Jeder vierte Angriff ist ein Klingenhieb – mit doppelt so
-               langer Vorwarnung, damit man ihn kontern kann. */
-            e.klingeGeplant = Math.random() < 0.26;
-            e.warnT = e.klingeGeplant ? 0.95 : 0.55;
-          } else {
-            /* Kein Angriffsrecht: seitlich um den Helden herumgehen statt
-               reglos danebenzustehen. Die Richtung wechselt langsam, damit
-               es nicht wie ein Karussell aussieht. */
-            e.ringWinkel = (e.ringWinkel || 0) + dt * (e.ringDreh || 0.9);
-            if (Math.random() < dt * 0.35) e.ringDreh = -(e.ringDreh || 0.9);
-            const zx = tp.x + Math.sin(e.ringWinkel) * 1.7 - e.pos.x;
-            const zz = tp.z + Math.cos(e.ringWinkel) * 1.7 - e.pos.z;
-            const zd = Math.hypot(zx, zz) || 1;
-            moveX = zx / zd; moveZ = zz / zd;
-            speed = (e.typ ? e.typ.tempo : 5) * 0.5;
-            anim = 'walk';
-          }
+          /* Jeder vierte Angriff ist ein Klingenhieb – mit doppelt so
+             langer Vorwarnung, damit man ihn kontern kann. */
+          e.klingeGeplant = Math.random() < 0.26;
+          e.warnT = e.klingeGeplant ? 0.95 : 0.55;
         }
       }
     } else if (e.bewacht) {
