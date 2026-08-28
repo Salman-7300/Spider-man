@@ -3572,13 +3572,20 @@ const ZIEH_FEST = [];
 /* Oben auf jedem dieser Punkte laesst sich stehen. Ohne diese kleine
    Standflaeche zog einen das Netz zwar hin, aber es gab dort nichts, worauf
    man landen konnte - man flog daran vorbei und fiel weiter. */
-function ziehFestPunkt(x, y, z) {
+/* Ein Punkt, an dem sich der Netz-Zug festhaelt UND auf dem man oben
+   stehen kann. y ist die OBERKANTE - dort setzt die Figur auf. Stand sie
+   hier zu tief, steckte sie im Mast und sah aus, als schwebte sie
+   daneben in der Luft. */
+function ziehFestPunkt(x, y, z, r) {
+  const h = r === undefined ? 0.34 : r;
   ZIEH_FEST.push(V3(x, y, z));
-  addCollider({ x0: x - 0.34, x1: x + 0.34, z0: z - 0.34, z1: z + 0.34,
-                h: y, y0: y - 0.5, klein: true, keinKlettern: true });
+  addCollider({ x0: x - h, x1: x + h, z0: z - h, z1: z + h,
+                h: y, y0: y - 0.6, klein: true, keinKlettern: true });
 }
 function addLamp(x, z) {
-  ziehFestPunkt(x, SLAB_H + 4.0, z);
+  /* Oberkante der Leuchtkugel: Mast 4,4 m plus 0,22 m Kugelradius.
+     Mit 4,0 stand die Figur 62 cm TIEF im Lampenkopf. */
+  ziehFestPunkt(x, SLAB_H + 4.62, z, 0.3);
   const g = new THREE.Group();
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.4, 6),
     new THREE.MeshLambertMaterial({ color: 0x2c2f33 }));
@@ -9086,6 +9093,9 @@ function collideBody(body, prevY, radiusExtra) {
       // Auf dem Dach landen?
       if (prevY !== undefined && prevY >= c.h - 0.05 && body.vel.y <= 0.01) {
         p.y = c.h; body.vel.y = 0; body.onGround = true; body.groundTop = c.h;
+        /* Merken, ob der Halt eine schmale Spitze ist - Laternenkopf,
+           Ampel, Poller. Darauf steht man nicht, man hockt. */
+        body.aufKlein = !!c.klein;
         continue;
       }
       /* ---- Mit dem Kopf anstossen ----
@@ -9583,6 +9593,9 @@ function zipAngriff(e) {
   SFX.swoosh();
 }
 
+/* Wie lange vor dem Anschlag der Absprung als "perfekt" zaehlt. */
+const ZIP_FENSTER = 0.42;
+
 /* ======================= Spieler-Aktionen ======================= */
 function tryJump() {
   if (player.dead) return;
@@ -9596,7 +9609,15 @@ function tryJump() {
     const z = player.zip;
     const weg = Math.hypot(z.target.x - player.pos.x, z.target.y - player.pos.y,
                            z.target.z - player.pos.z);
-    const perfekt = weg > 2.5 && weg < 9.0;
+    /* ---- Das Fenster war eine feste STRECKE: 2,5 bis 9 Meter ----
+       Im Zug wird man bis zu 40 m/s schnell. Diese sechseinhalb Meter
+       waren damit 16 Hundertstel Sekunden, also zehn Bilder - auf dem
+       Tablet nicht zu treffen, und genau deshalb "geht der perfekte
+       Moment nicht".
+       Jetzt zaehlt die ZEIT bis zum Ziel: die letzten vier Zehntel gelten,
+       egal wie schnell man unterwegs ist. Und kurz vorher sagt es einem
+       auch jemand (siehe zipHinweis). */
+    const perfekt = weg > 1.2 && weg / Math.max(4, player.vel.length()) < ZIP_FENSTER;
     const vh = Math.hypot(player.vel.x, player.vel.z);
     const richt = vh > 0.001
       ? _v1.set(player.vel.x / vh, 0, player.vel.z / vh)
@@ -10603,6 +10624,14 @@ function updatePlayer(dt) {
     const d = _v1.set(t.x - player.pos.x, t.y - player.pos.y, t.z - player.pos.z);
     const dist = d.length();
     player.fadenZiel = t; player.fadenHand = z.hand;
+    /* Einmal Bescheid geben, wenn das Zeitfenster fuer den perfekten
+       Absprung aufgeht - ohne Hinweis ist es reines Raten. */
+    if (!z.hinweis && dist > 1.2 &&
+        dist / Math.max(4, player.vel.length()) < ZIP_FENSTER) {
+      z.hinweis = true;
+      popupScreen('Jetzt! Leertaste = Schub');
+      SFX.web();
+    }
     const ende = dist < (z.enemy ? 2.3 : z.fest ? 1.4 : 2.0) || z.t <= 0 ||
                  (z.enemy && z.enemy.dead);
     if (ende) {
@@ -10617,6 +10646,7 @@ function updatePlayer(dt) {
         player.vel.set(0, 0, 0);
         player.onGround = true;
         player.hockeT = 1.0;
+        player.mastHocke = true;
         popupWorld('Aufgesessen', t, '#bfe8ff');
       }
       else player.vel.multiplyScalar(0.45);
@@ -11397,7 +11427,13 @@ function updatePlayer(dt) {
        geht - vorher stand die Figur dort kerzengerade. */
     const aufFahrzeug = !!(player.platform && player.platform.mesh &&
                            Math.hypot(player.platform.vx || 0, player.platform.vz || 0) > 0.8);
-    const hoch = player.pos.y - SLAB_H > 12 || aufFahrzeug;
+    /* Auf einem Mast (Laterne, Ampel) gehoert die Hocke ebenfalls dazu -
+       dort steht niemand aufrecht auf einer handbreiten Flaeche. Die
+       Zwoelf-Meter-Regel greift da nicht, eine Ampel ist sechs Meter hoch,
+       und genau deshalb stand die Figur oben kerzengerade. */
+    if (!player.onGround) { player.mastHocke = false; player.aufKlein = false; }
+    else if (player.aufKlein && player.pos.y - SLAB_H > 2.5) player.mastHocke = true;
+    const hoch = player.pos.y - SLAB_H > 12 || aufFahrzeug || !!player.mastHocke;
     /* Auf dem Fahrzeug zaehlt die EIGENE Bewegung. Die des Wagens steckt
        gar nicht in player.vel - die Plattform verschiebt die Figur direkt -,
        deshalb genuegt hier das gewohnte Tempo. */
@@ -11407,7 +11443,7 @@ function updatePlayer(dt) {
     const warHocke = (player.hockeT || 0) > 0.9;
     /* Auf dem Fahrzeug schneller in die Hocke - man faehrt ja mit. */
     player.hockeT = (hoch && ruhig)
-      ? (player.hockeT || 0) + dt * (aufFahrzeug ? 3.5 : 1) : 0;
+      ? (player.hockeT || 0) + dt * (aufFahrzeug || player.mastHocke ? 3.5 : 1) : 0;
     /* Aufrichten: die Duckbewegung ab der Hockstelle nach vorn abspielen.
        Vorher wechselte die Figur in einem Bild von der Hocke in den
        Stand. */
@@ -13545,7 +13581,10 @@ function baueAmpeln() {
       for (const [sx, sz] of [[1, 1], [-1, -1]]) {
         const px = x + sx * (ROAD_HALF + 1.2), pz = z + sz * (ROAD_HALF + 1.2);
         stellen.push([px, pz]);
-        ziehFestPunkt(px, SLAB_H + 4.6, pz);           // Mast als Zugpunkt
+        /* Oben auf dem Signalkopf, nicht am Mast: der Kopf reicht bis
+           SLAB_H + 6,2, der Mast nur bis 5,45. Mit 4,6 stand die Figur
+           85 cm im Mast und schwebte scheinbar neben der Ampel. */
+        ziehFestPunkt(px + 0.45, SLAB_H + 6.2, pz, 0.28);
         deko(0.22, 5.2, 0.22, px, SLAB_H + 2.6, pz, 0x2c3037);          // Mast
         /* Zwei getrennte Signalköpfe: einer für die Ost-West-Richtung,
            einer für Nord-Süd. Vorher saßen beide an derselben Stelle und
@@ -13773,6 +13812,34 @@ function updateCars(dt) {
         const bremsweg = (car.tempoJetzt * car.tempoJetzt) / 16 + 2;
         if (d > -1.5 && d < bremsweg) ziel = Math.min(ziel, Math.max(0, d * 1.6));
       }
+
+      /* ---- Querverkehr beachten ----
+         Bisher regelte allein die Ampel, wer faehrt. An der Uferstrasse
+         steht aber keine, und ein Fluchtauto haelt an keiner - dort fuhren
+         zwei Wagen ungebremst durcheinander hindurch. Jetzt schaut jeder
+         vor der Kreuzung auf die Querachse: ist dort einer naeher dran
+         (oder kommt ein Fluchtauto), wird gewartet. */
+      const dKreuz = abstandZurKreuzung(car);
+      if (dKreuz < 24) {
+        const kx = car.axis === 'x' ? car.s + car.dir * dKreuz : car.lane;
+        const kz = car.axis === 'x' ? car.lane : car.s + car.dir * dKreuz;
+        const ohneAmpel = kx > RIVER_X0 - 20;
+        let warten = false;
+        for (const o of cars) {
+          if (o === car || o.aus || o.axis === car.axis) continue;
+          if (!ohneAmpel && !o.flucht) continue;
+          /* Wie weit ist der andere von DERSELBEN Kreuzung entfernt? */
+          const oQuer = o.axis === 'x' ? kz - o.lane : kx - o.lane;
+          if (Math.abs(oQuer) > ROAD_HALF) continue;         // andere Kreuzung
+          const od = ((o.axis === 'x' ? kx : kz) - o.s) * o.dir;
+          if (od < 0 || od > 24) continue;                   // faehrt weg oder weit
+          if (o.flucht || od < dKreuz - 1.5) warten = true;
+        }
+        if (warten) {
+          const halt = dKreuz - (ROAD_HALF + eigenLaenge / 2 + 0.8);
+          if (halt > -1.5) ziel = Math.min(ziel, Math.max(0, halt * 1.6));
+        }
+      }
     }
 
     /* ---- Hält jemand auf der Fahrbahn? Bremsen und hupen ----
@@ -13801,6 +13868,13 @@ function updateCars(dt) {
         if (c.state === 'hurt') continue;
         if (Math.abs(c.pos.x - px) > 16 || Math.abs(c.pos.z - pz) > 16) continue;
         pruefe(c.pos.x, c.pos.z, c.pos.y);
+      }
+      /* Auch fuer eine Schlaegerei auf der Fahrbahn wird gebremst - bisher
+         fuhren die Wagen mitten durch den Kampf hindurch. */
+      for (const e of enemies) {
+        if (e.dead) continue;
+        if (Math.abs(e.pos.x - px) > 16 || Math.abs(e.pos.z - pz) > 16) continue;
+        pruefe(e.pos.x, e.pos.z, e.pos.y);
       }
     }
     if (hindernis) {
@@ -14280,11 +14354,26 @@ function updateCivilians(dtBild) {
       speed = 5.6;
     } else if (c.state === 'flee') {
       c.fleeT -= dt;
+      /* ---- Kommt er ueberhaupt voran? ----
+         Die Flucht ging stur in die Gegenrichtung der Gefahr. Stand dort
+         eine Hauswand, rannte der Passant auf der Stelle, bis alles
+         vorbei war. Alle sechs Zehntel wird gemessen, wie weit er
+         gekommen ist; steht er fest, dreht die Fluchtrichtung um gut
+         siebzig Grad weiter - dann laeuft er an der Wand entlang statt
+         dagegen. */
+      c.fleeMessT = (c.fleeMessT || 0) + dt;
+      if (c.fleeMessT > 0.6) {
+        c.fleeMessT = 0;
+        if (c.fleeAlt && Math.hypot(c.pos.x - c.fleeAlt.x, c.pos.z - c.fleeAlt.z) < 0.9) {
+          c.fleeDreh = (c.fleeDreh || 0) + (Math.random() < 0.5 ? 1.25 : -1.25);
+        }
+        c.fleeAlt = { x: c.pos.x, z: c.pos.z };
+      }
       const t = threat || nearestThreatTo(c.pos, 25);
       if (t) {
         const dx = c.pos.x - t.pos.x, dz = c.pos.z - t.pos.z;
-        const d = Math.hypot(dx, dz) || 1;
-        dirX = dx / d; dirZ = dz / d;
+        const w = Math.atan2(dx, dz) + (c.fleeDreh || 0);
+        dirX = Math.sin(w); dirZ = Math.cos(w);
         c.fleeT = Math.max(c.fleeT, 0.5);
       } else {
         const wpT = c.loop[c.wp];
@@ -14293,7 +14382,7 @@ function updateCivilians(dtBild) {
         dirX = dx / d; dirZ = dz / d;
       }
       speed = 5.2;
-      if (c.fleeT <= 0) c.state = 'walk';
+      if (c.fleeT <= 0) { c.state = 'walk'; c.fleeDreh = 0; c.fleeAlt = null; }
     } else {
       const wpT = c.loop[c.wp];
       const dx = wpT.x - c.pos.x, dz = wpT.z - c.pos.z;
@@ -15133,20 +15222,62 @@ const KAMPF_GLEICHZEITIG = 2;
    Vorher standen alle vier auf demselben Ring von 1,15 m; auch ohne
    Angriffsrecht sah das aus, als stuermten alle gleichzeitig. */
 const KAMPF_RECHT = new Set();
+/* Wie weit zwei Angreifer mindestens auseinanderstehen sollen, gemessen
+   als Winkel um den Helden. Zwei Ganoven aus derselben Richtung sehen aus
+   wie einer, und man muss sich nur in eine Richtung wehren. */
+const FLANKE_MIN = 1.1;
+function winkelUmHelden(e) {
+  return Math.atan2(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+}
+function winkelAbstand(a, b) {
+  let d = (a - b) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return Math.abs(d);
+}
 function verteileAngriffsrechte() {
   KAMPF_RECHT.clear();
   const anwaerter = [];
+  const ring = [];
   for (const e of enemies) {
     if (e.dead || e.target !== 'player') continue;
+    if (e.state === 'chase') ring.push({ e, w: winkelUmHelden(e) });
     if (e.betaeubtT > 0 || e.rueckzugT > 0 || e.webT > 0) continue;
     const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
     /* Wer schon ausholt oder zuschlaegt, behaelt sein Recht - sonst
        bricht ein Angriff mitten in der Bewegung ab. */
-    anwaerter.push({ e, rang: (e.attack || e.warnT > 0 ? -1000 : 0) + d });
+    anwaerter.push({ e, w: winkelUmHelden(e),
+                     rang: (e.attack || e.warnT > 0 ? -1000 : 0) + d });
   }
+  /* ---- Plaetze rund um den Helden ----
+     Jeder Ganove hatte bisher einen ZUFAELLIGEN Platz auf dem Ring. Bei
+     vier Gegnern standen dadurch regelmaessig drei auf derselben Seite,
+     und von hinten kam nie jemand. Jetzt werden die Plaetze gleichmaessig
+     verteilt: nach dem jetzigen Winkel sortieren und in derselben
+     Reihenfolge auf gleiche Abstaende legen. Weil die Reihenfolge bleibt,
+     laeuft niemand quer durch die Mitte, um seinen Platz zu erreichen. */
+  if (ring.length) {
+    ring.sort((a, b) => a.w - b.w);
+    const schritt = TAU / ring.length;
+    for (let i = 0; i < ring.length; i++) ring[i].e.ringZiel = ring[0].w + i * schritt;
+  }
+  /* ---- Wer darf angreifen ----
+     Der Naechste immer. Fuer den zweiten Platz wird bevorzugt, wer von
+     einer ANDEREN Seite kommt: so kommt der zweite Schlag aus einer
+     anderen Richtung, statt dass zwei nebeneinander dasselbe tun. */
   anwaerter.sort((a, b) => a.rang - b.rang);
-  for (let i = 0; i < anwaerter.length && i < KAMPF_GLEICHZEITIG; i++) {
-    KAMPF_RECHT.add(anwaerter[i].e);
+  for (const a of anwaerter) {
+    if (KAMPF_RECHT.size >= KAMPF_GLEICHZEITIG) break;
+    let zuNah = false;
+    for (const b of KAMPF_RECHT) if (winkelAbstand(a.w, winkelUmHelden(b)) < FLANKE_MIN) zuNah = true;
+    if (!zuNah) KAMPF_RECHT.add(a.e);
+  }
+  /* Bleibt ein Platz frei, weil alle Uebrigen aus derselben Richtung
+     kommen, bekommt ihn doch der Naechste - sonst schlaegt bei einem
+     Rudel auf einer Seite ueberhaupt niemand mehr zu. */
+  for (const a of anwaerter) {
+    if (KAMPF_RECHT.size >= KAMPF_GLEICHZEITIG) break;
+    KAMPF_RECHT.add(a.e);
   }
 }
 
@@ -15427,22 +15558,31 @@ function updateEnemies(dtBild) {
              im Schnitt zweieinhalb Ganoven direkt am Helden.
              Jetzt geht er auf seinen Platz auf dem weiteren Ring und
              wandert dort seitlich weiter. */
-          e.ringWinkel = (e.ringWinkel || 0) + dt * (e.ringDreh || 0.9);
-          if (Math.random() < dt * 0.35) e.ringDreh = -(e.ringDreh || 0.9);
+          /* Auf den ZUGETEILTEN Platz einschwenken statt frei umher zu
+             kreisen. Das freie Kreisen liess die Gruppe zusammenlaufen. */
+          if (e.ringWinkel === undefined) e.ringWinkel = winkelUmHelden(e);
+          e.ringWinkel = dampAngle(e.ringWinkel,
+            e.ringZiel === undefined ? e.ringWinkel : e.ringZiel, Math.min(1, dt * 3.5));
           const zx = tp.x + Math.sin(e.ringWinkel) * ringR - e.pos.x;
           const zz = tp.z + Math.cos(e.ringWinkel) * ringR - e.pos.z;
           const zd = Math.hypot(zx, zz) || 1;
           if (zd > 0.3) {
             moveX = zx / zd; moveZ = zz / zd;
             const raus = d < ringR - 0.7;          // zu dicht dran
-            speed = (e.typ ? e.typ.tempo : 5) * (raus ? 0.9 : 0.5);
-            anim = raus ? 'run' : 'walk';
+            /* Auf dem Weg zum eigenen Platz darf er zuegig gehen - mit
+               halbem Tempo brauchte das Umstellen laenger als der ganze
+               Kampf, und die Gruppe blieb auf einer Seite kleben. */
+            const weitWeg = Math.hypot(zx, zz) > 1.6;
+            speed = (e.typ ? e.typ.tempo : 5) * (raus || weitWeg ? 0.9 : 0.5);
+            anim = raus || weitWeg ? 'run' : 'walk';
           }
         } else if (d > 1.25 || dy > 1.6) {
           /* Nicht alle auf denselben Punkt zulaufen – sonst stapeln sich
              die Ganoven zu einem einzigen Klumpen. Jeder steuert seinen
              eigenen Platz auf einem Ring um das Ziel an. */
-          if (e.ringWinkel === undefined) e.ringWinkel = Math.random() * Math.PI * 2;
+          if (e.ringWinkel === undefined) e.ringWinkel = winkelUmHelden(e);
+          if (e.target === 'player') e.ringWinkel = dampAngle(e.ringWinkel,
+            e.ringZiel === undefined ? e.ringWinkel : e.ringZiel, Math.min(1, dt * 3.5));
           const zx = tp.x + Math.sin(e.ringWinkel) * ringR - e.pos.x;
           const zz = tp.z + Math.cos(e.ringWinkel) * ringR - e.pos.z;
           const zd = Math.hypot(zx, zz) || 1;
@@ -15459,6 +15599,22 @@ function updateEnemies(dtBild) {
              langer Vorwarnung, damit man ihn kontern kann. */
           e.klingeGeplant = Math.random() < 0.26;
           e.warnT = e.klingeGeplant ? 0.95 : 0.55;
+        }
+        /* ---- Der Held ist ausser Reichweite ----
+           Haengt er an der Wand oder hockt auf dem Dach, standen die
+           Ganoven darunter und schauten ins Leere, oft minutenlang - sie
+           kannten keinen anderen Zustand als "verfolgen". Jetzt geben sie
+           nach vier Sekunden auf, gehen zu der Stelle, wo er zuletzt war,
+           und nehmen dort ihre Runde wieder auf. Kommt er herunter, packt
+           die gewohnte Erkennung sofort wieder zu. */
+        if (e.target === 'player' && dy > 3.2) e.hochT = (e.hochT || 0) + dt;
+        else e.hochT = 0;
+        if (e.hochT > 4) {
+          e.hochT = 0;
+          e.state = 'patrol'; e.target = null;
+          e.waypoint = freierPunkt(player.pos.x, player.pos.z, 7) || null;
+          e.waitT = rand(0.8, 2.2);
+          if (Math.random() < 0.3) popupWorld('Wo ist er hin?', e.pos, '#ffd0a8');
         }
       }
     } else if (e.bewacht) {
