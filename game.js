@@ -6407,30 +6407,51 @@ function makeGlbVisual(m) {
          raus = von der Wand weg.                                        */
     poseWandhalt(nx, nz, k) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
+      const hueft = knochen.hips;
+      if (!hueft) return;
       root.updateMatrixWorld(true);
       const rx = -nz, rz = nx;                    // Tangente laengs der Wand
-      const richt = (bone, hoch, quer, raus) => {
-        bone.getWorldPosition(_vw3);
-        return _vw4.set(_vw3.x + rx * quer + nx * raus,
-                        _vw3.y + hoch,
-                        _vw3.z + rz * quer + nz * raus);
-      };
+      /* ---- Zielpunkte relativ zur HUEFTE, nicht zum jeweiligen Knochen ----
+         Vorher lag jedes Ziel relativ zu dem Knochen, der gedreht werden
+         sollte. Das ist gefaehrlich, weil das Skelett gespiegelt benannt
+         ist und die beiden Seiten dadurch unterschiedlich weit ausschlugen:
+         gemessen stand die eine Hand 19 cm neben der Koerpermitte, die
+         andere 45 cm - eine Hand hing vor dem Gesicht, die andere weit
+         draussen. Ausserdem standen die Ellbogen 20 bis 25 cm und die
+         Knie bis zu 40 cm VON DER WAND WEG; das sah nach Boxdeckung aus,
+         nicht nach Kleben.
+         Von der Huefte aus gemessen sind beide Seiten sauber gespiegelt
+         und die Abstaende zur Fassade stimmen.
+           hoch = die Wand hinauf, quer = an der Wand entlang,
+           raus = von der Wand weg. */
+      /* Rumpf gerade an die Wand. Die Kriechbewegung darunter legt den
+         Oberkoerper zur Seite - gemessen stand der Kopf 18 cm neben der
+         Huefte, und weil die Schultern mitwandern, standen auch die Haende
+         schief (eine 31 cm links, die andere 47 cm rechts der Mitte). */
+      for (const n of ['spine', 'spine1', 'spine2']) {
+        if (knochen[n]) drehZuRuhe(knochen[n], 0, 0, 0, w * 0.85);
+      }
+      root.updateMatrixWorld(true);
+      hueft.getWorldPosition(_hp);
+      const ziel = (hoch, quer, raus) => _vw4.set(
+        _hp.x + rx * quer + nx * raus, _hp.y + hoch, _hp.z + rz * quer + nz * raus);
       for (const p of ['left', 'right']) {
         const vz = p === 'left' ? 1 : -1;   // Skelett ist gespiegelt benannt
         const arm = knochen[p + 'arm'], varm = knochen[p + 'forearm'];
         const hand = knochen[p + 'hand'];
         if (arm && varm) {
-          /* Oberarm nach oben aussen, Unterarm wieder an die Wand. */
-          zieleKnochen(arm, varm, richt(arm, 0.62, vz * 0.52, 0.30), w);
-          if (hand) zieleKnochen(varm, hand, richt(varm, 0.80, vz * 0.16, -0.55), w);
+          /* Ellbogen leicht nach aussen, Hand darueber flach an der Wand. */
+          zieleKnochen(arm, varm, ziel(0.74, vz * 0.34, 0.14), w);
+          if (hand) zieleKnochen(varm, hand, ziel(1.28, vz * 0.24, 0.03), w);
         }
         const ober = knochen[p + 'upleg'], unter = knochen[p + 'leg'];
         const fuss = knochen[p + 'foot'];
         if (ober && unter) {
-          /* Knie weit zur Seite - das macht die Spinnenhaltung aus. */
-          zieleKnochen(ober, unter, richt(ober, -0.18, vz * 0.90, 0.40), w);
+          /* Knie zur Seite und ein Stueck von der Wand weg - so entsteht
+             die angehockte Spinnenhaltung, ohne dass die Beine abspreizen. */
+          zieleKnochen(ober, unter, ziel(-0.10, vz * 0.42, 0.26), w);
           if (fuss) {
-            zieleKnochen(unter, fuss, richt(unter, -0.80, vz * 0.22, -0.55), w);
+            zieleKnochen(unter, fuss, ziel(-0.62, vz * 0.30, 0.05), w);
             drehZuRuhe(fuss, 0.35, 0, 0, w * 0.7);
           }
         }
@@ -11140,12 +11161,22 @@ function updatePlayer(dt) {
      Laufschritt wuerde sonst auf der Stelle weiterlaufen. */
   /* Zaehler fuer die Hocke: still, am Boden, hoch ueber der Strasse. */
   {
-    const hoch = player.pos.y - SLAB_H > 12;
-    const ruhig = player.onGround && !dir && hSpeed < 0.4 && !player.attack &&
+    /* Hoch ueber der Strasse ODER auf einem fahrenden Dach. Auf dem Auto
+       mitzufahren ist genau der Moment, in dem Spider-Man in die Hocke
+       geht - vorher stand die Figur dort kerzengerade. */
+    const aufFahrzeug = !!(player.platform && player.platform.mesh &&
+                           Math.hypot(player.platform.vx || 0, player.platform.vz || 0) > 0.8);
+    const hoch = player.pos.y - SLAB_H > 12 || aufFahrzeug;
+    /* Auf dem Fahrzeug zaehlt die EIGENE Bewegung. Die des Wagens steckt
+       gar nicht in player.vel - die Plattform verschiebt die Figur direkt -,
+       deshalb genuegt hier das gewohnte Tempo. */
+    const ruhig = player.onGround && !dir && hSpeed < 0.6 && !player.attack &&
                   player.rollT <= 0 && player.hitT <= 0 && !player.duckt &&
                   !KAT.aktiv && player.state !== 'climb' && player.state !== 'swing';
     const warHocke = (player.hockeT || 0) > 0.9;
-    player.hockeT = (hoch && ruhig) ? (player.hockeT || 0) + dt : 0;
+    /* Auf dem Fahrzeug schneller in die Hocke - man faehrt ja mit. */
+    player.hockeT = (hoch && ruhig)
+      ? (player.hockeT || 0) + dt * (aufFahrzeug ? 3.5 : 1) : 0;
     /* Aufrichten: die Duckbewegung ab der Hockstelle nach vorn abspielen.
        Vorher wechselte die Figur in einem Bild von der Hocke in den
        Stand. */
@@ -12489,6 +12520,17 @@ function updateInnenLeute(dt) {
     const g = INNEN_LEUTE[i], e = _innenNah[i];
     if (!e) { g.visual.root.visible = false; continue; }
     const p = e.p;
+    /* ---- Nur Plaetze, die es wirklich noch gibt ----
+       Die Sitzplaetze werden beim Bauen gemerkt. Faellt der Raum darum
+       spaeter weg oder liegt der Boden dort ganz woanders, sass die Figur
+       anschliessend frei in der Luft ueber der Strasse. Stimmt der
+       gemerkte Boden nicht mit dem echten ueberein, bleibt der Platz
+       leer. */
+    const echterBoden = groundY(p.x, p.z, p.boden + 0.6);
+    if (echterBoden === null || echterBoden === undefined ||
+        Math.abs(echterBoden - p.boden) > 0.6) {
+      g.visual.root.visible = false; continue;
+    }
     g.visual.root.visible = true;
     g.visual.root.position.set(p.x, p.boden, p.z);
     g.visual.root.rotation.y = p.ry;
@@ -13329,7 +13371,14 @@ function spawnCars() {
     const lane = line + laneSign * 3;
     const isBridgeRoad = axis === 'x' && line === BRIDGE_Z;
     const typ = waehleFahrzeug();
-    const sMin = -186, sMax = isBridgeRoad ? SHORE_X1 - 10 : 186;
+    /* ---- Die Brueckenstrasse endet an der Kaimauer drueben ----
+       Sie reichte bis SHORE_X1 - 10, also mitten in den Stadtteil am
+       anderen Ufer. Dort liegt aber ein EIGENES Strassenraster (SHORE_*),
+       und die Wagen fuhren stur auf ihrer Spur weiter - quer durch die
+       Haeuser. Genau das war der Bus, der im Gebaeude steckte.
+       Jetzt ist an der Kaimauer Schluss; dort wenden sie und fahren
+       zurueck ueber die Bruecke. */
+    const sMin = -186, sMax = isBridgeRoad ? SHORE_X0 - 5 : 186;
     cars.push({
       axis, lane, dir: laneSign, // Rechtsverkehr angenähert
       /* Startpunkt INNERHALB des Strassenrasters. Ein Auto, das zwischen
@@ -13465,7 +13514,9 @@ function updateCars(dt) {
       if (!hindernis || vorne2 < hindernis) hindernis = vorne2;
     };
     if (!car.flucht) {
-      pruefe(player.pos.x, player.pos.z, player.pos.y);
+      /* Wer auf dem eigenen Dach steht, ist kein Hindernis - sonst bremst
+         der Wagen sich selbst aus, sobald jemand mitfaehrt. */
+      if (player.platform !== car) pruefe(player.pos.x, player.pos.z, player.pos.y);
       /* Nur die Passanten in der Naehe pruefen - alle waeren bei
          zweiundzwanzig Leuten und achtzig Autos ueber tausend Vergleiche
          je Bild, ohne dass es besser wuerde. */
@@ -13497,17 +13548,15 @@ function updateCars(dt) {
        Umsetzen. Alle anderen kehren an der aeussersten Kreuzung um, statt
        quer durch die Stadt versetzt zu werden. */
     if (car.s > car.sMax || car.s < car.sMin) {
+      /* Umkehren statt versetzen - auch auf der Bruecke. Die Spur wird
+         dabei gespiegelt (aus L+3 wird L-3), also die Gegenspur. */
       const bruecke = car.axis === 'x' && Math.abs(car.lane - BRIDGE_Z) < 6;
-      if (bruecke) {
-        car.s = car.s > car.sMax ? car.sMin : car.sMax;
-        car.kurve = 0;
-      } else {
-        car.s = clamp(car.s, ORIGIN, ORIGIN + BLOCKS * PITCH);
-        car.dir = -car.dir;
-        car.lane += car.dir * 6;               // auf die Gegenspur
-        car.tempoJetzt *= 0.4;
-        car.kurve = 0.7;                       // Bild zieht weich nach
-      }
+      car.s = clamp(car.s, bruecke ? car.sMin + 2 : ORIGIN,
+                    bruecke ? car.sMax - 2 : ORIGIN + BLOCKS * PITCH);
+      car.dir = -car.dir;
+      car.lane += car.dir * 6;                 // auf die Gegenspur
+      car.tempoJetzt *= 0.4;
+      car.kurve = 0.7;                         // Bild zieht weich nach
       car.kreuzung = null;
     }
     if (car.kurve > 0) car.kurve -= dt;
@@ -13568,7 +13617,19 @@ function collidePlayerCars(prevY) {
         player.onGround = true;
         player.platform = car;
       } else if (p.y < b.top - 0.3) {
-        // seitlicher Rempler
+        /* ---- Seitlicher Rempler ----
+           Erst HERAUSSCHIEBEN, dann wegstossen. Vorher gab es nur einen
+           Stoss auf die Geschwindigkeit - aus einem Kasten, der einen in
+           jedem Bild wieder einholt, kommt man damit nicht heraus, und man
+           steckte im Auto fest. Herausgeschoben wird ueber die naechste
+           Seitenflaeche. */
+        const wegX0 = p.x - (b.x0 - r), wegX1 = (b.x1 + r) - p.x;
+        const wegZ0 = p.z - (b.z0 - r), wegZ1 = (b.z1 + r) - p.z;
+        const kleinste = Math.min(wegX0, wegX1, wegZ0, wegZ1);
+        if (kleinste === wegX0) p.x = b.x0 - r;
+        else if (kleinste === wegX1) p.x = b.x1 + r;
+        else if (kleinste === wegZ0) p.z = b.z0 - r;
+        else p.z = b.z1 + r;
         const dx = p.x - car.mesh.position.x, dz = p.z - car.mesh.position.z;
         const d = Math.hypot(dx, dz) || 1;
         player.vel.x += (dx / d) * 7 + car.vx * 0.6;
