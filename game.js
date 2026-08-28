@@ -13525,7 +13525,19 @@ function spawnCars() {
        Haeuser. Genau das war der Bus, der im Gebaeude steckte.
        Jetzt ist an der Kaimauer Schluss; dort wenden sie und fahren
        zurueck ueber die Bruecke. */
-    const sMin = -186, sMax = isBridgeRoad ? SHORE_X0 - 5 : 186;
+    /* ---- Wo eine Strasse anfaengt und aufhoert ----
+       Hier standen feste -186 und 186. Das Raster endet aber an der
+       aeussersten Linie (x, z = 175); die 11 m dahinter sind Gehweg,
+       Promenade oder blosser Untergrund. Die Wagen fuhren dort hinaus,
+       standen sichtbar neben der Fahrbahn und wurden dann in EINEM Bild
+       um 11 m auf die Kreuzung zurueckgesetzt.
+       Jetzt endet die Strasse an der aeussersten Kreuzung. Die drei Meter
+       Zuschlag sind der Spurversatz: wer dort abbiegt, steht auf Linie
+       plus oder minus drei.
+       Die Brueckenstrasse laeuft weiter, bis sie drueben auf die erste
+       Uferstrasse trifft - dort ist Platz zum Wenden. */
+    const RASTER_A = ORIGIN - 3, RASTER_E = ORIGIN + BLOCKS * PITCH + 3;
+    const sMin = RASTER_A, sMax = isBridgeRoad ? SHORE_OX + 3 : RASTER_E;
     cars.push({
       axis, lane, dir: laneSign, // Rechtsverkehr angenähert
       /* Startpunkt INNERHALB des Strassenrasters. Ein Auto, das zwischen
@@ -13581,9 +13593,28 @@ function verkehrsAnteil() {
    Koordinaten: bei axis 'x' ist s die x- und lane die z-Koordinate, bei
    axis 'z' andersherum. Beim Abbiegen tauschen die beiden ihre Rolle -
    die bisherige Querlage wird zur neuen Laengslage. */
+/* ---- Wie weit die Strasse reicht, auf der das Auto GERADE faehrt ----
+   Diese beiden Zahlen standen als feste Werte am Auto, gesetzt beim
+   Erzeugen. Bog es danach ab, blieben die Grenzen der ALTEN Achse
+   stehen: ein Wagen, der auf der Brueckenstrasse angefangen hatte,
+   behielt deren Grenze von 339 auch dann, wenn er laengst nach Norden
+   fuhr - er verliess die Karte bei z = 220 und fuhr ueber leeres Land.
+   Jetzt werden sie aus Achse und Spur neu bestimmt, bei jedem Bild. */
+function setzeAutoGrenzen(car) {
+  const bruecke = car.axis === 'x' && Math.abs(car.lane - BRIDGE_Z) < BRIDGE_HW;
+  /* Die drei Meter Zuschlag sind der Spurversatz: wer an der aeussersten
+     Kreuzung abbiegt, steht auf Linie plus oder minus drei. */
+  car.sMin = ORIGIN - 3;
+  car.sMax = bruecke ? SHORE_OX + 3 : ORIGIN + BLOCKS * PITCH + 3;
+}
+
 function autoKreuzung(car, linie) {
   const weiter = linie + car.dir * PITCH;
-  const drin = weiter > car.sMin + 6 && weiter < car.sMax - 6 &&
+  /* Liegt die NAECHSTE Kreuzung noch auf der Strasse? Der Abstand von 6 m
+     war zu gross: die aeussersten Kreuzungen liegen genau auf sMin/sMax,
+     damit galten sie als "draussen" und jedes Auto bog schon eine
+     Kreuzung frueher ab - die Randstrassen waren leer. */
+  const drin = weiter > car.sMin - 1 && weiter < car.sMax + 1 &&
                !(car.axis === 'x' && weiter > AUTO_X_MAX);
   if (drin && Math.random() > (car.flucht ? 0.30 : 0.14)) return false;
   /* Am Rand geht es in die Stadt hinein, sonst nach Lust und Laune. */
@@ -13597,7 +13628,11 @@ function autoKreuzung(car, linie) {
      x-Koordinate. Der Fluss beginnt bei RIVER_X0. */
   const neuesX = car.axis === 'x' ? neueLane : neuesS;
   if (neuesX > AUTO_X_MAX) return false;
-  if (neuesS < car.sMin + 4 || neuesS > car.sMax - 4) return false;
+  /* Die neue Laengslage ist die alte Spur, also eine Linie plus oder
+     minus drei - sie liegt damit immer auf der Fahrbahn. Der frueher hier
+     verlangte Sicherheitsabstand von 4 m hat genau das Abbiegen auf den
+     Randstrassen verhindert. */
+  if (neuesS < car.sMin - 0.5 || neuesS > car.sMax + 0.5) return false;
   car.axis = car.axis === 'x' ? 'z' : 'x';
   car.lane = neueLane;
   car.s = neuesS;
@@ -13608,6 +13643,7 @@ function autoKreuzung(car, linie) {
      die drei Meter Fahrbahnwechsel in einem Bild zu springen. */
   car.tempoJetzt *= 0.55;
   car.kurve = 0.55;
+  setzeAutoGrenzen(car);
   return true;
 }
 
@@ -13623,6 +13659,7 @@ function updateCars(dt) {
     if (car.mesh.visible !== fahren) car.mesh.visible = fahren;
     car.aus = !fahren;
     if (!fahren) { car.tempoJetzt = 0; continue; }
+    setzeAutoGrenzen(car);
     let ziel = car.speed;
     const eigenLaenge = (car.typ ? car.typ.laenge : 4.4);
     /* Ein Fluchtauto hält weder an Ampeln noch hinter Vordermännern –
@@ -13697,9 +13734,7 @@ function updateCars(dt) {
     if (car.s > car.sMax || car.s < car.sMin) {
       /* Umkehren statt versetzen - auch auf der Bruecke. Die Spur wird
          dabei gespiegelt (aus L+3 wird L-3), also die Gegenspur. */
-      const bruecke = car.axis === 'x' && Math.abs(car.lane - BRIDGE_Z) < 6;
-      car.s = clamp(car.s, bruecke ? car.sMin + 2 : ORIGIN,
-                    bruecke ? car.sMax - 2 : ORIGIN + BLOCKS * PITCH);
+      car.s = clamp(car.s, car.sMin + 2, car.sMax - 2);
       car.dir = -car.dir;
       car.lane += car.dir * 6;                 // auf die Gegenspur
       car.tempoJetzt *= 0.4;
