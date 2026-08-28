@@ -2905,8 +2905,13 @@ function baueUBahnLinie(linie) {
     ubDeko(0.5, stirnO - stirnU, UB_QUER_Z1 - UB_QUER_Z0 + 1, ex,
          (stirnU + stirnO) / 2,
          (UB_QUER_Z0 + UB_QUER_Z1) / 2, 0x2a2f36);
+    /* Das Hindernis muss GENAU so hoch sein wie die sichtbare Wand.
+       Vorher reichte es von -10,6 bis -0,12, die Wand aber nur bis -3,7 -
+       darueber standen 3,6 m unsichtbare Sperre. Und genau dort laeuft an
+       den beiden aeussersten Stationen der Treppenschacht durch: man kam
+       zwei Stufen weit und stiess gegen nichts. */
     ubCollider({ x0: ex - 0.25, x1: ex + 0.25, z0: UB_QUER_Z0 - 0.5,
-                  z1: UB_QUER_Z1 + 0.5, h: -0.12, y0: UB_GLEIS_TIEF - 0.4,
+                  z1: UB_QUER_Z1 + 0.5, h: stirnO, y0: stirnU,
                   keinKlettern: true });
   }
 }
