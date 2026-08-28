@@ -4487,21 +4487,31 @@ function blendeEin(a, dauer, vonGewicht) {
   else a.fadeIn(dauer);
 }
 /* ---- Masse der Dachhocke ----
-   Nachgemessen an der Vorlage und am eigenen Skelett. Vorher war der
-   Rumpf mit zusammen 104 Grad so weit nach vorn gerollt, dass das Becken
-   hinten herausstand und der Kopf UNTER den Schultern sass (gemessen 62
-   gegen 64 cm ueber dem Dach) - die Figur schaute auf ihre eigenen Fuesse
-   statt ueber die Stadt. Und die Knie standen 20 cm auseinander, das sah
-   o-beinig aus statt gesammelt.
-   Jetzt: 86 Grad Rumpf, Kopf deutlich weiter hoch, Knie enger und hoeher,
-   Fuesse dichter beieinander und ein Stueck weiter unter dem Koerper. */
-const KAU_R1 = 0.58, KAU_R2 = 0.58, KAU_R3 = 0.34;   // Rumpf nach vorn
-const KAU_NACKEN = -1.15, KAU_KOPF = -1.05;          // Kopf wieder hoch
-const KAU_KNIE_V = 0.30, KAU_KNIE_Q = 0.13, KAU_KNIE_H = 0.06;
-const KAU_FUSS_V = -0.04, KAU_FUSS_Q = 0.15, KAU_FUSS_H = -0.44;
-const KAU_FUSS_DREH = 0.62;
-const KAU_ARM_V = 0.10, KAU_ARM_Q = 0.05;            // Oberarm fast senkrecht
-const KAU_UARM_V = 0.06, KAU_UARM_Q = 0.02;          // Unterarm senkrecht
+   Alle Masse stehen in EINEM Objekt, damit sie sich im Testlauf ueber
+   __dbg.kau verstellen und dann nachmessen lassen.
+   Nachgemessen ueber dem Dach (0 = Dachflaeche):
+     Zehenballen 0,00   Fingerspitzen 0,01   Knoechel 0,06
+     Huefte 0,30   Knie 0,44   Schulter 0,61   Kopf 0,63
+   Vorher hing die Figur mit den Knoecheln 13 cm IM Dach, die Zehen und
+   die Fingerspitzen 5 bis 6 cm - der Koerper war zu einem Ball
+   zusammengefaltet (Huefte nur 13 cm, Kopf 46 cm ueber dem Dach) und der
+   Fuss zeigte 13 cm nach HINTEN. Jetzt sitzt sie wie im Vorbild:
+   Zehenballen und Fingerspitzen tragen, die Fersen sind angehoben, die
+   Knie stehen ueber der Huefte, der Kopf schaut ueber die Stadt. */
+const KAU = {
+  r1: 0.58, r2: 0.58, r3: 0.34,      // Rumpf nach vorn
+  nacken: -1.0, kopf: -0.86,         // Kopf hoch, Blick ueber die Stadt
+  knieV: 0.30, knieQ: 0.155, knieH: 0.11,
+  fussV: 0.34, fussQ: 0.185, fussH: -0.62,
+  fussDreh: 0.16, zehTief: 0.05,
+  armV: 0.55, armQ: 0.25, armRest: 0.42,
+  handV: 0.85, handQ: 0.20, handHoch: 0.21,
+};
+/* Wie weit die Sohle unter dem Knoechel liegt (fuer die Stuetzebene der
+   Haende). KAU.handHoch sagt, wie hoch das Handgelenk ueber dieser Ebene
+   gezielt wird: die Fingerspitzen haengen darunter, und nur sie sollen
+   das Dach beruehren. */
+const KAU_SOHLE = 0.095;
 
 const GLB_CLIP_PATTERNS = {
   idle: [/idle/i, /stand/i, /breath/i],
@@ -5390,6 +5400,15 @@ function makeGlbVisual(m) {
   inner.traverse((o) => {
     if (o.isBone && /(left|right) ?foot$/i.test(o.name.replace(/mixamorig:?/i, ''))) fuesse.push(o);
   });
+  /* Die Punkte, mit denen die Figur in der Dachhocke wirklich aufliegt:
+     Zehenballen und Fingerspitzen. Der Knöchel taugt dafür nicht - er
+     steht in der Hocke schräg über dem abgewinkelten Fuß. */
+  const auflagen = [];
+  inner.traverse((o) => {
+    if (!o.isBone) return;
+    const n = o.name.replace(/mixamorig:?/i, '').replace(/\s+/g, '').toLowerCase();
+    if (/^(left|right)toebase$/.test(n) || /^(left|right)handmiddle4$/.test(n)) auflagen.push(o);
+  });
   /* Alle Knochen merken – beim Umfallen wird daran der tiefste Punkt
      gesucht, denn die Füße sind dann nicht mehr das Unterste. */
   const alleKnochen = [];
@@ -5456,6 +5475,7 @@ function makeGlbVisual(m) {
   const _vw1 = new THREE.Vector3(), _vw2 = new THREE.Vector3();
   const _vw3 = new THREE.Vector3(), _vw4 = new THREE.Vector3();
   const _hf = new THREE.Vector3(), _hs = new THREE.Vector3(), _hp = new THREE.Vector3();
+  const _hp2 = new THREE.Vector3();
   const _fh = new THREE.Vector3();
   const _mA = new THREE.Matrix4(), _mB = new THREE.Matrix4();
 
@@ -6538,11 +6558,11 @@ function makeGlbVisual(m) {
          die Schultern blieben 20 cm zu hoch, sodass die Haende die Kante
          nicht erreichten. drehZuRuhe legt die Drehung an die RUHELAGE an,
          der Winkel stimmt dann wirklich. */
-      drehZuRuhe(knochen.spine, KAU_R1, 0, 0, w);
-      drehZuRuhe(knochen.spine1, KAU_R2, 0, 0, w);
-      drehZuRuhe(knochen.spine2, KAU_R3, 0, 0, w);
-      drehZuRuhe(knochen.neck, KAU_NACKEN, 0, 0, w * 0.9);
-      drehZuRuhe(knochen.head, KAU_KOPF, 0, 0, w * 0.9);
+      drehZuRuhe(knochen.spine, KAU.r1, 0, 0, w);
+      drehZuRuhe(knochen.spine1, KAU.r2, 0, 0, w);
+      drehZuRuhe(knochen.spine2, KAU.r3, 0, 0, w);
+      drehZuRuhe(knochen.neck, KAU.nacken, 0, 0, w * 0.9);
+      drehZuRuhe(knochen.head, KAU.kopf, 0, 0, w * 0.9);
       root.updateMatrixWorld(true);
       _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();   // rechts
       _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();   // vorn
@@ -6567,37 +6587,69 @@ function makeGlbVisual(m) {
         const fuss = knochen[p + 'foot'];
         if (ober && unter) {
           /* Knie nach VORN OBEN - das macht die Hocke aus. */
-          zieleKnochen(ober, unter, ziel(KAU_KNIE_V, vz * KAU_KNIE_Q, KAU_KNIE_H), w);
+          zieleKnochen(ober, unter, ziel(KAU.knieV, vz * KAU.knieQ, KAU.knieH), w);
           if (fuss) {
             /* Unterschenkel wieder nach hinten unten auf den Boden. */
-            zieleKnochen(unter, fuss, ziel(KAU_FUSS_V, vz * KAU_FUSS_Q, KAU_FUSS_H), w);
-            /* Fussohle flach: die Zehen zeigen nach vorn, nicht nach
-               unten. Der Fuss haengt am Unterschenkel, deshalb reicht
-               hier eine kleine Nachdrehung. */
-            drehZuRuhe(fuss, KAU_FUSS_DREH, 0, 0, w * 0.85);
+            zieleKnochen(unter, fuss, ziel(KAU.fussV, vz * KAU.fussQ, KAU.fussH), w);
+            /* Fussohle flach und die Zehen NACH VORN.
+               Vorher stand hier nur eine feste Nachdrehung des Fusses.
+               Das reichte nicht: zieleKnochen richtet den Unterschenkel
+               ABSOLUT aus und wirft dabei seine Verdrehung weg - der Fuss
+               haengt daran und zeigte gemessen 13 cm nach HINTEN statt
+               nach vorn. Deshalb wird der Fuss jetzt selbst gezielt: vom
+               Knoechel aus nach vorn, die Spitze ein Stueck tiefer. */
+            const zehe = knochen[p + 'toebase'];
+            if (zehe) {
+              fuss.getWorldPosition(_vw3);
+              zieleKnochen(fuss, zehe, _vw4.copy(_vw3)
+                .addScaledVector(_vw2, 0.16)
+                .addScaledVector(_fh.set(0, 1, 0), -KAU.zehTief), w * 0.95);
+            } else {
+              drehZuRuhe(fuss, KAU.fussDreh, 0, 0, w * 0.85);
+            }
           }
         }
-        /* Die Arme haengen fast SENKRECHT nach unten, damit die Haende
-           wirklich bis auf die Kante kommen. Ein Ziel relativ zur Huefte
-           hat das nicht geschafft: zieleKnochen dreht nur die Richtung,
-           die Armlaenge bleibt - stand das Ziel schraeg vorn, blieb die
-           Hand einen Drittelmeter ueber dem Boden haengen. Deshalb wird
-           hier von SCHULTER und ELLBOGEN aus gezielt, jeweils weit nach
-           unten, sodass die Richtung sauber senkrecht wird. */
+      }
+      /* ---- Die Haende AUF die Flaeche, nicht hinein ----
+         Vorher zeigten die Arme einfach senkrecht nach unten. Der Arm ist
+         aber laenger als der Abstand von der Schulter zum Dach, und weil
+         zieleKnochen nur die RICHTUNG dreht, landete die Hand entsprechend
+         tiefer: gemessen steckten die Fingerspitzen 29 Zentimeter im Dach.
+         Jetzt wird zuerst die Sohlenebene bestimmt (aus dem tiefsten Fuss)
+         und der Zielpunkt dann so gewaehlt, dass die Hand GENAU auf dieser
+         Ebene ankommt - was an Weg uebrig bleibt, geht nach vorn. Das ist
+         auch die Haltung aus dem Vorbild: die Haende stuetzen VOR den
+         Fuessen auf der Kante. */
+      root.updateMatrixWorld(true);
+      let sohle = Infinity;
+      for (const p of ['left', 'right']) {
+        const f = knochen[p + 'foot'];
+        if (!f) continue;
+        f.getWorldPosition(_vw3);
+        sohle = Math.min(sohle, _vw3.y - KAU_SOHLE);
+      }
+      for (const p of ['left', 'right']) {
+        const vz = p === 'left' ? 1 : -1;
         const arm = knochen[p + 'arm'], varm = knochen[p + 'forearm'];
-        if (!arm || !varm) continue;
-        arm.getWorldPosition(_vw3);
-        _vw4.copy(_vw3).addScaledVector(_vw2, KAU_ARM_V)
-            .addScaledVector(_vw1, vz * KAU_ARM_Q)
-            .addScaledVector(_fh.set(0, 1, 0), -1.0);
-        zieleKnochen(arm, varm, _vw4, w);
         const hand = knochen[p + 'hand'];
-        if (!hand) continue;
-        varm.getWorldPosition(_vw3);
-        _vw4.copy(_vw3).addScaledVector(_vw2, KAU_UARM_V)
-            .addScaledVector(_vw1, vz * KAU_UARM_Q)
-            .addScaledVector(_fh.set(0, 1, 0), -1.0);
-        zieleKnochen(varm, hand, _vw4, w);
+        if (!arm || !varm || !hand) continue;
+        /* Zielpunkt auf der Sohlenebene, im richtigen Abstand vom Gelenk:
+           liegt die Ebene naeher als das Glied lang ist, muss der Rest
+           nach vorn gehen, sonst zeigt das Glied unter die Ebene. */
+        const aufEbene = (gelenk, spitze, vorn, quer, rest) => {
+          gelenk.getWorldPosition(_vw3);
+          spitze.getWorldPosition(_hp2);
+          const laenge = _vw3.distanceTo(_hp2);
+          const hoch = _vw3.y - (isFinite(sohle) ? sohle + rest : _vw3.y - laenge);
+          const waag = Math.sqrt(Math.max(0.0004, laenge * laenge - hoch * hoch));
+          return _vw4.copy(_vw3)
+            .addScaledVector(_vw2, vorn * waag)
+            .addScaledVector(_vw1, vz * quer * waag)
+            .setY(_vw3.y - Math.min(hoch, laenge));
+        };
+        zieleKnochen(arm, varm, aufEbene(arm, varm, KAU.armV, KAU.armQ, KAU.armRest), w);
+        varm.updateMatrixWorld(true);
+        zieleKnochen(varm, hand, aufEbene(varm, hand, KAU.handV, KAU.handQ, KAU.handHoch), w);
       }
     },
     poseDreiPunkt(k, seite) {
@@ -6691,12 +6743,37 @@ function makeGlbVisual(m) {
          deutlich hoeher ueber die Wurzel als der Stand - gemessen schwebte
          der tiefste Fuss beim Kriechen 40,7 cm ueber dem Gehweg, und der
          Ausgleich lief in genau diesen Anschlag. Mit -0,7 reicht er aus. */
-      const ziel = clamp(bodenKorrektur + fehler, -0.7, 0.35);
+      /* Die Untergrenze lag bei -0,7. In der Dachhocke zieht die Haltung
+         die Fuesse so weit an, dass der Ausgleich weiter musste - er lief
+         in den Anschlag, und die ganze Figur stand gemessen 13 cm zu tief
+         im Dach (die Fingerspitzen 24). Mit -1,1 reicht er. */
+      const ziel = clamp(bodenKorrektur + fehler, -1.1, 0.35);
       /* Der Ausgleich wird in BEIDE Richtungen gleich weich nachgeführt.
          Früher sprang er nach oben sofort – beim Laufen wandert der tiefste
          Fuß aber in jedem Schritt auf und ab, dadurch hüpfte der ganze
          Körper im Schritttakt. Genau das hat das Laufen unruhig gemacht. */
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.35));
+      inner.position.y = basisY + bodenKorrektur;
+    },
+    /* Dachhocke: Hände und Füße sollen wirklich AUFLIEGEN.
+       Der allgemeine bodenAusgleich zielt auf den Knöchel in Bindehöhe.
+       In der Hocke stimmt dieses Ziel nicht: der Fuß ist abgewinkelt, die
+       Zehen tragen, und die Hände stützen mit. Gemessen sass die Figur
+       deshalb mit den Knöcheln 13 cm im Dach, den Zehenballen 6 cm und den
+       Fingerspitzen ebenfalls 6 cm - und der Ausgleich lief zusätzlich in
+       seinen unteren Anschlag.
+       Hier wird stattdessen der tiefste ECHTE Auflagepunkt gesucht und
+       genau auf die Dachfläche (root.position.y) gelegt. Weil inner ein
+       starres Kind von root ist, verschiebt das alle Knochen gemeinsam -
+       die Haltung bleibt, sie sitzt nur richtig auf. */
+    hockeAusgleich(k) {
+      const punkte = auflagen.length ? auflagen : fuesse;
+      if (!punkte.length) return;
+      root.updateMatrixWorld(true);
+      let tiefster = Infinity;
+      for (const b of punkte) { b.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
+      const ziel = clamp(bodenKorrektur + (root.position.y - tiefster), -1.1, 0.9);
+      bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.5));
       inner.position.y = basisY + bodenKorrektur;
     },
     /* Ducken: tief in die Knie, Rumpf nach vorn, Arme angelegt. Die
@@ -11599,7 +11676,8 @@ function updateHeroVisual(dt) {
       /* Auf der Dachkante wird die Hocke GESETZT, nicht abgespielt. Keine
          Bewegung aus dem Paket gibt diese Haltung her. */
       heroVisual.poseKauern(clamp((player.hockeT - 0.9) * 4, 0, 1));
-      heroVisual.bodenAusgleich(Math.min(1, dt * 14));
+      if (heroVisual.hockeAusgleich) heroVisual.hockeAusgleich(Math.min(1, dt * 14));
+      else heroVisual.bodenAusgleich(Math.min(1, dt * 14));
     } else if (player.dreiPunktT > 0) {
       /* Ein- und wieder ausblenden, damit die Pose nicht umspringt. */
       const p = player.dreiPunktT / 0.62;
@@ -16219,6 +16297,7 @@ if (window.__WEBHERO_TEST__ === true) {
     get actorsReady() { return actorsReady; },
     get heroVisual() { return heroVisual; },
     colliders,
+    kau: KAU,
     get ziehFest() { return ZIEH_FEST; },
     get ziehLose() { return ZIEH; },
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
