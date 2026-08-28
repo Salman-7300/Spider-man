@@ -3537,8 +3537,16 @@ function buildBlockBuildings(cx, cz, loecher) {
    Absprung im richtigen Moment. Lose Sachen wie Muelltonnen liegen in
    ZIEH und werden umgekehrt behandelt. */
 const ZIEH_FEST = [];
+/* Oben auf jedem dieser Punkte laesst sich stehen. Ohne diese kleine
+   Standflaeche zog einen das Netz zwar hin, aber es gab dort nichts, worauf
+   man landen konnte - man flog daran vorbei und fiel weiter. */
+function ziehFestPunkt(x, y, z) {
+  ZIEH_FEST.push(V3(x, y, z));
+  addCollider({ x0: x - 0.34, x1: x + 0.34, z0: z - 0.34, z1: z + 0.34,
+                h: y, y0: y - 0.5, klein: true, keinKlettern: true });
+}
 function addLamp(x, z) {
-  ZIEH_FEST.push(V3(x, SLAB_H + 4.0, z));
+  ziehFestPunkt(x, SLAB_H + 4.0, z);
   const g = new THREE.Group();
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.4, 6),
     new THREE.MeshLambertMaterial({ color: 0x2c2f33 }));
@@ -7907,6 +7915,37 @@ function ziehZiel(weite, minDot) {
   return best;
 }
 
+/* Den gehaltenen Gegenstand werfen. gezielt = auf den anvisierten Gegner,
+   sonst einfach in Blickrichtung; ohne Schwung faellt er nur herunter. */
+function ziehWirf(o, gezielt) {
+  if (!o || o.zustand !== 'halt') return;
+  o.zustand = 'weg'; o.t = 0; o.getroffen = null;
+  if (player.haeltObjekt === o) player.haeltObjekt = null;
+  player.fadenZiel = null;
+  if (!gezielt) {
+    /* Losgelassen: faellt einfach zu Boden. */
+    o.vel.set(player.vel.x * 0.3, 0, player.vel.z * 0.3);
+    return;
+  }
+  const e = coneTargetEnemy(30, 0.35);
+  if (e) {
+    /* Auf den Gegner zielen, mit etwas Vorhalt fuer die Wurfzeit. */
+    _v1.set(e.pos.x - o.mesh.position.x, e.pos.y + 0.9 - o.mesh.position.y,
+            e.pos.z - o.mesh.position.z);
+    const w = _v1.length() || 1;
+    _v1.multiplyScalar(ZIEH_TEMPO_WEG / w);
+    _v1.y += w * 0.18;                    // Bogen, damit er nicht flach durchschiesst
+    o.vel.copy(_v1);
+    popupWorld('Wurf!', o.mesh.position, '#bfe8ff');
+  } else {
+    const f = camForward();
+    o.vel.set(f.x * ZIEH_TEMPO_WEG, 3.2 + clamp(camPitch, -0.3, 0.8) * 16,
+              f.z * ZIEH_TEMPO_WEG);
+  }
+  camShake = Math.max(camShake, 0.12);
+  SFX.swoosh();
+}
+
 /* Den naechsten FESTEN Zugpunkt im Blickkegel suchen (Laterne, Ampel). */
 function ziehFestZiel(weite, minDot) {
   const f = camForward();
@@ -7933,16 +7972,32 @@ function updateZiehObjekte(dt) {
       _v1.set(player.pos.x - p.x, player.pos.y + 1.25 - p.y, player.pos.z - p.z);
       const w = _v1.length();
       player.fadenZiel = p; player.fadenHand = o.hand;
-      if (w < 1.5 || o.t > 1.6) {
-        /* Angekommen: in Blickrichtung weiterschleudern. */
-        const f = camForward();
-        o.vel.set(f.x * ZIEH_TEMPO_WEG, 3.2 + clamp(camPitch, -0.3, 0.8) * 16,
-                  f.z * ZIEH_TEMPO_WEG);
-        o.zustand = 'weg'; o.t = 0;
-        SFX.swoosh();
+      if (w < 1.6 || o.t > 1.6) {
+        /* ---- Angekommen: der Gegenstand bleibt am Netz ----
+           Vorher flog er im selben Moment weiter, in die Richtung, in die
+           man gerade zufaellig schaute. Zielen war unmoeglich.
+           Jetzt haengt er am Faden vor der Figur, bis man ihn wirft - so
+           wie Spider-Man eine Muelltonne heranreisst, sie kurz haelt und
+           dann auf jemanden wirft. */
+        o.zustand = 'halt'; o.t = 0;
+        player.haeltObjekt = o;
+        popupScreen('Q = werfen');
+        SFX.web();
       } else {
         _v1.multiplyScalar(ZIEH_TEMPO_HIN / (w || 1));
         p.addScaledVector(_v1, dt);
+      }
+    } else if (o.zustand === 'halt') {
+      /* Am Faden vor der Figur mitfuehren, leicht schwebend. */
+      const f = _v2.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+      _v1.set(player.pos.x + f.x * 1.05, player.pos.y + 1.35 + Math.sin(elapsed * 2.4) * 0.05,
+              player.pos.z + f.z * 1.05);
+      p.lerp(_v1, Math.min(1, dt * 12));
+      player.fadenZiel = p; player.fadenHand = o.hand;
+      /* Nach acht Sekunden faellt er von allein herunter - sonst laeuft
+         man den Rest des Spiels mit einer Muelltonne herum. */
+      if (o.t > 8 || player.dead || player.state === 'swing' || player.state === 'climb') {
+        ziehWirf(o, false);
       }
     } else if (o.zustand === 'weg') {
       o.vel.y -= CFG.gravity * dt;
@@ -8033,6 +8088,7 @@ const player = {
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
   schussT: 0, schussZiel: V3(0, 0, 0), wurfT: 0, freiFallMisch: 0,
+  haeltObjekt: null,
   hurtCd: 0, regenCd: 0,
   platform: null,
   lastDamageFrom: null,
@@ -9101,6 +9157,18 @@ function coneTargetEnemy(maxDist, minDot) {
 
 function webShot() {
   if (!heroVisual || player.dead || player.attackCd > 0.05) return;
+  /* Haelt man schon etwas am Netz, wirft derselbe Knopf es. */
+  if (player.haeltObjekt) {
+    const o = player.haeltObjekt;
+    const hand = wechsleNetzHand();
+    if (heroVisual.attackOneShot && heroVisual.hatClip && heroVisual.hatClip('wurf')) {
+      player.attack = { type: 'web', t: 0, hitDone: true };
+      player.attackCd = 0.4;
+      heroVisual.attackOneShot(0, 'wurf', 0.45);
+    }
+    ziehWirf(o, true);
+    return;
+  }
   player.attack = { type: 'web', t: 0, hitDone: true };
   player.attackCd = 0.34;
   const hand = wechsleNetzHand();
@@ -9142,7 +9210,7 @@ function webShot() {
     } else if (fest) {
       player.schussZiel.copy(fest);
       if (heroVisual.poseSchuss) heroVisual.poseSchuss(fest, hand, 1);
-      zipZuPunkt(fest.clone(), hand);
+      zipZuPunkt(fest.clone(), hand, null, true);
       popupWorld('Ranziehen!', fest, '#bfe8ff');
     }
   }
@@ -9213,7 +9281,7 @@ function webZip() {
    E zieht zum Gegner oder an eine Hauskante, Q an einen festen Gegenstand
    (Laterne, Ampel). Beide sollen sich gleich anfuehlen - samt dem
    Absprung im richtigen Moment. */
-function zipZuPunkt(target, hand, enemy) {
+function zipZuPunkt(target, hand, enemy, fest) {
   stopSwing(false);
   player.state = 'zip';
   /* Kein harter Geschwindigkeitsstoss mehr. Vorher wurde die
@@ -9227,8 +9295,14 @@ function zipZuPunkt(target, hand, enemy) {
      Strecke ab, und der Angriff kam nie zustande. */
   const weg = Math.hypot(target.x - player.pos.x, target.y - player.pos.y - 1.1,
                          target.z - player.pos.z);
+  /* Die Zugzeit richtet sich IMMER nach der Entfernung. Feste 0,9 s ohne
+     Gegner reichten nur fuer knapp zehn Meter: bei einer Laterne in
+     sechzehn Metern brach der Zug auf halber Strecke ab, man flog daran
+     vorbei - und weil der Zug da schon vorbei war, gab die Leertaste auch
+     keinen Schub mehr. */
   player.zip = { target, enemy: enemy || null, hand, weit: weg > 16,
-                 t: enemy ? clamp(weg / 13 + 0.7, 0.9, 3.2) : 0.9,
+                 fest: !!fest,
+                 t: clamp(weg / 13 + 0.7, 0.9, 3.2),
                  tempo: Math.max(16, Math.hypot(player.vel.x, player.vel.z)) };
   /* Kein zusätzlicher Blitz-Faden: der Zip zieht den Faden ohnehin die
      ganze Zeit mit. Beide zusammen sahen aus wie zwei Netze. */
@@ -10277,13 +10351,25 @@ function updatePlayer(dt) {
     const d = _v1.set(t.x - player.pos.x, t.y - player.pos.y, t.z - player.pos.z);
     const dist = d.length();
     player.fadenZiel = t; player.fadenHand = z.hand;
-    const ende = dist < (z.enemy ? 2.3 : 2.0) || z.t <= 0 || (z.enemy && z.enemy.dead);
+    const ende = dist < (z.enemy ? 2.3 : z.fest ? 1.4 : 2.0) || z.t <= 0 ||
+                 (z.enemy && z.enemy.dead);
     if (ende) {
       swingStrand.visible = false;
       if (z.enemy && !z.enemy.dead && dist < 4.2) zipAngriff(z.enemy);
+      else if (z.fest && dist < 2.2) {
+        /* ---- Oben auf der Laterne ankommen ----
+           Vorher flog man einfach daran vorbei. Jetzt setzt man sich
+           obendrauf: Fuesse auf die Spitze, Schwung raus, und die Figur
+           geht in dieselbe Hocke wie auf einer Dachkante. */
+        player.pos.set(t.x, t.y + 0.02, t.z);
+        player.vel.set(0, 0, 0);
+        player.onGround = true;
+        player.hockeT = 1.0;
+        popupWorld('Aufgesessen', t, '#bfe8ff');
+      }
       else player.vel.multiplyScalar(0.45);
       player.zip = null;
-      player.state = 'air';
+      player.state = player.onGround ? 'ground' : 'air';
     } else {
       /* Ziehen statt schieben: das Tempo steigt ueber die Zugstrecke an,
          und die vorhandene Geschwindigkeit wird auf die Fadenrichtung
@@ -13177,7 +13263,7 @@ function baueAmpeln() {
       for (const [sx, sz] of [[1, 1], [-1, -1]]) {
         const px = x + sx * (ROAD_HALF + 1.2), pz = z + sz * (ROAD_HALF + 1.2);
         stellen.push([px, pz]);
-        ZIEH_FEST.push(V3(px, SLAB_H + 4.6, pz));      // Mast als Zugpunkt
+        ziehFestPunkt(px, SLAB_H + 4.6, pz);           // Mast als Zugpunkt
         deko(0.22, 5.2, 0.22, px, SLAB_H + 2.6, pz, 0x2c3037);          // Mast
         /* Zwei getrennte Signalköpfe: einer für die Ost-West-Richtung,
            einer für Nord-Süd. Vorher saßen beide an derselben Stelle und
