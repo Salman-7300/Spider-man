@@ -8484,7 +8484,7 @@ const helpBox = document.getElementById('help');
    noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
    nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
    war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
-const BAU_STAND = '2026-08-29 / 17';
+const BAU_STAND = '2026-08-29 / 18';
 if (helpBox) {
   const z = document.createElement('div');
   z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
@@ -14649,6 +14649,30 @@ function updateCars(dt) {
         if (d > -1.5 && d < bremsweg) ziel = Math.min(ziel, Math.max(0, d * 1.6));
       }
 
+      /* ---- Fussgaenger auf der Fahrbahn ----
+         Vorrang bekommt NUR, wer die Strasse schon betreten hat. Wer noch
+         auf dem Gehweg wartet, haelt keinen Verkehr auf - sonst warten
+         Auto und Fussgaenger gegenseitig aufeinander und keiner faehrt
+         oder geht je wieder. Geprueft wird gegen die kurze Liste der
+         Querenden, nicht gegen alle 22 Zivilisten. */
+      for (let qi = 0; qi < AUF_FAHRBAHN.length; qi++) {
+        const fg = AUF_FAHRBAHN[qi];
+        if (Math.abs(fg.pos.y) > 3) continue;
+        const laengs = car.axis === 'x' ? (fg.pos.x - car.s) * car.dir
+                                        : (fg.pos.z - car.s) * car.dir;
+        if (laengs < -1.5 || laengs > 30) continue;
+        const quer = car.axis === 'x' ? Math.abs(fg.pos.z - car.lane)
+                                      : Math.abs(fg.pos.x - car.lane);
+        if (quer > 3.0) continue;
+        const d = laengs - (eigenLaenge / 2 + 1.6);
+        if (d < 0.5) { ziel = 0; car.fussgaenger = 1.2; }
+        else if (d < 9) { ziel = Math.min(ziel, Math.max(0, d * 0.9)); car.fussgaenger = 1.2; }
+        else ziel = Math.min(ziel, car.speed * 0.7);   // aus der Ferne nur vom Gas
+      }
+      /* Ist der Fussgaenger drueben, faehrt der Wagen wieder an - weich,
+         ueber die normale Beschleunigung, und ohne Geisterstopps. */
+      if (car.fussgaenger > 0) car.fussgaenger -= dt;
+
       /* ---- Querverkehr beachten ----
          Bisher regelte allein die Ampel, wer faehrt. An der Uferstrasse
          steht aber keine, und ein Fluchtauto haelt an keiner - dort fuhren
@@ -14832,6 +14856,884 @@ function collidePlayerCars(prevY) {
 /* ======================= Zivilisten ======================= */
 const civilians = [];
 
+/* ======================= Fussgaengernetz =======================
+   Bisher lief jeder Passant auf einem RECHTECK um genau einen Block -
+   vier Wegpunkte, ewig im Kreis, und wer eine Strasse ueberquerte, tat
+   das irgendwo und irgendwann. Die Stadt wirkte dadurch wie eine Kulisse
+   mit Statisten.
+   Jetzt gibt es ein richtiges Wegenetz: Knoten auf den Gehwegen, Kanten
+   dazwischen, und eigene UEBERWEGE dort, wo eine Strasse gequert wird.
+   Kein Navigationsnetz und keine Bibliothek - die Stadt steht auf einem
+   regelmaessigen Raster, und genau daraus wird das Netz gerechnet.
+   Der Aufbau passiert EINMAL beim ersten Gebrauch, nicht in jedem Bild. */
+const GEH = {
+  knoten: [],          // { x, z, y, art, kanten: [] }
+  raster: new Map(),   // Zellenschluessel -> Knotennummern (schnelle Suche)
+  zellen: 16,
+  fertig: false,
+  ueberwege: 0,
+  inseln: 0,
+};
+/* Knotenarten: 'weg' (Gehweg), 'ecke' (Blockecke), 'prom' (Promenade),
+   'bruecke', 'ufer' (Stadtteil drueben), 'ubahn' (Treppenkopf). Mehr
+   braucht es nicht - jede weitere Art muesste auch etwas anderes tun. */
+function gehZelle(x, z) {
+  return Math.floor(x / GEH.zellen) + ',' + Math.floor(z / GEH.zellen);
+}
+function gehSetzeKnoten(x, z, art) {
+  /* Doppelte Knoten zusammenfassen: zwei Bloecke teilen sich keine Ecke,
+     aber Promenade und Bruecke treffen sich sehr wohl. */
+  const k = gehZelle(x, z);
+  const liste = GEH.raster.get(k);
+  if (liste) {
+    for (const i of liste) {
+      const n = GEH.knoten[i];
+      if (Math.abs(n.x - x) < 1.2 && Math.abs(n.z - z) < 1.2) return i;
+    }
+  }
+  const i = GEH.knoten.length;
+  GEH.knoten.push({ x, z, y: groundY(x, z), art: art || 'weg', kanten: [] });
+  if (!liste) GEH.raster.set(k, [i]); else liste.push(i);
+  return i;
+}
+/* Liegt der Punkt auf begehbarem Grund? Gehweghoehe, kein Wasser, nicht
+   in einem Haus. Genau diese Pruefung haelt Knoten aus Gebaeuden und aus
+   dem Fluss heraus. */
+function gehBegehbar(x, z, erlaubeStrasse) {
+  if (inWater(x, z)) return false;
+  const y = groundY(x, z);
+  if (y < -0.5) return false;                       // Schacht, Tunnel
+  if (!erlaubeStrasse && y < SLAB_H - 0.05 && !onBridge(x, z)) return false;
+  for (const c of collidersNear(x, z)) {
+    if (c.h < 0.55) continue;                       // Bordstein, Flachdeko
+    if (x > c.x0 - 0.3 && x < c.x1 + 0.3 && z > c.z0 - 0.3 && z < c.z1 + 0.3 &&
+        c.h > y + 0.4) return false;
+  }
+  return true;
+}
+/* Eine Kante darf nicht durch ein Haus, eine Mauer oder den Fluss
+   laufen. Geprueft wird an Stuetzstellen alle zwei Meter. */
+function gehKanteFrei(a, b, ueberweg) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const laenge = Math.hypot(dx, dz);
+  const n = Math.max(2, Math.ceil(laenge / 2));
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    if (!gehBegehbar(a.x + dx * t, a.z + dz * t, ueberweg)) return false;
+  }
+  return true;
+}
+function gehVerbinde(ia, ib, opt) {
+  if (ia === ib) return false;
+  const a = GEH.knoten[ia], b = GEH.knoten[ib];
+  const laenge = Math.hypot(b.x - a.x, b.z - a.z);
+  if (laenge < 0.5) return false;
+  for (const k of a.kanten) if (k.zu === ib) return false;
+  if (!gehKanteFrei(a, b, opt && opt.ueberweg)) return false;
+  const k1 = Object.assign({ zu: ib, laenge }, opt || {});
+  const k2 = Object.assign({ zu: ia, laenge }, opt || {});
+  a.kanten.push(k1); b.kanten.push(k2);
+  if (opt && opt.ueberweg) GEH.ueberwege++;
+  return true;
+}
+
+const GEH_RING = PITCH / 2 - ROAD_HALF - 2;      // 17 m von der Blockmitte
+function gehBlockMitte(bi, bj) {
+  return { x: ORIGIN + bi * PITCH + PITCH / 2, z: ORIGIN + bj * PITCH + PITCH / 2 };
+}
+function baueGehnetz() {
+  if (GEH.fertig) return;
+  GEH.fertig = true;
+  const t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+  const R = GEH_RING;
+  /* ---- 1. Gehwegringe um jeden Block ----
+     Vier Ecken plus je zwei Zwischenpunkte auf jeder Seite. Die Ecken
+     sind wichtig: erst dort kann sich ein Passant entscheiden, ob er
+     geradeaus geht, abbiegt oder die Strasse quert. */
+  const ecken = [];        // [bi][bj] -> {sw, se, nw, ne} Knotennummern
+  for (let bi = 0; bi < BLOCKS; bi++) {
+    ecken[bi] = [];
+    for (let bj = 0; bj < BLOCKS; bj++) {
+      const m = gehBlockMitte(bi, bj);
+      const e = {};
+      const paare = [['sw', -1, -1], ['se', 1, -1], ['nw', -1, 1], ['ne', 1, 1]];
+      for (const [name, sx, sz] of paare) {
+        const x = m.x + sx * R, z = m.z + sz * R;
+        e[name] = gehBegehbar(x, z) ? gehSetzeKnoten(x, z, 'ecke') : -1;
+      }
+      ecken[bi][bj] = e;
+      /* Die vier Seiten mit Zwischenpunkten fuellen. */
+      const seiten = [['sw', 'se', 0], ['nw', 'ne', 0], ['sw', 'nw', 1], ['se', 'ne', 1]];
+      for (const [a, b, achse] of seiten) {
+        if (e[a] < 0 || e[b] < 0) continue;
+        const A = GEH.knoten[e[a]], B = GEH.knoten[e[b]];
+        let vor = e[a];
+        for (let s = 1; s <= 2; s++) {
+          const t = s / 3;
+          const x = A.x + (B.x - A.x) * t, z = A.z + (B.z - A.z) * t;
+          if (!gehBegehbar(x, z)) continue;
+          const i = gehSetzeKnoten(x, z, 'weg');
+          gehVerbinde(vor, i);
+          vor = i;
+        }
+        gehVerbinde(vor, e[b]);
+      }
+    }
+  }
+  /* ---- 2. Ueberwege ----
+     Gequert wird nur hier, an den Ecken der Kreuzungen - nirgends sonst.
+     Ein Ueberweg fuehrt IMMER von einem Gehweg ueber genau eine Strasse
+     auf den Gehweg gegenueber; die gequerte Strasse und ihre Achse
+     stehen an der Kante, damit die Verkehrspruefung weiss, worauf sie
+     achten muss. */
+  for (let bi = 0; bi < BLOCKS; bi++) {
+    for (let bj = 0; bj < BLOCKS; bj++) {
+      const m = gehBlockMitte(bi, bj);
+      /* nach Osten: quert die Strasse auf der Linie x = m.x + PITCH/2,
+         die Strasse laeuft in z-Richtung. */
+      if (bi + 1 < BLOCKS) {
+        const nach = ecken[bi + 1][bj];
+        for (const [hier, dort] of [['se', 'sw'], ['ne', 'nw']]) {
+          if (ecken[bi][bj][hier] < 0 || nach[dort] < 0) continue;
+          gehVerbinde(ecken[bi][bj][hier], nach[dort],
+            { ueberweg: true, achse: 'z', linie: m.x + PITCH / 2 });
+        }
+      }
+      /* nach Norden: Strasse auf z = m.z + PITCH/2, laeuft in x-Richtung. */
+      if (bj + 1 < BLOCKS) {
+        const nach = ecken[bi][bj + 1];
+        for (const [hier, dort] of [['nw', 'sw'], ['ne', 'se']]) {
+          if (ecken[bi][bj][hier] < 0 || nach[dort] < 0) continue;
+          gehVerbinde(ecken[bi][bj][hier], nach[dort],
+            { ueberweg: true, achse: 'x', linie: m.z + PITCH / 2 });
+        }
+      }
+    }
+  }
+  /* ---- 3. Promenade ----
+     Sie ist durchgehender Gehweg zwischen Uferstrasse und Fluss - keine
+     Strasse, also auch kein Ueberweg noetig. Eine Kette von Knoten in
+     der Mitte des Streifens. */
+  const promX = (PROM_X0 + RIVER_X0) / 2;
+  const promKnoten = [];
+  for (let z = -190; z <= 190; z += 14) {
+    /* Auf dem Brueckendeck steht KEIN Promenadenknoten: dort verlaufen
+       die Fahrspuren, und das Gelaender riegelt den Streifen ohnehin ab.
+       Die Promenade ist an dieser Stelle wirklich unterbrochen - der
+       Weg herum wird gleich unten gebaut. */
+    if (onBridge(promX, z)) { promKnoten.push(-1); continue; }
+    if (!gehBegehbar(promX, z)) { promKnoten.push(-1); continue; }
+    const i = gehSetzeKnoten(promX, z, 'prom');
+    promKnoten.push(i);
+    if (promKnoten.length > 1) {
+      const vor = promKnoten[promKnoten.length - 2];
+      if (vor >= 0) gehVerbinde(vor, i);
+    }
+  }
+  /* Anschluss an die oestlichste Blockspalte: ein Ueberweg ueber die
+     Uferstrasse. */
+  {
+    const bi = BLOCKS - 1;
+    for (let bj = 0; bj < BLOCKS; bj++) {
+      const e = ecken[bi][bj];
+      for (const name of ['se', 'ne']) {
+        if (e[name] < 0) continue;
+        const A = GEH.knoten[e[name]];
+        let best = -1, bestD = 26;
+        for (const i of promKnoten) {
+          if (i < 0) continue;
+          const d = Math.abs(GEH.knoten[i].z - A.z);
+          if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best >= 0) {
+          gehVerbinde(e[name], best,
+            { ueberweg: true, achse: 'z', linie: RASTER_X1 });
+        }
+      }
+    }
+  }
+  /* ---- 4. Bruecke ----
+     Gemessen: der Streifen zwischen aeusserer Fahrspur und Gelaender ist
+     knapp drei Meter breit. Auf dem Papier ist das ein Gehweg - in der
+     Praxis kamen Passanten dort nicht durch. Sie standen zwischen der
+     unsichtbaren Gelaenderwand und den vorbeifahrenden Wagen, wichen
+     staendig aus und blieben haengen; in einem Testlauf ueber fuenf
+     Minuten kam keiner ueber den Fluss.
+     Deshalb fuehrt das Fussgaengernetz NICHT ueber die Bruecke. Was
+     bleibt, ist der Weg um den Brueckenkopf herum: die Promenade wird
+     dadurch nicht von der Auffahrt zerschnitten. Der Stadtteil drueben
+     ist zu Fuss nicht angebunden - das steht so in der Statistik, statt
+     dass jemand auf der Fahrbahn landet. */
+  const BRUECKE_GEHWEG = false;
+  /* Zwischen der aeusseren Fahrspurkante (BRIDGE_Z +/- 4) und dem
+     Gelaender (+/- 7,0) bleibt ein knapp drei Meter breiter Streifen.
+     Der Gehweg liegt darin so weit aussen, dass die Passanten NICHT
+     dauernd vor den Wagen zur Seite springen: die Ausweichreflex-Schwelle
+     liegt bei 2,6 m Querabstand zur Spurmitte, hier sind es 3,1 m. Mit
+     5,5 m sprangen sie unablaessig gegen das Gelaender und kamen keinen
+     Meter voran. */
+  const brZ = [BRIDGE_Z - 6.1, BRIDGE_Z + 6.1];
+  const brKetten = [];
+  for (const bz of (BRUECKE_GEHWEG ? brZ : [])) {
+    const kette = [];
+    for (let x = BR_X0 + 2; x <= BR_X1 - 2; x += 16) {
+      if (!gehBegehbar(x, bz, true)) { kette.push(-1); continue; }
+      const i = gehSetzeKnoten(x, bz, 'bruecke');
+      kette.push(i);
+      /* Entlang der Bruecke ist das ein GEHWEG, kein Ueberweg - hier
+         wird nichts gequert. Als Ueberweg markiert liess das jeden
+         Passanten an jedem Knoten auf Verkehr warten. */
+      if (kette.length > 1 && kette[kette.length - 2] >= 0) {
+        gehVerbinde(kette[kette.length - 2], i);
+      }
+    }
+    brKetten.push(kette);
+  }
+  /* ---- Der Weg um den Brueckenkopf ----
+     Das Gelaender der Bruecke beginnt erst bei BR_X0; westlich davon
+     liegt die Auffahrt. Genau dort kommt man von der Promenade auf den
+     Brueckengehweg und von der einen Seite der Promenade auf die
+     andere. Ohne diese vier Punkte waere der suedliche Teil der
+     Promenade vom noerdlichen getrennt und die Bruecke ueberhaupt nicht
+     zu Fuss erreichbar. */
+  {
+    const kx = BR_X0 - 3;
+    const kopf = {}, um = {};
+    for (const s2 of [-1, 1]) {
+      const zk = BRIDGE_Z + s2 * 6.1, zu = BRIDGE_Z + s2 * 9.5;
+      if (BRUECKE_GEHWEG && gehBegehbar(kx, zk, true)) kopf[s2] = gehSetzeKnoten(kx, zk, 'bruecke');
+      if (gehBegehbar(kx, zu, true)) um[s2] = gehSetzeKnoten(kx, zu, 'prom');
+    }
+    /* Kopf an den Brueckengehweg derselben Seite. */
+    for (let si = 0; si < brKetten.length; si++) {
+      const erst = brKetten[si].find((i) => i >= 0);
+      if (erst === undefined || erst < 0) continue;
+      const zB = GEH.knoten[erst].z;
+      const s2 = zB < BRIDGE_Z ? -1 : 1;
+      if (kopf[s2] !== undefined) gehVerbinde(kopf[s2], erst);
+    }
+    /* Kopf an den Umgehungspunkt, Umgehungspunkt an die Promenade. */
+    for (const s2 of [-1, 1]) {
+      if (kopf[s2] === undefined || um[s2] === undefined) continue;
+      gehVerbinde(kopf[s2], um[s2], { ueberweg: true, achse: 'x', linie: BRIDGE_Z });
+      const A = GEH.knoten[um[s2]];
+      let best = -1, bestD = 22;
+      for (const i of promKnoten) {
+        if (i < 0) continue;
+        const d = Math.hypot(GEH.knoten[i].x - A.x, GEH.knoten[i].z - A.z);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0) gehVerbinde(um[s2], best);
+    }
+    /* Und die beiden Umgehungspunkte miteinander - das ist der Ueberweg
+       ueber die Brueckenauffahrt. */
+    if (um[-1] !== undefined && um[1] !== undefined) {
+      gehVerbinde(um[-1], um[1], { ueberweg: true, achse: 'x', linie: BRIDGE_Z });
+    }
+  }
+  /* Am Brueckenkopf ein Ueberweg zwischen den beiden Gehwegen. Ohne ihn
+     ist der suedliche Streifen nicht erreichbar: das Gelaender laeuft
+     ueber die ganze Bruecke, und daneben liegt der Fluss. */
+  if (brKetten.length === 2) {
+    for (const ende of [0, 1]) {
+      const a = ende === 0 ? brKetten[0].find((i) => i >= 0)
+                           : brKetten[0].slice().reverse().find((i) => i >= 0);
+      const b = ende === 0 ? brKetten[1].find((i) => i >= 0)
+                           : brKetten[1].slice().reverse().find((i) => i >= 0);
+      if (a !== undefined && b !== undefined && a >= 0 && b >= 0) {
+        gehVerbinde(a, b, { ueberweg: true, achse: 'x', linie: BRIDGE_Z });
+      }
+    }
+  }
+  /* ---- 5. Stadtteil am anderen Ufer ----
+     Eigenes, kleineres Raster ohne Autoverkehr - dort reichen Ringe und
+     einfache Verbindungen. */
+  const uferEcken = [];
+  for (let bi = 0; bi < SHORE_NX; bi++) {
+    uferEcken[bi] = [];
+    for (let bj = 0; bj < SHORE_NZ; bj++) {
+      const cx = SHORE_OX + bi * SHORE_PITCH + SHORE_PITCH / 2;
+      const cz = SHORE_OZ + bj * SHORE_PITCH + SHORE_PITCH / 2;
+      const e = {};
+      if (!uferBlockFrei(cx, cz)) { uferEcken[bi][bj] = e; continue; }
+      const r = SHORE_PITCH / 2 - SHORE_ROAD - 1.5;
+      for (const [name, sx, sz] of [['sw', -1, -1], ['se', 1, -1], ['nw', -1, 1], ['ne', 1, 1]]) {
+        const x = cx + sx * r, z = cz + sz * r;
+        e[name] = gehBegehbar(x, z) ? gehSetzeKnoten(x, z, 'ufer') : -1;
+      }
+      for (const [a, b] of [['sw', 'se'], ['nw', 'ne'], ['sw', 'nw'], ['se', 'ne']]) {
+        if (e[a] >= 0 && e[b] >= 0) gehVerbinde(e[a], e[b]);
+      }
+      uferEcken[bi][bj] = e;
+    }
+  }
+  for (let bi = 0; bi < SHORE_NX; bi++) {
+    for (let bj = 0; bj < SHORE_NZ; bj++) {
+      const e = uferEcken[bi][bj];
+      const o = bi + 1 < SHORE_NX ? uferEcken[bi + 1][bj] : null;
+      const n = bj + 1 < SHORE_NZ ? uferEcken[bi][bj + 1] : null;
+      if (o) for (const [h, d] of [['se', 'sw'], ['ne', 'nw']])
+        if (e[h] >= 0 && o[d] >= 0) gehVerbinde(e[h], o[d], { ueberweg: true, achse: 'z', linie: null });
+      if (n) for (const [h, d] of [['nw', 'sw'], ['ne', 'se']])
+        if (e[h] >= 0 && n[d] >= 0) gehVerbinde(e[h], n[d], { ueberweg: true, achse: 'x', linie: null });
+    }
+  }
+  /* Ostende der Bruecke an den Stadtteil haengen. */
+  for (const kette of brKetten) {
+    let letzt = -1;
+    for (const i of kette) if (i >= 0) letzt = i;
+    if (letzt < 0) continue;
+    const A = GEH.knoten[letzt];
+    let best = -1, bestD = 30;
+    for (let i = 0; i < GEH.knoten.length; i++) {
+      const n = GEH.knoten[i];
+      if (n.art !== 'ufer') continue;
+      const d = Math.hypot(n.x - A.x, n.z - A.z);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best >= 0) gehVerbinde(letzt, best, { ueberweg: true, achse: 'x', linie: null });
+  }
+  /* ---- 6. U-Bahn-Treppenkoepfe ----
+     Sie liegen auf dem Gehweg. Ein Knoten dort macht die Station zu
+     einem echten Ziel; ab der Treppe uebernimmt die vorhandene
+     Fahrgastlogik. */
+  for (const u of (typeof UBAHNEN !== 'undefined' ? UBAHNEN : [])) {
+    for (let seite = 0; seite < UB_SCHAECHTE.length; seite++) {
+      const sch = UB_SCHAECHTE[seite];
+      /* Wo genau steht man vor dem Eingang? NICHT auf dem Treppenkopf -
+         dort ist das Loch im Gehweg, der Boden liegt dort schon
+         achtzig Zentimeter tiefer und das Treppenhaus steht im Weg.
+         Auch nicht zwei Meter weiter aussen, denn dort faengt die
+         Fahrbahn an. Der Wartepunkt liegt deshalb NEBEN dem Schacht,
+         auf Hoehe des Treppenkopfs. Probiert werden vier Stellen; die
+         erste begehbare gewinnt. */
+      const zm = (sch.z0 + sch.z1) / 2 + (u.dz || 0);
+      const xk = u.x + sch.xKopf - (sch.xKopf > 0 ? 2 : -2);
+      let x = null, z = null;
+      for (const [px, pz] of [[xk, sch.z1 + (u.dz || 0) + 2.4],
+                              [xk, sch.z0 + (u.dz || 0) - 2.4],
+                              [xk, zm + 4.5], [xk, zm - 4.5]]) {
+        if (gehBegehbar(px, pz)) { x = px; z = pz; break; }
+      }
+      if (x === null) continue;
+      const i = gehSetzeKnoten(x, z, 'ubahn');
+      /* Faellt der Treppenkopf mit einem vorhandenen Gehwegknoten
+         zusammen, wird dieser zum Stationsknoten - sonst waere die
+         Station kein waehlbares Ziel. */
+      GEH.knoten[i].art = 'ubahn';
+      GEH.knoten[i].station = { x: u.x, seite, dz: u.dz || 0 };
+      /* An die naechsten Gehwegknoten haengen. Der naechstgelegene ist
+         nicht immer der richtige: liegt der Treppenschacht dazwischen,
+         faellt die Kante durch die Pruefung. Deshalb werden die zehn
+         naechsten der Reihe nach versucht, bis zwei Verbindungen
+         stehen. */
+      const nahe = [];
+      for (let j = 0; j < GEH.knoten.length; j++) {
+        const n = GEH.knoten[j];
+        if (j === i || (n.art !== 'weg' && n.art !== 'ecke')) continue;
+        const d = Math.hypot(n.x - x, n.z - z);
+        if (d < 34) nahe.push({ j, d });
+      }
+      nahe.sort((p1, p2) => p1.d - p2.d);
+      let verbunden = 0;
+      for (const kand of nahe) {
+        if (verbunden >= 2) break;
+        if (gehVerbinde(i, kand.j)) verbunden++;
+      }
+    }
+  }
+  /* ---- 7. Zusammenhang herstellen ----
+     Ein Netz, das in ein Dutzend Inseln zerfaellt, taugt nichts: von der
+     halben Stadt aus gaebe es kein Ziel mehr. Nach dem Aufbau wird
+     deshalb geprueft, welche Teile getrennt sind, und die naechsten
+     beiden Knoten zweier Teile werden verbunden - aber nur, wenn die
+     Strecke wirklich begehbar ist (Strassenniveau erlaubt, Haeuser und
+     Fluss nicht). Bleibt eine Insel uebrig, ist sie eben getrennt; das
+     steht dann in der Statistik. */
+  gehInselnZaehlen();
+  for (let runde = 0; runde < 16; runde++) {
+    gehInselnZaehlen();
+    /* Verbunden werden IRGENDWELCHE zwei getrennten Teile, nicht nur
+       kleine an den grossen: der Stadtteil drueben besteht sonst aus
+       einem halben Dutzend Bruchstuecken, die untereinander keinen Weg
+       haben, obwohl sie nebeneinander liegen. */
+    let bestA = -1, bestB = -1, bestD = 40;
+    for (let i = 0; i < GEH.knoten.length; i++) {
+      const a = GEH.knoten[i];
+      for (let j = i + 1; j < GEH.knoten.length; j++) {
+        const b = GEH.knoten[j];
+        if (b.insel === a.insel) continue;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d >= bestD) continue;
+        if (!gehKanteFrei(a, b, true)) continue;
+        bestD = d; bestA = i; bestB = j;
+      }
+    }
+    if (bestA < 0) break;
+    gehVerbinde(bestA, bestB, { ueberweg: true, achse: null, linie: null });
+  }
+  /* Knoten ganz ohne Kante nuetzen niemandem - sie werden entwertet,
+     damit sie nie als Ziel gewaehlt werden. */
+  for (const n of GEH.knoten) if (!n.kanten.length) n.tot = true;
+  GEH.inseln = gehInselnZaehlen();
+  GEH.bauzeit = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0;
+}
+function gehInselnZaehlen() {
+  const gesehen = new Array(GEH.knoten.length).fill(false);
+  let inseln = 0;
+  GEH.groesteInsel = 0;
+  for (let s = 0; s < GEH.knoten.length; s++) {
+    if (gesehen[s]) continue;
+    inseln++;
+    let n = 0;
+    const stapel = [s];
+    gesehen[s] = true;
+    while (stapel.length) {
+      const i = stapel.pop(); n++;
+      for (const k of GEH.knoten[i].kanten) {
+        if (!gesehen[k.zu]) { gesehen[k.zu] = true; stapel.push(k.zu); }
+      }
+    }
+    if (n > GEH.groesteInsel) { GEH.groesteInsel = n; GEH.hauptInsel = s; }
+  }
+  /* Jeden Knoten mit seiner Insel kennzeichnen - so laesst sich ein Ziel
+     waehlen, das ueberhaupt erreichbar ist. */
+  const insel = new Array(GEH.knoten.length).fill(-1);
+  let nr = 0;
+  for (let s = 0; s < GEH.knoten.length; s++) {
+    if (insel[s] >= 0) continue;
+    const stapel = [s]; insel[s] = nr;
+    while (stapel.length) {
+      const i = stapel.pop();
+      for (const k of GEH.knoten[i].kanten) {
+        if (insel[k.zu] < 0) { insel[k.zu] = nr; stapel.push(k.zu); }
+      }
+    }
+    nr++;
+  }
+  for (let i = 0; i < GEH.knoten.length; i++) GEH.knoten[i].insel = insel[i];
+  return inseln;
+}
+/* Naechster Knoten zu einem Punkt - ueber das Raster, nicht ueber alle. */
+function gehNaechster(x, z, maxD, insel) {
+  baueGehnetz();
+  let best = -1, bestD = (maxD || 40) * (maxD || 40);
+  const ix = Math.floor(x / GEH.zellen), iz = Math.floor(z / GEH.zellen);
+  const r = Math.ceil((maxD || 40) / GEH.zellen);
+  for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) {
+    const liste = GEH.raster.get((ix + a) + ',' + (iz + b));
+    if (!liste) continue;
+    for (const i of liste) {
+      const n = GEH.knoten[i];
+      if (insel !== undefined && n.insel !== insel) continue;
+      const d2 = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z);
+      if (d2 < bestD) { bestD = d2; best = i; }
+    }
+  }
+  return best;
+}
+/* ---- A* auf dem kleinen Netz ----
+   Der Graph ist klein und aendert sich nicht; eine einfache Suche mit
+   Schaetzung ueber die Luftlinie reicht voellig. Gerechnet wird nur bei
+   einem neuen Ziel, nicht in jedem Bild. */
+let gehSucheN = 0, gehSucheZeit = 0;
+function gehRoute(start, ziel) {
+  if (start < 0 || ziel < 0 || start === ziel) return null;
+  if (GEH.knoten[start].insel !== GEH.knoten[ziel].insel) return null;
+  const t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+  const n = GEH.knoten.length;
+  const kosten = new Float32Array(n).fill(Infinity);
+  const her = new Int32Array(n).fill(-1);
+  const zu = GEH.knoten[ziel];
+  const schaetz = (i) => Math.hypot(GEH.knoten[i].x - zu.x, GEH.knoten[i].z - zu.z);
+  /* Kleine offene Liste als Array - bei ein paar hundert Knoten ist ein
+     Haufen nicht noetig. */
+  const offen = [{ i: start, f: schaetz(start) }];
+  kosten[start] = 0;
+  let treffer = false;
+  while (offen.length) {
+    let bi = 0;
+    for (let k = 1; k < offen.length; k++) if (offen[k].f < offen[bi].f) bi = k;
+    const akt = offen.splice(bi, 1)[0];
+    if (akt.i === ziel) { treffer = true; break; }
+    for (const kante of GEH.knoten[akt.i].kanten) {
+      /* Ein Ueberweg kostet etwas mehr - so nimmt man lieber den Gehweg
+         als bei jeder Gelegenheit ueber die Strasse zu laufen. */
+      const g = kosten[akt.i] + kante.laenge * (kante.ueberweg ? 1.6 : 1);
+      if (g >= kosten[kante.zu]) continue;
+      kosten[kante.zu] = g; her[kante.zu] = akt.i;
+      offen.push({ i: kante.zu, f: g + schaetz(kante.zu) });
+    }
+  }
+  gehSucheZeit += ((typeof performance !== 'undefined') ? performance.now() : 0) - t0;
+  gehSucheN++;
+  if (!treffer) return null;
+  const weg = [ziel];
+  let i = ziel;
+  while (her[i] >= 0) { i = her[i]; weg.push(i); }
+  weg.reverse();
+  return weg;
+}
+
+/* ======================= Fussgaengerverhalten =======================
+   Der Graph sagt WOHIN, die vorhandene Ausweich- und Abstandslogik sagt,
+   WIE man auf den letzten Metern an anderen vorbeikommt. Die beiden
+   Ebenen bleiben getrennt: die Route wird nicht verbogen, nur der
+   Schritt daneben. */
+const GEH_STAT = {
+  routen: 0, routenOk: 0, ohneWeg: 0,
+  querungen: 0, querungenOk: 0, warteSumme: 0, warteMax: 0,
+  gespraeche: 0, gespraecheOk: 0, gespraecheAbbruch: 0,
+  festgefahren: 0, gerettet: 0, autoUnfaelle: 0,
+};
+/* Wie weit ein Ziel entfernt sein darf, haengt an der Person: der eine
+   geht um den Block, der andere quer durch die Stadt. */
+function gehZielWeite(c) {
+  const p = c.wegLust === undefined ? (c.wegLust = Math.random()) : c.wegLust;
+  if (p < 0.35) return [20, 60];
+  if (p < 0.8) return [60, 150];
+  return [150, 320];
+}
+/* Ein neues Ziel und die Route dorthin. Faellt nichts Erreichbares an,
+   bleibt der alte Rundweg als Rueckfall. */
+/* ---- Rechenbudget ----
+   Eine Wegsuche kostet je nach Laenge ein paar Zehntel Millisekunden.
+   Wenn zwoelf Passanten im selben Bild ein neues Ziel brauchen, waere
+   das ein sichtbarer Ruckler. Deshalb rechnen hoechstens drei je Bild;
+   die uebrigen versuchen es im naechsten wieder. */
+let gehBudget = 3;
+function gehNeuesZiel(c, versuch) {
+  if (gehBudget <= 0) return 'spaeter';
+  gehBudget--;
+  baueGehnetz();
+  const start = c.knoten !== undefined && c.knoten >= 0
+    ? c.knoten : gehNaechster(c.pos.x, c.pos.z, 30);
+  if (start < 0) return false;
+  const insel = GEH.knoten[start].insel;
+  const [minD, maxD] = gehZielWeite(c);
+  let ziel = -1;
+  for (let t = 0; t < 14; t++) {
+    const i = randi(0, GEH.knoten.length - 1);
+    const n = GEH.knoten[i];
+    if (n.insel !== insel || i === start) continue;
+    const d = Math.hypot(n.x - GEH.knoten[start].x, n.z - GEH.knoten[start].z);
+    if (d < minD || d > maxD) continue;
+    /* Wer zur U-Bahn will, waehlt einen Treppenkopf - aber nicht jeder. */
+    if (n.art === 'ubahn' && Math.random() > 0.22) continue;
+    ziel = i; break;
+  }
+  if (ziel < 0) {
+    /* Notnagel: irgendein Knoten auf derselben Insel. */
+    for (let t = 0; t < 20 && ziel < 0; t++) {
+      const i = randi(0, GEH.knoten.length - 1);
+      if (GEH.knoten[i].insel === insel && i !== start) ziel = i;
+    }
+  }
+  if (ziel < 0) return false;
+  GEH_STAT.routen++;
+  const weg = gehRoute(start, ziel);
+  if (!weg) {
+    GEH_STAT.ohneWeg++;
+    if (!versuch) return gehNeuesZiel(c, 1);
+    return false;
+  }
+  GEH_STAT.routenOk++;
+  c.route = weg; c.routeI = 0; c.knoten = start;
+  c.gehZustand = 'gehen';
+  c.warteT = 0; c.querT = 0;
+  /* Ein Begleiter bekommt dasselbe Ziel - so laufen zwei wirklich
+     zusammen, ohne dass es eine Formation braucht. */
+  const b = c.begleiter;
+  if (b && !b.dead && b.state === 'walk' && b !== c) {
+    const bs = gehNaechster(b.pos.x, b.pos.z, 30, insel);
+    const bw = bs >= 0 ? gehRoute(bs, ziel) : null;
+    if (bw) { b.route = bw; b.routeI = 0; b.knoten = bs; b.gehZustand = 'gehen'; }
+  }
+  return true;
+}
+/* ---- Verkehr an einem Ueberweg ----
+   Nicht nur "Auto naeher als zehn Meter": entscheidend ist, WANN das
+   Auto den Ueberweg erreicht und wann der Fussgaenger dort ist. Ein
+   Wagen, der wegfaehrt, haelt niemanden auf; ein schneller aus dreissig
+   Metern sehr wohl. */
+function gehQuerungFrei(c, kante, von, nach) {
+  if (!kante || kante.linie === null || kante.linie === undefined) return true;
+  const achse = kante.achse;                 // Achse der STRASSE
+  const tempo = Math.max(1.0, c.speed);
+  /* Sicherheitspuffer: Vorsichtige brauchen mehr Luft als Mutige. */
+  const puffer = 1.6 * (c.vorsicht === undefined ? (c.vorsicht = rand(0.7, 1.5)) : c.vorsicht);
+  for (const car of cars) {
+    if (car.aus) continue;
+    if (car.axis !== achse) continue;
+    const tempoA = Math.max(0.6, car.tempoJetzt || 0);
+    /* Wo kreuzt der Fussgaenger die Spur dieses Autos? */
+    let quer, laengs, zeitFuss;
+    if (achse === 'z') {
+      /* Strasse laeuft in z, der Fussgaenger geht in x ueber sie. */
+      const spurX = car.lane;
+      const a = Math.min(von.x, nach.x) - 1.2, b = Math.max(von.x, nach.x) + 1.2;
+      if (spurX < a || spurX > b) continue;
+      quer = Math.abs(car.lane - von.x);
+      laengs = (von.z - car.s) * car.dir;
+      zeitFuss = Math.abs(spurX - von.x) / tempo;
+    } else {
+      const spurZ = car.lane;
+      const a = Math.min(von.z, nach.z) - 1.2, b = Math.max(von.z, nach.z) + 1.2;
+      if (spurZ < a || spurZ > b) continue;
+      quer = Math.abs(car.lane - von.z);
+      laengs = (von.x - car.s) * car.dir;
+      zeitFuss = Math.abs(spurZ - von.z) / tempo;
+    }
+    if (laengs < -6) continue;                  // schon vorbei
+    if (laengs < 0) return false;               // genau daneben
+    const zeitAuto = laengs / tempoA;
+    /* Unsicher, wenn das Auto ankommt, waehrend der Fussgaenger auf
+       seiner Spur ist. */
+    if (zeitAuto > zeitFuss - puffer && zeitAuto < zeitFuss + puffer + 0.8) return false;
+    if (laengs < 7 && tempoA > 2) return false;
+  }
+  return true;
+}
+/* Alle Fussgaenger, die JETZT auf der Fahrbahn sind. Nur sie haben
+   Vorrang - wer noch auf dem Gehweg wartet, haelt keinen Verkehr auf.
+   Genau diese Regel loest den Patt zwischen Auto und Fussgaenger. */
+const AUF_FAHRBAHN = [];
+function sammleQuerer() {
+  AUF_FAHRBAHN.length = 0;
+  for (const c of civilians) {
+    if (c.gehZustand === 'queren' && c.state === 'walk' && c.eingestiegen <= 0) {
+      AUF_FAHRBAHN.push(c);
+    }
+  }
+}
+
+/* ---- Der Schritt auf der Route ----
+   Gibt Richtung und Tempo zurueck, oder null, wenn dieser Zivilist gar
+   keine Route hat (Bahnsteig-Fahrgaeste laufen weiter ihren Rundweg). */
+function gehSchritt(c, dt) {
+  /* Eine Begegnung geht VOR der Route - und sie funktioniert auch bei
+     jemandem, der gerade gar keine Route hat. Stuende diese Pruefung
+     hinter der Routenabfrage, koennten nur Passanten mit Ziel
+     miteinander reden. */
+  if (c.sozialPartner || c.gehZustand === 'sozial' || c.gehZustand === 'sozialHin') {
+    return sozialSchritt(c, dt);
+  }
+  if (!c.route || !c.route.length) return null;
+  /* --- Aktivitaet am Ziel: kurz etwas tun --- */
+  if (c.gehZustand === 'aktivitaet') {
+    c.aktivT -= dt;
+    if (c.aktivT <= 0) {
+      const r = gehNeuesZiel(c);
+      if (r === 'spaeter') c.aktivT = 0.25;      // Budget voll, gleich nochmal
+      else if (!r) { c.route = null; return null; }
+    }
+    return { dirX: 0, dirZ: 0, speed: 0 };
+  }
+  /* --- Gespraech --- */
+  if (c.gehZustand === 'sozial' || c.gehZustand === 'sozialHin') {
+    return sozialSchritt(c, dt);
+  }
+  const zielI = c.route[c.routeI];
+  const ziel = GEH.knoten[zielI];
+  if (!ziel) { c.route = null; return null; }
+  const dx = ziel.x - c.pos.x, dz = ziel.z - c.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  /* Ein Punkt der Route ist nie weit weg - hoechstens die Laenge einer
+     Blockseite plus Reserve. Ist er es doch, stimmt etwas nicht (der
+     Passant wurde versetzt oder ist abgekommen): dann wird die Route neu
+     gerechnet, statt quer ueber Fahrbahnen und durch Haeuser darauf
+     zuzulaufen. */
+  if (d > 60) {
+    const nah = gehNaechster(c.pos.x, c.pos.z, 40);
+    const ende = c.route[c.route.length - 1];
+    const neu2 = (nah >= 0 && gehBudget > 0) ? (gehBudget--, gehRoute(nah, ende)) : null;
+    if (neu2) { c.route = neu2; c.routeI = 0; c.knoten = nah; return gehSchritt(c, dt); }
+    if (gehBudget > 0) { c.route = null; return null; }
+  }
+  /* --- Am Knoten angekommen --- */
+  if (d < 1.1) {
+    c.knoten = zielI;
+    if (c.querT > 0 && c.gehZustand === 'queren') GEH_STAT.querungenOk++;
+    if (c.routeI >= c.route.length - 1) {
+      /* Ziel erreicht. U-Bahn: die vorhandene Fahrgastlogik uebernimmt. */
+      if (ziel.art === 'ubahn' && ziel.station && Math.random() < 0.75) {
+        machZuFahrgast(c, ziel.station.x, ziel.station.seite, ziel.station.dz);
+        c.route = null; c.gehZustand = null;
+        return null;
+      }
+      c.gehZustand = 'aktivitaet';
+      /* Auf der Promenade bleibt man laenger und schaut sich um. */
+      const prom = ziel.art === 'prom' || ziel.art === 'bruecke';
+      c.aktivT = prom ? rand(6, 16) : rand(3, 9);
+      c.ruhePose = prom ? pick(['umschauen', 'warten', 'froh', 'telefon'])
+                        : pick(['telefon', 'tippen', 'umschauen', 'warten', 'trinken']);
+      return { dirX: 0, dirZ: 0, speed: 0 };
+    }
+    c.routeI++;
+    c.warteT = 0;
+    c.querT = 0;
+    c.gehZustand = 'gehen';
+    return gehSchritt(c, dt);
+  }
+  /* --- Steht als naechstes ein Ueberweg an? --- */
+  const naechsteKante = kanteZwischen(c.knoten, zielI);
+  if (naechsteKante && naechsteKante.ueberweg && c.gehZustand !== 'queren') {
+    const von = GEH.knoten[c.knoten] || { x: c.pos.x, z: c.pos.z };
+    /* Erst dicht an den Bordstein, dann pruefen. */
+    if (c.gehZustand !== 'warten') {
+      c.gehZustand = 'warten';
+      c.warteT = 0;
+      c.pruefT = 0;
+      GEH_STAT.querungen++;
+      /* Kleine, unterschiedliche Reaktionszeit - kein Startschuss. */
+      c.losT = rand(0, 0.8);
+    }
+    c.warteT += dt;
+    c.pruefT -= dt;
+    if (c.pruefT <= 0) {
+      c.pruefT = 0.25;
+      c.frei = gehQuerungFrei(c, naechsteKante, von, ziel);
+      /* Entscheidung kurz halten - kein Zittern zwischen los und stopp. */
+    }
+    if (c.frei) c.losT -= dt;
+    else c.losT = Math.max(c.losT, rand(0.1, 0.5));
+    if (c.frei && c.losT <= 0) {
+      c.gehZustand = 'queren';
+      c.querT = 0;
+      GEH_STAT.warteSumme += c.warteT;
+      if (c.warteT > GEH_STAT.warteMax) GEH_STAT.warteMax = c.warteT;
+    } else {
+      /* Steht er sehr lange, sucht er sich einen anderen Weg statt
+         blind loszulaufen. */
+      if (c.warteT > 22) {
+        c.warteT = 0;
+        const r = gehNeuesZiel(c);
+        if (r !== true && r !== 'spaeter') c.route = null;
+      }
+      c.ruhePose = 'warten';
+      return { dirX: 0, dirZ: 0, speed: 0 };
+    }
+  }
+  /* --- Auf der Fahrbahn: durchziehen --- */
+  let tempo = c.speed;
+  if (c.gehZustand === 'queren') {
+    c.querT += dt;
+    tempo = c.speed * 1.25;
+    /* Einmal drauf, wird die Querung zu Ende gebracht. Nur bei
+       unmittelbarer Gefahr wird gerannt. */
+    if (!gehQuerungFrei(c, naechsteKante, { x: c.pos.x, z: c.pos.z }, ziel)) {
+      tempo = c.speed * 1.8;
+    }
+    if (c.querT > 12) { c.gehZustand = 'gehen'; }
+  }
+  return { dirX: dx / d, dirZ: dz / d, speed: tempo };
+}
+/* Kleiner Umweg, damit der Aufruf im Zivilisten-Update eine einzige
+   Bedingung bleibt: rechnet den Schritt und legt ihn an der Figur ab. */
+function gehErgebnis(c, dt) {
+  if (c.bahnsteig !== undefined || c.geisel) return false;
+  if (!c.route && !c.sozialPartner) return false;
+  const g = gehSchritt(c, dt);
+  if (!g) return false;
+  c.gehG = g;
+  return true;
+}
+function kanteZwischen(a, b) {
+  if (a === undefined || a < 0 || !GEH.knoten[a]) return null;
+  for (const k of GEH.knoten[a].kanten) if (k.zu === b) return k;
+  return null;
+}
+
+/* ======================= Begegnungen =======================
+   Zwei Passanten bleiben stehen und reden ein paar Sekunden. Nicht
+   staendig und nicht jeder: gesucht wird nur alle paar Sekunden und nur
+   bei geselligen Leuten. */
+const SOZ_ABSTAND = 1.25;
+function sozialPartnerSuche(c) {
+  if (c.sozialPartner || c.gehZustand === 'queren' || c.gehZustand === 'warten') return;
+  if (c.bahnsteig !== undefined || c.geisel || c.state !== 'walk') return;
+  if ((c.gesellig || 0) < 0.45 || (c.sozialCd || 0) > 0) return;
+  if (c.pos.y < -1) return;
+  for (const o of ziviNachbarn(c)) {
+    if (o === c || o.sozialPartner || o.geisel || o.state !== 'walk') continue;
+    if (o.bahnsteig !== undefined || (o.gesellig || 0) < 0.35) continue;
+    if (o.gehZustand === 'queren' || o.gehZustand === 'warten') continue;
+    if ((o.sozialCd || 0) > 0) continue;
+    const d = Math.hypot(o.pos.x - c.pos.x, o.pos.z - c.pos.z);
+    if (d < 2.0 || d > 9) continue;
+    if (Math.abs(o.pos.y - c.pos.y) > 1.5) continue;
+    /* Beide merken sich einander - so kann ein Dritter keinen von beiden
+       mehr ansprechen. */
+    c.sozialPartner = o; o.sozialPartner = c;
+    c.gehZustand = 'sozialHin'; o.gehZustand = 'sozialHin';
+    c.sozialT = 0; o.sozialT = 0;
+    const dauer = rand(5, 15);
+    c.sozialDauer = dauer; o.sozialDauer = dauer;
+    /* Die Art der Begegnung: meist ein Gespraech, manchmal nur kurzes
+       Winken, selten eine Diskussion. */
+    const art = Math.random() < 0.12 ? 'streiten' : (Math.random() < 0.22 ? 'kurz' : 'reden');
+    c.sozialArt = art; o.sozialArt = art;
+    GEH_STAT.gespraeche++;
+    return;
+  }
+}
+function sozialEnde(c, abbruch) {
+  const o = c.sozialPartner;
+  c.sozialPartner = null;
+  c.sozialCd = rand(18, 45);
+  if (c.gehZustand === 'sozial' || c.gehZustand === 'sozialHin') c.gehZustand = 'gehen';
+  if (o) {
+    o.sozialPartner = null;
+    o.sozialCd = rand(18, 45);
+    if (o.gehZustand === 'sozial' || o.gehZustand === 'sozialHin') o.gehZustand = 'gehen';
+  }
+  if (abbruch) GEH_STAT.gespraecheAbbruch++; else GEH_STAT.gespraecheOk++;
+}
+function sozialSchritt(c, dt) {
+  const o = c.sozialPartner;
+  /* Der Partner ist weg, verletzt, auf der Flucht oder eingestiegen:
+     sauber aufloesen, damit niemand ewig glaubt, er wuerde noch reden. */
+  if (!o || o.sozialPartner !== c || o.state !== 'walk' || o.geisel ||
+      o.eingestiegen > 0 || o.hp <= 0) {
+    sozialEnde(c, true);
+    return { dirX: 0, dirZ: 0, speed: 0 };
+  }
+  const dx = o.pos.x - c.pos.x, dz = o.pos.z - c.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  c.facing = dampAngle(c.facing, Math.atan2(dx, dz), dt * 4);
+  if (c.gehZustand === 'sozialHin') {
+    if (d > SOZ_ABSTAND + 0.35) {
+      return { dirX: dx / d, dirZ: dz / d, speed: Math.min(c.speed, 1.7) };
+    }
+    c.gehZustand = 'sozial';
+    c.sozialT = 0;
+    c.redeT = 0;
+    return { dirX: 0, dirZ: 0, speed: 0 };
+  }
+  /* Im Gespraech: stehen bleiben, sonst rutscht die Figur ueber den
+     Gehweg, waehrend sie redet. */
+  c.sozialT += dt;
+  c.redeT -= dt;
+  if (c.redeT <= 0) {
+    c.redeT = rand(1.6, 3.6);
+    if (c.sozialArt === 'streiten') c.ruhePose = 'streiten';
+    else if (c.sozialArt === 'kurz') c.ruhePose = pick(['winken', 'reden', 'froh']);
+    else c.ruhePose = Math.random() < 0.55 ? 'reden' : pick(['idle', 'warten', 'froh']);
+  }
+  const dauer = c.sozialArt === 'kurz' ? Math.min(5, c.sozialDauer) : c.sozialDauer;
+  if (c.sozialT > dauer) {
+    sozialEnde(c, false);
+    if (!c.route) gehNeuesZiel(c);
+  }
+  /* Ein winziger Abstandshalter, damit sie sich nicht ineinander
+     schieben - das grosse Abstandssystem bleibt unangetastet. */
+  if (d < SOZ_ABSTAND - 0.25) {
+    return { dirX: -dx / d, dirZ: -dz / d, speed: 0.5 };
+  }
+  return { dirX: 0, dirZ: 0, speed: 0 };
+}
+
+
 function sidewalkLoop(bi, bj) {
   // Rechteckiger Gehwegpfad um Block (bi,bj)
   const x0 = ORIGIN + bi * PITCH + ROAD_HALF + 2, x1 = ORIGIN + (bi + 1) * PITCH - ROAD_HALF - 2;
@@ -14841,13 +15743,27 @@ function sidewalkLoop(bi, bj) {
 
 function spawnCivilian() {
   const bi = randi(0, BLOCKS - 1), bj = randi(0, BLOCKS - 1);
+  /* Der alte Rundweg bleibt als Rueckfall erhalten - die Fahrgaeste der
+     U-Bahn laufen weiter darauf, und wenn das Wegenetz einmal keinen Weg
+     findet, hat jeder trotzdem noch ein Ziel. */
   const loop = sidewalkLoop(bi, bj);
   const wp = randi(0, 3);
   const visual = makeCharacterVisual('civilian', {});
-  const start = loop[wp];
+  /* Gestartet wird auf einem gueltigen Gehwegknoten, nicht auf einer
+     zufaelligen Weltkoordinate. */
+  baueGehnetz();
+  let startKnoten = -1;
+  if (GEH.knoten.length) {
+    for (let t = 0; t < 12 && startKnoten < 0; t++) {
+      const i = randi(0, GEH.knoten.length - 1);
+      if (GEH.knoten[i].insel === GEH.knoten[GEH.hauptInsel || 0].insel) startKnoten = i;
+    }
+  }
+  const start = startKnoten >= 0 ? GEH.knoten[startKnoten] : loop[wp];
   civilians.push({
     visual, loop, wp,
-    pos: V3(start.x + rand(-1, 1), 0, start.z + rand(-1, 1)),
+    knoten: startKnoten,
+    pos: V3(start.x + rand(-0.6, 0.6), 0, start.z + rand(-0.6, 0.6)),
     vel: V3(0, 0, 0),
     radius: 0.35,
     facing: rand(0, TAU),
@@ -14862,10 +15778,46 @@ function spawnCivilian() {
     mut: rand(0.2, 1.0),         // ab wann er wegrennt
     gesellig: rand(0.0, 1.0),    // wie gern er stehenbleibt und redet
     state: 'walk',       // walk | flee | hurt
+    /* Zustand INNERHALB des Gehens - gehen, warten, queren, Aktivitaet,
+       Begegnung. Der grosse Zustand (walk/flee/hurt) bleibt, wie er war. */
+    gehZustand: 'gehen',
+    route: null, routeI: 0, warteT: 0, querT: 0,
+    sozialPartner: null, sozialCd: rand(4, 30),
+    vorsicht: rand(0.7, 1.5),
     fleeT: 0, hurtT: 0, hp: 20,
     savedCd: 0,
     onGround: true, wall: null,
   });
+  const c = civilians[civilians.length - 1];
+  /* Zwei Passanten duerfen nicht im selben Punkt anfangen: die Knoten
+     sind beliebt, und ohne diese Pruefung stehen zwei Figuren beim
+     Spielstart ineinander, bis der Abstandshalter sie auseinanderschiebt. */
+  for (let t = 0; t < 6; t++) {
+    let eng = false;
+    for (const o of civilians) {
+      if (o === c) continue;
+      if (Math.hypot(o.pos.x - c.pos.x, o.pos.z - c.pos.z) < 1.1 &&
+          Math.abs(o.pos.y - c.pos.y) < 1.5) { eng = true; break; }
+    }
+    if (!eng) break;
+    c.pos.x += rand(-2.2, 2.2); c.pos.z += rand(-2.2, 2.2);
+  }
+  if (startKnoten >= 0) gehNeuesZiel(c);
+  /* ---- Zu zweit unterwegs ----
+     Ab und zu schliesst sich einer einem anderen an: gleiches Ziel,
+     ungefaehr gleiches Tempo, kein Gleichschritt und keine Formation. */
+  if (Math.random() < 0.22) {
+    for (const o of civilians) {
+      if (o === c || o.begleiter || o.bahnsteig !== undefined || !o.route) continue;
+      if (Math.hypot(o.pos.x - c.pos.x, o.pos.z - c.pos.z) > 45) continue;
+      c.begleiter = o; o.begleiter = c;
+      c.speed = o.speed * rand(0.95, 1.05);
+      const bs = gehNaechster(c.pos.x, c.pos.z, 30);
+      const bw = bs >= 0 && o.route ? gehRoute(bs, o.route[o.route.length - 1]) : null;
+      if (bw) { c.route = bw; c.routeI = 0; c.knoten = bs; }
+      break;
+    }
+  }
 }
 
 /* ---- Wartende am Bahnsteig ----
@@ -15059,6 +16011,8 @@ function ziviNachbarn(c) {
 function updateCivilians(dtBild) {
   taktBild++;
   ziviRasterBauen();
+  sammleQuerer();
+  gehBudget = 3;
   if (rufMeldungCd > 0) rufMeldungCd -= dtBild;
   /* Wie viele Verletzte gerade unversorgt herumliegen – davon hängt ab,
      ob der Ruf sinkt oder sich langsam wieder erholt. */
@@ -15162,6 +16116,13 @@ function updateCivilians(dtBild) {
       c.state = 'flee';
       c.fleeT = 3.0 + (1 - (c.mut === undefined ? 0.6 : c.mut)) * 2.5;
       c.fleeDreh = 0; c.fleeAlt = null;
+      /* Ein Gespraech endet sofort, wenn eine Gang auftaucht - und zwar
+         fuer BEIDE, damit keiner glaubt, er wuerde noch reden. */
+      if (c.sozialPartner) sozialEnde(c, true);
+      /* Die Route bleibt gemerkt: nach kurzem Schreck geht es weiter.
+         Nur wer auf der Fahrbahn stand, faengt danach neu an. */
+      if (c.gehZustand === 'queren' || c.gehZustand === 'warten') c.gehZustand = 'gehen';
+      c.fleeWeit = 0;
     }
 
     /* ---- Vor einem Auto von der Fahrbahn ----
@@ -15209,8 +16170,26 @@ function updateCivilians(dtBild) {
       }
       c.schirm.visible = REGEN.staerke > 0.25 && !c.handy.visible;
     }
+    /* ---- Begegnungen ----
+       Nicht in jedem Bild gesucht, sondern alle zwei bis sechs Sekunden -
+       und nur bei Leuten in der Naehe, die gerade nichts Wichtigeres tun. */
+    if (c.sozialCd > 0) c.sozialCd -= dt;
+    c.sozialSuchT = (c.sozialSuchT || rand(0, 4)) - dt;
+    if (c.sozialSuchT <= 0) {
+      c.sozialSuchT = rand(2, 6);
+      if (!fern) sozialPartnerSuche(c);
+    }
     const dHeld = Math.hypot(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
     const sichtbar = dHeld < 9 && Math.abs(player.pos.y - c.pos.y) < 6;
+    /* ---- Der Held landet neben einer Gruppe ----
+       Dann wird das Gespraech nicht abgebrochen, sondern unterbrochen:
+       sie treten einen Schritt zurueck und schauen hin. Ist er wieder
+       weg, reden sie weiter. */
+    if (c.sozialPartner && dHeld < 3.2 && Math.abs(player.pos.y - c.pos.y) < 3) {
+      c.sozialT = Math.max(0, c.sozialT - dt * 1.6);
+      c.staunPause = 1.2;
+    }
+    if (c.staunPause > 0) c.staunPause -= dt;
     /* Neugierige bleiben stehen und schauen, Gleichgueltige laufen
        weiter - vorher reagierte jeder gleich. */
     if (!threat && c.state !== 'flee' && c.state !== 'hurt' && sichtbar &&
@@ -15269,7 +16248,37 @@ function updateCivilians(dtBild) {
         dirX = dx / d; dirZ = dz / d;
       }
       speed = 5.2;
-      if (c.fleeT <= 0) { c.state = 'walk'; c.fleeDreh = 0; c.fleeAlt = null; }
+      c.fleeWeit = (c.fleeWeit || 0) + speed * dt;
+      if (c.fleeT <= 0) {
+        c.state = 'walk'; c.fleeDreh = 0; c.fleeAlt = null;
+        /* Kurzer Schreck: der alte Weg gilt weiter. Wer weit gerannt
+           ist, steht ganz woanders und sucht sich ein neues Ziel. */
+        c.gehZustand = 'gehen';
+        if (c.route && c.fleeWeit < 22) {
+          const nah = gehNaechster(c.pos.x, c.pos.z, 22);
+          if (nah >= 0) c.knoten = nah;
+          else c.route = null;
+        } else if (c.bahnsteig === undefined) {
+          c.route = null;
+          gehNeuesZiel(c);
+        }
+        c.fleeWeit = 0;
+      }
+    } else if (gehErgebnis(c, dt)) {
+      /* ---- Auf der Route durch die Stadt ----
+         Wohin, sagt das Wegenetz. Wie man auf den letzten Metern an
+         anderen vorbeikommt, bleibt Sache der vorhandenen Ausweich- und
+         Abstandslogik weiter unten. */
+      const g = c.gehG;
+      dirX = g.dirX; dirZ = g.dirZ; speed = g.speed;
+      /* Ein Begleiter passt sein Tempo an, damit die beiden nicht
+         auseinanderlaufen - ohne Formation, nur ueber die Geschwindigkeit. */
+      const b = c.begleiter;
+      if (b && !b.geisel && b.state === 'walk' && speed > 0.2) {
+        const bd = Math.hypot(b.pos.x - c.pos.x, b.pos.z - c.pos.z);
+        if (bd > 4) speed *= 0.75;
+        else if (bd < 1.2) speed *= 1.1;
+      }
     } else {
       const wpT = c.loop[c.wp];
       const dx = wpT.x - c.pos.x, dz = wpT.z - c.pos.z;
@@ -15294,8 +16303,11 @@ function updateCivilians(dtBild) {
       c.ruhePose = 'warten';
     }
 
-    /* Beim Stehenbleiben ab und zu die Beschäftigung wechseln. */
-    if (speed <= 0.1) {
+    /* Beim Stehenbleiben ab und zu die Beschäftigung wechseln - aber
+       nicht mitten im Gespraech und nicht beim Warten am Ueberweg: dort
+       gehoert die Haltung zum Zustand und darf nicht ausgewuerfelt
+       werden. */
+    if (speed <= 0.1 && !c.sozialPartner && c.gehZustand !== 'warten') {
       c.poseT = (c.poseT || 0) - dt;
       if (c.poseT <= 0) {
         c.poseT = rand(4, 11);
@@ -15330,16 +16342,53 @@ function updateCivilians(dtBild) {
        aber nur, wenn der Spieler gerade nicht hinschaut. */
     {
       const st = festStufe(c, speed > 0.6, dt);
-      if (st === 1) { c.wp = (c.wp + 1) % 4; c.letzteDist = null; }
-      else if (st === 2) {
+      if (st === 0) c.festGezaehlt = 0;
+      if (st === 1) {
+        /* Stufe 1: nur ein Schritt zur Seite. */
         c.ausweichT = 0.7;
         c.ausweichX = -dirZ; c.ausweichZ = dirX;
+        if (!c.festGezaehlt) { c.festGezaehlt = 1; GEH_STAT.festgefahren++; }
+      } else if (st === 2) {
+        /* Stufe 2: EINEN Punkt der Route ueberspringen - und nur, wenn
+           der naechste auch wirklich in der Naehe liegt. Ohne diese
+           Grenze schob sich der Zeiger bei jedem Haenger weiter, bis das
+           Ziel der letzte Knoten der ganzen Route war: der Passant lief
+           dann schnurgerade quer durch die Stadt darauf zu, statt den
+           Gehwegen zu folgen. */
+        if (c.route && c.routeI < c.route.length - 1) {
+          const naechst = GEH.knoten[c.route[c.routeI + 1]];
+          if (naechst && Math.hypot(naechst.x - c.pos.x, naechst.z - c.pos.z) < 40) {
+            c.routeI++; c.knoten = c.route[Math.max(0, c.routeI - 1)];
+          } else {
+            c.festStufeN = 3;         // gleich die Route neu rechnen
+          }
+        } else { c.wp = (c.wp + 1) % 4; }
+        c.letzteDist = null;
       } else if (st === 3) {
-        const p2 = freierPunkt(c.pos.x, c.pos.z, 12);
-        if (p2) { c.loop[c.wp] = { x: p2.x, z: p2.z }; c.letzteDist = null; }
+        /* Stufe 3: die ganze Route neu rechnen. */
+        if (c.route) {
+          const nah = gehNaechster(c.pos.x, c.pos.z, 26);
+          const ende = c.route[c.route.length - 1];
+          const neu2 = (nah >= 0 && gehBudget > 0) ? (gehBudget--, gehRoute(nah, ende)) : null;
+          if (neu2) { c.route = neu2; c.routeI = 0; c.knoten = nah; GEH_STAT.gerettet++; }
+          else if (gehNeuesZiel(c) === false) c.route = null;
+        } else {
+          const p2 = freierPunkt(c.pos.x, c.pos.z, 12);
+          if (p2) { c.loop[c.wp] = { x: p2.x, z: p2.z }; c.letzteDist = null; }
+        }
       } else if (st >= 6 && ausserSicht(c.pos)) {
-        const p2 = freierPunkt(c.pos.x, c.pos.z, 16);
-        if (p2) { c.pos.x = p2.x; c.pos.z = p2.z; c.festStufeN = 0; }
+        /* Stufe 4 (letzte Rettung): auf einen gueltigen Gehwegknoten
+           versetzen - nur ausser Sicht des Spielers. */
+        const kn = gehNaechster(c.pos.x, c.pos.z, 40);
+        if (kn >= 0) {
+          c.pos.x = GEH.knoten[kn].x; c.pos.z = GEH.knoten[kn].z;
+          c.knoten = kn; c.festStufeN = 0; GEH_STAT.gerettet++;
+          if (c.route) { const e2 = c.route[c.route.length - 1];
+                         const r2 = gehRoute(kn, e2); if (r2) { c.route = r2; c.routeI = 0; } }
+        } else {
+          const p2 = freierPunkt(c.pos.x, c.pos.z, 16);
+          if (p2) { c.pos.x = p2.x; c.pos.z = p2.z; c.festStufeN = 0; }
+        }
       }
       /* Das seitliche Ausweichen laeuft ein paar Zehntel weiter. */
       if (c.ausweichT > 0) {
@@ -18748,6 +19797,60 @@ function updateGriff(dt) {
    Kampfleitung. Aus bleibt sie ohne jede Rechenlast: der Block wird nur
    betreten, wenn die Schaltung an ist. */
 const COMBAT_DEBUG = false;
+/* ---- Fussgaengernetz sichtbar machen ----
+   Nur zum Nachschauen waehrend der Entwicklung. Aus kostet es nichts:
+   die Linien werden erst gebaut, wenn die Schaltung an ist. */
+const PED_DEBUG = false;
+let pedDebugObj = null, pedDebugT = 0;
+function zeigeGehnetz(dt) {
+  baueGehnetz();
+  if (!pedDebugObj) {
+    const p = [], f = [];
+    const farbe = (art) => art === 'prom' ? [0.4, 0.9, 0.5]
+      : art === 'bruecke' ? [0.9, 0.6, 0.3]
+      : art === 'ubahn' ? [0.4, 0.7, 1.0]
+      : art === 'ufer' ? [0.8, 0.8, 0.4] : [0.7, 0.7, 0.8];
+    for (let i = 0; i < GEH.knoten.length; i++) {
+      const a = GEH.knoten[i];
+      for (const k of a.kanten) {
+        if (k.zu < i) continue;
+        const b = GEH.knoten[k.zu];
+        const c1 = k.ueberweg ? [1, 0.35, 0.35] : farbe(a.art);
+        p.push(a.x, a.y + 0.15, a.z, b.x, b.y + 0.15, b.z);
+        f.push(c1[0], c1[1], c1[2], c1[0], c1[1], c1[2]);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(f, 3));
+    pedDebugObj = new THREE.LineSegments(g,
+      new THREE.LineBasicMaterial({ vertexColors: true }));
+    scene.add(pedDebugObj);
+  }
+  /* Die laufenden Routen als zweite Linienmenge, viermal je Sekunde neu. */
+  pedDebugT -= dt;
+  if (pedDebugT > 0) return;
+  pedDebugT = 0.25;
+  const rp = [];
+  for (const c of civilians) {
+    if (!c.route || c.eingestiegen > 0) continue;
+    rp.push(c.pos.x, c.pos.y + 1.9, c.pos.z);
+    for (let i = c.routeI; i < c.route.length; i++) {
+      const n = GEH.knoten[c.route[i]];
+      rp.push(n.x, n.y + 1.9, n.z);
+      if (i < c.route.length - 1) rp.push(n.x, n.y + 1.9, n.z);
+    }
+    if (rp.length % 6) rp.length -= 3;
+  }
+  if (!pedDebugObj.userData.routen) {
+    const g2 = new THREE.BufferGeometry();
+    const m2 = new THREE.LineBasicMaterial({ color: 0xffe066 });
+    pedDebugObj.userData.routen = new THREE.LineSegments(g2, m2);
+    scene.add(pedDebugObj.userData.routen);
+  }
+  pedDebugObj.userData.routen.geometry.setAttribute('position',
+    new THREE.Float32BufferAttribute(rp, 3));
+}
 let kampfTafel = null, kampfTafelT = 0;
 function zeigeKampfTafel(dt) {
   if (!kampfTafel) {
@@ -18813,6 +19916,7 @@ function simuliere(dt) {
   updateCivilians(dt);
   updateEnemies(dt);
   if (COMBAT_DEBUG) zeigeKampfTafel(dt);
+  if (PED_DEBUG) zeigeGehnetz(dt);
   updateCamera(dt);
   updateEffekte(dt);
   updateZiehObjekte(dt);
@@ -18890,6 +19994,28 @@ if (window.__WEBHERO_TEST__ === true) {
     faden: swingStrand,
     kampf: KAMPF,
     machBoss, freieSicht, versuchePariere, versucheAusweichen, trefferRichtung,
+    /* ---- Fussgaengernetz (fuer die Pruefskripte) ---- */
+    gehNetz() {
+      baueGehnetz();
+      let kanten = 0, ueberwege = 0, ohneKante = 0;
+      const arten = {};
+      for (const n of GEH.knoten) {
+        kanten += n.kanten.length;
+        for (const k of n.kanten) if (k.ueberweg) ueberwege++;
+        if (!n.kanten.length) ohneKante++;
+        arten[n.art] = (arten[n.art] || 0) + 1;
+      }
+      return { knoten: GEH.knoten.length, kanten: kanten / 2, ueberwege: ueberwege / 2,
+               inseln: GEH.inseln, groessteInsel: GEH.groesteInsel,
+               ohneKante, arten, bauzeitMs: +(GEH.bauzeit || 0).toFixed(1) };
+    },
+    gehKnotenListe() { baueGehnetz(); return GEH.knoten; },
+    gehRoute, gehNaechster, gehNeuesZiel, gehStat() { return GEH_STAT; },
+    sozialPartnerSuche, sozialEnde, spawnZivi: spawnCivilian,
+    gehSuche() { return { anzahl: gehSucheN, msGesamt: +gehSucheZeit.toFixed(2),
+                          msJeSuche: gehSucheN ? +(gehSucheZeit / gehSucheN).toFixed(3) : 0 }; },
+    aufFahrbahn() { return AUF_FAHRBAHN.length; },
+    inWasser: inWater, aufBruecke: onBridge,
     gegnerLoslassen,
     /* Wie schlagAuf, aber mit frei waehlbaren Eigenschaften des Schlags -
        fuer Aufwaertshaken und Abschluesse in den Pruefskripten. */
