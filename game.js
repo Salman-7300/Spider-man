@@ -9802,6 +9802,8 @@ function konterVersuch() {
   }
   if (!ziel) return false;
   ziel.warnT = 0;
+  /* Einen Konter zu kassieren nimmt der ganzen Gruppe den Schwung. */
+  mutSenken(ziel.pos, 0.18, 12);
   if (ziel.warn) ziel.warn.visible = false;
   ziel.attack = null;
   ziel.attackCd = rand(1.8, 2.6);
@@ -15076,6 +15078,10 @@ function spawnGang(cx, cz, n) {
       ausweichCd: 0, iFrames: 0,
       hp: typ.hp, hpMax: typ.hp,
       blockT: 0, blockCd: rand(1, 4), warnT: 0,
+      /* Mut: 1 = voll bei der Sache, 0 = am Ende. Der Brecher ist von
+         Haus aus mutiger als der flinke Typ. */
+      mut: MUT_BASIS[typ.art] === undefined ? 0.8 : MUT_BASIS[typ.art],
+      finteT: 0, komboRest: 0,
       state: 'patrol',
       target: null,        // 'player' | Zivilist
       waypoint: null, waitT: rand(0, 2),
@@ -15199,9 +15205,14 @@ function damageEnemy(e, dmg, kind) {
     e.hpBar.g.visible = false;
     if (!player.symAn) player.symEnergie = clamp(player.symEnergie + 0.055, 0, 1);
     addScore(50, 'K.O.!', e.pos);
+    /* Einen Kameraden fallen zu sehen kostet die anderen Mut. */
+    mutSenken(e.pos, 0.30, 18);
     checkGangCleared(e.gang);
     checkCivilianSaved(e);
   } else {
+    /* Auch der eigene Treffer nagt am Mut - und die Umstehenden sehen es. */
+    e.mut = clamp((e.mut === undefined ? 0.8 : e.mut) - dmg / (e.hpMax || 34) * 0.55, 0, 1);
+    mutSenken(e.pos, 0.05, 8);
     e.hpBar.fg.scale.x = 1.1 * clamp(e.hp / (e.hpMax || CFG.enemyHP), 0, 1);
     e.hpBar.g.visible = true;
   }
@@ -15299,6 +15310,30 @@ const KAMPF_GLEICHZEITIG = 2;
    sie gehen auf einen weiteren Ring, statt sich an die Figur zu draengen.
    Vorher standen alle vier auf demselben Ring von 1,15 m; auch ohne
    Angriffsrecht sah das aus, als stuermten alle gleichzeitig. */
+/* ---- Mut und Angst ----
+   Bisher kaempfte jeder Ganove gleich entschlossen weiter, egal wie der
+   Kampf lief: der Rueckzug haing allein an der eigenen Lebensleiste, und
+   ob gerade drei Kameraden neben ihm umgefallen waren, spielte keine
+   Rolle. Jetzt hat jeder einen Mut-Wert zwischen 0 und 1.
+   Er faellt, wenn ein Kamerad in der Naehe umfaellt, wenn er selbst
+   getroffen wird und mit der eigenen Lebensleiste; er steigt langsam
+   wieder, solange nichts passiert.
+   Wirkung: wenig Mut heisst mehr Abstand, mehr Deckung, seltener
+   Angriffsrecht, frueherer Rueckzug - und unter 0,15 laeuft er weg. */
+const MUT_BASIS = { schlaeger: 0.80, brecher: 1.00, flink: 0.62 };
+const MUT_ANGRIFF = 0.30;      // darunter greift keiner mehr an
+const MUT_FLUCHT = 0.15;       // darunter laeuft er weg
+function mutSenken(pos, wieviel, weite) {
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const d = Math.hypot(e.pos.x - pos.x, e.pos.z - pos.z);
+    if (d > weite) continue;
+    /* Wer naeher dran ist, sieht mehr. */
+    const anteil = 1 - d / weite;
+    e.mut = clamp((e.mut === undefined ? 0.8 : e.mut) - wieviel * anteil, 0, 1);
+  }
+}
+
 const KAMPF_RECHT = new Set();
 /* Wie weit zwei Angreifer mindestens auseinanderstehen sollen, gemessen
    als Winkel um den Helden. Zwei Ganoven aus derselben Richtung sehen aus
@@ -15321,6 +15356,8 @@ function verteileAngriffsrechte() {
     if (e.dead || e.target !== 'player') continue;
     if (e.state === 'chase') ring.push({ e, w: winkelUmHelden(e) });
     if (e.betaeubtT > 0 || e.rueckzugT > 0 || e.webT > 0) continue;
+    /* Wem der Mut fehlt, der greift nicht an - er haelt Abstand. */
+    if (e.flieht || (e.mut !== undefined && e.mut < MUT_ANGRIFF)) continue;
     const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
     /* Wer schon ausholt oder zuschlaegt, behaelt sein Recht - sonst
        bricht ein Angriff mitten in der Bewegung ab. */
@@ -15519,7 +15556,7 @@ function updateEnemies(dtBild) {
        Vorher galt das nur beim Patrouillieren: Ganoven, die hinter einem
        Passanten herliefen, rannten an einem danebenstehenden Spider-Man
        vorbei, bis man sie einzeln anschlug. */
-    if (!player.dead && e.target !== 'player' && !e.bewacht && !e.dieb &&
+    if (!player.dead && e.target !== 'player' && !e.bewacht && !e.dieb && !e.flieht &&
         dp < 9 && dpy < 3 && e.betaeubtT <= 0) {
       e.state = 'chase'; e.target = 'player';
       alarmiereGang(e, 14);
@@ -15527,7 +15564,7 @@ function updateEnemies(dtBild) {
 
     /* Zielwahl */
     if (e.state === 'patrol') {
-      if (dp < 11 && dpy < 3 && !player.dead) { e.state = 'chase'; e.target = 'player'; }
+      if (dp < 11 && dpy < 3 && !player.dead && !e.flieht) { e.state = 'chase'; e.target = 'player'; }
       else {
         /* Weiter Umkreis: bei 22 Zivilisten auf der ganzen Karte kam sonst
            nie einer nah genug vorbei, und die Gang stand nur herum. */
@@ -15580,7 +15617,31 @@ function updateEnemies(dtBild) {
     if (e.rueckzugT === undefined) { e.rueckzugT = 0; e.rueckzugCd = 0; }
     if (e.rueckzugT > 0) e.rueckzugT -= dt;
     if (e.rueckzugCd > 0) e.rueckzugCd -= dt;
-    const angeschlagen = e.hp < (e.hpMax || CFG.enemyHP) * 0.26;
+    /* ---- Mut sammeln ----
+       Solange nichts passiert, fasst er sich wieder. Nicht ganz bis zum
+       Ausgangswert: wer schwer angeschlagen ist, wird nicht wieder mutig. */
+    if (e.mut === undefined) e.mut = MUT_BASIS[e.typ.art] || 0.8;
+    const mutDach = (MUT_BASIS[e.typ.art] || 0.8) *
+                    (0.35 + 0.65 * clamp(e.hp / (e.hpMax || CFG.enemyHP), 0, 1));
+    if (e.mut < mutDach) e.mut = Math.min(mutDach, e.mut + dt * 0.06);
+    else if (e.mut > mutDach) e.mut = Math.max(mutDach, e.mut - dt * 0.5);
+    /* ---- Ganz am Ende: weglaufen ----
+       Wer den Mut ganz verloren hat, kaempft nicht weiter. Er rennt weg,
+       bis er weit genug entfernt ist - dort fasst er sich wieder und
+       nimmt seine Runde auf. Dauerhaft aus dem Spiel nimmt ihn das nicht,
+       sonst waeren Auftraege nicht mehr zu schaffen. */
+    if (!e.dieb && !e.bewacht) {
+      if (!e.flieht && e.mut < MUT_FLUCHT && e.betaeubtT <= 0 && dp < 22) {
+        e.flieht = true;
+        popupWorld('Ich hau ab!', e.pos, '#ffd0a8');
+      } else if (e.flieht && (dp > 34 || e.mut > 0.4)) {
+        e.flieht = false;
+        e.mut = Math.max(e.mut, 0.42);
+        e.state = 'patrol'; e.target = null;
+      }
+    }
+    /* Der Rueckzug kommt frueher, je weniger Mut noch da ist. */
+    const angeschlagen = e.hp < (e.hpMax || CFG.enemyHP) * (0.26 + (1 - e.mut) * 0.34);
     if (angeschlagen && e.rueckzugT <= 0 && e.rueckzugCd <= 0 &&
         e.target === 'player' && dp < 7 && !e.dieb && e.betaeubtT <= 0) {
       /* 1,4 bis 2,6 s und 6,5 m waren zu wenig: der Ganove war sofort
@@ -15591,8 +15652,9 @@ function updateEnemies(dtBild) {
       if (Math.random() < 0.4) popupWorld('Rueckzug!', e.pos, '#ffd0a8');
     }
 
-    /* Der Dieb rennt vom Helden weg statt auf ihn zu. */
-    if (e.dieb) {
+    /* Der Dieb rennt vom Helden weg statt auf ihn zu - und wer den Mut
+       verloren hat, ebenso. */
+    if (e.dieb || e.flieht) {
       const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
       const dd = Math.hypot(dx, dz) || 1;
       moveX = dx / dd; moveZ = dz / dd;
@@ -15626,7 +15688,10 @@ function updateEnemies(dtBild) {
            Platz auf einem weiteren Ring, gut zweieinhalb Meter vom Helden
            entfernt. So sieht man, wer gerade dran ist. */
         const darfAngreifen = e.target !== 'player' || KAMPF_RECHT.has(e);
-        const ringR = darfAngreifen ? 1.15 : 3.0;
+        /* Wer Angst hat, bleibt weiter weg: aus drei Metern werden bei
+           ganz leerem Mut fuenfeinhalb. */
+        const ringR = darfAngreifen ? 1.15
+                    : 3.0 + (1 - clamp(e.mut === undefined ? 1 : e.mut, 0, 1)) * 2.5;
         if (!darfAngreifen) {
           /* ---- Wer nicht dran ist, haelt Abstand ----
              Und zwar IMMER, nicht nur wenn er gerade schlagbereit waere.
@@ -15751,7 +15816,29 @@ function updateEnemies(dtBild) {
           hurtCivilian(e.target, e);
         }
       }
-      if (a.t >= 1) e.attack = null;
+      if (a.t >= 1) {
+        e.attack = null;
+        /* ---- Kombo ----
+           Bisher war jeder Schlag fuer sich und danach kam eine Pause von
+           gut anderthalb Sekunden. Wer noch Mut hat, haengt jetzt ein bis
+           zwei Schlaege an - kurze Vorwarnung, kurze Pause. Das macht den
+           Nahkampf gefaehrlicher, ohne ihn unfair zu machen: die
+           Vorwarnung bleibt, man kann also weiter kontern. */
+        if (e.komboRest > 0) {
+          e.komboRest--;
+          e.warnT = 0.32;
+          e.attackCd = 0;
+        }
+      }
+    }
+    /* Waehrend der Finte geht er einen halben Schritt zurueck - das
+       macht den Abbruch sichtbar. */
+    if (e.finteT > 0) {
+      e.finteT -= dt;
+      const fx = e.pos.x - player.pos.x, fz = e.pos.z - player.pos.z;
+      const fd = Math.hypot(fx, fz) || 1;
+      e.pos.x += (fx / fd) * dt * 2.2;
+      e.pos.z += (fz / fd) * dt * 2.2;
     }
     if (e.attackCd > 0) e.attackCd -= dt;
     if (e.ausweichCd > 0) e.ausweichCd -= dt;
@@ -15763,17 +15850,36 @@ function updateEnemies(dtBild) {
       e.warn.visible = ((elapsed * 9) % 2) < 1;
       if (e.warnT <= 0) {
         e.warn.visible = false;
-        /* Nach längerer Vorwarnung folgt der Klingenhieb. */
-        const m = e.klingeGeplant ? KLINGENHIEB : pick(GANOVEN_SCHLAEGE);
-        e.klingeGeplant = false;
-        e.attack = { type: 'thugSwing', t: 0, hitDone: false, klinge: !!m.klinge,
-                     dauer: m.dauer, treff: m.treff, reichweite: m.reichweite, wucht: m.wucht };
-        if (m.klinge) SFX.swoosh();
-        /* Enger Abstand heißt auch: es trifft öfter. Die Pause zwischen
-           zwei Schlägen wird dafür wieder etwas länger, sonst nimmt ein
-           einzelner Ganove in zehn Sekunden fast die ganze Lebensleiste. */
-        e.attackCd = rand(1.3, 2.1);
-        if (e.visual.attackOneShot) e.visual.attackOneShot(0, m.art, m.dauer * 0.85);
+        /* ---- Finte ----
+           Wer sicher auftritt, holt manchmal aus, schlaegt aber NICHT -
+           er bricht ab und schlaegt gleich danach richtig zu. Vorher war
+           jede Vorwarnung ein sicherer Schlag, und Ausweichen liess sich
+           blind auf das Ausrufezeichen timen. */
+        if (!e.finte && !e.klingeGeplant && e.mut > 0.55 &&
+            e.target === 'player' && Math.random() < 0.20) {
+          e.finte = true;
+          e.warnT = rand(0.28, 0.45);
+          e.finteT = 0.22;
+          if (Math.random() < 0.5) popupWorld('Finte!', e.pos, '#ffd0a8');
+        } else {
+          e.finte = false;
+          /* Nach längerer Vorwarnung folgt der Klingenhieb. */
+          const m = e.klingeGeplant ? KLINGENHIEB : pick(GANOVEN_SCHLAEGE);
+          e.klingeGeplant = false;
+          e.attack = { type: 'thugSwing', t: 0, hitDone: false, klinge: !!m.klinge,
+                       dauer: m.dauer, treff: m.treff, reichweite: m.reichweite, wucht: m.wucht };
+          if (m.klinge) SFX.swoosh();
+          /* Enger Abstand heißt auch: es trifft öfter. Die Pause zwischen
+             zwei Schlägen wird dafür wieder etwas länger, sonst nimmt ein
+             einzelner Ganove in zehn Sekunden fast die ganze Lebensleiste. */
+          e.attackCd = rand(1.3, 2.1);
+          /* Wie viele Schlaege haengt er noch an? Nur mit Mut, und nie mehr
+             als zwei - sonst prasselt es ohne Pause. */
+          if (e.komboRest <= 0 && e.mut > 0.6 && Math.random() < 0.35 * e.mut) {
+            e.komboRest = Math.random() < 0.3 ? 2 : 1;
+          }
+          if (e.visual.attackOneShot) e.visual.attackOneShot(0, m.art, m.dauer * 0.85);
+        }
       }
     } else if (e.warn) e.warn.visible = false;
 
@@ -15792,7 +15898,10 @@ function updateEnemies(dtBild) {
       const nah = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < 3.2;
       const spielerSchlaegt = !!player.attack && player.attack.type !== 'web';
       if (e.blockCd <= 0 && nah && spielerSchlaegt && !e.attack && e.warnT <= 0 &&
-          e.webT <= 0 && Math.random() < e.typ.blockChance) {
+          e.webT <= 0 &&
+          /* Angst macht vorsichtig: wer wenig Mut hat, geht oefter in
+             Deckung statt zuzuschlagen. */
+          Math.random() < e.typ.blockChance * (1 + (1 - clamp(e.mut === undefined ? 1 : e.mut, 0, 1)) * 1.2)) {
         e.blockT = rand(0.5, 0.9);
       }
     }
