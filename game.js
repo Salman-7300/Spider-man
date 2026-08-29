@@ -513,13 +513,17 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+/* PCFSoftShadowMap ist der teuerste Filter; auf schwacher Grafik kostet
+   er sichtbar Bildrate, ohne dass man den Unterschied im Spiel bemerkt. */
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const SKY = 0x9fc4e8;
 scene.background = new THREE.Color(SKY);
 scene.fog = new THREE.Fog(0xb6cde6, 140, 520);
+/* Obergrenze der Sichtweite, gesetzt von der Grafikstufe. */
+let FOG_FERN_MAX = 520;
 
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 900);
 
@@ -536,7 +540,10 @@ sun.castShadow = true;
 /* 2048er Schattenkarte war bei einem Ausschnitt von 180 m Kantenlänge
    deutlich feiner, als man je sieht – kostet aber viermal so viele Pixel
    wie 1024. 1536 trifft die Mitte. */
-sun.shadow.mapSize.set(1536, 1536);
+/* 1536 kostete auf schwacher Grafik spuerbar mehr, ohne dass man den
+   Unterschied sieht: bei einem Schattenfeld von 180 m sind 1024 immer
+   noch gut 17 Zentimeter je Bildpunkt. */
+sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.autoUpdate = false;
 sun.shadow.needsUpdate = true;
 sun.shadow.camera.near = 10; sun.shadow.camera.far = 400;
@@ -682,7 +689,7 @@ function updateTagNacht(dt) {
 
   /* Nachts wird die Sicht kürzer – das gibt Tiefe und spart Rechenzeit. */
   scene.fog.near = 110 + tagAnteil * 60;
-  scene.fog.far = 300 + tagAnteil * 240;
+  scene.fog.far = Math.min(FOG_FERN_MAX, 300 + tagAnteil * 240);
   if (REGEN.staerke > 0.02) {
     /* Bei Regen wird alles grauer und die Sicht kürzer. */
     scene.background.lerp(_tagB.setHex(0x5a6472), REGEN.staerke * 0.55);
@@ -16155,7 +16162,13 @@ function wendeGrafikAn() {
   if (sun) sun.castShadow = stufeG === 'hoch';
   REGEN.erlaubt = stufeG !== 'niedrig';
   if (stufeG === 'niedrig' && REGEN.staerke > 0) REGEN.staerke = 0;
-  scene.fog.far = stufeG === 'niedrig' ? 260 : (stufeG === 'mittel' ? 380 : 520);
+  /* Die Sichtweite der Grafikstufe muss GEMERKT werden. Der Tageslauf
+     setzt scene.fog.far in JEDEM Bild neu (300 bis 540) - die hier
+     gesetzten 260 waren damit im naechsten Bild wieder weg, und die
+     Stufe "niedrig" brachte ueberhaupt keine Entlastung bei der
+     Sichtweite. */
+  FOG_FERN_MAX = stufeG === 'niedrig' ? 260 : (stufeG === 'mittel' ? 380 : 520);
+  scene.fog.far = Math.min(scene.fog.far, FOG_FERN_MAX);
   /* Weit entfernte Figuren werden bei niedriger Stufe früher ausgeblendet. */
   LOD_WEITE = stufeG === 'niedrig' ? 70 : (stufeG === 'mittel' ? 100 : 130);
   if (regenPunkte) regenPunkte.visible = REGEN.erlaubt && REGEN.staerke > 0.02;
@@ -16598,7 +16611,26 @@ function regleQualitaet(msJetzt) {
     pixelStufe = neu;
     renderer.setPixelRatio(max * pixelStufe);
   }
+  /* ---- Notbremse ----
+     Der Regler konnte bisher NUR die Bildaufloesung senken. Reicht das
+     nicht - schwacher Laptop, viel los auf der Strasse -, blieb es beim
+     Ruckeln, obwohl die teuersten Posten (Schatten, Sichtweite) noch voll
+     liefen. Bleibt die Bildzeit auch bei kleinster Aufloesung ueber 26 ms
+     (unter 38 Bildern je Sekunde), geht zusaetzlich die Grafikstufe eine
+     Stufe herunter: erst fallen die Schatten weg, dann kommt die
+     Sichtweite herein. */
+  if (bildZeit > 26 && pixelStufe <= 0.66 && EINST.grafik !== 'niedrig') {
+    if (++stufeSchlecht >= 3) {
+      stufeSchlecht = 0;
+      EINST.grafik = EINST.grafik === 'hoch' ? 'mittel' : 'niedrig';
+      wendeGrafikAn(); einstSpeichern();
+      const w = document.getElementById('setGrafik');
+      if (w) w.value = EINST.grafik;
+      popupScreen('Grafik auf "' + EINST.grafik + '" gestellt - es ruckelte');
+    }
+  } else if (bildZeit < 20) stufeSchlecht = 0;
 }
+let stufeSchlecht = 0;
 
 let knopfCd = 0;
 /* Nur fuer Tests: haelt die Bildschleife an, damit eine gesetzte Kamera
@@ -16812,6 +16844,9 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeRegen(v) { REGEN.an = v > 0; REGEN.staerke = v; REGEN.naechsterWechsel = 9999; },
     regenStaerke() { return +REGEN.staerke.toFixed(2); },
     zeichne() { renderer.render(scene, camera); },
+    setzeGrafik(v) { EINST.grafik = v; wendeGrafikAn(); },
+    fogFern() { return scene.fog.far; },
+    schattenAn() { return renderer.shadowMap.enabled; },
     frier(an) { gefroren = !!an; },
     kamNah(d) { kamZwang = d || 0; },
     /* Freie Kameraaufnahme fuer Tests: Position und Blickziel setzen und
