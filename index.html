@@ -221,6 +221,19 @@
     Läuft komplett offline im Browser (Three.js liegt im Spielordner bei).</div>
 </div>
 
+<style>
+#bosswrap{position:fixed;left:50%;transform:translateX(-50%);bottom:9%;width:min(560px,74vw);
+  display:none;z-index:22;text-align:center;pointer-events:none}
+#bossname{font:700 15px/1.3 system-ui,sans-serif;letter-spacing:.14em;color:#ffd9c0;
+  text-shadow:0 2px 6px #000;margin-bottom:5px}
+#bossbarbg{height:13px;background:rgba(10,6,8,.72);border:2px solid rgba(255,160,110,.55);
+  border-radius:8px;overflow:hidden}
+#bossbar{height:100%;width:100%;transform-origin:left center;
+  background:linear-gradient(90deg,#ff7a3c,#ffcf6a);transition:transform .18s ease-out}
+#bosswrap.phase2 #bossbarbg{border-color:rgba(255,120,90,.75)}
+#bosswrap.phase3 #bossbarbg{border-color:rgba(255,70,70,.9)}
+#bosswrap.phase3 #bossbar{background:linear-gradient(90deg,#ff3d3d,#ff9a4a)}
+</style>
 <div id="hud">
   <div id="topleft">
     <div id="hpwrap"><div id="hpbar"></div></div>
@@ -233,6 +246,9 @@
   <div id="minimap"><canvas id="minimapC" width="360" height="360"></canvas>
     <div id="minimapN">N</div></div>
   <div id="objective"></div>
+  <!-- Bossleiste: nur waehrend eines Bosskampfs sichtbar -->
+  <div id="bosswrap"><div id="bossname"></div>
+    <div id="bossbarbg"><div id="bossbar"></div></div></div>
   <!-- Spinnensinn: Zeiger in Richtung der Gefahr, auch wenn sie im Ruecken liegt -->
   <div id="sinn"></div>
   <div id="crosshair"></div>
@@ -282,7 +298,21 @@
     &nbsp;&nbsp;&nbsp;&nbsp;<b>Werfer</b> (hält Abstand und wirft – der Spinnensinn meldet auch den Wurf).<br>
     &nbsp;&nbsp;&nbsp;&nbsp;Deckung hält nicht ewig: ein Tritt bricht sie sofort, mehrere Schläge zerbrechen sie.<br>
     &nbsp;&nbsp;&nbsp;&nbsp;Ein Anführer macht seine Gang mutiger – schaltest du ihn aus, bricht die Gruppe ein.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Wickelst du einen ein, holt ein Kamerad ihn wieder heraus, wenn du nicht danebenstehst.</small><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Wickelst du einen ein, holt ein Kamerad ihn wieder heraus, wenn du nicht danebenstehst.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Der Werfer sucht sich Deckung hinter Hausecken und tritt zum Werfen kurz heraus.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<b>Elite</b> (Raute über dem Kopf) kann mehr, statt mehr auszuhalten: sie <b>pariert</b><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;deine Schläge. Eine Parade unterbricht deine Kombo – aber sie muss vorher raten.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Schlägst du später zu als erwartet, greift sie ins Leere und steht offen.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Woher der Treffer kommt, sieht man: von hinten trifft es härter als von vorn.</small><br>
+    <br>
+    <b>Der ENFORCER</b><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<small>Selten führt er eine Gang an – dann läuft unten seine Lebensleiste.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Drei Phasen: erst kontrolliert, dann mit neuen Ketten und Würfen, zuletzt hart.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Beim Phasenwechsel weicht er zurück und greift kurz nicht an.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Sein schwerer Schlag ist lang angekündigt – weicht man aus, steht er offen.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Der Kniestoß lässt sich <b>nicht kontern</b>, nur ausweichen.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Ein Netz hält ihn nur kurz – vier Netze fesseln ihn wirklich.<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;Genug Druck bricht seine Standfestigkeit: dann wankt er und du hast Zeit.</small><br>
     <br>
     <b>Gamepad</b> A Sprung · X Schlag · Y Tritt · B Rolle<br>
     <b>Gamepad</b> LB Netz · RB Zip · LT Haken · RT Schwung · R3 Wurf<br>
