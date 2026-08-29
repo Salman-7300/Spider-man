@@ -8415,6 +8415,9 @@ const player = {
      Anzug zuschalten: haerter, schneller, aber nur fuer eine Weile. */
   symEnergie: 0, symZeit: 0, symAn: false, symBlitz: 0,
   luftKombo: 0, konterT: 0, konterZiel: null,
+  /* Packen (G) und Luftkombo (R). */
+  haeltGegner: null, griffT: 0, schmetter: null,
+  luftZiel: null, luftFenster: 0, luftKettenT: 0,
   anlaufZiel: null, anlaufT: 0, anlaufSatz: false, gleiten: false, gleitMisch: 0, gleitAus: 0,
   kurveGlatt: 0, dreiPunktT: 0, dreiPunktSeite: 'R', beideAmFaden: false,
   altVelX: 0, altVelZ: 0, neigVor: 0, neigSeit: 0, wandSchwung: 0, wandBoostCd: 0, katFlug: 0, zug: null,
@@ -8473,7 +8476,7 @@ const helpBox = document.getElementById('help');
    noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
    nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
    war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
-const BAU_STAND = '2026-08-29 / 12';
+const BAU_STAND = '2026-08-29 / 13';
 if (helpBox) {
   const z = document.createElement('div');
   z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
@@ -9519,6 +9522,21 @@ function webShot() {
     ziehWirf(o, true);
     return;
   }
+  /* ---- Netz-Schmetterer ----
+     In der Luft, mit einem Gegner in der Naehe, der ebenfalls fliegt:
+     Netz dran und mit Schwung nach unten. Der Abschluss der Luftkombo. */
+  if (!player.onGround && player.state === 'air' && !player.schmetter &&
+      player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y) > 2.5) {
+    /* Der Gegner muss NICHT schon fliegen - das Netz reisst ihn hoch. */
+    let z = null, bestD = 9;
+    for (const e of enemies) {
+      if (e.dead || e.webT > 0) continue;
+      const d = Math.hypot(e.pos.x - player.pos.x, e.pos.y - player.pos.y,
+                           e.pos.z - player.pos.z);
+      if (d < bestD) { bestD = d; z = e; }
+    }
+    if (z) { netzSchmettern(z); return; }
+  }
   player.attack = { type: 'web', t: 0, hitDone: true };
   player.attackCd = 0.34;
   const hand = wechsleNetzHand();
@@ -9718,6 +9736,32 @@ function zipImFenster(z) {
 /* ======================= Spieler-Aktionen ======================= */
 function tryJump() {
   if (player.dead) return;
+  /* Haelt man jemanden, reisst die Leertaste ihn hoch - Einstieg in die
+     Luftkombo. */
+  if (player.haeltGegner) { gegnerLoslassen('hoch'); return; }
+  /* ---- Hinterher! ----
+     Kurz nach dem Aufwaertshaken springt die Leertaste dem hochgeschlagenen
+     Gegner NACH, statt nur zu springen: die Figur setzt sich neben ihn in
+     die Luft. Vorher endete der Haken damit, dass man unten stand und
+     zusah. */
+  if (player.luftFenster > 0 && player.luftZiel && !player.luftZiel.dead) {
+    const z = player.luftZiel;
+    player.luftFenster = 0;
+    player.vel.set((z.pos.x - player.pos.x) * 1.6, 13.5,
+                   (z.pos.z - player.pos.z) * 1.6);
+    player.state = 'air';
+    player.onGround = false;
+    player.jumps = 1;
+    player.luftKettenT = 2.2;
+    player.komboZahl = (player.komboZahl || 0) + 1;
+    zeitlupe = Math.max(zeitlupe, 0.22);
+    if (heroVisual.rolleOneShot && heroVisual.hatClip && heroVisual.hatClip('frontflip')) {
+      player.luftSalto = heroVisual.rolleOneShot(0.5, 'frontflip', BLEND_KUNST) || 0;
+    }
+    popupScreen('Luftkombo! Klick = Schlag · Q = runterschmettern');
+    SFX.swoosh();
+    return;
+  }
   /* ---- Absprung aus dem Netz-Zug ----
      Wer sich an einen Punkt heranziehen laesst und im RICHTIGEN MOMENT
      abspringt, nimmt den ganzen Zug als Schub mit und schiesst nach vorn.
@@ -9882,6 +9926,8 @@ function konterVersuch() {
 
 function dodge() {
   if (!heroVisual || player.dead || player.dodgeT > 0 || player.state === 'climb') return;
+  /* Mit jemandem in der Hand laesst Strg ihn einfach los. */
+  if (player.haeltGegner) { gegnerLoslassen('los'); return; }
   const konter = konterVersuch();
   const dir = inputDir() || { x: -Math.sin(player.facing), z: -Math.cos(player.facing) };
   /* Die Dauer kommt aus der Rollen-Bewegung selbst. Vorher war sie mit
@@ -9971,15 +10017,86 @@ function uppercut() {
     const dx = ziel.pos.x - player.pos.x, dz = ziel.pos.z - player.pos.z;
     player.facing = Math.atan2(dx, dz);
     player.ziel = ziel;
+    starteLuftkombo(ziel);
   }
   SFX.swoosh();
 }
 
 /* ---- Packen und werfen: einen nahen Gegner greifen und in Blickrichtung
    schleudern. Trifft er dabei eine Wand oder ein Auto, tut das extra weh. ---- */
+/* ---- Den gehaltenen Gegner loslassen / werfen / schmettern ----
+   G war bisher EIN Knopf: zupacken und im selben Moment wegschleudern.
+   Man konnte also nicht entscheiden, wohin. Jetzt haelt man ihn erst -
+   und die naechste Taste sagt, was passiert. */
+function gegnerLoslassen(art) {
+  const e = player.haeltGegner;
+  if (!e) return false;
+  player.haeltGegner = null;
+  player.griffT = 0;
+  e.gehalten = false;
+  e.staggerT = Math.max(e.staggerT, 0.9);
+  const f = camForward();
+  if (art === 'wurf') {
+    /* Auf den anvisierten ANDEREN Gegner werfen - das ist der Sinn der
+       Sache. Ist keiner im Blick, fliegt er einfach nach vorn. */
+    let ziel = null, bestS = -1e9;
+    for (const o of enemies) {
+      if (o === e || o.dead) continue;
+      const dx = o.pos.x - e.pos.x, dz = o.pos.z - e.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 26) continue;
+      const dot = (dx * f.x + dz * f.z) / (d || 1);
+      if (dot < 0.2) continue;
+      const s = dot * 3 - d / 26;
+      if (s > bestS) { bestS = s; ziel = o; }
+    }
+    if (ziel) {
+      const dx = ziel.pos.x - e.pos.x, dz = ziel.pos.z - e.pos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      e.vel.set(dx / d * 24, 6.5 + d * 0.12, dz / d * 24);
+      e.wurfZiel = ziel;
+      popupWorld('Auf ihn!', e.pos, '#ffd23c');
+    } else {
+      e.vel.set(f.x * 24, 7.5, f.z * 24);
+    }
+    e.geworfen = 1.4;
+    damageEnemy(e, 12, 'kick');
+    SFX.kick();
+  } else if (art === 'boden') {
+    /* Zu Boden schmettern. */
+    e.vel.set(f.x * 4, -22, f.z * 4);
+    e.geworfen = 0.9;
+    damageEnemy(e, 18, 'kick');
+    hitstop(0.09);
+    camShake = Math.max(camShake, 0.22);
+    staubWolke(e.pos, 1.1);
+    popupWorld('Aufschlag!', e.pos, '#ffd23c');
+    SFX.kick();
+  } else if (art === 'hoch') {
+    /* Hochreissen - Einstieg in die Luftkombo. */
+    e.vel.set(f.x * 2, 15, f.z * 2);
+    e.geworfen = 1.2;
+    e.staggerT = Math.max(e.staggerT, 1.4);
+    damageEnemy(e, 8, 'kick');
+    starteLuftkombo(e);
+    SFX.swoosh();
+  } else {
+    e.vel.set(f.x * 3, 2, f.z * 3);
+  }
+  camShake = Math.max(camShake, 0.12);
+  return true;
+}
+
 function packenUndWerfen() {
   if (!heroVisual || player.dead || player.state === 'climb') return;
   if (!stufeFrei('wurf')) { popupScreen('🔒 Packen & Werfen ab Stufe 3'); return; }
+  /* Haelt man schon jemanden, wirft der zweite Druck ihn. */
+  if (player.haeltGegner) {
+    gegnerLoslassen('wurf');
+    if (heroVisual.attackOneShot) heroVisual.attackOneShot(0, 'wurf', 0.55);
+    player.attackCd = 0.45;
+    return;
+  }
   if (player.attackCd > 0.05) return;
   const e = nearestEnemy(2.6, -0.2);
   if (!e) { popupScreen('Niemand zum Packen in Reichweite'); return; }
@@ -9996,20 +10113,99 @@ function packenUndWerfen() {
                     hitDone: true, finisher: false, stufe: 0, dauer };
   const f = camForward();
   player.facing = Math.atan2(f.x, f.z);
-  /* Der Gegner fliegt in Blickrichtung davon und ist dabei ein Geschoss. */
-  e.vel.set(f.x * 26, 7.5, f.z * 26);
-  e.staggerT = Math.max(e.staggerT, 1.1);
-  e.geworfen = 1.2;
-  damageEnemy(e, 10, 'kick');
-  hitstop(0.08);
+  /* ---- Zupacken statt sofort schleudern ----
+     Der Gegner haengt jetzt am Netz vor der Figur, bis man sich
+     entscheidet: G = auf einen anderen werfen, Linksklick = zu Boden
+     schmettern, Leertaste = hochreissen (Luftkombo), Strg = loslassen.
+     Nach vier Sekunden reisst er sich selbst los. */
+  player.haeltGegner = e;
+  player.griffT = 4.0;
+  e.gehalten = true;
+  e.attack = null; e.warnT = 0; e.blockT = 0;
+  e.staggerT = Math.max(e.staggerT, 0.6);
+  e.vel.set(0, 0, 0);
+  damageEnemy(e, 6, 'punch');
+  hitstop(0.06);
   camShake = Math.max(camShake, 0.12);
-  treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.1, e.pos.z), 1.3, 0xffd23c);
+  treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.1, e.pos.z), 1.1, 0xffd23c);
   SFX.kick();
-  popupWorld('Geworfen!', e.pos, '#ffd23c');
+  popupScreen('Gepackt - G werfen · Klick Boden · Leertaste hoch · Strg los');
+}
+
+/* ---- Luftkombo ----
+   Nach dem Aufwaertshaken (R) bleibt ein kurzes Fenster, in dem die
+   Leertaste dem Gegner HINTERHER springt, statt nur zu springen. Oben
+   halten Schlaege ihn in der Luft, Q holt ihn mit dem Netz herunter. */
+/* ---- Netz-Schmetterer ----
+   Zwei Teile: erst reisst das Netz den Gegner zur Figur hoch, dann geht
+   es mit ihm nach unten. In einem Zug sah man vom Netz nichts - der
+   Gegner war schon unten, bevor der Faden ueberhaupt zu sehen war. */
+function netzSchmettern(e) {
+  player.attack = { type: 'web', t: 0, hitDone: true };
+  player.attackCd = 0.5;
+  const hand = wechsleNetzHand();
+  player.schmetter = { e, t: 0.34, hand };
+  e.onGround = false;
+  e.vel.set((player.pos.x - e.pos.x) * 2.2,
+            Math.max(9, (player.pos.y + 0.6 - e.pos.y) * 3.4),
+            (player.pos.z - e.pos.z) * 2.2);
+  e.geworfen = 1.4;
+  e.staggerT = Math.max(e.staggerT, 1.8);
+  e.attack = null; e.warnT = 0;
+  if (heroVisual.attackOneShot) heroVisual.attackOneShot(0, 'wurf', 0.4);
+  SFX.web();
+  popupWorld('Am Netz!', e.pos, '#bfe8ff');
+}
+function schmetterEnde() {
+  const s = player.schmetter;
+  player.schmetter = null;
+  if (!s || !s.e || s.e.dead) return;
+  const e = s.e;
+  const boden = groundY(e.pos.x, e.pos.z, e.pos.y);
+  e.vel.set((e.pos.x - player.pos.x) * 0.5, -36, (e.pos.z - player.pos.z) * 0.5);
+  e.geworfen = 1.0;
+  e.staggerT = Math.max(e.staggerT, 1.6);
+  damageEnemy(e, 22, 'kick');
+  /* Die Figur folgt nach - sonst sieht es aus, als haette das Netz von
+     allein gezogen. */
+  player.vel.y = Math.min(player.vel.y, -16);
+  player.komboZahl = (player.komboZahl || 0) + 1;
+  player.luftKettenT = 2.2;
+  hitstop(0.10);
+  camShake = Math.max(camShake, 0.3);
+  staubWolke(_v1.set(e.pos.x, boden, e.pos.z), 1.4);
+  treffEffekt(_v1.set(e.pos.x, e.pos.y + 0.8, e.pos.z), 1.6, 0xbfe8ff);
+  addScore(40 + (player.komboZahl || 1) * 10,
+           'Schmetterer x' + (player.komboZahl || 1), e.pos);
+  popupWorld('Runter!', e.pos, '#bfe8ff');
+  SFX.kick();
+  /* Wer daneben steht, geht mit zu Boden. */
+  for (const o of enemies) {
+    if (o === e || o.dead) continue;
+    if (Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) > 3.2) continue;
+    o.staggerT = Math.max(o.staggerT, 0.8);
+    damageEnemy(o, 8, 'kick');
+    mutSenken(o.pos, 0.15, 10);
+  }
+}
+
+function starteLuftkombo(e) {
+  if (!e || e.dead) return;
+  player.luftZiel = e;
+  player.luftFenster = 0.85;
+  player.komboZahl = (player.komboZahl || 0) + 1;
+  popupScreen('Leertaste: hinterher!');
 }
 
 function tryAttack(type) {
   if (!heroVisual || player.dead || player.state === 'climb') return;
+  /* Mit jemandem in der Hand ist der Schlag ein Schmettern zu Boden. */
+  if (player.haeltGegner) {
+    gegnerLoslassen('boden');
+    if (heroVisual.attackOneShot) heroVisual.attackOneShot(0, 'wurf', 0.5);
+    player.attackCd = 0.4;
+    return;
+  }
   /* Während der Ausweichrolle wird der Klick gemerkt statt verworfen –
      sonst geht direkt nach einem Konter der Gegenschlag verloren. */
   if (player.rollT > 0) {
@@ -14582,7 +14778,16 @@ function updateCivilians(dtBild) {
     /* Die eigene Hoehe zaehlt mit: sonst zieht es die Wartenden auf dem
        Bahnsteig durch die Decke auf die Strasse. */
     const cGrund = groundY(c.pos.x, c.pos.z, c.pos.y);
-    c.pos.y = lerp(c.pos.y, cGrund, Math.min(1, dt * 12));
+    /* ---- Kleine Stufen weich, grosse Spruenge als FALL ----
+       Die Hoehe wurde immer mit derselben weichen Glaettung nachgefuehrt.
+       Bei einer Bordsteinkante ist das richtig; laeuft aber jemand ueber
+       einen U-Bahn-Schacht, faellt der Boden auf einen Schlag um Meter -
+       und der Passant schwebte sichtbar in der Luft, bis die Glaettung
+       nachkam. Genau das war "der Zivi sitzt in der Luft". Ab einem
+       halben Meter Unterschied faellt er jetzt richtig. */
+    const dGrund = c.pos.y - cGrund;
+    if (dGrund > 0.5) c.pos.y = Math.max(cGrund, c.pos.y - dt * 9.5);
+    else c.pos.y = lerp(c.pos.y, cGrund, Math.min(1, dt * 12));
     c.pos.y = Math.max(c.pos.y, cGrund - 0.02);
     /* Wer von der Strasse in einen Treppenschacht laeuft, landet unten -
        und haette dort keinen Wegpunkt mehr, an dem er sich orientiert.
@@ -15586,6 +15791,32 @@ function updateEnemies(dtBild) {
       /* Der Aufprall zählt erst, wenn der Wurf wirklich unterwegs war –
          sonst löst schon der Startpunkt am Boden den Treffer aus und der
          Gegner fliegt gar nicht erst los. */
+      /* ---- Einen Gegner auf einen anderen werfen ----
+         Genau darum geht es bei "Packen und Werfen": bisher flog der
+         Geworfene durch seine Kameraden hindurch, als waeren sie Luft. */
+      if (e.geworfen > 0.15 && Math.hypot(e.vel.x, e.vel.z) > 8) {
+        for (const o of enemies) {
+          if (o === e || o.dead || o.geworfen > 0) continue;
+          if (Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) > 1.5) continue;
+          if (Math.abs(o.pos.y - e.pos.y) > 2.0) continue;
+          const wucht2 = Math.hypot(e.vel.x, e.vel.z);
+          damageEnemy(o, 18, 'kick');
+          damageEnemy(e, 10, 'kick');
+          o.vel.set(e.vel.x * 0.55, 6, e.vel.z * 0.55);
+          o.geworfen = 0.9;
+          o.staggerT = Math.max(o.staggerT, 1.2);
+          e.vel.multiplyScalar(0.25);
+          e.geworfen = 0.2;
+          treffEffekt(_v1.set(o.pos.x, o.pos.y + 1.1, o.pos.z), 1.8, 0xffd23c);
+          camShake = Math.max(camShake, 0.2);
+          hitstop(0.08);
+          addScore(60, 'Doppeltreffer!', o.pos);
+          popupWorld('Volltreffer!', o.pos, '#ffd23c');
+          mutSenken(o.pos, 0.25, 14);
+          SFX.kick();
+          break;
+        }
+      }
       const gelandet = e.pos.y <= gy + 0.02 && e.geworfen < 0.95;
       if (e.geworfen > 0 && (e.wall || gelandet)) {
         e.geworfen = 0;
@@ -16028,8 +16259,12 @@ function updateEnemies(dtBild) {
        konnten Gangs sonst bis auf die nackte Grundfläche außerhalb des
        Rasters ziehen. */
     if (haltenImGebiet(e.pos)) { e.waypoint = null; e.target = null; e.state = 'patrol'; }
-    e.pos.y = lerp(e.pos.y, groundY(e.pos.x, e.pos.z), Math.min(1, dt * 12));
-    e.pos.y = Math.max(e.pos.y, groundY(e.pos.x, e.pos.z) - 0.02);
+    /* Wie bei den Passanten: kleine Stufen weich, grosse Spruenge als
+       Fall. Sonst schwebt ein Ganove, der ueber einen Schacht laeuft. */
+    const eGrund = groundY(e.pos.x, e.pos.z);
+    if (e.pos.y - eGrund > 0.5) e.pos.y = Math.max(eGrund, e.pos.y - dt * 9.5);
+    else e.pos.y = lerp(e.pos.y, eGrund, Math.min(1, dt * 12));
+    e.pos.y = Math.max(e.pos.y, eGrund - 0.02);
     if (speed > 0.1) e.phase += dt * (4 + speed * 1.7);
 
     e.visual.root.position.copy(e.pos);
@@ -16846,6 +17081,58 @@ function updateKlang(dt) {
   MUSIK.update(dt, player.pos.y, clamp((tempo - 12) / 26, 0, 1), REGEN.staerke > 0.3);
 }
 
+/* ---- Gehaltener Gegner und Luftkombo ----
+   Beides sind kurze Zustaende, die jedes Bild nachgefuehrt werden
+   muessen: der Gepackte haengt vor der Figur, das Sprungfenster nach dem
+   Aufwaertshaken laeuft ab. */
+function updateGriff(dt) {
+  if (player.luftFenster > 0) {
+    player.luftFenster -= dt;
+    if (player.luftFenster <= 0 || !player.luftZiel || player.luftZiel.dead) {
+      player.luftFenster = 0; player.luftZiel = null;
+    }
+  }
+  if (player.luftKettenT > 0) {
+    player.luftKettenT -= dt;
+    if (player.luftKettenT <= 0) player.komboZahl = 0;
+  }
+  /* Der Netz-Schmetterer laeuft in zwei Teilen. */
+  if (player.schmetter) {
+    const s = player.schmetter;
+    if (!s.e || s.e.dead) player.schmetter = null;
+    else {
+      s.t -= dt;
+      player.fadenZiel = _v4.set(s.e.pos.x, s.e.pos.y + 1.0, s.e.pos.z);
+      player.fadenHand = s.hand;
+      player.ziehtObjekt = true;
+      if (s.t <= 0) schmetterEnde();
+    }
+  }
+  const e = player.haeltGegner;
+  if (!e) return;
+  if (e.dead || player.dead || player.state === 'swing' || player.state === 'climb' ||
+      player.state === 'zip') { gegnerLoslassen('los'); return; }
+  player.griffT -= dt;
+  if (player.griffT <= 0) {
+    popupWorld('Losgerissen!', e.pos, '#ffd0a8');
+    gegnerLoslassen('los');
+    return;
+  }
+  /* Vor der Figur auf Brusthoehe, Gesicht zu ihr. */
+  const f = _v2.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+  e.pos.set(player.pos.x + f.x * 1.25, player.pos.y + 0.45,
+            player.pos.z + f.z * 1.25);
+  e.vel.set(0, 0, 0);
+  e.facing = player.facing + Math.PI;
+  e.staggerT = Math.max(e.staggerT, 0.3);
+  e.attack = null; e.warnT = 0; e.blockT = 0;
+  e.onGround = false;
+  /* Ein Netz von der Faust zum Gepackten. */
+  player.fadenZiel = _v4.set(e.pos.x, e.pos.y + 0.9, e.pos.z);
+  player.fadenHand = 'R';
+  player.ziehtObjekt = true;
+}
+
 function simuliere(dt) {
   updateGamepad();
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
@@ -16864,6 +17151,7 @@ function simuliere(dt) {
   updateCamera(dt);
   updateEffekte(dt);
   updateZiehObjekte(dt);
+  updateGriff(dt);
   updateKlatscher(dt);
   updateUnterwelt();
   updateZug(dt);
