@@ -8476,7 +8476,7 @@ const helpBox = document.getElementById('help');
    noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
    nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
    war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
-const BAU_STAND = '2026-08-29 / 13';
+const BAU_STAND = '2026-08-29 / 14';
 if (helpBox) {
   const z = document.createElement('div');
   z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
@@ -14359,6 +14359,14 @@ function spawnCivilian() {
     facing: rand(0, TAU),
     phase: rand(0, TAU),
     speed: rand(1.6, 2.6),
+    /* ---- Kleine Persoenlichkeit ----
+       Vorher waren alle Passanten gleich: dieselbe Neugier, dieselbe
+       Schreckhaftigkeit, nur das Tempo war gewuerfelt. Diese drei Werte
+       machen aus der Menge Einzelne - einer bleibt stehen und filmt, der
+       naechste geht weiter, der dritte rennt schon los. */
+    neugier: rand(0.15, 1.0),    // wie gern er stehenbleibt und guckt
+    mut: rand(0.2, 1.0),         // ab wann er wegrennt
+    gesellig: rand(0.0, 1.0),    // wie gern er stehenbleibt und redet
     state: 'walk',       // walk | flee | hurt
     fleeT: 0, hurtT: 0, hp: 20,
     savedCd: 0,
@@ -14527,8 +14535,36 @@ function updateVoegel(dt) {
 let taktBild = 0;
 const FERN = 60;
 
+/* ---- Nachbarn schnell finden ----
+   Jeder Passant gegen jeden waeren bei knapp sechzig Figuren ueber
+   dreitausend Vergleiche in JEDEM Bild. Ein grobes Raster von zwoelf
+   Metern reduziert das auf die unmittelbare Nachbarschaft. */
+const ZIVI_ZELLE = 12, ZIVI_ABSTAND = 0.85;
+const ziviRaster = new Map();
+const _ziviNah = [];
+function ziviRasterBauen() {
+  ziviRaster.clear();
+  for (const c of civilians) {
+    if (c.eingestiegen > 0) continue;
+    const k = Math.floor(c.pos.x / ZIVI_ZELLE) + ',' + Math.floor(c.pos.z / ZIVI_ZELLE);
+    let l = ziviRaster.get(k);
+    if (!l) { l = []; ziviRaster.set(k, l); }
+    l.push(c);
+  }
+}
+function ziviNachbarn(c) {
+  _ziviNah.length = 0;
+  const ix = Math.floor(c.pos.x / ZIVI_ZELLE), iz = Math.floor(c.pos.z / ZIVI_ZELLE);
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    const l = ziviRaster.get((ix + i) + ',' + (iz + j));
+    if (l) for (const o of l) if (o !== c) _ziviNah.push(o);
+  }
+  return _ziviNah;
+}
+
 function updateCivilians(dtBild) {
   taktBild++;
+  ziviRasterBauen();
   if (rufMeldungCd > 0) rufMeldungCd -= dtBild;
   /* Wie viele Verletzte gerade unversorgt herumliegen – davon hängt ab,
      ob der Ruf sinkt oder sich langsam wieder erholt. */
@@ -14620,8 +14656,19 @@ function updateCivilians(dtBild) {
       if (!c.hilfeBar && c.kreuz) c.kreuz.visible = false;
       continue;
     }
-    const threat = nearestThreatTo(c.pos, 13);
-    if (threat && c.state !== 'flee') { c.state = 'flee'; c.fleeT = 3.5; }
+    /* ---- Gefahr: mit Hysterese und nach Mut ----
+       Die Schwelle lag fuer alle bei 13 m. Damit sprang der Zustand am
+       Rand staendig zwischen Gehen und Fliehen hin und her, und jeder
+       Passant war gleich schreckhaft. Jetzt entscheidet der Mut, wie nah
+       er die Gefahr heranlaesst, und Entwarnung gibt es erst deutlich
+       weiter weg als der Alarm - so flattert nichts mehr. */
+    const alarmWeite = 9 + (1 - (c.mut === undefined ? 0.6 : c.mut)) * 8;
+    const threat = nearestThreatTo(c.pos, c.state === 'flee' ? alarmWeite + 7 : alarmWeite);
+    if (threat && c.state !== 'flee') {
+      c.state = 'flee';
+      c.fleeT = 3.0 + (1 - (c.mut === undefined ? 0.6 : c.mut)) * 2.5;
+      c.fleeDreh = 0; c.fleeAlt = null;
+    }
 
     /* ---- Vor einem Auto von der Fahrbahn ----
        Passanten liefen bisher stur ueber die Strasse, auch wenn ein Wagen
@@ -14670,11 +14717,15 @@ function updateCivilians(dtBild) {
     }
     const dHeld = Math.hypot(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
     const sichtbar = dHeld < 9 && Math.abs(player.pos.y - c.pos.y) < 6;
-    if (!threat && c.state !== 'flee' && c.state !== 'hurt' && sichtbar) {
+    /* Neugierige bleiben stehen und schauen, Gleichgueltige laufen
+       weiter - vorher reagierte jeder gleich. */
+    if (!threat && c.state !== 'flee' && c.state !== 'hurt' && sichtbar &&
+        (c.neugier === undefined || c.neugier > 0.3)) {
       if (c.staunT === undefined || c.staunT <= 0) {
-        c.staunT = rand(1.6, 3.4);
-        c.filmt = Math.random() < 0.45;
-        if (Math.random() < 0.25) popupWorld(pick(RUFE), c.pos, '#ffe9a8');
+        c.staunT = rand(1.6, 3.4) * (0.6 + (c.neugier || 0.5));
+        c.filmt = Math.random() < 0.45 * (c.neugier || 0.5) * 2;
+        if (Math.random() < 0.25 * (c.neugier || 0.5) * 2)
+          popupWorld(pick(RUFE), c.pos, '#ffe9a8');
       }
       c.staunT -= dt;
       c.gafft = true;
@@ -14778,6 +14829,46 @@ function updateCivilians(dtBild) {
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
     c.pos.x += c.vel.x * dt; c.pos.z += c.vel.z * dt;
     collideBody(c);
+    /* ---- Festhaengen: in Stufen wieder loesen ----
+       Stufe 1: naechster Wegpunkt. Stufe 2: seitlich ausweichen.
+       Stufe 3: ganz neues Ziel in der Naehe. Ab Stufe 6 (also gut drei
+       Sekunden ohne Weg) wird er auf einen gueltigen Punkt versetzt -
+       aber nur, wenn der Spieler gerade nicht hinschaut. */
+    {
+      const st = festStufe(c, speed > 0.6, dt);
+      if (st === 1) { c.wp = (c.wp + 1) % 4; c.letzteDist = null; }
+      else if (st === 2) {
+        c.ausweichT = 0.7;
+        c.ausweichX = -dirZ; c.ausweichZ = dirX;
+      } else if (st === 3) {
+        const p2 = freierPunkt(c.pos.x, c.pos.z, 12);
+        if (p2) { c.loop[c.wp] = { x: p2.x, z: p2.z }; c.letzteDist = null; }
+      } else if (st >= 6 && ausserSicht(c.pos)) {
+        const p2 = freierPunkt(c.pos.x, c.pos.z, 16);
+        if (p2) { c.pos.x = p2.x; c.pos.z = p2.z; c.festStufeN = 0; }
+      }
+      /* Das seitliche Ausweichen laeuft ein paar Zehntel weiter. */
+      if (c.ausweichT > 0) {
+        c.ausweichT -= dt;
+        c.pos.x += (c.ausweichX || 0) * dt * 2.2;
+        c.pos.z += (c.ausweichZ || 0) * dt * 2.2;
+      }
+    }
+    /* ---- Persoenlicher Abstand ----
+       Zwei Passanten standen bisher ineinander, weil sich Zivilisten
+       untereinander gar nicht wahrgenommen haben (nur Ganoven taten das).
+       Die Korrektur ist bewusst weich: ein leichtes Auseinandergehen,
+       kein Wegstossen. */
+    if (!c.geisel && c.eingestiegen <= 0) {
+      for (const o of ziviNachbarn(c)) {
+        const ax = c.pos.x - o.pos.x, az = c.pos.z - o.pos.z;
+        const ad = Math.hypot(ax, az);
+        if (ad > ZIVI_ABSTAND || ad < 0.001) continue;
+        if (Math.abs(c.pos.y - o.pos.y) > 1.5) continue;
+        const schub = (ZIVI_ABSTAND - ad) * Math.min(1, dt * 6) * 0.5;
+        c.pos.x += (ax / ad) * schub; c.pos.z += (az / ad) * schub;
+      }
+    }
     /* Die eigene Hoehe zaehlt mit: sonst zieht es die Wartenden auf dem
        Bahnsteig durch die Decke auf die Strasse. */
     const cGrund = groundY(c.pos.x, c.pos.z, c.pos.y);
@@ -14830,7 +14921,14 @@ function updateCivilians(dtBild) {
     let zAnim;
     if (c.gafft && !c.filmt && ruf > 45 && c.jubelt &&
         c.visual.hatClip && c.visual.hatClip('jubel')) zAnim = 'jubel';
-    else if (speed > 0.1) zAnim = 'run';
+    /* ---- Gehen oder Rennen ----
+       Passanten spielten IMMER die Rennbewegung, egal ob sie mit 1,6 m/s
+       schlendern oder mit 5,2 vor einer Gang fliehen. Die Schrittlaenge
+       wird zwar ans Tempo gekoppelt, aber die Kopplung laeuft bei 0,45
+       in ihren Anschlag - ein Rennen in Zeitlupe. Jetzt entscheidet das
+       Tempo, welche Bewegung ueberhaupt laeuft. */
+    else if (speed > 3.2) zAnim = 'run';
+    else if (speed > 0.1) zAnim = 'walk';
     else zAnim = c.ruhePose || 'idle';
     c.visual.play(zAnim,
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), speed,
@@ -15481,6 +15579,8 @@ function damageEnemy(e, dmg, kind) {
     checkGangCleared(e.gang);
     checkCivilianSaved(e);
   } else {
+    /* Kampflaerm: wer in der Naehe ist, geht nachsehen. */
+    if (kind !== 'web') laermMelden(e.pos, 16);
     /* Auch der eigene Treffer nagt am Mut - und die Umstehenden sehen es. */
     e.mut = clamp((e.mut === undefined ? 0.8 : e.mut) - dmg / (e.hpMax || 34) * 0.55, 0, 1);
     mutSenken(e.pos, 0.05, 8);
@@ -15581,6 +15681,80 @@ const KAMPF_GLEICHZEITIG = 2;
    sie gehen auf einen weiteren Ring, statt sich an die Figur zu draengen.
    Vorher standen alle vier auf demselben Ring von 1,15 m; auch ohne
    Angriffsrecht sah das aus, als stuermten alle gleichzeitig. */
+/* ---- Festhaengen erkennen und loesen ----
+   Wer laufen WILL, aber nicht vorankommt, steckt fest: an einer
+   Hausecke, zwischen zwei Autos, an einem Gelaender. Bisher gab es das
+   nur als Sonderfall beim Wegpunkt der Passanten, und auch nur dort.
+   Jetzt gilt fuer alle dasselbe Verfahren: alle sechs Zehntel wird die
+   zurueckgelegte Strecke gemessen; kommt zu wenig zusammen, steigt eine
+   Stufe, und je Stufe wird staerker eingegriffen. */
+const FEST_TAKT = 0.6, FEST_WEG = 0.32;
+function festStufe(a, willLaufen, dt) {
+  if (!willLaufen) { a.festStufeN = 0; a.festMess = 0; a.festAlt = null; return 0; }
+  a.festMess = (a.festMess || 0) + dt;
+  if (a.festMess < FEST_TAKT) return a.festStufeN || 0;
+  a.festMess = 0;
+  if (a.festAlt && Math.hypot(a.pos.x - a.festAlt.x, a.pos.z - a.festAlt.z) < FEST_WEG) {
+    a.festStufeN = (a.festStufeN || 0) + 1;
+  } else a.festStufeN = 0;
+  if (!a.festAlt) a.festAlt = { x: a.pos.x, z: a.pos.z };
+  else { a.festAlt.x = a.pos.x; a.festAlt.z = a.pos.z; }
+  return a.festStufeN;
+}
+/* Weit genug weg, dass ein Versetzen nicht auffaellt? */
+function ausserSicht(pos) {
+  const d = Math.hypot(pos.x - player.pos.x, pos.z - player.pos.z);
+  if (d > 55) return true;
+  if (d < 18) return false;
+  const f = _v3.set(Math.sin(player.facing), 0, Math.cos(player.facing));
+  const dx = pos.x - player.pos.x, dz = pos.z - player.pos.z;
+  return (dx * f.x + dz * f.z) / (d || 1) < -0.2;   // hinter dem Spieler
+}
+
+/* ---- Wahrnehmung ----
+   Bisher galt allein der Abstand: ein Ganove "sah" den Helden auch durch
+   ein Haus hindurch und im Ruecken. Jetzt braucht er Sichtweite, einen
+   Sichtkegel nach vorn und freie Sicht. Ganz nah merkt er einen
+   trotzdem - man hoert jemanden, der neben einem landet. */
+const SICHT_WEIT = 26;      // so weit reicht der Blick
+const SICHT_NAH = 6.5;      // darunter merkt er einen auch von hinten
+const SICHT_KEGEL = 0.25;   // cos des halben Sichtwinkels (rund 75 Grad)
+function siehtSpieler(e) {
+  if (player.dead) return false;
+  const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > SICHT_WEIT || Math.abs(player.pos.y - e.pos.y) > 7) return false;
+  if (d > SICHT_NAH) {
+    const vx = Math.sin(e.facing), vz = Math.cos(e.facing);
+    if ((dx * vx + dz * vz) / (d || 1) < SICHT_KEGEL) return false;
+  }
+  return freieSicht(e.pos.x, e.pos.y + 1.5, e.pos.z,
+                    player.pos.x, player.pos.y + 1.0, player.pos.z);
+}
+/* Die freie Sicht kostet einen Suchlauf durch die Hindernisse. Sie wird
+   deshalb nicht in jedem Bild neu bestimmt, sondern rund sieben Mal je
+   Sekunde - versetzt, damit nicht alle im selben Bild rechnen. */
+function pruefeSicht(e, dt) {
+  e.sichtCd = (e.sichtCd || 0) - dt;
+  if (e.sichtCd <= 0) {
+    e.sichtCd = 0.13 + Math.random() * 0.08;
+    e.siehtMich = siehtSpieler(e);
+  }
+  return !!e.siehtMich;
+}
+/* Ein Geraeusch in der Naehe macht neugierig, verraet aber nicht, WER da
+   ist: der Ganove geht nachsehen. */
+function laermMelden(pos, weite) {
+  for (const e of enemies) {
+    if (e.dead || e.target === 'player' || e.flieht || e.dieb) continue;
+    if (Math.hypot(e.pos.x - pos.x, e.pos.z - pos.z) > weite) continue;
+    if (Math.abs(e.pos.y - pos.y) > 8) continue;
+    e.state = 'suchen';
+    e.suchZiel = { x: pos.x, z: pos.z };
+    e.suchT = rand(2.5, 4.5);
+  }
+}
+
 /* ---- Mut und Angst ----
    Bisher kaempfte jeder Ganove gleich entschlossen weiter, egal wie der
    Kampf lief: der Rueckzug haing allein an der eigenen Lebensleiste, und
@@ -15854,14 +16028,16 @@ function updateEnemies(dtBild) {
        Passanten herliefen, rannten an einem danebenstehenden Spider-Man
        vorbei, bis man sie einzeln anschlug. */
     if (!player.dead && e.target !== 'player' && !e.bewacht && !e.dieb && !e.flieht &&
-        dp < 9 && dpy < 3 && e.betaeubtT <= 0) {
+        dp < 9 && dpy < 3 && e.betaeubtT <= 0 && pruefeSicht(e, dt)) {
       e.state = 'chase'; e.target = 'player';
       alarmiereGang(e, 14);
     }
 
     /* Zielwahl */
     if (e.state === 'patrol') {
-      if (dp < 11 && dpy < 3 && !player.dead && !e.flieht) { e.state = 'chase'; e.target = 'player'; }
+      if (dp < 11 && dpy < 3 && !player.dead && !e.flieht && pruefeSicht(e, dt)) {
+        e.state = 'chase'; e.target = 'player';
+      }
       else {
         /* Weiter Umkreis: bei 22 Zivilisten auf der ganzen Karte kam sonst
            nie einer nah genug vorbei, und die Gang stand nur herum. */
@@ -16047,6 +16223,21 @@ function updateEnemies(dtBild) {
            nach vier Sekunden auf, gehen zu der Stelle, wo er zuletzt war,
            und nehmen dort ihre Runde wieder auf. Kommt er herunter, packt
            die gewohnte Erkennung sofort wieder zu. */
+        /* ---- Sichtkontakt merken und verlieren ---- */
+        if (e.target === 'player') {
+          if (pruefeSicht(e, dt)) {
+            e.sichtVerlorenT = 0;
+            e.letzteSicht = { x: player.pos.x, z: player.pos.z };
+          } else {
+            e.sichtVerlorenT = (e.sichtVerlorenT || 0) + dt;
+            if (e.sichtVerlorenT > 1.6 && d > 3.5) {
+              e.sichtVerlorenT = 0;
+              e.state = 'suchen'; e.target = null;
+              e.suchZiel = e.letzteSicht || { x: player.pos.x, z: player.pos.z };
+              e.suchT = rand(2.5, 4.5);
+            }
+          }
+        }
         if (e.target === 'player' && dy > 3.2) e.hochT = (e.hochT || 0) + dt;
         else e.hochT = 0;
         if (e.hochT > 4) {
@@ -16055,6 +16246,34 @@ function updateEnemies(dtBild) {
           e.waypoint = freierPunkt(player.pos.x, player.pos.z, 7) || null;
           e.waitT = rand(0.8, 2.2);
           if (Math.random() < 0.3) popupWorld('Wo ist er hin?', e.pos, '#ffd0a8');
+        }
+      }
+    } else if (e.state === 'suchen') {
+      /* ---- Letzte bekannte Stelle absuchen ----
+         Verliert er den Helden aus den Augen, wusste er bisher trotzdem
+         weiter genau, wo der steht - er lief einfach durch die Stadt
+         hinterher. Jetzt merkt er sich die Stelle, geht hin und schaut
+         sich dort um. Findet er nichts, nimmt er seine Runde wieder auf. */
+      const z = e.suchZiel;
+      if (!z) { e.state = 'patrol'; }
+      else {
+        const dx = z.x - e.pos.x, dz = z.z - e.pos.z;
+        const dd = Math.hypot(dx, dz);
+        if (dd > 1.6) {
+          moveX = dx / dd; moveZ = dz / dd;
+          speed = (e.typ ? e.typ.tempo : 5) * 0.8;
+          anim = 'run';
+          e.facing = dampAngle(e.facing, Math.atan2(dx, dz), dt * 6);
+        } else {
+          /* Umschauen - dabei dreht er sich langsam. */
+          e.suchT -= dt;
+          e.facing += dt * 1.6;
+          anim = 'idle';
+          if (e.suchT <= 0) {
+            e.state = 'patrol'; e.suchZiel = null;
+            e.waypoint = null; e.waitT = rand(0.4, 1.4);
+            if (Math.random() < 0.25) popupWorld('Verloren...', e.pos, '#ffd0a8');
+          }
         }
       }
     } else if (e.bewacht) {
@@ -16254,6 +16473,22 @@ function updateEnemies(dtBild) {
         e.umwegT = rand(1.2, 2.2);
         e.umwegSeite = Math.random() < 0.5 ? 1 : -1;
         e.blockiertT = 0;
+      }
+    }
+    /* ---- Wenn auch der Umweg nicht hilft ----
+       Das Ausweichen zur Seite loest die meisten Faelle. Steckt einer
+       trotzdem laenger fest - in einer Nische, zwischen zwei Autos -,
+       greifen hoehere Stufen: neues Ziel, und ganz zum Schluss ein
+       Versetzen auf einen gueltigen Punkt, aber nur ausser Sicht. */
+    {
+      const st = festStufe(e, speed > 0.6, dt);
+      if (st === 2) { e.waypoint = null; e.waitT = 0; }
+      else if (st === 4) {
+        const p2 = freierPunkt(e.pos.x, e.pos.z, 12);
+        if (p2) { e.waypoint = p2; e.state = 'patrol'; e.target = null; }
+      } else if (st >= 7 && ausserSicht(e.pos)) {
+        const p2 = freierPunkt(e.pos.x, e.pos.z, 18);
+        if (p2) { e.pos.x = p2.x; e.pos.z = p2.z; e.festStufeN = 0; }
       }
     }
     /* Höhe weich nachführen: bei Bordsteinkanten sonst sichtbares Springen,
