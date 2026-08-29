@@ -4571,22 +4571,31 @@ function blendeEin(a, dauer, vonGewicht) {
    Alle Masse stehen in EINEM Objekt, damit sie sich im Testlauf ueber
    __dbg.kau verstellen und dann nachmessen lassen.
    Nachgemessen ueber dem Dach (0 = Dachflaeche):
-     Zehenballen 0,00   Fingerspitzen 0,01   Knoechel 0,06
-     Huefte 0,30   Knie 0,44   Schulter 0,61   Kopf 0,63
+     Zehenballen 0,00   Fingerspitzen 0,00   Knoechel 0,06
+     Huefte 0,24   Knie 0,44   Schulter 0,63   Kopf 0,69
+     Knie 0,56 auseinander, Fuesse 0,57, Haende 0,64
    Vorher hing die Figur mit den Knoecheln 13 cm IM Dach, die Zehen und
    die Fingerspitzen 5 bis 6 cm - der Koerper war zu einem Ball
    zusammengefaltet (Huefte nur 13 cm, Kopf 46 cm ueber dem Dach) und der
-   Fuss zeigte 13 cm nach HINTEN. Jetzt sitzt sie wie im Vorbild:
-   Zehenballen und Fingerspitzen tragen, die Fersen sind angehoben, die
-   Knie stehen ueber der Huefte, der Kopf schaut ueber die Stadt. */
+   Fuss zeigte 13 cm nach HINTEN.
+   Danach lag sie zwar richtig auf, sass aber immer noch zusammengekauert:
+   der Kopf stand nur 2 cm ueber den Schultern (die Figur schaute auf ihre
+   eigenen Knie), die Knie standen 34 cm auseinander und die Arme hingen
+   VOR dem Koerper. Das war noch kein Spider-Man auf einer Kante.
+   Jetzt: Nacken auf einen Weltpunkt ueber sich gezielt statt ueber feste
+   Winkel gedreht (Kopf oben, Blick nach vorn), Knie 56 cm auseinander und
+   ueber der Huefte, Arme NEBEN den Knien nach unten, Fersen angehoben,
+   Zehenballen und Fingerspitzen tragen. */
 const KAU = {
-  r1: 0.58, r2: 0.58, r3: 0.34,      // Rumpf nach vorn
-  nacken: -1.0, kopf: -0.86,         // Kopf hoch, Blick ueber die Stadt
-  knieV: 0.30, knieQ: 0.155, knieH: 0.11,
-  fussV: 0.34, fussQ: 0.185, fussH: -0.62,
+  r1: 0.42, r2: 0.42, r3: 0.24,      // Rumpf nach vorn, aber nicht rund
+  /* Nacken zeigt auf einen Punkt ueber sich (Weltmass), der Kopf
+     bekommt danach nur die Blickneigung. */
+  kopfHoch: 0.22, kopfVorn: 0.06, kopfNeig: 0.35,
+  knieV: 0.30, knieQ: 0.30, knieH: 0.22,     // Knie weit auseinander und hoch
+  fussV: 0.34, fussQ: 0.30, fussH: -0.80,    // Fuesse breit unter den Knien
   fussDreh: 0.16, zehTief: 0.05,
-  armV: 0.55, armQ: 0.25, armRest: 0.42,
-  handV: 0.85, handQ: 0.20, handHoch: 0.21,
+  armV: 0.35, armQ: 0.62, armRest: 0.42,     // Arme NEBEN den Knien, nicht davor
+  handV: 0.42, handQ: 0.72, handHoch: 0.21,
 };
 /* Wie weit die Sohle unter dem Knoechel liegt (fuer die Stuetzebene der
    Haende). KAU.handHoch sagt, wie hoch das Handgelenk ueber dieser Ebene
@@ -6642,11 +6651,30 @@ function makeGlbVisual(m) {
       drehZuRuhe(knochen.spine, KAU.r1, 0, 0, w);
       drehZuRuhe(knochen.spine1, KAU.r2, 0, 0, w);
       drehZuRuhe(knochen.spine2, KAU.r3, 0, 0, w);
-      drehZuRuhe(knochen.neck, KAU.nacken, 0, 0, w * 0.9);
-      drehZuRuhe(knochen.head, KAU.kopf, 0, 0, w * 0.9);
       root.updateMatrixWorld(true);
       _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();   // rechts
       _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();   // vorn
+      /* ---- Kopf HOCH ----
+         Vorher wurden Nacken und Kopf ueber feste Winkel gedreht
+         (drehZuRuhe). Die Mixamo-Halsknochen stehen aber schraeg im Raum,
+         und aus -1,3 rad wurde deshalb fast nichts: gemessen sass der
+         Kopf nur 2 Zentimeter ueber den Schultern, die Figur schaute auf
+         ihre eigenen Knie. Genau das war "sitzt nicht wie Spider-Man".
+         Der Nacken wird jetzt auf einen WELTPUNKT ueber sich selbst
+         gezielt - dann steht er aufrecht, egal wie der Rumpf liegt - und
+         der Kopf bekommt danach nur noch seine Blickneigung. */
+      {
+        const na = knochen.neck, ko = knochen.head;
+        if (na && ko) {
+          na.updateMatrixWorld(true);
+          na.getWorldPosition(_vw3);
+          zieleKnochen(na, ko, _vw4.copy(_vw3)
+            .addScaledVector(_vw2, KAU.kopfVorn)
+            .addScaledVector(_fh.set(0, 1, 0), KAU.kopfHoch), w * 0.95);
+          drehZuRuhe(ko, KAU.kopfNeig, 0, 0, w * 0.85);
+        }
+      }
+      root.updateMatrixWorld(true);
       hueft.getWorldPosition(_hp);
       /* Alle Ziele liegen als WELTPUNKTE relativ zur Huefte fest. Der
          erste Anlauf hat die Beine ueber feste Eulerwinkel gedreht
@@ -9593,8 +9621,33 @@ function zipAngriff(e) {
   SFX.swoosh();
 }
 
+/* ---- Steht die Figur auf einer schmalen Spitze? ----
+   Laternenkopf, Ampel, Poller: dort steht niemand aufrecht, dort hockt
+   man. Solche Hindernisse sind mit klein markiert; gesucht wird das, auf
+   dessen Oberkante die Fuesse gerade stehen und das deutlich ueber dem
+   Boden darunter liegt. */
+function aufSchmalemHalt() {
+  if (!player.onGround) return false;
+  const boden = groundY(player.pos.x, player.pos.z, 0.5);
+  if (player.pos.y - boden < 2.0) return false;
+  for (const c of collidersNear(player.pos.x, player.pos.z)) {
+    if (!c.klein) continue;
+    if (Math.abs(player.pos.y - c.h) > 0.15) continue;
+    if (player.pos.x < c.x0 - 0.6 || player.pos.x > c.x1 + 0.6) continue;
+    if (player.pos.z < c.z0 - 0.6 || player.pos.z > c.z1 + 0.6) continue;
+    return true;
+  }
+  return false;
+}
+
 /* Wie lange vor dem Anschlag der Absprung als "perfekt" zaehlt. */
 const ZIP_FENSTER = 0.42;
+/* Ist der Zug gerade im Zeitfenster fuer den perfekten Absprung? */
+function zipImFenster(z) {
+  const weg = Math.hypot(z.target.x - player.pos.x, z.target.y - player.pos.y,
+                         z.target.z - player.pos.z);
+  return weg > 1.2 && weg / Math.max(4, player.vel.length()) < ZIP_FENSTER;
+}
 
 /* ======================= Spieler-Aktionen ======================= */
 function tryJump() {
@@ -9609,6 +9662,17 @@ function tryJump() {
     const z = player.zip;
     const weg = Math.hypot(z.target.x - player.pos.x, z.target.y - player.pos.y,
                            z.target.z - player.pos.z);
+    /* ---- Zu frueh gedrueckt wird GEMERKT ----
+       Auch mit dem groesseren Fenster blieb es Glueckssache, den Moment
+       zu treffen: der Zug ist schnell, und wer im Zweifel frueh drueckt,
+       bekam einen lahmen Absprung statt des Schubs. Jetzt merkt sich der
+       Zug den Tastendruck und loest den Schub selbst aus, sobald das
+       Fenster aufgeht. Einmal drucken genuegt also, der Zeitpunkt muss
+       nur ungefaehr stimmen. */
+    if (!zipImFenster(z) && weg > 1.2) {
+      if (!z.puffer) { z.puffer = true; popupScreen('Gemerkt - Schub kommt gleich'); }
+      return;
+    }
     /* ---- Das Fenster war eine feste STRECKE: 2,5 bis 9 Meter ----
        Im Zug wird man bis zu 40 m/s schnell. Diese sechseinhalb Meter
        waren damit 16 Hundertstel Sekunden, also zehn Bilder - auf dem
@@ -9617,7 +9681,7 @@ function tryJump() {
        Jetzt zaehlt die ZEIT bis zum Ziel: die letzten vier Zehntel gelten,
        egal wie schnell man unterwegs ist. Und kurz vorher sagt es einem
        auch jemand (siehe zipHinweis). */
-    const perfekt = weg > 1.2 && weg / Math.max(4, player.vel.length()) < ZIP_FENSTER;
+    const perfekt = zipImFenster(z);
     const vh = Math.hypot(player.vel.x, player.vel.z);
     const richt = vh > 0.001
       ? _v1.set(player.vel.x / vh, 0, player.vel.z / vh)
@@ -10626,12 +10690,14 @@ function updatePlayer(dt) {
     player.fadenZiel = t; player.fadenHand = z.hand;
     /* Einmal Bescheid geben, wenn das Zeitfenster fuer den perfekten
        Absprung aufgeht - ohne Hinweis ist es reines Raten. */
-    if (!z.hinweis && dist > 1.2 &&
-        dist / Math.max(4, player.vel.length()) < ZIP_FENSTER) {
+    if (!z.hinweis && zipImFenster(z)) {
       z.hinweis = true;
       popupScreen('Jetzt! Leertaste = Schub');
       SFX.web();
     }
+    /* Wer vorher gedrueckt hat, bekommt den Schub jetzt - ohne noch
+       einmal zu druecken. */
+    if (z.puffer && zipImFenster(z)) { tryJump(); updateHeroVisual(dt); return; }
     const ende = dist < (z.enemy ? 2.3 : z.fest ? 1.4 : 2.0) || z.t <= 0 ||
                  (z.enemy && z.enemy.dead);
     if (ende) {
@@ -11431,9 +11497,14 @@ function updatePlayer(dt) {
        dort steht niemand aufrecht auf einer handbreiten Flaeche. Die
        Zwoelf-Meter-Regel greift da nicht, eine Ampel ist sechs Meter hoch,
        und genau deshalb stand die Figur oben kerzengerade. */
-    if (!player.onGround) { player.mastHocke = false; player.aufKlein = false; }
-    else if (player.aufKlein && player.pos.y - SLAB_H > 2.5) player.mastHocke = true;
-    const hoch = player.pos.y - SLAB_H > 12 || aufFahrzeug || !!player.mastHocke;
+    /* Frueher hing das an einem Merker, den collideBody nur im LANDEBILD
+       setzt - steht man danach ruhig oben, faellt die Pruefung nie wieder
+       an, und ein einziges Bild ohne Bodenkontakt loeschte ihn. Genau
+       deshalb stand die Figur auf der Ampel wieder aufrecht.
+       Jetzt wird in jedem Bild direkt nachgesehen, ob der Halt unter den
+       Fuessen wirklich eine schmale Spitze hoch ueber der Strasse ist. */
+    player.mastHocke = aufSchmalemHalt();
+    const hoch = player.pos.y - SLAB_H > 12 || aufFahrzeug || player.mastHocke;
     /* Auf dem Fahrzeug zaehlt die EIGENE Bewegung. Die des Wagens steckt
        gar nicht in player.vel - die Plattform verschiebt die Figur direkt -,
        deshalb genuegt hier das gewohnte Tempo. */
