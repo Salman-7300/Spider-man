@@ -8187,7 +8187,7 @@ function ziehZiel(weite, minDot) {
    sonst einfach in Blickrichtung; ohne Schwung faellt er nur herunter. */
 function ziehWirf(o, gezielt) {
   if (!o || o.zustand !== 'halt') return;
-  o.zustand = 'weg'; o.t = 0; o.getroffen = null;
+  o.zustand = 'weg'; o.t = 0; o.getroffen = null; o.zielGegner = null;
   if (player.haeltObjekt === o) player.haeltObjekt = null;
   player.fadenZiel = null;
   if (!gezielt) {
@@ -8195,7 +8195,9 @@ function ziehWirf(o, gezielt) {
     o.vel.set(player.vel.x * 0.3, 0, player.vel.z * 0.3);
     return;
   }
-  const e = coneTargetEnemy(30, 0.35);
+  /* Der Blickkegel war eng (0,35 entspricht knapp 70 Grad zur Seite) -
+     stand der Gegner etwas schraeg, zielte der Wurf an ihm vorbei. */
+  const e = coneTargetEnemy(34, 0.15);
   if (e) {
     /* Auf den Gegner zielen, mit etwas Vorhalt fuer die Wurfzeit. */
     _v1.set(e.pos.x - o.mesh.position.x, e.pos.y + 0.9 - o.mesh.position.y,
@@ -8204,10 +8206,18 @@ function ziehWirf(o, gezielt) {
     _v1.multiplyScalar(ZIEH_TEMPO_WEG / w);
     _v1.y += w * 0.18;                    // Bogen, damit er nicht flach durchschiesst
     o.vel.copy(_v1);
+    /* Das Ziel merken: die Richtung wird beim Abwurf EINMAL gesetzt, und
+       ein Gegner, der weiterlaeuft, war bis zum Einschlag laengst
+       woanders. Der Wurf zieht deshalb kurz nach. */
+    o.zielGegner = e;
     popupWorld('Wurf!', o.mesh.position, '#bfe8ff');
   } else {
     const f = camForward();
-    o.vel.set(f.x * ZIEH_TEMPO_WEG, 3.2 + clamp(camPitch, -0.3, 0.8) * 16,
+    /* NIE nach unten werfen. Der Anteil aus der Kameraneigung konnte bis
+       -4,8 werden; mit leicht gesenkter Kamera flog die Muelltonne dann
+       nach knapp sieben Metern in den Asphalt, statt zu fliegen. */
+    o.vel.set(f.x * ZIEH_TEMPO_WEG,
+              Math.max(2.4, 3.2 + clamp(camPitch, -0.3, 0.8) * 16),
               f.z * ZIEH_TEMPO_WEG);
   }
   camShake = Math.max(camShake, 0.12);
@@ -8258,9 +8268,12 @@ function updateZiehObjekte(dt) {
       }
     } else if (o.zustand === 'halt') {
       /* Am Faden vor der Figur mitfuehren, leicht schwebend. */
+      /* Auf Fausthoehe und dicht am Koerper: vorher hing er auf Brusthoehe
+         gut einen Meter vor der Figur - da sah niemand mehr, dass er an
+         einem Faden haengt. */
       const f = _v2.set(Math.sin(player.facing), 0, Math.cos(player.facing));
-      _v1.set(player.pos.x + f.x * 1.05, player.pos.y + 1.35 + Math.sin(elapsed * 2.4) * 0.05,
-              player.pos.z + f.z * 1.05);
+      _v1.set(player.pos.x + f.x * 0.85, player.pos.y + 1.02 + Math.sin(elapsed * 2.4) * 0.04,
+              player.pos.z + f.z * 0.85);
       p.lerp(_v1, Math.min(1, dt * 12));
       player.fadenZiel = p; player.fadenHand = o.hand;
       /* Nach acht Sekunden faellt er von allein herunter - sonst laeuft
@@ -8269,12 +8282,25 @@ function updateZiehObjekte(dt) {
         ziehWirf(o, false);
       }
     } else if (o.zustand === 'weg') {
+      /* Leichte Nachfuehrung auf den anvisierten Gegner - nur in der
+         ersten halben Sekunde und nur in der Richtung, nicht im Tempo.
+         So trifft ein gezielter Wurf auch jemanden, der weitergeht. */
+      if (o.zielGegner && !o.zielGegner.dead && o.t < 0.5) {
+        const zg = o.zielGegner;
+        _v2.set(zg.pos.x - p.x, zg.pos.y + 0.9 - p.y, zg.pos.z - p.z);
+        const zl = _v2.length();
+        if (zl > 0.6) {
+          const tempo = o.vel.length();
+          _v2.multiplyScalar(tempo / zl);
+          o.vel.lerp(_v2, Math.min(1, dt * 6));
+        }
+      }
       o.vel.y -= CFG.gravity * dt;
       p.addScaledVector(o.vel, dt);
       /* Gegner umwerfen, die im Weg stehen. */
       for (const e of enemies) {
         if (e.dead || o.getroffen === e) continue;
-        if (Math.hypot(e.pos.x - p.x, e.pos.z - p.z) > 1.4) continue;
+        if (Math.hypot(e.pos.x - p.x, e.pos.z - p.z) > 1.7) continue;
         if (Math.abs(e.pos.y + 0.9 - p.y) > 1.6) continue;
         o.getroffen = e;
         damageEnemy(e, o.wucht, 'wurf');
@@ -8421,6 +8447,18 @@ function isActive() { return pointerLocked || touchAktiv || window.__WEBHERO_TES
 const overlay = document.getElementById('overlay');
 const hud = document.getElementById('hud');
 const helpBox = document.getElementById('help');
+/* ---- Bau-Stand ----
+   Es kam mehrfach vor, dass eine Aenderung schon lief, im Browser aber
+   noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
+   nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
+   war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
+const BAU_STAND = '2026-08-29 / 12';
+if (helpBox) {
+  const z = document.createElement('div');
+  z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
+  z.textContent = 'Spielstand dieser Datei: ' + BAU_STAND;
+  helpBox.appendChild(z);
+}
 
 overlay.addEventListener('click', () => {
   SFX.init();
@@ -12094,8 +12132,12 @@ function updateHeroVisual(dt) {
     }
     /* Beim Schwingen hängt das Seil unter Last leicht durch, beim Netz-Zip
        ist es straff gespannt. */
+    /* Am gehaltenen Gegenstand ein deutlich kraeftigerer Faden: aus zwei
+       Metern Entfernung war der duenne kaum zu sehen, und es sah aus, als
+       schwebte das Ding von allein. */
     placeStrand(swingStrand, _v3, player.fadenZiel,
-                player.state === 'swing' ? 0.014 : 0.004);
+                player.state === 'swing' ? 0.014 : 0.004,
+                player.haeltObjekt ? 1.7 : 1);
     player.fadenZiel = null;
   }
 
