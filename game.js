@@ -1359,7 +1359,17 @@ let UB_DZ = 0;
 const ubDekoTeile = [];
 function ubDeko(w, h, d, x, y, z, farbe, ry, rz) {
   const t = { w, h, d, x, y, z: z + UB_DZ, farbe, ry: ry || 0, rz: rz || 0 };
-  ubDekoTeile.push(t); DEKO_KOPIE.push(t);
+  /* ---- Was oben steht, gehoert nach oben ----
+     Alles, was ueber ubDeko gebaut wird, landete im Untergrund-Mesh. Das
+     wird oberirdisch ausgeblendet (sonst zeichnet man eine halbe Million
+     Dreiecke, die man nie sieht) - und damit verschwanden auch die
+     Gelaender, Bruestungen und das blaue U der Eingaenge, sobald man
+     nicht direkt daneben stand. Von einem Dach aus war vom U-Bahn-Abgang
+     nur noch ein Loch im Gehweg zu sehen.
+     Deshalb wird hier getrennt: was mit seiner Unterkante ueber dem
+     Gehweg liegt, kommt in die normale Stadtdeko und ist immer da. */
+  if (y - h / 2 > SLAB_H - 0.15) dekoTeile.push(t); else ubDekoTeile.push(t);
+  DEKO_KOPIE.push(t);
 }
 let ubahnMesh = null;
 function baueUBahnMesh() {
