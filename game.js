@@ -9514,11 +9514,14 @@ function webShot() {
   if (player.haeltObjekt) {
     const o = player.haeltObjekt;
     const hand = wechsleNetzHand();
-    if (heroVisual.attackOneShot && heroVisual.hatClip && heroVisual.hatClip('wurf')) {
-      player.attack = { type: 'web', t: 0, hitDone: true };
-      player.attackCd = 0.4;
-      heroVisual.attackOneShot(0, 'wurf', 0.45);
-    }
+    /* ---- Kein ganzer Wurf-Clip ----
+       Hier lief die Bewegungsdatei "wurf". Das ist ein Wurf mit dem
+       ganzen Koerper: die Figur riss dabei ein Bein hoch, obwohl sie nur
+       eine Muelltonne wegschleudert. Jetzt bleibt es beim Netzwurf mit
+       dem Arm - dieselbe Bewegung wie beim gewoehnlichen Netzschuss. */
+    player.attack = { type: 'web', t: 0, hitDone: true };
+    player.attackCd = 0.4;
+    player.fadenHand = hand;
     ziehWirf(o, true);
     return;
   }
