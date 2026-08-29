@@ -8476,7 +8476,7 @@ const helpBox = document.getElementById('help');
    noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
    nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
    war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
-const BAU_STAND = '2026-08-29 / 14';
+const BAU_STAND = '2026-08-29 / 16';
 if (helpBox) {
   const z = document.createElement('div');
   z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
@@ -9902,7 +9902,12 @@ function tryJump() {
 function konterVersuch() {
   let ziel = null, bestD = 3.6;
   for (const e of enemies) {
-    if (e.dead || e.warnT <= 0 || e.warnT > 0.42) continue;
+    /* Das Konterfenster ist das letzte Stueck der EIGENEN Vorwarnung,
+       nicht mehr eine feste Zeit - sonst waere der Brecher mit seiner
+       langen Vorwarnung fast die ganze Zeit konterbar und der Flinke
+       ueberhaupt nicht. */
+    if (e.dead || e.warnT <= 0 || e.warnT > (e.warnMax || 0.95) * 0.45) continue;
+    if (e.wurfGeplant) continue;
     const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
     if (d < bestD) { bestD = d; ziel = e; }
   }
@@ -9910,6 +9915,7 @@ function konterVersuch() {
   ziel.warnT = 0;
   /* Einen Konter zu kassieren nimmt der ganzen Gruppe den Schwung. */
   mutSenken(ziel.pos, 0.18, 12);
+  kampfErfolg(1);
   if (ziel.warn) ziel.warn.visible = false;
   ziel.attack = null;
   ziel.attackCd = rand(1.8, 2.6);
@@ -10355,13 +10361,78 @@ function nearestEnemy(maxDist, minDot) {
   return best;
 }
 
+/* ---- Wurfgeschosse ----
+   Kein Schusswaffensystem: der Werfer wirft, was herumliegt - ein Stueck
+   Bauschutt. Ein kleines Objekt mit Schwerkraft, das den Helden trifft
+   oder auf dem Boden zerschellt. Geometrie und Material werden einmal
+   angelegt und geteilt. */
+const GESCHOSSE = [];
+let geschossGeo = null, geschossMat = null;
+/* Steht ein Kamerad im Schussweg? Dann lieber warten. */
+function kameradImWeg(e) {
+  const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z;
+  const len = Math.hypot(dx, dz) || 1;
+  const nx = dx / len, nz = dz / len;
+  for (const o of enemies) {
+    if (o === e || o.dead) continue;
+    const ox = o.pos.x - e.pos.x, oz = o.pos.z - e.pos.z;
+    const laengs = ox * nx + oz * nz;
+    if (laengs < 0.8 || laengs > len - 1.0) continue;
+    if (Math.abs(ox * -nz + oz * nx) < 1.1) return true;
+  }
+  return false;
+}
+function wirfGeschoss(e) {
+  if (!geschossGeo) {
+    geschossGeo = new THREE.BoxGeometry(0.24, 0.24, 0.24);
+    geschossMat = new THREE.MeshLambertMaterial({ color: 0x6b6257 });
+  }
+  const m = new THREE.Mesh(geschossGeo, geschossMat);
+  m.castShadow = true;
+  m.position.set(e.pos.x, e.pos.y + 1.35, e.pos.z);
+  scene.add(m);
+  /* Ballistisch auf die Stelle zielen, an der der Held gleich SEIN
+     WIRD - aber nur ein Viertel Sekunde voraus. Mehr waere Hellsehen. */
+  const zx = player.pos.x + player.vel.x * 0.25;
+  const zz = player.pos.z + player.vel.z * 0.25;
+  const dx = zx - m.position.x, dz = zz - m.position.z;
+  const weite = Math.hypot(dx, dz) || 1;
+  const flug = clamp(weite / 17, 0.4, 1.2);
+  const vy = (player.pos.y + 1.0 - m.position.y) / flug + 0.5 * CFG.gravity * flug;
+  GESCHOSSE.push({ mesh: m, vel: new THREE.Vector3(dx / flug, vy, dz / flug),
+                   t: 0, schaden: (e.typ ? e.typ.schaden : 7) });
+  SFX.swoosh();
+}
+function updateGeschosse(dt) {
+  for (let i = GESCHOSSE.length - 1; i >= 0; i--) {
+    const g = GESCHOSSE[i];
+    g.t += dt;
+    g.vel.y -= CFG.gravity * dt;
+    g.mesh.position.addScaledVector(g.vel, dt);
+    g.mesh.rotation.x += dt * 6; g.mesh.rotation.z += dt * 4;
+    const p = g.mesh.position;
+    const d = Math.hypot(p.x - player.pos.x, p.y - (player.pos.y + 1.0), p.z - player.pos.z);
+    let weg = false;
+    if (d < 0.95 && !player.dead && g.t > 0.05) {
+      damagePlayer(g.schaden, p);
+      treffEffekt(p.clone(), 0.9, 0xffd23c);
+      weg = true;
+    } else if (p.y <= groundY(p.x, p.z, p.y) + 0.12 || g.t > 4) {
+      staubWolke(p, 0.45);
+      weg = true;
+    }
+    if (weg) { scene.remove(g.mesh); GESCHOSSE.splice(i, 1); }
+  }
+}
+
 /* Der flinke Ganove springt zur Seite, wenn der Held ausholt. Er muss dazu
    nah genug stehen, darf nicht gerade selbst zuschlagen und braucht eine
    Pause zwischen zwei Sprüngen – sonst tänzelt er unerreichbar herum. */
 function versucheAusweichen() {
   for (const e of enemies) {
     if (e.dead || !e.typ || !e.typ.ausweichen) continue;
-    if (e.staggerT > 0 || e.betaeubtT > 0 || e.attack || e.webStufe > 0) continue;
+    /* Im Netz weicht niemand aus - und wer schon taumelt auch nicht. */
+    if (e.staggerT > 0 || e.betaeubtT > 0 || e.attack || e.webStufe > 0 || e.webT > 0) continue;
     if ((e.ausweichCd || 0) > 0) continue;
     const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
     const d = Math.hypot(dx, dz);
@@ -10369,19 +10440,52 @@ function versucheAusweichen() {
     /* Nur wer vor dem Helden steht, sieht den Schlag kommen. */
     const fx = Math.sin(player.facing), fz = Math.cos(player.facing);
     if ((dx * fx + dz * fz) / (d || 1) < 0.2) continue;
+    /* Er muss den Helden auch wirklich sehen. */
+    if (!pruefeSicht(e, 0)) continue;
     if (Math.random() > e.typ.ausweichen) { e.ausweichCd = 0.8; continue; }
-    /* Quer zur Schlagrichtung wegspringen. */
-    const seite = Math.random() < 0.5 ? 1 : -1;
-    const qx = -fz * seite, qz = fx * seite;
-    e.vel.x += qx * 7.5; e.vel.z += qz * 7.5;
+    /* ---- Zur freien Seite ausweichen ----
+       Vorher wurde die Seite gewuerfelt - und der Gegner sprang auch
+       gegen eine Hauswand oder in ein Auto. Jetzt werden beide Seiten
+       geprueft und die freie genommen; ist keine frei, weicht er nach
+       hinten aus. */
+    let seite = Math.random() < 0.5 ? 1 : -1;
+    const frei = (s2) => {
+      const px = e.pos.x - fz * s2 * 1.6, pz = e.pos.z + fx * s2 * 1.6;
+      for (const c of collidersNear(px, pz)) {
+        if (c.klein) continue;
+        if (px > c.x0 - 0.5 && px < c.x1 + 0.5 && pz > c.z0 - 0.5 && pz < c.z1 + 0.5 &&
+            e.pos.y + 1.2 < c.h) return false;
+      }
+      return true;
+    };
+    let qx, qz;
+    if (frei(seite)) { qx = -fz * seite; qz = fx * seite; }
+    else if (frei(-seite)) { seite = -seite; qx = -fz * seite; qz = fx * seite; }
+    else { qx = dx / (d || 1); qz = dz / (d || 1); seite = 0; }
+    /* ---- Reaktionszeit ----
+       Bisher sprang er im selben Bild zur Seite, in dem der Spieler
+       ausholte - ein Reaktionsbot. Jetzt braucht er seine
+       Reaktionszeit (Art-abhaengig, 0,26 bis 0,62 s); ein schneller
+       Schlag trifft ihn deshalb trotzdem. */
+    e.ausweichPlan = { qx, qz, seite, t: (e.typ.reaktion || 0.4) * rand(0.85, 1.25) };
     e.ausweichCd = rand(1.6, 2.6);
-    e.staggerT = Math.max(e.staggerT, 0.28);   // kurz aus dem Takt, nicht getroffen
-    e.iFrames = 0.26;
-    if (e.visual.attackOneShot) {
-      e.visual.attackOneShot(0, seite > 0 ? 'ausweichenR' : 'ausweichenL', 0.45);
-    }
-    popupWorld('Ausgewichen!', e.pos, '#bfe8ff');
   }
+}
+/* Den geplanten Ausweichsprung ausfuehren, wenn die Reaktionszeit um ist. */
+function fuehreAusweichenAus(e, dt) {
+  const p = e.ausweichPlan;
+  if (!p) return;
+  p.t -= dt;
+  if (p.t > 0) return;
+  e.ausweichPlan = null;
+  if (e.dead || e.staggerT > 0.2 || e.betaeubtT > 0 || e.webStufe > 0) return;
+  e.vel.x += p.qx * 7.5; e.vel.z += p.qz * 7.5;
+  e.staggerT = Math.max(e.staggerT, 0.28);   // kurz aus dem Takt, nicht getroffen
+  e.iFrames = 0.26;
+  if (e.visual.attackOneShot) {
+    e.visual.attackOneShot(0, p.seite > 0 ? 'ausweichenR' : 'ausweichenL', 0.45);
+  }
+  popupWorld('Ausgewichen!', e.pos, '#bfe8ff');
 }
 
 function resolveAttackHit() {
@@ -10441,10 +10545,26 @@ function resolveAttackHit() {
   if (e.blockT > 0) {
     if (a.type === 'kick' || a.finisher) {
       e.blockT = 0; e.blockCd = rand(2.5, 5); e.staggerT = Math.max(e.staggerT, 0.5);
+      e.guard = 0;
       popupWorld('Deckung gebrochen!', e.pos, '#8fd4ff');
     } else {
+      /* ---- Deckungsbalken ----
+         Die Deckung hielt bisher unbegrenzt: jeder Schlag prallte auf ein
+         Fuenftel ab, egal wie viele. Jetzt kostet jeder geblockte Treffer
+         Deckung; ist sie leer, bricht sie auf und der Gegner steht einen
+         Moment offen. Ein Tritt bricht sie weiter sofort. */
+      e.guard = (e.guard === undefined ? (e.typ.guard || 50) : e.guard) - dmg * 2.2;
       dmg *= 0.2; geblockt = true;
       player.combo = Math.max(0, player.combo - 1);
+      if (e.guard <= 0) {
+        e.guard = 0;
+        e.blockT = 0; e.blockCd = rand(3.0, 5.5);
+        e.staggerT = Math.max(e.staggerT, 0.85);
+        e.attackCd = Math.max(e.attackCd, 1.2);
+        popupWorld('Deckung zerbrochen!', e.pos, '#8fd4ff');
+        treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.2, e.pos.z), 1.4, 0x8fd4ff);
+        mutSenken(e.pos, 0.12, 8);
+      }
     }
   }
 
@@ -10519,7 +10639,24 @@ function resolveAttackHit() {
   const kb = (a.type === 'kick' ? 9 : 5.5) * wucht * daempfer;
   e.vel.x += (dx / d) * kb; e.vel.z += (dz / d) * kb;
   e.vel.y += (a.type === 'kick' ? 4 : 2) * wucht * daempfer;
-  e.staggerT = Math.max(e.staggerT, (a.finisher ? 0.9 : 0.5) * (bricht ? 1 : 1 - fest));
+  /* ---- Standfestigkeit als Balken, nicht als fester Faktor ----
+     Vorher wurde jeder Treffer einzeln gedaempft: ein Brecher taumelte
+     beim ersten wie beim zehnten Schlag gleich wenig. Jetzt sammelt sich
+     die Wucht an; ist der Balken voll, gibt es eine grosse Reaktion und
+     er faengt wieder von vorn an. So lohnt sich eine Kombo auch gegen
+     die Schweren. */
+  const poise = (e.typ && e.typ.poise) || 10;
+  e.poiseRest = (e.poiseRest === undefined ? poise : e.poiseRest) -
+                dmg * (bricht ? 1.8 : 1.0);
+  let taumel = (a.finisher ? 0.9 : 0.5) * (bricht ? 1 : 1 - fest);
+  if (e.poiseRest <= 0) {
+    e.poiseRest = poise;
+    taumel = Math.max(taumel, 0.85);
+    e.attackCd = Math.max(e.attackCd, 0.7);
+    e.warnT = 0;
+    treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.2, e.pos.z), 1.2, 0xffd23c);
+  }
+  e.staggerT = Math.max(e.staggerT, taumel);
   if (e.visual && e.visual.attackOneShot && !e.dead) e.visual.attackOneShot(2.2);
 
   /* Leichter Vorwärtsschub des Helden: die Schläge "greifen" dadurch */
@@ -12808,11 +12945,35 @@ function findeGefahr() {
   for (const e of enemies) {
     if (e.dead || e.warnT <= 0) continue;
     const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
-    if (d > 13 || Math.abs(e.pos.y - player.pos.y) > 4) continue;
-    /* Je näher der Schlag, desto stärker das Kribbeln. */
-    const s = clamp(1 - e.warnT / 0.95, 0.25, 1) * clamp(1 - (d - 2) / 12, 0.35, 1);
-    if (s > best) { best = s; wo = e.pos; art = 'gegner'; }
-    if (e.warnT <= 0.42 && d < 3.6) konter = 1;
+    if (d > 18 || Math.abs(e.pos.y - player.pos.y) > 4) continue;
+    /* ---- Das Kribbeln richtet sich nach der EIGENEN Vorwarnzeit ----
+       Vorher wurde immer durch feste 0,95 s geteilt. Seit jede Art ihre
+       eigene Vorwarnung hat (der Flinke 0,44 s, der Brecher bis 1,47 s)
+       war das falsch: beim Flinken sprang der Sinn sofort auf halbe
+       Staerke, beim Brecher blieb er bis kurz vor dem Schlag im
+       Anschlag. Jetzt zaehlt der ANTEIL der eigenen Vorwarnung, und ein
+       schwerer Schlag kribbelt staerker. */
+    const voll = e.warnMax || 0.95;
+    const anteil = clamp(1 - e.warnT / voll, 0, 1);
+    /* Der Wurf kommt aus der Entfernung - mit der Naehe-Abschwaechung
+       eines Faustschlags waere er kaum zu spueren, obwohl er genauso
+       weh tut. Er bekommt deshalb eine flachere Kurve. */
+    const nah = e.wurfGeplant ? clamp(1 - (d - 6) / 20, 0.55, 1)
+                              : clamp(1 - (d - 2) / 16, 0.35, 1);
+    const s = (0.28 + 0.72 * anteil) * (e.warnSchwer ? 1.25 : 1) * nah;
+    if (s > best) { best = Math.min(1, s); wo = e.pos; art = 'gegner'; }
+    /* Das Konterfenster ist das letzte Drittel der eigenen Vorwarnung. */
+    if (e.warnT <= voll * 0.45 && d < 3.6 && !e.wurfGeplant) konter = 1;
+  }
+  /* Ein Geschoss, das auf einen zufliegt, meldet der Sinn ebenfalls. */
+  for (const g of GESCHOSSE) {
+    const p = g.mesh.position;
+    const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+    if (d > 12) continue;
+    const zu = (player.pos.x - p.x) * g.vel.x + (player.pos.z - p.z) * g.vel.z;
+    if (zu <= 0) continue;
+    const s = clamp(1 - (d - 1) / 11, 0, 1) * 0.9;
+    if (s > best) { best = s; wo = p; art = 'gegner'; }
   }
   for (const car of cars) {
     if (car.aus) continue;
@@ -15302,15 +15463,41 @@ function makeHPBar() {
 
 /* Gegnertypen – ohne neue Modelle, allein über Größe, Farbton und Werte.
    Damit fühlt sich nicht mehr jeder Gegner gleich an. */
+/* ---- Gegnerarten ----
+   Die drei ersten gab es schon; sie unterschieden sich aber fast nur
+   ueber Leben, Schaden und Tempo. Dazu kommen jetzt die Werte, aus denen
+   sich das VERHALTEN ergibt:
+     poise      wie viel Trefferwucht er wegsteckt, ohne zu taumeln
+     guard      wie lange seine Deckung haelt (0 = deckt sich nie)
+     reaktion   Reaktionszeit in Sekunden - niemand reagiert sofort
+     aggression wie oft er ein Angriffsrecht anfragt
+     kombo      wie viele Schlaege er hoechstens aneinanderhaengt
+     telegraph  Faktor auf die Vorwarnzeit (schwer = deutlicher)
+     ringNah    sein Wunschabstand, wenn er nicht angreifen darf
+     fern       Wurfdistanz (nur der Werfer)
+   Zwei Arten sind neu: der Waechter deckt sich und wartet auf Fehler,
+   der Werfer bleibt auf Abstand und wirft. */
 const GANOVEN = [
-  /* standfest: nimmt kaum Rückstoß und taumelt nur kurz.
-     ausweichen: Wahrscheinlichkeit, einem Schlag zur Seite auszuweichen. */
   { art: 'schlaeger', groesse: 1.00, hp: 34, schaden: 8,  tempo: 5.0, blockChance: 0.18,
-    standfest: 0.0, ausweichen: 0.0,  farbe: 0x000000, gewicht: 55 },
-  { art: 'brecher',   groesse: 1.22, hp: 62, schaden: 14, tempo: 3.9, blockChance: 0.34,
-    standfest: 0.85, ausweichen: 0.0, farbe: 0x2a1410, gewicht: 22 },
+    standfest: 0.0, ausweichen: 0.10, farbe: 0x000000, gewicht: 46,
+    poise: 10, guard: 55,  reaktion: 0.42, aggression: 1.00, kombo: 2,
+    telegraph: 1.00, ringNah: 3.0 },
+  { art: 'brecher',   groesse: 1.22, hp: 62, schaden: 14, tempo: 3.9, blockChance: 0.20,
+    standfest: 0.85, ausweichen: 0.0, farbe: 0x2a1410, gewicht: 18,
+    poise: 34, guard: 40,  reaktion: 0.62, aggression: 0.85, kombo: 1,
+    telegraph: 1.55, ringNah: 2.6 },
   { art: 'flink',     groesse: 0.88, hp: 22, schaden: 6,  tempo: 6.6, blockChance: 0.08,
-    standfest: 0.0, ausweichen: 0.42, farbe: 0x101c28, gewicht: 23 },
+    standfest: 0.0, ausweichen: 0.42, farbe: 0x101c28, gewicht: 20,
+    poise: 5,  guard: 30,  reaktion: 0.26, aggression: 1.25, kombo: 3,
+    telegraph: 0.80, ringNah: 3.6 },
+  { art: 'waechter',  groesse: 1.06, hp: 44, schaden: 9,  tempo: 4.4, blockChance: 0.55,
+    standfest: 0.35, ausweichen: 0.12, farbe: 0x14202c, gewicht: 9,
+    poise: 20, guard: 95,  reaktion: 0.36, aggression: 0.55, kombo: 2,
+    telegraph: 1.15, ringNah: 3.4 },
+  { art: 'werfer',    groesse: 0.96, hp: 26, schaden: 7,  tempo: 4.8, blockChance: 0.10,
+    standfest: 0.0, ausweichen: 0.20, farbe: 0x2b2410, gewicht: 7,
+    poise: 6,  guard: 25,  reaktion: 0.45, aggression: 0.70, kombo: 1,
+    telegraph: 1.10, ringNah: 9.0, fern: [8, 16] },
 ];
 function waehleGanov() {
   const summe = GANOVEN.reduce((a, g) => a + g.gewicht, 0);
@@ -15463,8 +15650,76 @@ function spawnGang(cx, cz, n) {
     gang.enemies.push(e);
     enemies.push(e);
   }
+  /* ---- Anfuehrer ----
+     Ab drei Mann hat eine Gang meistens einen Chef. Er ist kein
+     Kugelschwamm: er hat etwas mehr Leben und reagiert schneller, vor
+     allem aber haelt er die Gruppe zusammen - solange er steht, sind
+     die anderen mutiger, und faellt er, faellt die Gruppe zusammen. */
+  if (gang.enemies.length >= 3 && Math.random() < 0.7) {
+    const chef = gang.enemies[randi(0, gang.enemies.length - 1)];
+    chef.anfuehrer = true;
+    chef.hpMax = Math.round(chef.hpMax * 1.35); chef.hp = chef.hpMax;
+    chef.mut = Math.min(1, (chef.mut || 0.8) + 0.15);
+    chef.elite = true;
+    /* Sichtbar groesser und heller - man soll ihn erkennen. */
+    if (chef.visual && chef.visual.root) chef.visual.root.scale.multiplyScalar(1.08);
+    gang.chef = chef;
+  }
   gangs.push(gang);
   return gang;
+}
+
+/* ---- Boss-Grundlage ----
+   Ein Boss ist ein Gegner mit Phasen. Die Phase haengt an seiner
+   Lebensleiste, nicht an einer Uhr: sie aendert, WIE er kaempft, nicht
+   nur wie viel er aushaelt. Das Geruest steht; ein Auftrag kann jeden
+   Gegner damit zum Boss machen (machBoss). Ohne Auftrag aendert sich
+   nichts am Spiel. */
+const BOSS_PHASEN = [
+  { ab: 0.65, aggression: 1.00, telegraph: 1.30, kombo: 2, tempo: 1.00, name: 'Phase 1' },
+  { ab: 0.30, aggression: 1.35, telegraph: 1.10, kombo: 3, tempo: 1.12, name: 'Phase 2' },
+  { ab: 0.00, aggression: 1.70, telegraph: 0.95, kombo: 4, tempo: 1.22, name: 'Phase 3' },
+];
+function machBoss(e, name) {
+  if (!e) return null;
+  e.boss = true; e.elite = true; e.anfuehrer = true;
+  e.bossName = name || 'Anfuehrer';
+  e.hpMax = Math.round(e.hpMax * 3.2); e.hp = e.hpMax;
+  e.bossPhase = -1;
+  e.letzteSchlaege = [];
+  e.mut = 1; 
+  if (e.visual && e.visual.root) e.visual.root.scale.multiplyScalar(1.16);
+  return e;
+}
+/* Phase nachfuehren. Beim Wechsel gibt es einen kurzen Moment, in dem er
+   nicht angreift - der Spieler soll den Wechsel sehen. */
+/* Kampfwert eines Gegners: Grundwert der Art, in der Bossphase erhoeht. */
+function kampfWert(e, feld) {
+  const grund = (e.typ && e.typ[feld] !== undefined) ? e.typ[feld] : 1;
+  if (!e.boss || e.bossPhase === undefined || e.bossPhase < 0) return grund;
+  const p = BOSS_PHASEN[e.bossPhase];
+  if (!p || p[feld] === undefined) return grund;
+  return feld === 'telegraph' ? grund * p[feld] : grund * p[feld];
+}
+function updateBoss(e, dt) {
+  if (!e.boss || e.dead) return;
+  const anteil = clamp(e.hp / (e.hpMax || 1), 0, 1);
+  let neu = 0;
+  for (let i = 0; i < BOSS_PHASEN.length; i++) if (anteil <= BOSS_PHASEN[i].ab) neu = i + 1;
+  neu = Math.min(neu, BOSS_PHASEN.length - 1);
+  if (neu !== e.bossPhase) {
+    e.bossPhase = neu;
+    const p = BOSS_PHASEN[neu];
+    e.bossUmbauT = 1.1;              // kurze Umstellung, kein Angriff
+    e.attackCd = Math.max(e.attackCd, 1.1);
+    e.warnT = 0; e.attack = null;
+    e.staggerT = Math.max(e.staggerT, 0.5);
+    e.mut = 1;
+    treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.3, e.pos.z), 2.2, 0xff8a3c);
+    camShake = Math.max(camShake, 0.25);
+    popupWorld(e.bossName + ' - ' + p.name, e.pos, '#ff8a3c');
+  }
+  if (e.bossUmbauT > 0) { e.bossUmbauT -= dt; e.attackCd = Math.max(e.attackCd, 0.2); }
 }
 
 function gangSpawnSpots() {
@@ -15515,6 +15770,28 @@ function applyWeb(e) {
      Gegner vollständig bewegungsunfähig. */
   e.webStufe = Math.min(3, (e.webStufe || 0) + 1);
   e.webT = Math.max(e.webT, 1.6 + e.webStufe * 1.6);
+  /* ---- Die Gruppe bemerkt das Netz ----
+     Bisher war ein eingesponnener Ganove fuer seine Kameraden Luft: sie
+     liefen daran vorbei, als waere nichts. Jetzt kostet der Anblick Mut,
+     und wer in der Naehe steht und noch Mut hat, geht ihn befreien -
+     allerdings nur, solange der Held nicht danebensteht. */
+  if (e.webStufe >= 2) {
+    mutSenken(e.pos, 0.10, 8);
+    /* Nur EINER geht hin - sonst stehen zwei am selben Kokon. */
+    let helfer = null, hd = enemies.some(o => o.state === 'befreien' && o.befreiZiel === e) ? -1 : 14;
+    for (const o of enemies) {
+      if (o === e || o.dead || o.webT > 0 || o.flieht || o.dieb || o.betaeubtT > 0) continue;
+      if (o.state === 'befreien' || (o.mut !== undefined && o.mut < 0.45)) continue;
+      if (o.attack || o.warnT > 0) continue;
+      const d = Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z);
+      if (d < hd) { hd = d; helfer = o; }
+    }
+    if (helfer && Math.hypot(player.pos.x - helfer.pos.x, player.pos.z - helfer.pos.z) > 6) {
+      helfer.state = 'befreien'; helfer.target = null;
+      helfer.befreiZiel = e; helfer.befreiT = 0;
+      if (Math.random() < 0.5) popupWorld('Halt durch!', helfer.pos, '#ffd0a8');
+    }
+  }
   if (e.cocoon && e.cocoon.userData.setzeStufe) e.cocoon.userData.setzeStufe(e.webStufe);
   if (e.webStufe >= 3) {
     e.vel.set(0, 0, 0); e.attack = null;
@@ -15574,8 +15851,18 @@ function damageEnemy(e, dmg, kind) {
     e.hpBar.g.visible = false;
     if (!player.symAn) player.symEnergie = clamp(player.symEnergie + 0.055, 0, 1);
     addScore(50, 'K.O.!', e.pos);
-    /* Einen Kameraden fallen zu sehen kostet die anderen Mut. */
-    mutSenken(e.pos, 0.30, 18);
+    /* Einen Kameraden fallen zu sehen kostet die anderen Mut - den
+       Anfuehrer fallen zu sehen deutlich mehr. */
+    mutSenken(e.pos, e.anfuehrer ? 0.55 : 0.30, e.anfuehrer ? 26 : 18);
+    if (e.anfuehrer) {
+      for (const o of (e.gang ? e.gang.enemies : [])) {
+        if (o.dead || o === e) continue;
+        o.mut = clamp((o.mut === undefined ? 0.8 : o.mut) - 0.2, 0, 1);
+      }
+      popupWorld('Der Chef ist unten!', e.pos, '#ffd0a8');
+    }
+    /* Der Spieler dominiert - die Gruppe nimmt sich zurueck. */
+    kampfErfolg(1);
     checkGangCleared(e.gang);
     checkCivilianSaved(e);
   } else {
@@ -15779,6 +16066,56 @@ function mutSenken(pos, wieviel, weite) {
   }
 }
 
+/* ================= Kampfleitung (Combat Director) =================
+   Bisher entschied jeder Ganove fuer sich, wann er zuschlaegt. Das
+   Angriffsrecht begrenzte zwar die Zahl der Angreifer auf zwei, sagte
+   aber nichts ueber den ZEITPUNKT: zwei Warnungen konnten im selben
+   Zehntel aufgehen, und danach kam sekundenlang nichts.
+   Die Kampfleitung ist bewusst duenn - sie steuert keinen Gegner, sie
+   verwaltet nur, was die Gruppe gemeinsam betrifft:
+     - wer ein leichtes, wer das schwere Angriffsrecht hat
+     - dass zwischen zwei Angriffsstarts ein Mindestabstand liegt
+     - den Gruppendruck (wie forsch die Gruppe insgesamt auftritt)
+     - ein Ruhefenster, wenn der Spieler gerade dominiert
+     - die Rollenverteilung */
+const KAMPF = {
+  druck: 0.55,          // 0 = zoegerlich, 1 = koordiniert und forsch
+  ruheT: 0,             // Ruhefenster nach einem Erfolg des Spielers
+  letzterStart: -99,    // elapsed, als zuletzt jemand ausgeholt hat
+  erfolge: 0,           // K.o. und Konter des Spielers in kurzer Folge
+  erfolgeT: 0,
+  taktT: 0,
+  schwerBis: 0,         // solange laeuft ein schwerer Angriff
+};
+/* Mindestabstand zwischen zwei Angriffsstarts. Bei hohem Druck ruecken
+   sie enger zusammen, bei Ruhe weiter auseinander. */
+const KAMPF_STAFFEL = 0.75;
+function kampfErfolg(wieviel) {
+  KAMPF.erfolge += wieviel;
+  KAMPF.erfolgeT = 6;
+  if (KAMPF.erfolge >= 2) {
+    KAMPF.erfolge = 0;
+    KAMPF.ruheT = Math.max(KAMPF.ruheT, 1.5);
+    KAMPF.druck = Math.max(0.15, KAMPF.druck - 0.35);
+  }
+}
+/* Darf dieser Gegner JETZT ausholen? */
+function darfAusholen(e) {
+  if (KAMPF.ruheT > 0) return false;
+  /* Der Wurf aus der Distanz stoert den Rhythmus im Nahkampf kaum -
+     er wird deshalb nur halb so streng gestaffelt, sonst kommt der
+     Werfer neben zwei Schlaegern nie an die Reihe. */
+  const abstand = KAMPF_STAFFEL * (1.6 - KAMPF.druck) * (e.typ.art === 'werfer' ? 0.5 : 1);
+  if (elapsed - KAMPF.letzterStart < abstand) return false;
+  /* Ein schwerer Angriff laeuft: solange kein zweiter schwerer. */
+  if (e.typ.art === 'brecher' && elapsed < KAMPF.schwerBis) return false;
+  return true;
+}
+function meldeAngriff(e, schwer) {
+  KAMPF.letzterStart = elapsed;
+  if (schwer) KAMPF.schwerBis = elapsed + 1.6;
+}
+
 const KAMPF_RECHT = new Set();
 /* Wie weit zwei Angreifer mindestens auseinanderstehen sollen, gemessen
    als Winkel um den Helden. Zwei Ganoven aus derselben Richtung sehen aus
@@ -15793,7 +16130,13 @@ function winkelAbstand(a, b) {
   if (d < -Math.PI) d += TAU;
   return Math.abs(d);
 }
-function verteileAngriffsrechte() {
+function verteileAngriffsrechte(dt) {
+  /* ---- Gruppendruck ----
+     Er waechst langsam, solange der Kampf laeuft, und faellt, wenn der
+     Spieler dominiert. Daraus ergibt sich der Rhythmus: Druck, kurze
+     Pause, neuer Druck - statt Dauerbeschuss. */
+  if (KAMPF.ruheT > 0) KAMPF.ruheT -= dt;
+  if (KAMPF.erfolgeT > 0) { KAMPF.erfolgeT -= dt; if (KAMPF.erfolgeT <= 0) KAMPF.erfolge = 0; }
   KAMPF_RECHT.clear();
   const anwaerter = [];
   const ring = [];
@@ -15806,7 +16149,10 @@ function verteileAngriffsrechte() {
     const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
     /* Wer schon ausholt oder zuschlaegt, behaelt sein Recht - sonst
        bricht ein Angriff mitten in der Bewegung ab. */
-    anwaerter.push({ e, w: winkelUmHelden(e),
+    /* Der Fernkaempfer belegt keinen Nahkampf-Platz. Vorher zaehlte er
+       mit, nahm einem Schlaeger das Angriffsrecht weg und benutzte es
+       nie - der Nahkampf wurde dadurch zaeh. */
+    anwaerter.push({ e, w: winkelUmHelden(e), fern: e.typ.art === 'werfer',
                      rang: (e.attack || e.warnT > 0 ? -1000 : 0) + d });
   }
   /* ---- Plaetze rund um den Helden ----
@@ -15828,6 +16174,7 @@ function verteileAngriffsrechte() {
   anwaerter.sort((a, b) => a.rang - b.rang);
   for (const a of anwaerter) {
     if (KAMPF_RECHT.size >= KAMPF_GLEICHZEITIG) break;
+    if (a.fern) continue;
     let zuNah = false;
     for (const b of KAMPF_RECHT) if (winkelAbstand(a.w, winkelUmHelden(b)) < FLANKE_MIN) zuNah = true;
     if (!zuNah) KAMPF_RECHT.add(a.e);
@@ -15837,14 +16184,41 @@ function verteileAngriffsrechte() {
      Rudel auf einer Seite ueberhaupt niemand mehr zu. */
   for (const a of anwaerter) {
     if (KAMPF_RECHT.size >= KAMPF_GLEICHZEITIG) break;
+    if (a.fern) continue;
     KAMPF_RECHT.add(a.e);
+  }
+  /* ---- Druck nachfuehren ----
+     Mehr Gegner und ein angeschlagener Spieler heben ihn, ein Ruhefenster
+     senkt ihn. Er steigt langsam, damit die Gruppe nicht schlagartig
+     umschaltet. */
+  const zielDruck = KAMPF.ruheT > 0 ? 0.1
+    : clamp(0.30 + ring.length * 0.10 + (1 - player.hp / CFG.playerHP) * 0.25, 0, 1);
+  KAMPF.druck = lerp(KAMPF.druck, zielDruck, Math.min(1, dt * 0.6));
+
+  /* ---- Rollen ----
+     Sie wechseln nicht in jedem Bild, sondern hoechstens alle paar
+     Sekunden - sonst tauschen die Gegner staendig die Aufgabe.
+     Wer ein Angriffsrecht hat, greift an; von den Uebrigen geht der
+     Werfer auf Distanz, der Waechter deckt die Gruppe, und wer weit
+     hinten steht, versucht zu flankieren. */
+  for (const a of anwaerter) {
+    const e = a.e;
+    e.rolleT = (e.rolleT || 0) - dt;
+    const neueRolle = KAMPF_RECHT.has(e) ? 'angriff'
+      : e.typ.art === 'werfer' ? 'fern'
+      : e.typ.art === 'waechter' ? 'schutz'
+      : (e.mut > 0.55 && Math.random() < 0.5) ? 'flanke' : 'druck';
+    if (!e.rolle) { e.rolle = neueRolle; e.rolleT = rand(2.5, 5); }
+    else if (e.rolleT <= 0 || (neueRolle === 'angriff') !== (e.rolle === 'angriff')) {
+      e.rolle = neueRolle; e.rolleT = rand(2.5, 5);
+    }
   }
 }
 
 function updateEnemies(dtBild) {
   /* Der Klingenbogen gehört immer nur zum gerade laufenden Hieb. */
   if (klingenBogen) klingenBogen.visible = false;
-  verteileAngriffsrechte();
+  verteileAngriffsrechte(dtBild);
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     /* Ganoven weit weg vom Helden ebenfalls nur jedes dritte Bild. Wer
@@ -15972,6 +16346,22 @@ function updateEnemies(dtBild) {
          Genau darum geht es bei "Packen und Werfen": bisher flog der
          Geworfene durch seine Kameraden hindurch, als waeren sie Luft. */
       if (e.geworfen > 0.15 && Math.hypot(e.vel.x, e.vel.z) > 8) {
+        /* ---- Achtung, da kommt einer geflogen ----
+           Wer noch Zeit und Reaktion hat, springt zur Seite. Wer nicht
+           hinschaut oder zu langsam ist, wird umgerissen. */
+        for (const o of enemies) {
+          if (o === e || o.dead || o.geworfen > 0 || o.ausweichPlan) continue;
+          if ((o.ausweichCd || 0) > 0) continue;
+          const wx = o.pos.x - e.pos.x, wz = o.pos.z - e.pos.z;
+          const wl = Math.hypot(wx, wz);
+          if (wl > 7 || wl < 1.6) continue;
+          const tempo = Math.hypot(e.vel.x, e.vel.z) || 1;
+          if ((wx * e.vel.x + wz * e.vel.z) / (wl * tempo) < 0.75) continue;
+          if (wl / tempo < (o.typ.reaktion || 0.4)) continue;   // zu spaet
+          const qx = -e.vel.z / tempo, qz = e.vel.x / tempo;
+          o.ausweichPlan = { qx, qz, seite: 1, t: (o.typ.reaktion || 0.4) };
+          o.ausweichCd = rand(1.4, 2.2);
+        }
         for (const o of enemies) {
           if (o === e || o.dead || o.geworfen > 0) continue;
           if (Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) > 1.5) continue;
@@ -16028,6 +16418,7 @@ function updateEnemies(dtBild) {
        Passanten herliefen, rannten an einem danebenstehenden Spider-Man
        vorbei, bis man sie einzeln anschlug. */
     if (!player.dead && e.target !== 'player' && !e.bewacht && !e.dieb && !e.flieht &&
+        e.state !== 'befreien' &&
         dp < 9 && dpy < 3 && e.betaeubtT <= 0 && pruefeSicht(e, dt)) {
       e.state = 'chase'; e.target = 'player';
       alarmiereGang(e, 14);
@@ -16035,7 +16426,11 @@ function updateEnemies(dtBild) {
 
     /* Zielwahl */
     if (e.state === 'patrol') {
-      if (dp < 11 && dpy < 3 && !player.dead && !e.flieht && pruefeSicht(e, dt)) {
+      /* Der Fernkaempfer muss den Helden schon auf Wurfweite bemerken.
+         Mit den festen elf Metern blieb er auf Patrouille stehen, obwohl
+         sein Wurf bis sechzehn Meter reicht - er hat nie geworfen. */
+      const merkWeite = (e.typ && e.typ.fern) ? Math.max(11, e.typ.fern[1] + 4) : 11;
+      if (dp < merkWeite && dpy < 3 && !player.dead && !e.flieht && pruefeSicht(e, dt)) {
         e.state = 'chase'; e.target = 'player';
       }
       else {
@@ -16094,8 +16489,10 @@ function updateEnemies(dtBild) {
        Solange nichts passiert, fasst er sich wieder. Nicht ganz bis zum
        Ausgangswert: wer schwer angeschlagen ist, wird nicht wieder mutig. */
     if (e.mut === undefined) e.mut = MUT_BASIS[e.typ.art] || 0.8;
-    const mutDach = (MUT_BASIS[e.typ.art] || 0.8) *
-                    (0.35 + 0.65 * clamp(e.hp / (e.hpMax || CFG.enemyHP), 0, 1));
+    /* Solange der Chef steht, sind alle etwas mutiger. */
+    const chefLebt = e.gang && e.gang.chef && !e.gang.chef.dead;
+    const mutDach = Math.min(1, (MUT_BASIS[e.typ.art] || 0.8) * (chefLebt ? 1.15 : 1) *
+                    (0.35 + 0.65 * clamp(e.hp / (e.hpMax || CFG.enemyHP), 0, 1)));
     if (e.mut < mutDach) e.mut = Math.min(mutDach, e.mut + dt * 0.06);
     else if (e.mut > mutDach) e.mut = Math.max(mutDach, e.mut - dt * 0.5);
     /* ---- Ganz am Ende: weglaufen ----
@@ -16151,7 +16548,14 @@ function updateEnemies(dtBild) {
         const dx = tp.x - e.pos.x, dz = tp.z - e.pos.z;
         const d = Math.hypot(dx, dz);
         const dy = Math.abs(tp.y - e.pos.y);
-        e.facing = dampAngle(e.facing, Math.atan2(dx, dz), dt * 8);
+        /* ---- Drehsperre im Angriff ----
+           Bisher richtete sich der Gegner in JEDEM Bild voll auf den
+           Spieler aus - auch mitten im Schlag. Wer hinter ihn auswich,
+           wurde trotzdem getroffen, weil er sich in einem Bild
+           mitgedreht hat. Waehrend des Ausholens dreht er nur noch
+           langsam mit, waehrend des Schlags fast gar nicht mehr. */
+        const drehTempo = e.attack ? 1.2 : (e.warnT > 0 ? 3.0 : 8);
+        e.facing = dampAngle(e.facing, Math.atan2(dx, dz), dt * drehTempo);
         /* Der Ring, auf dem die Ganoven Aufstellung nehmen, hat 1,9 m
            Radius – die Schlagfreigabe lag aber bei 1,7 m. Dadurch stand
            der Gegner dauerhaft knapp außerhalb seiner eigenen Reichweite
@@ -16161,11 +16565,49 @@ function updateEnemies(dtBild) {
            Platz auf einem weiteren Ring, gut zweieinhalb Meter vom Helden
            entfernt. So sieht man, wer gerade dran ist. */
         const darfAngreifen = e.target !== 'player' || KAMPF_RECHT.has(e);
+        /* ---- Der Werfer haelt Abstand ----
+           Er laeuft nicht in den Nahkampf. Ist der Held zu nah, weicht er
+           zurueck; ist er zu weit, geht er ein Stueck ran; dazwischen
+           wandert er seitlich und wirft, sobald er freie Sicht hat und
+           kein Kamerad im Weg steht. */
+        const istWerfer = e.typ.art === 'werfer' && e.target === 'player';
         /* Wer Angst hat, bleibt weiter weg: aus drei Metern werden bei
-           ganz leerem Mut fuenfeinhalb. */
+           ganz leerem Mut fuenfeinhalb. Flanker gehen etwas weiter aussen
+           herum, Draengler etwas naeher heran. */
+        const rollenNah = e.rolle === 'flanke' ? 0.9 : e.rolle === 'druck' ? -0.5 : 0;
         const ringR = darfAngreifen ? 1.15
-                    : 3.0 + (1 - clamp(e.mut === undefined ? 1 : e.mut, 0, 1)) * 2.5;
-        if (!darfAngreifen) {
+                    : (e.typ.ringNah || 3.0) + rollenNah
+                      + (1 - clamp(e.mut === undefined ? 1 : e.mut, 0, 1)) * 2.5;
+        if (istWerfer) {
+          const nah = e.typ.fern[0], weit = e.typ.fern[1];
+          const raus = _v1.set(e.pos.x - tp.x, 0, e.pos.z - tp.z);
+          const rl = Math.hypot(raus.x, raus.z) || 1;
+          if (d < nah) {
+            moveX = raus.x / rl; moveZ = raus.z / rl;
+            speed = e.typ.tempo; anim = 'run';
+          } else if (d > weit) {
+            moveX = -raus.x / rl; moveZ = -raus.z / rl;
+            speed = e.typ.tempo * 0.8; anim = 'run';
+          } else {
+            /* Seitlich wandern, damit er kein Standziel ist. */
+            e.ringWinkel = (e.ringWinkel || winkelUmHelden(e)) + dt * 0.5 * (e.ringDreh || 1);
+            if (Math.random() < dt * 0.25) e.ringDreh = -(e.ringDreh || 1);
+            moveX = -raus.z / rl * (e.ringDreh || 1);
+            moveZ = raus.x / rl * (e.ringDreh || 1);
+            speed = e.typ.tempo * 0.35; anim = 'walk';
+          }
+          /* Zielen und werfen - ueber dieselbe Vorwarnung wie ein Schlag,
+             damit der Spinnensinn ihn ebenfalls meldet. */
+          if (e.attackCd <= 0 && e.warnT <= 0 && !e.attack && e.betaeubtT <= 0 &&
+              e.webT <= 0 && e.rueckzugT <= 0 && d > nah - 2 &&
+              pruefeSicht(e, 0) && !kameradImWeg(e) && darfAusholen(e)) {
+            e.wurfGeplant = true;
+            e.warnT = 0.6 * (e.typ.telegraph || 1);
+            e.warnMax = e.warnT;
+            e.warnSchwer = false;
+            meldeAngriff(e, false);
+          }
+        } else if (!darfAngreifen) {
           /* ---- Wer nicht dran ist, haelt Abstand ----
              Und zwar IMMER, nicht nur wenn er gerade schlagbereit waere.
              Vorher fiel ein Gegner mit laufender Schlagpause (attackCd)
@@ -16207,14 +16649,21 @@ function updateEnemies(dtBild) {
           anim = 'run';
           if (e.target === 'player' && dy > 3 && d < 4) { anim = 'idle'; speed = 0; } // kommt nicht hoch
         } else if (e.attackCd <= 0 && !e.attack && e.warnT <= 0 && e.blockT <= 0 &&
-                   e.betaeubtT <= 0 && e.rueckzugT <= 0) {
+                   e.betaeubtT <= 0 && e.rueckzugT <= 0 && darfAusholen(e)) {
           /* Wer in Deckung steht, holt nicht gleichzeitig aus. */
           /* Erst ausholen und warnen, dann schlagen. Vorher kam der Treffer
              ohne Vorankündigung – ausweichen war reine Glückssache. */
           /* Jeder vierte Angriff ist ein Klingenhieb – mit doppelt so
              langer Vorwarnung, damit man ihn kontern kann. */
-          e.klingeGeplant = Math.random() < 0.26;
-          e.warnT = e.klingeGeplant ? 0.95 : 0.55;
+          /* Der Brecher holt oefter zum schweren Schlag aus - und je
+             gefaehrlicher der Schlag, desto laenger die Vorwarnung. Das
+             ist die Fairness-Regel: was weh tut, muss man kommen sehen. */
+          e.klingeGeplant = Math.random() < 0.26 * (e.typ.art === 'brecher' ? 1.7 : 1);
+          const schwer = e.klingeGeplant || e.typ.art === 'brecher';
+          e.warnT = (e.klingeGeplant ? 0.95 : 0.55) * kampfWert(e, 'telegraph');
+          e.warnMax = e.warnT;
+          e.warnSchwer = schwer;
+          meldeAngriff(e, schwer);
         }
         /* ---- Der Held ist ausser Reichweite ----
            Haengt er an der Wand oder hockt auf dem Dach, standen die
@@ -16246,6 +16695,55 @@ function updateEnemies(dtBild) {
           e.waypoint = freierPunkt(player.pos.x, player.pos.z, 7) || null;
           e.waitT = rand(0.8, 2.2);
           if (Math.random() < 0.3) popupWorld('Wo ist er hin?', e.pos, '#ffd0a8');
+        }
+      }
+    } else if (e.state === 'befreien') {
+      /* ---- Kameraden aus dem Netz schneiden ----
+         Er geht hin, arbeitet gut eine Sekunde daran und loest damit eine
+         Netzstufe. Kommt der Held bis auf vier Meter heran, laesst er den
+         Kameraden liegen und stellt sich ihm. */
+      const z = e.befreiZiel;
+      if (!z || z.dead || z.webT <= 0) {
+        e.state = 'patrol'; e.befreiZiel = null; e.waypoint = null; e.waitT = rand(0.3, 1.0);
+      } else if (dp < 4 && !player.dead) {
+        e.state = 'chase'; e.target = 'player'; e.befreiZiel = null;
+      } else {
+        const dx = z.pos.x - e.pos.x, dz = z.pos.z - e.pos.z;
+        const dd = Math.hypot(dx, dz) || 1;
+        e.facing = dampAngle(e.facing, Math.atan2(dx, dz), dt * 6);
+        if (dd > 1.3) {
+          moveX = dx / dd; moveZ = dz / dd;
+          speed = (e.typ ? e.typ.tempo : 5) * 0.85;
+          anim = 'run';
+        } else {
+          e.befreiT = (e.befreiT || 0) + dt;
+          anim = 'idle';
+          if (e.befreiT > 1.2) {
+            z.webStufe = Math.max(0, (z.webStufe || 0) - 1);
+            /* z.anWand bleibt stehen: die vorhandene Ablesung loest die
+               Wandhaftung im naechsten Bild sauber auf und laesst ihn
+               herunterfallen. */
+            if (z.webStufe <= 0) {
+              z.webT = 0;
+              if (z.cocoon) {
+                z.cocoon.visible = false;
+                if (z.cocoon.userData.setzeWand) z.cocoon.userData.setzeWand(false);
+                if (z.cocoon.userData.setzeKokon) z.cocoon.userData.setzeKokon(false);
+              }
+              /* Sonst haengt ein angeklebter Gegner fuer immer an der
+                 Fassade: die Ablesung, die ihn herunterfallen laesst,
+                 haengt am Netz und laeuft ohne Netz nicht mehr. */
+              if (z.anWand) { z.anWand = false; z.vel.set(0, 0, 0); }
+            }
+            else {
+              z.webT = Math.min(z.webT, 1.2);
+              if (z.cocoon && z.cocoon.userData.setzeStufe) z.cocoon.userData.setzeStufe(z.webStufe);
+              if (z.cocoon && z.cocoon.userData.setzeWand) z.cocoon.userData.setzeWand(false);
+            }
+            popupWorld('Raus da!', e.pos, '#ffd0a8');
+            e.state = 'patrol'; e.befreiZiel = null; e.befreiT = 0;
+            e.waypoint = null; e.waitT = rand(0.2, 0.8);
+          }
         }
       }
     } else if (e.state === 'suchen') {
@@ -16326,10 +16824,26 @@ function updateEnemies(dtBild) {
       if (!a.hitDone && a.t > a.treff) {
         a.hitDone = true;
         const reich = a.reichweite;
+        let getroffen = false;
         if (e.target === 'player') {
-          if (dp < reich && dpy < 2) damagePlayer((e.typ ? e.typ.schaden : 8) * a.wucht, e.pos);
+          if (dp < reich && dpy < 2) {
+            damagePlayer((e.typ ? e.typ.schaden : 8) * a.wucht, e.pos);
+            getroffen = true;
+          }
         } else if (e.target && Math.hypot(e.target.pos.x - e.pos.x, e.target.pos.z - e.pos.z) < reich) {
           hurtCivilian(e.target, e);
+          getroffen = true;
+        }
+        /* ---- Danebengeschlagen kostet ----
+           Vorher war ein Fehlschlag folgenlos: dieselbe Pause wie nach
+           einem Treffer, und die Kombo lief weiter. Jetzt braucht er
+           sich erst wieder zu fangen - das ist das Fenster, in dem man
+           ihn bestraft. Und eine Kombo nach einem Fehlschlag gibt es
+           nicht mehr. */
+        if (!getroffen) {
+          e.attackCd = Math.max(e.attackCd, a.wucht > 1.1 ? 1.5 : 0.95);
+          e.komboRest = 0;
+          e.staggerT = Math.max(e.staggerT, 0.18);
         }
       }
       if (a.t >= 1) {
@@ -16341,9 +16855,19 @@ function updateEnemies(dtBild) {
            Nahkampf gefaehrlicher, ohne ihn unfair zu machen: die
            Vorwarnung bleibt, man kann also weiter kontern. */
         if (e.komboRest > 0) {
-          e.komboRest--;
-          e.warnT = 0.32;
-          e.attackCd = 0;
+          /* Auch die Fortsetzung einer Kombo ist ein Angriffsstart und
+             geht deshalb ueber die Kampfleitung. Hat gerade ein anderer
+             ausgeholt, bricht die Kombo hier ab, statt sich in dessen
+             Vorwarnung hineinzudraengen - genau das war die
+             Angriffs-Kakophonie. */
+          if (darfAusholen(e)) {
+            e.komboRest--;
+            e.warnT = 0.32; e.warnMax = 0.32;
+            e.attackCd = 0;
+            meldeAngriff(e, false);
+          } else {
+            e.komboRest = 0;
+          }
         }
       }
     }
@@ -16356,7 +16880,9 @@ function updateEnemies(dtBild) {
       e.pos.x += (fx / fd) * dt * 2.2;
       e.pos.z += (fz / fd) * dt * 2.2;
     }
+    if (e.boss) updateBoss(e, dt);
     if (e.attackCd > 0) e.attackCd -= dt;
+    if (e.ausweichPlan) fuehreAusweichenAus(e, dt);
     if (e.ausweichCd > 0) e.ausweichCd -= dt;
     if (e.iFrames > 0) e.iFrames -= dt;
 
@@ -16366,6 +16892,16 @@ function updateEnemies(dtBild) {
       e.warn.visible = ((elapsed * 9) % 2) < 1;
       if (e.warnT <= 0) {
         e.warn.visible = false;
+        if (e.wurfGeplant) {
+          /* Der Werfer wirft statt zuzuschlagen. Steht inzwischen ein
+             Kamerad im Weg oder ist die Sicht weg, laesst er es. */
+          e.wurfGeplant = false;
+          if (pruefeSicht(e, 0) && !kameradImWeg(e)) {
+            wirfGeschoss(e);
+            if (e.visual.attackOneShot) e.visual.attackOneShot(0, 'wurf', 0.5);
+          }
+          e.attackCd = rand(2.2, 3.8);
+        } else
         /* ---- Finte ----
            Wer sicher auftritt, holt manchmal aus, schlaegt aber NICHT -
            er bricht ab und schlaegt gleich danach richtig zu. Vorher war
@@ -16375,7 +16911,9 @@ function updateEnemies(dtBild) {
             e.target === 'player' && Math.random() < 0.20) {
           e.finte = true;
           e.warnT = rand(0.28, 0.45);
+          e.warnMax = e.warnT;
           e.finteT = 0.22;
+          meldeAngriff(e, false);
           if (Math.random() < 0.5) popupWorld('Finte!', e.pos, '#ffd0a8');
         } else {
           e.finte = false;
@@ -16391,8 +16929,12 @@ function updateEnemies(dtBild) {
           e.attackCd = rand(1.3, 2.1);
           /* Wie viele Schlaege haengt er noch an? Nur mit Mut, und nie mehr
              als zwei - sonst prasselt es ohne Pause. */
-          if (e.komboRest <= 0 && e.mut > 0.6 && Math.random() < 0.35 * e.mut) {
-            e.komboRest = Math.random() < 0.3 ? 2 : 1;
+          /* Wie viele Schlaege haengt er noch an? Die Art gibt die
+             Obergrenze, der Mut die Wahrscheinlichkeit. */
+          const maxKombo = Math.max(1, Math.round(kampfWert(e, 'kombo')));
+          if (e.komboRest <= 0 && e.mut > 0.6 &&
+              Math.random() < 0.35 * e.mut * (e.typ.aggression || 1)) {
+            e.komboRest = randi(1, maxKombo - 1);
           }
           if (e.visual.attackOneShot) e.visual.attackOneShot(0, m.art, m.dauer * 0.85);
         }
@@ -16411,10 +16953,18 @@ function updateEnemies(dtBild) {
          damit fast ein Drittel der Zeit blockend herum und kam nie zum
          Schlagen. Jetzt blockt er nur, wenn der Spieler wirklich gerade
          angreift und nah genug ist. */
+      /* Standfestigkeit erholt sich langsam. */
+      const poiseMax = e.typ.poise || 10;
+      if (e.poiseRest === undefined) e.poiseRest = poiseMax;
+      else if (e.poiseRest < poiseMax) e.poiseRest = Math.min(poiseMax, e.poiseRest + dt * 5);
+      /* Deckung erholt sich, solange er nicht blockt. */
+      if (e.guard === undefined) e.guard = e.typ.guard || 50;
+      if (e.guard < (e.typ.guard || 50)) e.guard = Math.min(e.typ.guard || 50, e.guard + dt * 14);
       const nah = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < 3.2;
       const spielerSchlaegt = !!player.attack && player.attack.type !== 'web';
+      /* Ohne Deckung im Balken geht auch keine Deckung. */
       if (e.blockCd <= 0 && nah && spielerSchlaegt && !e.attack && e.warnT <= 0 &&
-          e.webT <= 0 &&
+          e.webT <= 0 && e.guard > 8 && (e.typ.guard || 0) > 0 &&
           /* Angst macht vorsichtig: wer wenig Mut hat, geht oefter in
              Deckung statt zuzuschlagen. */
           Math.random() < e.typ.blockChance * (1 + (1 - clamp(e.mut === undefined ? 1 : e.mut, 0, 1)) * 1.2)) {
@@ -17371,6 +17921,46 @@ function updateGriff(dt) {
   player.ziehtObjekt = true;
 }
 
+/* ================= Kampf-Diagnose =================
+   Nur zum Nachschauen waehrend der Entwicklung: auf true gesetzt legt
+   sie eine kleine Tafel ueber das Bild, die je Gegner Art, Zustand,
+   Rolle, Mut, Deckung und Standfestigkeit zeigt - und oben die Werte der
+   Kampfleitung. Aus bleibt sie ohne jede Rechenlast: der Block wird nur
+   betreten, wenn die Schaltung an ist. */
+const COMBAT_DEBUG = false;
+let kampfTafel = null, kampfTafelT = 0;
+function zeigeKampfTafel(dt) {
+  if (!kampfTafel) {
+    kampfTafel = document.createElement('div');
+    kampfTafel.style.cssText = 'position:fixed;left:8px;top:120px;z-index:60;' +
+      'font:11px/1.35 monospace;color:#cfe8ff;background:rgba(0,0,0,.55);' +
+      'padding:6px 8px;border-radius:6px;white-space:pre;pointer-events:none';
+    document.body.appendChild(kampfTafel);
+  }
+  kampfTafelT -= dt;
+  if (kampfTafelT > 0) return;
+  kampfTafelT = 0.2;                       // fuenf Mal je Sekunde reicht
+  const z = ['Druck ' + KAMPF.druck.toFixed(2) +
+             '  Ruhe ' + Math.max(0, KAMPF.ruheT).toFixed(2) +
+             '  Rechte ' + KAMPF_RECHT.size];
+  for (const e of enemies) {
+    if (e.dead) continue;
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    if (d > 30) continue;
+    z.push((e.typ.art + '        ').slice(0, 9) +
+           (e.state + '        ').slice(0, 9) +
+           ((e.rolle || '-') + '      ').slice(0, 7) +
+           ' m' + (e.mut === undefined ? 1 : e.mut).toFixed(2) +
+           ' d' + Math.round(e.guard === undefined ? (e.typ.guard || 0) : e.guard) +
+           ' s' + Math.round(e.poiseRest === undefined ? (e.typ.poise || 0) : e.poiseRest) +
+           ' ' + d.toFixed(1) + 'm' +
+           (KAMPF_RECHT.has(e) ? ' *' : '') +
+           (e.warnT > 0 ? ' !' : '') +
+           (e.siehtMich ? ' auge' : ''));
+  }
+  kampfTafel.textContent = z.join('\n');
+}
+
 function simuliere(dt) {
   updateGamepad();
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
@@ -17386,10 +17976,12 @@ function simuliere(dt) {
   updateHelis(dt);
   updateCivilians(dt);
   updateEnemies(dt);
+  if (COMBAT_DEBUG) zeigeKampfTafel(dt);
   updateCamera(dt);
   updateEffekte(dt);
   updateZiehObjekte(dt);
   updateGriff(dt);
+  updateGeschosse(dt);
   updateKlatscher(dt);
   updateUnterwelt();
   updateZug(dt);
@@ -17460,6 +18052,10 @@ if (window.__WEBHERO_TEST__ === true) {
     colliders,
     kau: KAU,
     faden: swingStrand,
+    kampf: KAMPF,
+    machBoss,
+    geschosse: GESCHOSSE,
+    kampfRecht() { return Array.from(KAMPF_RECHT); },
     get ziehFest() { return ZIEH_FEST; },
     get ziehLose() { return ZIEH; },
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
@@ -17472,7 +18068,17 @@ if (window.__WEBHERO_TEST__ === true) {
     get mission() { return MISSION; },
     get stufe() { return stufe; },
     get ruf() { return ruf; },
-    addScore, hurtCivilian, ersteHilfe, damageEnemy, damagePlayer, respawn,
+    addScore, hurtCivilian, ersteHilfe, damageEnemy, damagePlayer, respawn, applyWeb,
+    /* Fuer die Pruefskripte: ein Spielertreffer ueber den ECHTEN Weg,
+       damit Deckung, Standfestigkeit und Konter mitgerechnet werden.
+       damageEnemy geht daran vorbei und taugt dafuer nicht. */
+    schlagAuf(e, art) {
+      player.ziel = e;
+      player.attack = { type: art || 'punch', t: 0.5, hitDone: true,
+                        dauer: 0.4, finisher: false };
+      resolveAttackHit();
+      player.attack = null;
+    },
     musikStart() { MUSIK.starte(); },
     get istTouch() { return istTouch; },
     get touchAktiv() { return touchAktiv; },
