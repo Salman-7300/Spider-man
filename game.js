@@ -4588,9 +4588,15 @@ function blendeEin(a, dauer, vonGewicht) {
    Alle Masse stehen in EINEM Objekt, damit sie sich im Testlauf ueber
    __dbg.kau verstellen und dann nachmessen lassen.
    Nachgemessen ueber dem Dach (0 = Dachflaeche):
-     Zehenballen 0,00   Fingerspitzen 0,00   Knoechel 0,06
-     Huefte 0,24   Knie 0,44   Schulter 0,63   Kopf 0,69
-     Knie 0,56 auseinander, Fuesse 0,57, Haende 0,64
+     Zehenballen 0,00   Fingerspitzen 0,02   Knoechel 0,06
+     Huefte 0,38   Knie 0,44   Schulter 0,64   Kopf 0,69
+     Knie 0,63 auseinander, Fuesse 0,62, Haende 0,59
+   Die Huefte lag vorher auf 0,24 - das Becken haengt rund 12 cm tiefer,
+   und damit steckte das Hinterteil im Dach ("der ganze Po fehlt"). Das
+   Knie wurde deshalb von 22 cm ueber der Huefte auf 5 cm heruntergesetzt:
+   der Oberschenkel liegt jetzt fast waagerecht, das hebt das Becken um
+   14 cm. Damit die Haende trotzdem aufliegen, beugt sich der Rumpf
+   entsprechend weiter vor.
    Vorher hing die Figur mit den Knoecheln 13 cm IM Dach, die Zehen und
    die Fingerspitzen 5 bis 6 cm - der Koerper war zu einem Ball
    zusammengefaltet (Huefte nur 13 cm, Kopf 46 cm ueber dem Dach) und der
@@ -4604,13 +4610,13 @@ function blendeEin(a, dauer, vonGewicht) {
    ueber der Huefte, Arme NEBEN den Knien nach unten, Fersen angehoben,
    Zehenballen und Fingerspitzen tragen. */
 const KAU = {
-  r1: 0.42, r2: 0.42, r3: 0.24,      // Rumpf nach vorn, aber nicht rund
+  r1: 0.66, r2: 0.66, r3: 0.38,      // Rumpf nach vorn, damit die Haende aufliegen
   /* Nacken zeigt auf einen Punkt ueber sich (Weltmass), der Kopf
      bekommt danach nur die Blickneigung. */
   kopfHoch: 0.22, kopfVorn: 0.06, kopfNeig: 0.35,
-  knieV: 0.30, knieQ: 0.30, knieH: 0.22,     // Knie weit auseinander und hoch
+  knieV: 0.30, knieQ: 0.30, knieH: 0.05,     // Knie weit auseinander, knapp ueber der Huefte
   fussV: 0.34, fussQ: 0.30, fussH: -0.80,    // Fuesse breit unter den Knien
-  fussDreh: 0.16, zehTief: 0.05,
+  fussDreh: 0.16, zehTief: 0.05, zehQuer: 0.075,
   armV: 0.35, armQ: 0.62, armRest: 0.42,     // Arme NEBEN den Knien, nicht davor
   handV: 0.42, handQ: 0.72, handHoch: 0.21,
 };
@@ -6727,8 +6733,13 @@ function makeGlbVisual(m) {
             const zehe = knochen[p + 'toebase'];
             if (zehe) {
               fuss.getWorldPosition(_vw3);
+              /* Die Zehen zeigen nicht stur geradeaus: die Beine stehen
+                 breit, die Fuesse folgen ihnen ein Stueck nach aussen.
+                 Ohne diesen Anteil standen die Fuesse quer zum Bein und
+                 sahen verdreht aus. */
               zieleKnochen(fuss, zehe, _vw4.copy(_vw3)
                 .addScaledVector(_vw2, 0.16)
+                .addScaledVector(_vw1, vz * KAU.zehQuer)
                 .addScaledVector(_fh.set(0, 1, 0), -KAU.zehTief), w * 0.95);
             } else {
               drehZuRuhe(fuss, KAU.fussDreh, 0, 0, w * 0.85);
