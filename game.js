@@ -9067,6 +9067,8 @@ function camForward() {
 let camRoll = 0;
 let mausRuhe = 0;
 let flugGlatt = 0;   // geglättete Flugrichtung für die mitziehende Kamera
+let vorausGlatt = 0; // wie weit der Blickpunkt vorauswandert
+let kamFrei = 6;     // geglaettete freie Sichtweite hinter der Figur
 let kamZwang = 0;    // nur für Tests: feste Kameraentfernung
 function updateCamera(dt) {
   const emp = 0.0023 * (EINST.maus / 100);
@@ -9133,10 +9135,25 @@ function updateCamera(dt) {
                                               : lerp(6.3, 7.8, clamp(speed / 25, 0, 1)));
   camDist = lerp(camDist, targetDist, dt * 3);
   const targetFov = lerp(70, 84, clamp(speed / 30, 0, 1));
-  camera.fov = lerp(camera.fov, targetFov, dt * 4);
+  /* Gemessen aenderte sich das Sichtfeld mit bis zu 45 Grad je Sekunde -
+     das ist der Zoom, den man beim Anschwingen als Ruck sieht. Mit 2,5
+     statt 4 bleibt es unter 30 Grad je Sekunde und faellt nicht mehr auf. */
+  camera.fov = lerp(camera.fov, targetFov, dt * 2.5);
   camera.updateProjectionMatrix();
 
+  /* ---- Vorausschau ----
+     Der Blickpunkt lag starr auf der Figur. Bei 30 m/s sieht man dadurch
+     vor allem den eigenen Ruecken, und was gleich kommt, erscheint erst
+     spaet im Bild. Der Blickpunkt wandert deshalb ein Stueck in die
+     Flugrichtung - geglaettet ueber flugGlatt, damit er im Bogen nicht
+     hin und her springt, und nur bei Tempo. */
+  const vorausWeit = clamp((speed - 8) / 22, 0, 1) * (player.onGround ? 1.1 : 2.4);
+  vorausGlatt = lerp(vorausGlatt, vorausWeit, Math.min(1, dt * 2.5));
   const target = _v1.copy(player.pos); target.y += 1.7;
+  if (vorausGlatt > 0.01) {
+    target.x += Math.sin(flugGlatt) * vorausGlatt;
+    target.z += Math.cos(flugGlatt) * vorausGlatt;
+  }
   const dir = _v2.set(
     Math.sin(camYaw) * Math.cos(camPitch),
     Math.sin(camPitch),
@@ -9171,7 +9188,25 @@ function updateCamera(dt) {
        Jetzt wird nie weiter gerueckt als bis kurz vor den Treffer. */
     if (blocked) { d = Math.max(0.55, t - 0.55); break; }
   }
-  const desired = _v3.copy(target).addScaledVector(dir, d);
+  /* ---- Heran sofort, zurueck langsam ----
+     Die Sichtpruefung liefert einen SPRUNG: eine Hausecke schiebt sich vor
+     die Kamera, und die Zielentfernung faellt in einem Bild von acht
+     Metern auf einen halben. Gemessen ergab das ueber 75 Sekunden Flug
+     106 Kamerarucke - fast alle beim Zurueckfahren, wenn die Ecke wieder
+     frei wird. Heranholen muss schnell gehen (sonst steht die Kamera in
+     der Wand), zurueck darf es dauern. */
+  /* Auch das Heranholen wird gefuehrt, nur viel schneller: mit dt*22
+     sitzt die Kamera nach rund fuenf Bildern an der neuen Stelle, statt
+     in einem einzigen Bild siebeneinhalb Meter zu springen. Die halbe
+     Sekunde Vorhalt (0,55 m) im Sichttest deckt die paar Bilder ab. */
+  if (d < kamFrei) {
+    /* Begrenzt statt geblendet: eine feste Geschwindigkeit laesst sich an
+       das Tempo der Figur haengen. Langsamer als die Figur darf die Kamera
+       nicht heran, sonst haengt sie zurueck; viel schneller braucht sie
+       nicht, sonst ist genau das der Ruck. */
+    kamFrei = Math.max(d, kamFrei - Math.max(20, speed * 1.2) * dt);
+  } else kamFrei = lerp(kamFrei, d, Math.min(1, dt * 2.2));
+  const desired = _v3.copy(target).addScaledVector(dir, kamFrei);
   camPos.lerp(desired, Math.min(1, dt * 12));
   camera.position.copy(camPos);
   if (camShake > 0) {
@@ -9195,8 +9230,12 @@ function updateCamera(dt) {
   } else if (!player.onGround) {
     rollZiel = clamp(-player.vel.y / 160, -0.09, 0.09);
   }
-  camRoll = lerp(camRoll, rollZiel, Math.min(1, dt * 3.5));
+  /* 3,5 ergab gemessen bis zu 2,37 rad/s Neigungsaenderung - beim
+     Handwechsel im Bogen kippt das Bild dann sichtbar um. */
+  camRoll = lerp(camRoll, rollZiel, Math.min(1, dt * 2.2));
   if (Math.abs(camRoll) > 0.001) camera.rotateZ(camRoll);
+
+  kamTelemetrie(dt);
 
   // Sonne folgt dem Spieler (Schattenausschnitt)
   sun.position.copy(player.pos).addScaledVector(SONNE_RICHTUNG, 150);
@@ -12596,9 +12635,43 @@ const MOT = {
   fovMax: 0, rollMax: 0,
   uebergaenge: {},
   landungen: {},
+  kamMax: 0, kamRucke: 0, kamHeran: 0, kamZurueck: 0,
 };
 function motMelden(art) { if (MOT.an) MOT[art] = (MOT[art] || 0) + 1; }
 function motLanden(art) { if (MOT.an) MOT.landungen[art] = (MOT.landungen[art] || 0) + 1; }
+/* Wie ruhig laeuft die Kamera? Gemessen werden die AENDERUNGEN je
+   Sekunde - ein Sprung im Sichtfeld oder in der Neigung faellt beim
+   Spielen sofort auf, ein langsames Wandern nicht. */
+const _kamAlt = { fov: 0, roll: 0, x: 0, y: 0, z: 0, da: false };
+function kamTelemetrie(dt) {
+  if (!MOT.an || dt <= 0) return;
+  if (_kamAlt.da) {
+    const dfov = Math.abs(camera.fov - _kamAlt.fov) / dt;
+    const droll = Math.abs(camRoll - _kamAlt.roll) / dt;
+    const dpos = Math.hypot(camera.position.x - _kamAlt.x,
+                            camera.position.y - _kamAlt.y,
+                            camera.position.z - _kamAlt.z) / dt;
+    if (dfov > MOT.fovMax) MOT.fovMax = dfov;
+    if (droll > MOT.rollMax) MOT.rollMax = droll;
+    if (dpos > MOT.kamMax) MOT.kamMax = dpos;
+    /* Ein echter Ruck: die Kamera holt mehr auf, als die Figur selbst
+       zuruecklegen kann. Das ist der Fall, wenn die Sichtpruefung von
+       "frei" auf "verdeckt" umschlaegt. */
+    if (dpos > Math.max(12, player.vel.length() * 1.6) + 12) {
+      MOT.kamRucke++;
+      /* Getrennt gezaehlt: heran (Sicht wird verdeckt) und zurueck (Sicht
+         wird wieder frei). Nur das Zurueckfahren laesst sich beliebig
+         verlangsamen - heran muss es schnell gehen. */
+      const raus = Math.hypot(camera.position.x - player.pos.x,
+                              camera.position.z - player.pos.z);
+      const rausAlt = Math.hypot(_kamAlt.x - player.pos.x, _kamAlt.z - player.pos.z);
+      if (raus < rausAlt) MOT.kamHeran++; else MOT.kamZurueck++;
+    }
+  }
+  _kamAlt.fov = camera.fov; _kamAlt.roll = camRoll;
+  _kamAlt.x = camera.position.x; _kamAlt.y = camera.position.y;
+  _kamAlt.z = camera.position.z; _kamAlt.da = true;
+}
 function spielerTelemetrie(dt) {
   if (!MOT.an && !PLAYER_MOTION_DEBUG) return;
   const l = MOT.letzte;
@@ -20773,7 +20846,9 @@ if (window.__WEBHERO_TEST__ === true) {
       MOT.gepufferteSprung = 0; MOT.gepufferteSchwung = 0; MOT.gepufferteAngriff = 0;
       MOT.liste.length = 0; MOT.letzte = null; MOT.uebergaenge = {};
       MOT.landungen = {};
-      MOT.fovMax = 0; MOT.rollMax = 0;
+      MOT.fovMax = 0; MOT.rollMax = 0; MOT.kamMax = 0; MOT.kamRucke = 0;
+      MOT.kamHeran = 0; MOT.kamZurueck = 0;
+      _kamAlt.da = false;
     },
     motStand() {
       return { wechsel: MOT.wechsel, ortSpruenge: MOT.ortSpruenge,
@@ -20783,6 +20858,8 @@ if (window.__WEBHERO_TEST__ === true) {
                gepuffert: { sprung: MOT.gepufferteSprung, schwung: MOT.gepufferteSchwung,
                             angriff: MOT.gepufferteAngriff },
                fovMax: +MOT.fovMax.toFixed(3), rollMax: +MOT.rollMax.toFixed(4),
+               kamMax: +MOT.kamMax.toFixed(2), kamRucke: MOT.kamRucke,
+               kamHeran: MOT.kamHeran, kamZurueck: MOT.kamZurueck,
                uebergaenge: Object.assign({}, MOT.uebergaenge),
                landungen: Object.assign({}, MOT.landungen),
                liste: MOT.liste.slice(0, 40) };
