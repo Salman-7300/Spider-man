@@ -4653,6 +4653,9 @@ const BLEND_KUNST = 0.14;
 /* Bis hierher greift die Figur nach der Fassade, und ueber diese Strecke
    blendet der Griff aus (siehe wandGriff). */
 const WAND_GRIFF_WEIT = 0.45;
+/* Wie weit das Becken an der Wand in die Fassadenebene zurueckgedreht
+   wird. Nicht ganz: die Kriechbewegung lebt von der Beckendrehung. */
+const WAND_HUEFT_FLACH = 0.75;
 const WAND_GRIFF_BAND = 0.20;
 
 /* ---- Blenden, die beim WIRKLICHEN Gewicht anfangen ----
@@ -5981,6 +5984,47 @@ function makeGlbVisual(m) {
      klein, ist auch die Drehung klein - und die animierte Verdrehung des
      Beins bleibt erhalten (deshalb stehen die Fuesse jetzt auch richtig
      herum an der Wand). */
+  /* ---- Eine Achse eines Knochens in die Wandebene zurueckdrehen ----
+     Gebraucht fuer das Becken beim Klettern: die Kriechbewegung rollt es
+     mit jedem Zug um seine Laengsachse. Am Boden ist das der
+     Wechselschritt und richtig - an der Fassade bedeutet dieselbe Drehung,
+     dass eine Huefthaelfte von der Wand abhebt.
+     Der naheliegende Weg, das Becken einfach in seine Ruhelage zu
+     ziehen (drehZuRuhe), ist falsch: die Ruhelage ist die STEHENDE
+     Haltung, und die Kriechbewegung dreht das Becken um rund 90 Grad in
+     die Bauchlage. Gemessen richtete sich die Figur damit an der Wand
+     wieder auf - der Koerper stand quer statt aufwaerts (Laengsachse 45
+     statt 8 Grad zur Senkrechten) und der Kopf 62 statt 22 cm vor der
+     Fassade.
+     Hier wird deshalb NUR der Anteil weggenommen, der aus der Wandebene
+     herauszeigt: die Querachse des Knochens wird auf ihre Projektion in
+     die Ebene gedreht. Neigung und Blickrichtung bleiben unberuehrt. */
+  const _fa = new THREE.Vector3(), _fb = new THREE.Vector3();
+  const _fn = new THREE.Vector3(), _fq = new THREE.Quaternion();
+  const _fq2 = new THREE.Quaternion(), _fq3 = new THREE.Quaternion();
+  function achseInEbene(bone, nx, nz, staerke) {
+    if (!bone) return;
+    const k = clamp(staerke === undefined ? 1 : staerke, 0, 1);
+    if (k <= 0) return;
+    bone.updateMatrixWorld(true);
+    bone.getWorldQuaternion(_fq2);
+    _fa.set(1, 0, 0).applyQuaternion(_fq2);       // Querachse des Knochens
+    _fn.set(nx, 0, nz).normalize();               // Wandnormale
+    const anteil = _fa.dot(_fn);
+    if (Math.abs(anteil) < 1e-4) return;
+    _fb.copy(_fa).addScaledVector(_fn, -anteil);  // in die Ebene projiziert
+    if (_fb.lengthSq() < 1e-8) return;
+    _fb.normalize();
+    _fq.setFromUnitVectors(_fa, _fb);
+    /* Nur zum Teil - ganz gerade gezogen sieht das Klettern aus wie ein
+       Brett, das die Wand hinaufgeschoben wird. */
+    _fq.slerp(_fq3.identity(), 1 - k);
+    _fq2.premultiply(_fq);                        // Korrektur in der WELT
+    bone.parent.getWorldQuaternion(_fq3);
+    bone.quaternion.copy(_fq3.invert()).multiply(_fq2);
+    bone.updateMatrixWorld(true);
+  }
+
   const _gp0 = new THREE.Vector3(), _gp1 = new THREE.Vector3();
   const _gu = new THREE.Vector3(), _gv = new THREE.Vector3(), _gax = new THREE.Vector3();
   function griffKnochen(bone, child, zielWelt, staerke, maxWinkel) {
@@ -6495,6 +6539,11 @@ function makeGlbVisual(m) {
       const zZiel = grundZ + (tiefe === undefined ? 0.30 : tiefe) * kk;
       inner.position.z = lerp(inner.position.z, zZiel, 0.25);
       inner.position.x = lerp(inner.position.x, grundX, 0.25);
+    },
+    /* Das Becken flach an die Fassade drehen. Siehe achseInEbene. */
+    wandHuefteFlach(nx, nz, k) {
+      achseInEbene(knochen.hips, nx, nz,
+                   WAND_HUEFT_FLACH * clamp(k === undefined ? 1 : k, 0, 1));
     },
     /* Ist die Figur gerade an die Wand gekippt? */
     get wandGekippt() { return innerKipp < -0.02; },
@@ -13450,6 +13499,8 @@ function updateHeroVisual(dt) {
         const wunsch = tempo > 0.9 ? Math.atan2(-vq, vh) : 0;
         player.wandRoll = wunsch;
         heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch);
+        /* Becken flach an die Fassade - siehe achseInEbene. */
+        if (heroVisual.wandHuefteFlach) heroVisual.wandHuefteFlach(w.nx, w.nz, 1);
         /* Im Stillstand die Klebehaltung darueberlegen. Sie blendet ein
            und aus, damit der Uebergang zur Kriechbewegung weich ist. */
         player.wandRuhe = clamp((player.wandRuhe || 0) +
