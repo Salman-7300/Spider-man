@@ -22133,7 +22133,10 @@ if (window.__WEBHERO_TEST__ === true) {
     },
     evVerlauf() { return EV.verlauf.slice(); },
     evStarte,
-    evRuheAus() { EV.ruheCd = 0; },
+    /* Fuer Tests: Ruhephase UND Taktbremse loesen. Ohne das zweite
+       wartet ein Test, der schnell viele Ereignisse braucht, auf einen
+       Regler, der genau dafuer da ist, sie zu bremsen. */
+    evRuheAus() { EV.ruheCd = 0; EV.taktAnteil = 0; },
     evLeck() { return evLeckPruefung(); },
     evOrtTauglich, evImBlick,
     evAlleBeenden() {
