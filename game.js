@@ -8350,6 +8350,9 @@ const _vSeil = new THREE.Vector3(), _vVorWand = new THREE.Vector3();
 const _vHalt = new THREE.Vector3();
 /* Was ein stehender Zivilist gerade tut. 'idle' steht mehrfach drin, damit
    ruhiges Stehen haeufiger vorkommt als jede einzelne Beschaeftigung. */
+/* Ab welchem Abstand IM RAUM das Handy nicht mehr in die Hand gelegt
+   wird, und ueber welche Strecke die Feinarbeit am Arm ausblendet. */
+const HANDY_FERN = 32, HANDY_BAND = 6;
 const RUHE_POSEN = ['idle', 'idle', 'telefon', 'warten', 'umschauen', 'tippen',
                     'reden', 'streiten', 'trinken', 'gelangweilt', 'froh', 'winken'];
 const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
@@ -17774,8 +17777,31 @@ function updateCivilians(dtBild) {
     /* Die Feinarbeit an Handy und Schirm (Arm ausrichten, Faust schließen,
        Gegenstand ausrichten) kostet je Figur rund zwanzig Knochendrehungen.
        Auf 30 m Entfernung sieht man davon nichts mehr. */
+    /* ---- Wie stark die Feinarbeit am Handyarm greift ----
+       Vorher war das ein harter Schalter: naeher als 30 m WAAGERECHT und
+       weniger als 14 m Hoehenunterschied - dann lag das Handy am Ohr,
+       sonst schwang der Arm im Gehtakt weiter, MIT dem Handy in der Hand.
+       Genau das ist das Bild "Arm und Handy hinter dem Ruecken", und es
+       hing nicht am Zivilisten, sondern am Standort des Spielers.
+       Zwei Fehler steckten darin, beide nachgemessen:
+       1. Der Schalter blendete nicht. Beim Herangehen sprang die Hand
+          zwischen 30,00 m und 29,75 m in EINEM Bild um 0,70 m - von
+          "haengt an der Huefte, 0,65 m vom Kopf" auf "am Ohr, 0,23 m vom
+          Kopf".
+       2. Die Hoehenschranke passt nicht zu einem Spiel, in dem man
+          meistens ueber der Strasse ist. Gemessen: Spieler sechs Meter
+          neben dem Zivilisten, aber zwanzig Meter darueber - der Arm
+          haengt herunter (Hand 0,34 m unter der Brust, 0,61 m vom Kopf)
+          und das Handy pendelt sichtbar mit.
+       Jetzt zaehlt der WIRKLICHE Abstand im Raum, und die Feinarbeit
+       blendet ueber sechs Meter aus. Wo sie ganz aus ist, wird auch das
+       Handy nicht mehr gezeigt - dann bleibt ein gewoehnlicher Gehschritt
+       uebrig statt eines Gegenstands in einer schwingenden Hand. */
+    const dRaum = Math.hypot(dHeld, player.pos.y - c.pos.y);
+    const handyStark = clamp((HANDY_FERN - dRaum) / HANDY_BAND, 0, 1);
+    if (handyStark <= 0) c.handy.visible = false;
     const nah = dHeld < 30 && Math.abs(player.pos.y - c.pos.y) < 14;
-    if (nah && c.handy.visible && c.visual.poseGreifen) {
+    if (handyStark > 0 && c.handy.visible && c.visual.poseGreifen) {
       /* Wer filmt, haelt das Geraet vor das GESICHT und schaut darauf -
          Ellbogen angewinkelt, Oberarm dicht am Koerper. Vorher zeigte der
          ganze Arm ausgestreckt auf den Helden, und das Handy klebte am
@@ -17787,10 +17813,10 @@ function updateCivilians(dtBild) {
               c.pos.z + rz * 0.26 + vz * 0.06);                 // Ellbogen
       _v2.set(c.pos.x + rx * 0.13 + vx * 0.36, c.pos.y + 1.47,
               c.pos.z + rz * 0.13 + vz * 0.36);                 // Hand
-      c.visual.poseGreifen(_v3, _v2, 'R', 0.9);
+      c.visual.poseGreifen(_v3, _v2, 'R', 0.9 * handyStark);
       /* Die Finger schließen sich um das Gerät. Ohne das lag das Handy in
          einer flachen, offenen Hand und sah aus, als würde es schweben. */
-      if (c.visual.faust) c.visual.faust('R', 0.75);
+      if (c.visual.faust) c.visual.faust('R', 0.75 * handyStark);
       /* Das Geraet steht senkrecht in der Faust, Bildschirm zum Gesicht.
          Der kleine Versatz nach vorn holt es aus dem Handgelenk in die
          Finger. */
