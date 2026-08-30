@@ -4593,7 +4593,54 @@ function teileBewegungen() {
 /* Wie stark sich die Finger zur Faust kruemmen. Gemessen eingestellt:
    Fingerspitze zum Handgelenk unter 6 cm. */
 const FAUST_KRUEMM = -1.35, FAUST_DAUMEN = -0.55;
-const BLEND_ROLLE = 0.012;   // praktisch harter Schnitt, siehe rolleOneShot
+/* ================= Kernfenster der Bewegungsdateien =================
+   Die Mixamo-Dateien enthalten weit mehr als die eigentliche Aktion: sie
+   beginnen in der Ruhehaltung, holen aus, fuehren die Bewegung aus und
+   kehren wieder in die Ruhehaltung zurueck. Abgespielt wurde bisher immer
+   AB NULL und nach der Spieldauer abgeschnitten - der Rest wurde durch
+   Beschleunigen hineingequetscht.
+
+   Nachgemessen (scratchpad/animprofil.js: Weltgeschwindigkeit von Haenden
+   und Fuessen ueber 80 Stuetzstellen je Clip) heisst das:
+
+     punch3   Schlag liegt bei 57-80 % des Clips, gezeigt wurden 0-42 %
+              -> der vierte Schlag der Kombo zeigte NUR das Ausholen
+     luftangriff  Treffer bei 39-45 %, gezeigt 0-32 %
+              -> der Sprungangriff traf nie sichtbar
+     wurf     Wurf bei 56-75 %, gezeigt 0-30 %
+     zip_ab   Absprung bei 68-78 %, gezeigt 0-22 %
+     punch/hook/kick liefen mit dem 2,4-fachen Anschlag ab Bild null
+
+   Hier steht deshalb je Bewegung das KERNFENSTER als Anteil der
+   Cliplaenge, gemessen als der Bereich, in dem das schlagende Glied mehr
+   als ein Fuenftel seiner Hoechstgeschwindigkeit hat, plus etwas Vorlauf
+   (Ausholen gehoert zum Schlag) und Nachlauf.
+   'treff' ist der gemessene Zeitpunkt der Hoechstgeschwindigkeit,
+   umgerechnet auf das Fenster - dort und nur dort soll der Treffer
+   ausgeloest werden, damit Bild und Wirkung zusammenfallen. */
+const ANGRIFF_FENSTER = {
+  punch:       { von: 0.14, bis: 0.48, treff: 0.56 },
+  punch2:      { von: 0.14, bis: 0.48, treff: 0.56 },
+  punch3:      { von: 0.51, bis: 0.89, treff: 0.68 },
+  hook:        { von: 0.32, bis: 0.555, treff: 0.47 },
+  hook2:       { von: 0.32, bis: 0.555, treff: 0.47 },
+  kick:        { von: 0.21, bis: 0.443, treff: 0.58 },
+  luftangriff: { von: 0.37, bis: 0.475, treff: 0.58 },
+  wurf:        { von: 0.507, bis: 0.825 },
+  zip_ab:      { von: 0.645, bis: 0.815 },
+  zip_dreh:    { von: 0.11, bis: 0.79 },
+  kante:       { von: 0.08, bis: 0.75 },
+};
+
+/* Wie lange die selbstgebaute Schusshaltung ueber der Bewegungsdatei
+   liegt. Sie blendet ein und aus - siehe updateHeroVisual. */
+const SCHUSS_DAUER = 0.3;
+/* Uebergaenge, bei denen zwischen zwei Haltungen keine gueltige Mischung
+   liegt - siehe play(). Hart geschnitten statt geblendet. Derzeit leer:
+   der einzige gemessene Fall (zip_ab -> zip_dreh) liess sich auch hart
+   nicht retten und wird jetzt gar nicht mehr gefahren. */
+const HART_UEBERGANG = new Set();
+let BLEND_ROLLE = 0.012;   // praktisch harter Schnitt, siehe rolleOneShot
 /* Kunststuecke in der Luft (Doppelsprung, Ueberschlag zwischen zwei
    Boegen) blenden weich ein. Mit dem harten Schnitt sprangen Knie und
    Schultern in einem einzigen Bild um mehr als 100 Grad - das war der
@@ -4694,6 +4741,10 @@ const KAU = {
    gezielt wird: die Fingerspitzen haengen darunter, und nur sie sollen
    das Dach beruehren. */
 const KAU_SOHLE = 0.095;
+/* Wie weit die Hocke auf einem schmalen Halt zusammenrueckt. Gemessen:
+   Fuesse standen 0,37 m von der Mastachse entfernt, der Mast hat aber nur
+   0,30 m Radius. Mit 0,42 sind es 0,21 m - alles liegt auf. */
+const KAU_ENG = 0.42;
 
 const GLB_CLIP_PATTERNS = {
   idle: [/idle/i, /stand/i, /breath/i],
@@ -4757,11 +4808,17 @@ const GLB_CLIP_PATTERNS = {
   ausweichenR: [/ausweichenR/],
   roll: [/roll/i, /dodge/i, /dive/i, /evade/i],
   hit: [/hit/i, /impact/i, /react/i, /stagger/i],
-  punch: [/punch/i, /jab/i, /hook/i, /elbow/i, /boxing/i],
-  punch2: [/punch2/i],
-  punch3: [/punch3/i],
+  /* ---- Der EXAKTE Name muss zuerst stehen ----
+     findClip nimmt den ersten Clip, dessen Name auf ein Muster passt. Mit
+     /punch/i vorn gewann "punch3", weil er in der Clipliste frueher steht:
+     der erste Schlag der Kombo und der vierte liefen also mit derselben
+     Datei, und die Kombo sah aus wie zweimal derselbe Schlag. Das exakte
+     Muster steht deshalb vor den lockeren Ersatzmustern. */
+  punch: [/^punch$/i, /^jab$/i, /punch/i, /jab/i, /hook/i, /elbow/i, /boxing/i],
+  punch2: [/^punch2$/i, /punch2/i],
+  punch3: [/^punch3$/i, /punch3/i],
   hook: [/^hook$/i],
-  hook2: [/hook2/i],
+  hook2: [/^hook2$/i, /hook2/i],
   luftangriff: [/luftangriff/i],
   knie: [/knie/i],
   block: [/block/i],
@@ -4814,6 +4871,16 @@ const GLB_FALLBACK = {
   ausweichenL: ['roll'], ausweichenR: ['roll'],
   sit: ['idle'], webbed: ['idle'], downed: ['sit', 'idle'], attack: [],
 };
+
+/* Die Knochen, an denen sich visuelle Fehler zeigen: Rumpf, beide Arme,
+   beide Beine. Reihenfolge egal, aber ueberall dieselbe Liste. */
+const LABOR_KNOCHEN = [
+  'hips', 'spine', 'spine1', 'spine2', 'neck', 'head',
+  'leftshoulder', 'leftarm', 'leftforearm', 'lefthand',
+  'rightshoulder', 'rightarm', 'rightforearm', 'righthand',
+  'leftupleg', 'leftleg', 'leftfoot', 'lefttoebase',
+  'rightupleg', 'rightleg', 'rightfoot', 'righttoebase',
+];
 
 function findClip(clips, key) {
   for (const re of GLB_CLIP_PATTERNS[key] || []) {
@@ -6400,6 +6467,106 @@ function makeGlbVisual(m) {
     },
     /* Ist die Figur gerade an die Wand gekippt? */
     get wandGekippt() { return innerKipp < -0.02; },
+    /* ================= Animationslabor (nur Tests) =================
+       Eine Bewegung isoliert und angehalten an einer bestimmten Stelle
+       zeigen. Ohne das muesste man fuer jeden Frame durch die halbe Stadt
+       spielen, und ueber jeder Bewegung liegen im Spiel noch die
+       selbstgebauten Haltungen - dann sieht man nie, was die Datei
+       eigentlich enthaelt. */
+    laborListe() {
+      const aus = [];
+      for (const key in GLB_CLIP_PATTERNS) {
+        const a = actionFor(key);
+        if (!a) { aus.push({ key, da: false }); continue; }
+        const c = a.getClip();
+        aus.push({ key, da: true, name: c.name, dauer: +c.duration.toFixed(3),
+                   spuren: c.tracks.length });
+      }
+      return aus;
+    },
+    /* key: Clipname aus GLB_CLIP_PATTERNS, t01: Stelle 0..1.
+       Alle anderen Bewegungen werden gestoppt, damit wirklich nur diese
+       eine den Koerper bestimmt. */
+    laborClip(key, t01) {
+      const a = actionFor(key);
+      if (!a) return null;
+      for (const k in actions) {
+        const b = actions[k];
+        if (b && b !== a) { b.stop(); b.setEffectiveWeight(0); }
+      }
+      angriff = null; angriffT = 0; current = a; letzterKey = key;
+      const d = a.getClip().duration;
+      a.reset();
+      a.setLoop(THREE.LoopRepeat, Infinity);
+      a.clampWhenFinished = false;
+      a.setEffectiveWeight(1);
+      a.enabled = true;
+      a.play();
+      a.paused = true;
+      a.timeScale = 0;
+      a.time = clamp(t01 === undefined ? 0 : t01, 0, 1) * d * 0.999;
+      mixer.update(0);
+      root.updateMatrixWorld(true);
+      return { key, name: a.getClip().name, dauer: +d.toFixed(3),
+               zeit: +a.time.toFixed(3) };
+    },
+    /* Zurueck in den normalen Betrieb. */
+    laborAus() {
+      for (const k in actions) {
+        const b = actions[k];
+        if (b) { b.paused = false; b.timeScale = 1; }
+      }
+      current = null; angriff = null; angriffT = 0; letzterKey = null;
+    },
+    /* Knochenlage im EIGENEN System der Figur - also ohne ihre Drehung und
+       ohne ihren Weg durch die Welt. Nur so misst man die HALTUNG.
+       Weltkoordinaten taugen dafuer nicht: dreht sich die Figur (Rolle,
+       Netz-Zug, Schwung), springt jeder Knochen in der Welt, obwohl die
+       Haltung stetig bleibt. */
+    laborKnochenLokal(liste) {
+      root.updateMatrixWorld(true);
+      const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+      const namen = liste || LABOR_KNOCHEN;
+      const aus = {};
+      const p = new THREE.Vector3();
+      for (const n of namen) {
+        const b = knochen[n];
+        if (!b) continue;
+        b.getWorldPosition(p);
+        p.applyMatrix4(inv);
+        aus[n] = { x: +p.x.toFixed(4), y: +p.y.toFixed(4), z: +p.z.toFixed(4) };
+      }
+      return aus;
+    },
+    /* Weltlage der wichtigen Knochen - Grundlage fuer die Sprungmessung. */
+    laborKnochen(liste) {
+      root.updateMatrixWorld(true);
+      const namen = liste || LABOR_KNOCHEN;
+      const aus = {};
+      const p = new THREE.Vector3(), q = new THREE.Quaternion();
+      for (const n of namen) {
+        const b = knochen[n];
+        if (!b) continue;
+        b.getWorldPosition(p); b.getWorldQuaternion(q);
+        aus[n] = { x: +p.x.toFixed(4), y: +p.y.toFixed(4), z: +p.z.toFixed(4),
+                   qx: +q.x.toFixed(4), qy: +q.y.toFixed(4),
+                   qz: +q.z.toFixed(4), qw: +q.w.toFixed(4) };
+      }
+      return aus;
+    },
+    /* Welche Bewegungen laufen gerade mit welchem Gewicht? Damit laesst
+       sich pruefen, ob ein Knochen mehrere "Besitzer" hat. */
+    laborGewichte() {
+      const aus = {};
+      for (const k in actions) {
+        const a = actions[k];
+        if (!a || !a.isRunning || !a.isRunning()) continue;
+        const w = gewichtVon(a);
+        if (w > 0.001) aus[k] = { w: +w.toFixed(3), t: +a.time.toFixed(3),
+                                  ts: +a.timeScale.toFixed(2) };
+      }
+      return aus;
+    },
     versatzAus(k) {
       /* Die Kippung immer mit zuruecknehmen - sonst bliebe die Figur nach
          dem Loslassen waagerecht in der Luft liegen. */
@@ -6731,8 +6898,15 @@ function makeGlbVisual(m) {
         if (b) drehZuRuhe(b, 0, FAUST_DAUMEN, FAUST_KRUEMM * 0.5, w);
       }
     },
-    poseKauern(k) {
+    /* eng: 0 = Dachkante (volle Breite), 1 = schmaler Halt. Auf einer
+       Laterne oder einem Ampelmast ist der Halt gemessen 0,60 m breit,
+       die Hocke stellt die Fuesse aber 0,74 m auseinander - Fuesse und
+       Haende griffen dort 7 bis 10 cm NEBEN den Mast ins Leere. Mit dem
+       Faktor ruecken Knie, Fuesse und Arme so weit zusammen, dass alles
+       auf dem Halt aufliegt. */
+    poseKauern(k, eng) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
+      const q = 1 - clamp(eng === undefined ? 0 : eng, 0, 1) * KAU_ENG;
       const hueft = knochen.hips;
       if (!hueft) return;
       /* Erst der Rumpf: rund nach vorn, Kopf dagegen wieder hoch. Er wird
@@ -6793,10 +6967,10 @@ function makeGlbVisual(m) {
         const fuss = knochen[p + 'foot'];
         if (ober && unter) {
           /* Knie nach VORN OBEN - das macht die Hocke aus. */
-          zieleKnochen(ober, unter, ziel(KAU.knieV, vz * KAU.knieQ, KAU.knieH), w);
+          zieleKnochen(ober, unter, ziel(KAU.knieV, vz * KAU.knieQ * q, KAU.knieH), w);
           if (fuss) {
             /* Unterschenkel wieder nach hinten unten auf den Boden. */
-            zieleKnochen(unter, fuss, ziel(KAU.fussV, vz * KAU.fussQ, KAU.fussH), w);
+            zieleKnochen(unter, fuss, ziel(KAU.fussV, vz * KAU.fussQ * q, KAU.fussH), w);
             /* Fussohle flach und die Zehen NACH VORN.
                Vorher stand hier nur eine feste Nachdrehung des Fusses.
                Das reichte nicht: zieleKnochen richtet den Unterschenkel
@@ -6813,7 +6987,7 @@ function makeGlbVisual(m) {
                  sahen verdreht aus. */
               zieleKnochen(fuss, zehe, _vw4.copy(_vw3)
                 .addScaledVector(_vw2, 0.16)
-                .addScaledVector(_vw1, vz * KAU.zehQuer)
+                .addScaledVector(_vw1, vz * KAU.zehQuer * q)
                 .addScaledVector(_fh.set(0, 1, 0), -KAU.zehTief), w * 0.95);
             } else {
               drehZuRuhe(fuss, KAU.fussDreh, 0, 0, w * 0.85);
@@ -6858,9 +7032,9 @@ function makeGlbVisual(m) {
             .addScaledVector(_vw1, vz * quer * waag)
             .setY(_vw3.y - Math.min(hoch, laenge));
         };
-        zieleKnochen(arm, varm, aufEbene(arm, varm, KAU.armV, KAU.armQ, KAU.armRest), w);
+        zieleKnochen(arm, varm, aufEbene(arm, varm, KAU.armV * q, KAU.armQ * q, KAU.armRest), w);
         varm.updateMatrixWorld(true);
-        zieleKnochen(varm, hand, aufEbene(varm, hand, KAU.handV, KAU.handQ, KAU.handHoch), w);
+        zieleKnochen(varm, hand, aufEbene(varm, hand, KAU.handV * q, KAU.handQ * q, KAU.handHoch), w);
       }
     },
     poseDreiPunkt(k, seite) {
@@ -7194,13 +7368,27 @@ function makeGlbVisual(m) {
         for (const o of originale) o.castShadow = willSchatten;
       }
       /* Läuft gerade ein Angriff, hat der Vorrang vor Laufen/Stehen */
+      let hartRein = false;
       if (angriff) {
         angriffT -= dt;
         if (angriffT > 0) { mixer.update(dt); return; }
         /* Gleiche Blenddauer wie beim Einblenden der Grundanimation – sonst
            sinkt die Gesamtgewichtung kurz unter 1 und das Modell rutscht
            sichtbar in die T-Pose zurück. */
-        blendeAus(angriff, 0.22); angriff = null; current = null;
+        /* ---- Ausnahme: Haltungen, zwischen denen es keine gueltige
+           Mischung gibt ----
+           Gemessen beim Netz-Zug: der Absprung (zip_ab) blendete ueber
+           dreizehn Bilder in die Drehung (zip_dreh). Die Gewichte liefen
+           voellig gleichmaessig - trotzdem sprang genau bei halbem Gewicht
+           die rechte Hand in EINEM Bild um 1,15 m und der Oberarm um 153
+           Grad. Dort kippt die Drehung auf die andere Seite; eine laengere
+           oder kuerzere Blende verschiebt den Punkt nur. Fuer diese
+           Uebergaenge wird deshalb hart geschnitten - dieselbe Loesung wie
+           bei der Ausweichrolle. */
+        hartRein = HART_UEBERGANG.has(key);
+        if (hartRein) { angriff.stop(); angriff.setEffectiveWeight(0); }
+        else blendeAus(angriff, 0.22);
+        angriff = null; current = null;
       }
       if (dist2 > 45 * 45) {
         lodAcc += dt;
@@ -7314,7 +7502,7 @@ function makeGlbVisual(m) {
           phase = (current.time % cd) / cd;
         }
         const wAlt = gewichtVon(a);
-        blendeAus(current, 0.22);
+        blendeAus(current, hartRein ? 0.012 : 0.22);
         /* Umfallen und Liegenbleiben laufen genau einmal und bleiben im
            letzten Bild stehen – sonst fällt die Figur endlos immer wieder. */
         const einmal = want === 'downed' || want === 'sit' || want === 'taunt';
@@ -7328,8 +7516,14 @@ function makeGlbVisual(m) {
            dabei um 79 Zentimeter, obwohl der Mischer nur 15 hergab.
            Eine laufende Schleife behaelt deshalb ihre Stelle. */
         if (!einmal && a.isRunning()) { a.enabled = true; a.paused = false; }
-        else a.reset();
-        blendeEin(a, 0.22, wAlt); a.play();
+        else {
+          a.reset();
+          /* Die Zughaltung wird nicht von vorn angefangen: gemessen liegt
+             ihre beste Anschlussstelle an den Absprung bei 62,5 % der
+             Cliplaenge (0,29 m statt 0,45 m mittlerer Knochenabstand). */
+          if (want === 'zip_zug') a.time = 0.625 * (a.getClip().duration || 1);
+        }
+        blendeEin(a, hartRein ? 0.012 : 0.22, wAlt); a.play();
         if (beideLauf) a.time = phase * (a.getClip().duration || 1);
         current = a;
       }
@@ -7433,7 +7627,14 @@ function makeGlbVisual(m) {
          niemand, und genau das sah nicht gut aus.
          Jetzt darf eine Bewegung auch in ihrem eigenen Takt laufen, und
          nach oben ist bei 2,4 Schluss. */
-      const v = zielDauer ? clamp(d / zielDauer, 1.0, 2.4) : (tempo || 1.7);
+      /* Nur das Kernfenster abspielen, wenn eines vermessen wurde. Dann
+         laeuft die Bewegung fast in ihrem eigenen Takt statt im Anschlag:
+         aus 2,4-fach werden beim Schlag 1,35-fach und beim Tritt 0,94. */
+      const fen = ANGRIFF_FENSTER[art];
+      const fVon = fen ? fen.von * d : 0;
+      const fSpanne = fen ? (fen.bis - fen.von) * d : d;
+      const v = zielDauer ? clamp(fSpanne / zielDauer, fen ? 0.75 : 1.0, fen ? 2.6 : 2.4)
+                          : (tempo || 1.7);
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
       /* Beim Verketten weich überblenden. Nur wenn dieselbe Bewegung
@@ -7463,11 +7664,16 @@ function makeGlbVisual(m) {
       else if (current && !angriff) blendeAus(current, blende);
       if (gleiche) a.reset();
       else { a.reset(); blendeEin(a, blende, wAlt); }
-      const ab = verkette === 1 ? d * 0.18 : 0;
+      /* Beim Verketten ein Stueck weiter vorn einsteigen - die
+         Ausholphase liegt beim naechsten Schlag ohnehin schon hinter dem
+         Arm. Mit Kernfenster ist das ein Anteil DES FENSTERS. */
+      const ab = fen ? fVon + (verkette === 1 ? fSpanne * 0.25 : 0)
+                     : (verkette === 1 ? d * 0.18 : 0);
       a.time = ab;
       a.timeScale = v; a.play();
       angriff = a;
-      const rest = (d - ab) / v;
+      const ende = fen ? fVon + fSpanne : d;
+      const rest = (ende - ab) / v;
       angriffT = zielDauer ? Math.min(zielDauer, rest) : rest;
       return angriffT;
     },
@@ -7517,14 +7723,23 @@ function makeGlbVisual(m) {
       const a = actionFor('kante');
       if (!a) return 0;
       const d = a.getClip().duration;
-      const v = clamp(d / zielDauer, 1, 4.5);
+      /* Der Kantenzug-Clip ist vier Sekunden lang und lief in 0,95 s ab -
+         also mit dem 4,2-fachen. Das war der auffaelligste Zeitraffer im
+         ganzen Spiel. Mit dem gemessenen Kernfenster (8-75 % des Clips,
+         dort steigt der Koerper wirklich) sind es 2,8-fach, und das
+         Greifen und Nachziehen ist ueberhaupt erst zu erkennen. */
+      const fen = ANGRIFF_FENSTER.kante;
+      const fVon = fen.von * d, fSpanne = (fen.bis - fen.von) * d;
+      const v = clamp(fSpanne / zielDauer, 1, 3.2);
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
       const wAlt = gewichtVon(a);
       blendeAus(current, 0.1);
-      a.reset(); blendeEin(a, 0.1, wAlt); a.timeScale = v; a.play();
+      a.reset(); blendeEin(a, 0.1, wAlt);
+      a.time = fVon;
+      a.timeScale = v; a.play();
       angriff = a;
-      angriffT = Math.min(zielDauer, d / v);
+      angriffT = Math.min(zielDauer, fSpanne / v);
       return angriffT;
     },
     rolleOneShot(zielDauer, welche, blende) {
@@ -7557,6 +7772,19 @@ function makeGlbVisual(m) {
          der Ausschlag steckt in der Mischung selbst, nicht in ihrer
          Dauer. Ein Ausweichsatz darf ruhig hart einsetzen; er ist schnell
          und soll knackig wirken. */
+      /* ---- Nachgemessen, warum es beim harten Schnitt bleibt ----
+         Blende:      0,012   0,04    0,07    0,10    0,14    0,20
+         Handsprung   0,56 m  0,82    0,78    0,52    0,49    0,43
+         Handhoehe    1,17 m  1,71    1,78    1,81    1,80    1,80
+         Zum Vergleich die hoechste Handhoehe der beiden beteiligten
+         Bewegungen selbst: Lauf 1,12 m, Rolle 1,29 m. Jede Blende ab
+         0,04 s schickt den Arm also einen halben Meter ueber alles, was
+         in den Dateien ueberhaupt vorkommt - der Sprung wird kleiner, der
+         sichtbare Fehler groesser.
+         Ebenfalls geprueft: spaeter im Rollclip einsteigen (0,06 bis 0,32
+         der Cliplaenge). Das macht den Sprung durchweg schlechter
+         (0,68 bis 1,31 m), weil die Ausgangshaltung dann mitten in der
+         Rolle liegt. Es bleibt beim harten Schnitt ab Bild null. */
       a.reset(); blendeEin(a, bl, wAlt); a.timeScale = v; a.play();
       angriff = a;
       angriffT = Math.min(zielDauer, d / v);
@@ -9663,7 +9891,7 @@ function webShot() {
                return V3(player.pos.x + f.x * 22, player.pos.y + 3.5, player.pos.z + f.z * 22); })();
   // Arm zeigt ab sofort kurz auf das Ziel
   player.schussZiel.copy(ziel);
-  player.schussT = 0.3;
+  player.schussT = SCHUSS_DAUER;
   if (heroVisual.poseSchuss) heroVisual.poseSchuss(ziel, hand, 1);
   flashWebShot(heroHandPos(_v1, hand).clone(), ziel);
   SFX.web();
@@ -11680,11 +11908,20 @@ function updatePlayer(dt) {
          Fall, obwohl unten eine Zip-Haltung stand. */
       /* Auf langer Strecke dreht sich die Figur im Zug einmal um die
          eigene Achse ("HorizontalSwirl") - kurze Zuege bleiben ruhig. */
-      const hatDreh = !z.enemy && z.weit &&
-                      heroVisual.hatClip && heroVisual.hatClip('zip_dreh');
+      /* ---- Die Drehung im langen Zug ist raus ----
+         Nachgemessen (scratchpad/anschluss.js): zwischen der Endhaltung des
+         Absprungs (zip_ab) und JEDER Stelle der Drehung (zip_dreh) liegen
+         mindestens 1,53 m Knochenabstand - es gibt keinen Punkt, an dem
+         die beiden Dateien zusammenpassen. Im Spiel sprang dadurch der
+         Fuss um 1,53 m und der Unterarm um 180 Grad in einem einzigen
+         Bild, egal ob geblendet oder hart geschnitten wurde.
+         Die Zughaltung (zip_zug) schliesst dagegen sauber an (0,29 m
+         Mittel, 0,80 m Maximum an ihrer besten Stelle), und sie ist auch
+         die Bewegung, die zum Ranziehen gehoert. Der lange Zug sieht
+         damit genauso aus wie der kurze - das ist der Preis, und er ist
+         kleiner als ein sichtbar wegschlenkerndes Bein. */
       const hatZug = heroVisual.hatClip && heroVisual.hatClip('zip_zug');
-      player.anim = hatDreh ? 'zip_dreh'
-                  : hatZug ? 'zip_zug' : (z.enemy ? 'knie' : 'air');
+      player.anim = hatZug ? 'zip_zug' : (z.enemy ? 'knie' : 'air');
       updateHeroVisual(dt);
       return;
     }
@@ -12434,7 +12671,16 @@ function updatePlayer(dt) {
     /* Der Sprungangriff traf erst nach einem Drittel des langen Clips –
        da stand die Figur längst wieder am Boden. Er trifft jetzt sehr
        früh, die übrigen Schläge wie gehabt in der Mitte der Ausholphase. */
-    const treffPunkt = a.art === 'luftangriff' ? 0.3 : (a.type === 'kick' ? 0.3 : 0.33);
+    /* ---- Der Treffer faellt jetzt auf das BILD ----
+       Vorher lag er starr bei einem Drittel der Angriffsdauer. Gemessen
+       ist die Faust dort noch auf halbem Weg: beim Schlag liegt die
+       Hoechstgeschwindigkeit der Hand bei 56 % des Kernfensters, beim
+       Tritt der Fuss bei 58 %. Der Schaden entstand also sichtbar, bevor
+       die Hand ankam. Wo ein Kernfenster vermessen wurde, kommt der
+       Zeitpunkt von dort. */
+    const fenA = ANGRIFF_FENSTER[a.art];
+    const treffPunkt = fenA && fenA.treff !== undefined ? fenA.treff
+                     : a.art === 'luftangriff' ? 0.3 : (a.type === 'kick' ? 0.3 : 0.33);
     if (!a.hitDone && a.t > treffPunkt) { a.hitDone = true; resolveAttackHit(); }
     if (a.t >= 1) player.attack = null;
   }
@@ -13071,7 +13317,8 @@ function updateHeroVisual(dt) {
     } else if (player.hockeT > 0.9 && heroVisual.poseKauern) {
       /* Auf der Dachkante wird die Hocke GESETZT, nicht abgespielt. Keine
          Bewegung aus dem Paket gibt diese Haltung her. */
-      heroVisual.poseKauern(clamp((player.hockeT - 0.9) * 4, 0, 1));
+      heroVisual.poseKauern(clamp((player.hockeT - 0.9) * 4, 0, 1),
+                            player.mastHocke ? 1 : 0);
       if (heroVisual.hockeAusgleich) heroVisual.hockeAusgleich(Math.min(1, dt * 14));
       else heroVisual.bodenAusgleich(Math.min(1, dt * 14));
     } else if (player.dreiPunktT > 0) {
@@ -13145,7 +13392,16 @@ function updateHeroVisual(dt) {
       heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
     } else if (player.schussT > 0) {
       player.schussT -= dt;
-      heroVisual.poseSchuss(player.schussZiel, netzHand, 1);
+      /* ---- Die Schusshaltung wird GEBLENDET, nicht geschaltet ----
+         Sie lief 0,3 Sekunden lang mit voller Staerke und war im Bild
+         danach schlagartig weg. Gemessen sprang die rechte Hand dabei um
+         1,15 m in einem einzigen Bild und der Oberarm um 153 Grad - das
+         war der groesste Knochensprung im ganzen Spiel. Jetzt faehrt sie
+         ueber die letzten anderthalb Zehntel wieder heraus, und die
+         Bewegungsdatei uebernimmt fliessend. */
+      const ein = clamp((SCHUSS_DAUER - player.schussT) / 0.05, 0, 1);
+      const aus = clamp(player.schussT / 0.15, 0, 1);
+      heroVisual.poseSchuss(player.schussZiel, netzHand, Math.min(ein, aus));
     } else if (player.dead) {
       heroVisual.legeHin(Math.min(1, dt * 6));
     } else if (player.onGround) {
@@ -20907,6 +21163,29 @@ if (window.__WEBHERO_TEST__ === true) {
     },
     tryJump, startSwing, stopSwing, findAnchor, tryAttack, dodge, webShot, webZip,
     uppercut, packenUndWerfen,
+    /* ---- Animationslabor ----
+       Reicht die Laborfunktionen der Figurendarstellung durch. Nur mit
+       eingefrorener Schleife sinnvoll (frier(true)) - sonst schreibt
+       updateHeroVisual im naechsten Bild alles wieder um. */
+    animListe() { return heroVisual && heroVisual.laborListe ? heroVisual.laborListe() : []; },
+    animClip(key, t01) { return heroVisual && heroVisual.laborClip ? heroVisual.laborClip(key, t01) : null; },
+    animAus() { if (heroVisual && heroVisual.laborAus) heroVisual.laborAus(); },
+    setzeRollBlende(v) { BLEND_ROLLE = v; },
+    rollBlende() { return BLEND_ROLLE; },
+    animKnochen(liste) { return heroVisual && heroVisual.laborKnochen ? heroVisual.laborKnochen(liste) : {}; },
+    animKnochenLokal(liste) { return heroVisual && heroVisual.laborKnochenLokal ? heroVisual.laborKnochenLokal(liste) : {}; },
+    animGewichte() { return heroVisual && heroVisual.laborGewichte ? heroVisual.laborGewichte() : {}; },
+    get animClipJetzt() { return heroVisual ? heroVisual.aktuellerClip : null; },
+    /* Die Figur fuer Laboraufnahmen an einen freien Ort stellen. */
+    animBuehne(x, y, z, gier) {
+      player.pos.set(x, y, z); player.vel.set(0, 0, 0);
+      player.facing = gier || 0;
+      if (heroVisual) {
+        heroVisual.root.position.set(x, y, z);
+        heroVisual.root.rotation.set(0, gier || 0, 0);
+        heroVisual.root.updateMatrixWorld(true);
+      }
+    },
     /* Tastenzustand direkt setzen: synthetische KeyboardEvents kommen im
        Testbrowser ohne Fokus nicht zuverlaessig an, das Halten von Leertaste
        ist fuer den Netzschwung aber Pflicht. */
