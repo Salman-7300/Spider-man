@@ -47,6 +47,20 @@ const CFG = {
    Schlag wirklich. */
 const NAHKAMPF = 1.05;
 
+/* ---- Fester Zufallskeim fuer Messungen ----
+   Die Stadt wird bei jedem Laden neu gewuerfelt. Fuer Vergleichsmessungen
+   ist das Gift: zwei Laeufe messen zwei verschiedene Staedte. Setzt ein
+   Testskript window.__WEBHERO_SEED, laeuft Math.random ab hier
+   deterministisch. Im normalen Spiel passiert nichts. */
+if (typeof window !== 'undefined' && window.__WEBHERO_SEED !== undefined) {
+  let _seed = (window.__WEBHERO_SEED >>> 0) || 1;
+  Math.random = function () {
+    _seed ^= _seed << 13; _seed >>>= 0;
+    _seed ^= _seed >> 17;
+    _seed ^= _seed << 5; _seed >>>= 0;
+    return _seed / 4294967296;
+  };
+}
 const BLOCKS = 7;           // 7x7 Häuserblöcke
 const PITCH = 50;           // Rasterabstand (Block + Straße)
 const ORIGIN = -175;        // Rasterursprung (Straßenlinien bei -175..175)
@@ -6672,6 +6686,11 @@ function makeGlbVisual(m) {
                      ['leftupleg', 'leftleg', 0.12], ['rightupleg', 'rightleg', 0.12],
                      ['leftforearm', 'lefthand', 0], ['rightforearm', 'righthand', 0],
                      ['leftleg', 'leftfoot', 0], ['rightleg', 'rightfoot', 0]];
+      /* Zwei Durchlaeufe: griffKnochen dreht je Aufruf hoechstens 0,45 rad
+         weit. Steckt ein Glied tief in der Fassade, reicht ein Durchgang
+         nicht - gemessen blieb der Fuss beim Wandlauf 10 cm drin. Der
+         zweite Durchlauf holt den Rest. */
+      for (let durch = 0; durch < 2; durch++)
       for (const [eltern, spitze, rest] of paare) {
         const a = knochen[eltern], b = knochen[spitze];
         if (!a || !b) continue;
@@ -9792,8 +9811,31 @@ function zipImFenster(z) {
 }
 
 /* ======================= Spieler-Aktionen ======================= */
+/* ======================= Eingabepuffer =======================
+   Drei kleine Fenster, die verhindern, dass eine richtige Eingabe an
+   einem einzelnen Bild scheitert:
+     Kojotenzeit  - kurz nach dem Verlassen der Kante gilt der Sprung noch
+     Sprungpuffer - kurz VOR dem Aufkommen gedrueckt wird beim Landen
+                    ausgefuehrt
+     Schwungpuffer- gedrueckt, wenn noch kein Anker da ist: sobald einer
+                    auftaucht, wird geschwungen
+   Alle drei sind bewusst kurz - ein Puffer, der eine Sekunde haelt,
+   fuehrt Aktionen aus, die man laengst nicht mehr will. */
+const KOJOTE = 0.13, SPRUNG_PUFFER = 0.15, SCHWUNG_PUFFER = 0.22;
 function tryJump() {
   if (player.dead) return;
+  /* ---- Kurz vor dem Boden gedrueckt ----
+     Wer im Fallen springt, will beim Aufkommen sofort wieder hoch. */
+  if (!player.onGround && player.state === 'air' && player.vel.y < 0 &&
+      !player.haeltGegner && !(player.luftFenster > 0)) {
+    const boden = groundY(player.pos.x, player.pos.z, player.pos.y);
+    const zeitBisBoden = (player.pos.y - boden) / Math.max(1, -player.vel.y);
+    if (zeitBisBoden < SPRUNG_PUFFER && player.jumps >= 1) {
+      player.sprungPuffer = SPRUNG_PUFFER;
+      motMelden('gepufferteSprung');
+      return;
+    }
+  }
   /* Haelt man jemanden, reisst die Leertaste ihn hoch - Einstieg in die
      Luftkombo. */
   if (player.haeltGegner) { gegnerLoslassen('hoch'); return; }
@@ -9895,7 +9937,12 @@ function tryJump() {
     return;
   }
   if (player.state === 'swing') { stopSwing(true); return; }
-  if (player.onGround) {
+  /* Kojotenzeit: gerade eben von der Kante gelaufen? Dann zaehlt der
+     Sprung noch als Bodensprung. */
+  const kojote = !player.onGround && player.state === 'air' && player.jumps <= 1 &&
+                 (player.bodenAb || 0) > 0 && player.vel.y < 1.5;
+  if (player.onGround || kojote) {
+    player.bodenAb = 0;
     player.vel.y = CFG.jumpVel;
     player.onGround = false;
     player.state = 'air';
@@ -9916,6 +9963,12 @@ function tryJump() {
        Anschwingen. */
     const hoehe = player.pos.y - groundY(player.pos.x, player.pos.z, player.pos.y);
     if (!player.swingLock && (hoehe > 0.8 || player.vel.y < 0) && startSwing()) return;
+    /* Kein Anker in Reichweite? Der Wunsch wird kurz gemerkt - taucht
+       gleich einer auf, wird trotzdem geschwungen. */
+    if (!player.swingLock && hoehe > 3) {
+      player.schwungPuffer = SCHWUNG_PUFFER;
+      motMelden('gepufferteSchwung');
+    }
     player.vel.y = CFG.jumpVel * 0.92;
     player.jumps = 2;
     /* Der zweite Sprung hatte bisher gar keine eigene Bewegung: die Figur
@@ -12032,11 +12085,14 @@ function updatePlayer(dt) {
     const waagerecht = Math.hypot(player.vel.x, player.vel.z);
     if (!wasOnGround && kamVomSchwung && (waagerecht > 9 || fallTempo > 9)) {
       if (waagerecht > fallTempo * 1.15 && heroVisual.attackOneShot) {
-        /* Flach und schnell: abrollen und dabei Tempo mitnehmen. */
+        /* Flach und schnell: abrollen und dabei Tempo mitnehmen. Wer
+           dabei die Richtungstaste haelt, behaelt deutlich mehr Schwung -
+           aus der Rolle wird dann ein Weiterlaufen statt eines Stopps. */
         player.landT = heroVisual.attackOneShot(0, 'fallrolle', 0.8) || 0.8;
         player.hartLandung = player.landT;
         const f = _v1.set(player.vel.x, 0, player.vel.z).normalize();
-        const rest = Math.min(11, waagerecht * 0.55);
+        const will = !!inputDir();
+        const rest = Math.min(will ? 15 : 11, waagerecht * (will ? 0.8 : 0.55));
         player.vel.x = f.x * rest; player.vel.z = f.z * rest;
         player.facing = Math.atan2(f.x, f.z);
       } else if (player.warSchwung > 0 && heroVisual.hatClip &&
@@ -12066,6 +12122,12 @@ function updatePlayer(dt) {
       SFX.kick();
     } else if (!wasOnGround && fallTempo > 6) {
       player.landT = clamp(fallTempo / 26, 0.18, 0.42);
+      /* ---- Wer weiterlaufen will, laeuft weiter ----
+         Bisher endete jede Landung im Stand, auch wenn die Richtungstaste
+         gehalten wurde. Jetzt wird die Landung kuerzer und das Tempo
+         bleibt weitgehend erhalten - Landung und Lauf sind dann eine
+         Bewegung. */
+      if (inputDir() && fallTempo < 17) player.landT = Math.min(player.landT, 0.16);
       /* Aus großer Höhe wird abgerollt statt in die Knie zu federn. */
       if (fallTempo > 17 && heroVisual.attackOneShot) {
         /* Zwei verschiedene Landungen aus grosser Hoehe: wer im Fallen
@@ -12097,6 +12159,21 @@ function updatePlayer(dt) {
     if (!wasOnGround && player.pos.y - SLAB_H > 12) player.hockeT = 1.0;
     player.state = 'ground';
     player.jumps = 0;
+    /* Solange man am Boden ist, laeuft die Kojotenzeit voll. */
+    player.bodenAb = KOJOTE;
+    /* ---- Gepufferter Sprung ----
+       Kurz vor dem Aufkommen gedrueckt: jetzt sofort ausfuehren, damit
+       Landung und neuer Absprung eine Bewegung bleiben. */
+    if (player.sprungPuffer > 0) {
+      player.sprungPuffer = 0;
+      player.landT = Math.min(player.landT || 0, 0.08);
+      player.hartLandung = 0; player.dreiPunktT = 0;
+      player.swingLock = false;
+      /* NICHT hier springen: die Bodenphysik weiter unten setzt die
+         senkrechte Geschwindigkeit sonst gleich wieder auf null. Der
+         Sprung wird ans Ende des Bildes gehaengt. */
+      player.sprungGleich = true;
+    }
     player.swingLock = keys['Space'] || swingHeld; // Space am Boden gedrückt → erst loslassen
   } else if (player.state === 'ground') {
     player.state = 'air';
@@ -12230,6 +12307,20 @@ function updatePlayer(dt) {
                           Math.min(1, dt * 9));
   if (player.landT > 0) player.landT -= dt;
   if (player.hartLandung > 0) player.hartLandung -= dt;
+  /* Kojotenzeit laeuft nur in der Luft ab. */
+  if (!player.onGround && player.bodenAb > 0) player.bodenAb -= dt;
+  if (player.sprungPuffer > 0) {
+    player.sprungPuffer -= dt;
+    if (player.sprungPuffer <= 0) motMelden('verloreneSprung');
+  }
+  if (player.schwungPuffer > 0) {
+    player.schwungPuffer -= dt;
+    /* Sobald ein Anker in Reichweite ist, wird der gemerkte Wunsch
+       ausgefuehrt. */
+    if (!player.onGround && player.state === 'air' && !player.swingLock && startSwing()) {
+      player.schwungPuffer = 0;
+    } else if (player.schwungPuffer <= 0) motMelden('verloreneSchwung');
+  }
   if (player.saltoCd > 0) player.saltoCd -= dt;
   if (player.luftSalto > 0) player.luftSalto -= dt;
   if (player.warSchwung > 0) player.warSchwung -= dt;
@@ -12398,7 +12489,64 @@ function updatePlayer(dt) {
     player.facing = dampAngle(player.facing, Math.atan2(player.vel.x, player.vel.z), dt * 6);
   }
 
+  /* Der gepufferte Sprung wird ganz zum Schluss ausgefuehrt - nach der
+     Bodenphysik, sonst wird er im selben Bild wieder geloescht. */
+  if (player.sprungGleich) { player.sprungGleich = false; tryJump(); }
+  spielerTelemetrie(dt);
   updateHeroVisual(dt);
+}
+
+/* ======================= Bewegungs-Telemetrie =======================
+   Nur zum Messen waehrend der Entwicklung: sie haelt fest, wann der
+   Spieler den Zustand wechselt und was dabei mit Ort, Blickrichtung,
+   Geschwindigkeit und Bewegungsdatei passiert. Damit laesst sich
+   nachweisen, wo ein Uebergang Tempo vernichtet oder die Figur springt -
+   statt es zu erraten. Aus kostet sie nichts. */
+const PLAYER_MOTION_DEBUG = false;
+const MOT = {
+  an: false,
+  wechsel: 0, ortSpruenge: 0, drehSpruenge: 0,
+  verloreneSprung: 0, verloreneSchwung: 0, verloreneAngriff: 0,
+  gepufferteSprung: 0, gepufferteSchwung: 0, gepufferteAngriff: 0,
+  liste: [], letzte: null,
+  fovMax: 0, rollMax: 0,
+  uebergaenge: {},
+};
+function motMelden(art) { if (MOT.an) MOT[art] = (MOT[art] || 0) + 1; }
+function spielerTelemetrie(dt) {
+  if (!MOT.an && !PLAYER_MOTION_DEBUG) return;
+  const l = MOT.letzte;
+  const jetzt = {
+    state: player.state, anim: player.anim,
+    x: player.pos.x, y: player.pos.y, z: player.pos.z,
+    yaw: player.facing,
+    vx: player.vel.x, vy: player.vel.y, vz: player.vel.z,
+  };
+  if (l) {
+    const dpos = Math.hypot(jetzt.x - l.x, jetzt.y - l.y, jetzt.z - l.z);
+    let dyaw = Math.abs(jetzt.yaw - l.yaw) % TAU;
+    if (dyaw > Math.PI) dyaw = TAU - dyaw;
+    if (jetzt.state !== l.state) {
+      MOT.wechsel++;
+      const k = l.state + '->' + jetzt.state;
+      MOT.uebergaenge[k] = (MOT.uebergaenge[k] || 0) + 1;
+      const vAlt = Math.hypot(l.vx, l.vz), vNeu = Math.hypot(jetzt.vx, jetzt.vz);
+      /* Ein Ortssprung ist alles, was deutlich weiter ist, als die
+         Geschwindigkeit in diesem Bild hergibt. */
+      const erlaubt = Math.max(vAlt, vNeu) * dt + 0.35;
+      if (dpos > erlaubt) MOT.ortSpruenge++;
+      if (dyaw > 1.05) MOT.drehSpruenge++;      // ueber 60 Grad in einem Bild
+      if (MOT.liste.length < 400) {
+        MOT.liste.push({ von: l.state, nach: jetzt.state,
+                         animVon: l.anim, animNach: jetzt.anim,
+                         dpos: +dpos.toFixed(3), erlaubt: +erlaubt.toFixed(3),
+                         dyaw: +dyaw.toFixed(2),
+                         vAlt: +vAlt.toFixed(2), vNeu: +vNeu.toFixed(2),
+                         vyAlt: +l.vy.toFixed(2), vyNeu: +jetzt.vy.toFixed(2) });
+      }
+    }
+  }
+  MOT.letzte = jetzt;
 }
 
 /* ======================= Ueberblendung der Sonderhaltungen =============
@@ -12426,7 +12574,7 @@ const MISCH = {
 const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
 /* Wie weit der Setzpunkt der Figur beim Wandkriechen von der Wand weg
    liegt. Wird unten nachgemessen. */
-const KRIECH_TIEFE = 0.30;
+let KRIECH_TIEFE = 0.30;
 /* Eigengeschwindigkeit der Kriechbewegung AN DER WAND. Am Boden sind es
    0,85 m/s (GANG_REF), an der Fassade weniger: dort greift die Hand nach
    oben und der Koerper zieht nach, die Hand legt also je Takt weniger
@@ -12943,6 +13091,15 @@ const WAND_KNOCHEN = ['leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase',
                       'leftleg', 'rightleg', 'lefthand', 'righthand',
                       'leftforearm', 'rightforearm', 'head', 'hips'];
 const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
+/* Ab hier gilt die Figur als "nicht an dieser Wand" und wird nicht mehr
+   herangezogen. 1,2 m ist mehr als jede Kletterhaltung braucht und
+   weniger als der Abstand, den ein Eckenwechsel kurzzeitig erzeugt. */
+const WAND_ZUG_WEIT = 1.2;
+/* Zielabstand des Rumpfes zur Fassade und die Tiefe, bis zu der Haende
+   und Fuesse dafuer eintauchen duerfen (wandGriff holt sie danach
+   wieder heraus). */
+const HUEFT_ZIEL = 0.26;
+const WAND_TIEF_MAX = -0.10;
 const _wk = V3(0, 0, 0);
 const _wl = new THREE.Vector3();
 let dtWand = 1 / 60;
@@ -12964,13 +13121,14 @@ function wandFreiraum(dt) {
   r.updateMatrixWorld(true);
   const flaeche = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0)
                              : (w.nz > 0 ? c.z1 : c.z0);
-  let min = Infinity;
+  let min = Infinity, huefte = null;
   for (const n of WAND_KNOCHEN) {
     const b = kn[n];
     if (!b) continue;
     b.getWorldPosition(_wk);
     const d = w.nx !== 0 ? (_wk.x - flaeche) * w.nx : (_wk.z - flaeche) * w.nz;
     if (d < min) min = d;
+    if (n === 'hips') huefte = d;
   }
   /* Sehr grosse Abweichungen ignorieren: dann steht die Figur gar nicht an
      dieser Wand und das Verschieben waere ein Sprung.
@@ -12987,7 +13145,43 @@ function wandFreiraum(dt) {
      herausgeschoben. Gemessen sprang das Bild dabei um 2,4 bis 2,6 Meter,
      waehrend die Physik nur 0,5 Meter weiterging. Genau das sah aus, als
      "springe" die Figur um die Ecke, statt herumzuklettern. */
-  const ziel = (min >= WAND_LUFT || min < -3.0) ? 0 : (WAND_LUFT - min);
+  /* ---- Die Korrektur wirkt in BEIDE Richtungen ----
+     Bisher hat sie die Figur nur AUS der Fassade geschoben. Der
+     umgekehrte Fall war damit gar nicht abgedeckt: liegt die ganze
+     Figur vor der Wand, holt sie niemand zurueck. Genau das war
+     Punkt 43 - gemessen hing die Huefte beim Hochklettern 53 cm und
+     beim Wandlauf 68 cm vor der Fassade, in Spitzen bis 1,34 m, und
+     der Griff (wandGriff) laesst ab 45 cm ohnehin los, sodass auch die
+     Haende nicht mehr herangezogen wurden.
+     Jetzt gilt in beide Richtungen dieselbe Regel: der WANDNAECHSTE
+     Knochen sitzt auf WAND_LUFT. Weiter heran geht es nie - der
+     naechste Knochen ist ja die Grenze -, aber die Figur schwebt auch
+     nicht mehr davor.
+     Ist selbst der naechste Knochen weiter als WAND_ZUG_WEIT weg,
+     steht die Figur nicht an dieser Wand (Ecke, Umsetzen, Sturz) - dann
+     bleibt die Korrektur aus, statt sie quer durch die Luft zu ziehen. */
+  /* ---- Wonach richtet sich der Abstand? ----
+     Nach dem WANDNAECHSTEN Knochen zu gehen reicht nicht: beim Klettern
+     liegen Haende und Fuesse an der Fassade, der Rumpf woelbt sich aber
+     einen halben Meter davor (gemessen Huefte 0,45 m, Kopf 0,49 m, beim
+     Wandlauf 0,65 m und 0,88 m). Ein starres Verschieben aendert daran
+     nichts - der naechste Knochen ist ja schon an der Wand.
+     Massgeblich ist deshalb die HUEFTE: sie soll rund einen Vierteilmeter
+     vor der Fassade liegen, so wie bei einem Kletterer. Haende und Fuesse
+     tauchen dabei ein Stueck in die Wand ein; genau dafuer gibt es
+     danach wandGriff(), das jedes Glied einzeln wieder auf die Flaeche
+     legt - und zwar in beide Richtungen.
+     Wie tief eingetaucht werden darf, begrenzt WAND_TIEF_MAX; weiter
+     hinein wird nicht gezogen, auch wenn die Huefte dann noch zu weit
+     draussen bleibt. */
+  let ziel;
+  if (min < -3.0 || min > WAND_ZUG_WEIT) ziel = 0;
+  else if (huefte === null) ziel = WAND_LUFT - min;
+  else {
+    const raus = Math.max(0, WAND_LUFT - min);        // aus der Wand heraus
+    const rein = Math.min(0, WAND_TIEF_MAX - min);    // so weit hoechstens hinein
+    ziel = clamp(HUEFT_ZIEL - huefte, rein, raus);
+  }
   if (!player.wandLuft) player.wandLuft = new THREE.Vector3();
   _wl.set(w.nx * ziel, 0, w.nz * ziel);
   player.wandLuft.lerp(_wl, Math.min(1, dtWand * 14));
@@ -20485,6 +20679,35 @@ if (window.__WEBHERO_TEST__ === true) {
     kau: KAU,
     faden: swingStrand,
     kampf: KAMPF,
+    /* ---- Bewegungs-Telemetrie (nur Tests) ---- */
+    motAn(an) { MOT.an = !!an; },
+    motLeeren() {
+      MOT.wechsel = 0; MOT.ortSpruenge = 0; MOT.drehSpruenge = 0;
+      MOT.verloreneSprung = 0; MOT.verloreneSchwung = 0; MOT.verloreneAngriff = 0;
+      MOT.gepufferteSprung = 0; MOT.gepufferteSchwung = 0; MOT.gepufferteAngriff = 0;
+      MOT.liste.length = 0; MOT.letzte = null; MOT.uebergaenge = {};
+      MOT.fovMax = 0; MOT.rollMax = 0;
+    },
+    motStand() {
+      return { wechsel: MOT.wechsel, ortSpruenge: MOT.ortSpruenge,
+               drehSpruenge: MOT.drehSpruenge,
+               verloren: { sprung: MOT.verloreneSprung, schwung: MOT.verloreneSchwung,
+                           angriff: MOT.verloreneAngriff },
+               gepuffert: { sprung: MOT.gepufferteSprung, schwung: MOT.gepufferteSchwung,
+                            angriff: MOT.gepufferteAngriff },
+               fovMax: +MOT.fovMax.toFixed(3), rollMax: +MOT.rollMax.toFixed(4),
+               uebergaenge: Object.assign({}, MOT.uebergaenge),
+               liste: MOT.liste.slice(0, 40) };
+    },
+    tryJump, startSwing, stopSwing, findAnchor,
+    /* Tastenzustand direkt setzen: synthetische KeyboardEvents kommen im
+       Testbrowser ohne Fokus nicht zuverlaessig an, das Halten von Leertaste
+       ist fuer den Netzschwung aber Pflicht. */
+    taste(code, an) { keys[code] = !!an; },
+    setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
+    kriechTiefe() { return KRIECH_TIEFE; },
+    mausRechts(an) { swingHeld = !!an; },
+    get swingObj() { return player.swing; },
     machBoss, freieSicht, versuchePariere, versucheAusweichen, trefferRichtung,
     /* ---- Fussgaengernetz (fuer die Pruefskripte) ---- */
     gehNetz() {
