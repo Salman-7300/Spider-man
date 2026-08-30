@@ -20175,7 +20175,7 @@ const EV = {
                spawnGueltig: 0, spawnSichtbar: 0, spawnImHaus: 0,
                spawnImWasser: 0, spawnZuNah: 0, spawnBelegt: 0 },
   verlauf: [],            // die letzten Ereignisse fuer Tests
-  aktivZeit: 0, gesamtZeit: 0, ruheSumme: 0, letzterStart: 0,
+  aktivZeit: 0, erlebtZeit: 0, gesamtZeit: 0, ruheSumme: 0, letzterStart: 0,
 };
 
 /* Wie weit ein Ereignis vom Spieler entfernt entsteht.
@@ -20295,8 +20295,13 @@ function evNeu(art, schwere, ort) {
     /* Ein Unfall darf die Fahrbahn nicht ewig blockieren - der Verkehr
        staut sich dahinter ueber die vorhandene Abstandsregelung von
        selbst, und das soll ein Moment sein, keine Dauereinrichtung. */
-    maxLeben: art === 'enforcer' ? 300 : art === 'gang' ? 240
-            : art === 'unfall' ? 75 : 180,
+    /* ---- Laufzeiten, gemessen nachjustiert ----
+       Mit 180 s (Ueberfall), 240 s (Gang) und 300 s (ENFORCER) war im
+       30-Minuten-Lauf 65 Prozent der Zeit irgendein Ereignis aktiv. Das
+       ist keine Stadt mehr, das ist Dauerbeschaeftigung. Ein Ueberfall,
+       den niemand stoert, ist auch nach knapp zwei Minuten vorbei. */
+    maxLeben: art === 'enforcer' ? 210 : art === 'gang' ? 150
+            : art === 'unfall' ? 75 : 110,
     entdeckt: false,
     gegner: [], zivilisten: [], gang: null,
     ziel: '',                 // Text der Hauptbedingung
@@ -20636,7 +20641,9 @@ function evEnde(e, erfolg, text) {
                     gegner: e.gegner.length });
   if (EV.verlauf.length > 40) EV.verlauf.shift();
   /* Nach einem grossen Ereignis darf die Stadt durchatmen. */
-  EV.ruheCd = e.schwere >= 3 ? 75 : e.schwere === 2 ? 45 : 28;
+  /* Nach einem Ereignis atmet die Stadt durch - je groesser, desto
+     laenger. Gemessen nachjustiert (vorher 75/45/28). */
+  EV.ruheCd = e.schwere >= 3 ? 120 : e.schwere === 2 ? 70 : 45;
   evLog('[EV] Ende', e.id, e.art, erfolg ? 'geloest' : 'gescheitert');
 }
 
@@ -20708,14 +20715,20 @@ const EV_TICK = 0.25;
 function updateWeltEreignisse(dt) {
   EV.gesamtZeit += dt;
   /* Ereignisse altern immer, auch zwischen den Entscheidungen. */
-  let aktiveGross = 0;
+  let aktiveGross = 0, erlebt = 0;
   for (const e of EV.liste) {
     if (e.zustand === 'FERTIG') continue;
     e.seit += dt; e.lebenszeit += dt;
-    if (e.zustand === 'AKTIV' || e.zustand === 'ESKALIERT') aktiveGross++;
+    if (e.zustand === 'AKTIV' || e.zustand === 'ESKALIERT') {
+      aktiveGross++;
+      /* Nur ein ENTDECKTES Ereignis ist fuer den Spieler auch wirklich
+         Aktion - der Rest laeuft irgendwo in der Stadt. Beides wird
+         getrennt gezaehlt, sonst misst man das falsche. */
+      if (e.entdeckt) erlebt++;
+    }
   }
-  if (aktiveGross) EV.aktivZeit += dt;
-  else EV.ruheSumme += dt;
+  if (aktiveGross) EV.aktivZeit += dt; else EV.ruheSumme += dt;
+  if (erlebt) EV.erlebtZeit += dt;
 
   EV.tickCd -= dt;
   if (EV.tickCd > 0) return;
@@ -20778,7 +20791,7 @@ function updateWeltEreignisse(dt) {
           EV.statistik.arten[e.art]--;
           EV.ruheCd = 6;
         } else {
-          EV.ruheCd = wahl.schwere >= 3 ? 40 : 16;
+          EV.ruheCd = wahl.schwere >= 3 ? 60 : 30;
         }
       } else {
         EV.ruheCd = 4;             // gleich noch einmal versuchen
@@ -21886,6 +21899,8 @@ if (window.__WEBHERO_TEST__ === true) {
         aktivZeit: +EV.aktivZeit.toFixed(1),
         ruheZeit: +EV.ruheSumme.toFixed(1),
         anteilAktiv: EV.gesamtZeit > 0 ? +(EV.aktivZeit / EV.gesamtZeit).toFixed(3) : 0,
+        erlebtZeit: +EV.erlebtZeit.toFixed(1),
+        anteilErlebt: EV.gesamtZeit > 0 ? +(EV.erlebtZeit / EV.gesamtZeit).toFixed(3) : 0,
         offen: EV.liste.filter((e) => e.zustand !== 'FERTIG').length,
       });
     },
