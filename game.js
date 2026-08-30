@@ -21109,7 +21109,8 @@ if (window.__WEBHERO_TEST__ === true) {
     profil(n) {
       const teile = { updatePlayer, updateWetter, updateTagNacht, updateCars, updateHelis,
                       updateCivilians, updateEnemies, updateCamera, updateEffekte,
-                      updateKlatscher, updateSpinnenSinn, updateKlang, updateVoegel, updateMission };
+                      updateKlatscher, updateSpinnenSinn, updateKlang, updateVoegel, updateMission,
+                      updateHeroVisual };
       const out = {};
       for (const name in teile) {
         const f = teile[name];
