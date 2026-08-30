@@ -18143,6 +18143,22 @@ function haltenImGebiet(pos) {
 
 /* Liegt der Punkt in einem Gebäude? Wegpunkte dort drin lassen die
    Ganoven dauerhaft gegen die Fassade laufen. */
+/* In welche Richtung kann ein Fliehender wirklich laufen? Der Wunsch ist
+   "weg vom Helden"; ist dort ein Haus oder Wasser, wird die Richtung in
+   immer groesseren Schritten zur Seite gedreht, bis der Weg frei ist. */
+function fluchtRichtung(e, dx, dz) {
+  const weite = 6.0;
+  for (const w of [0, 0.4, -0.4, 0.8, -0.8, 1.25, -1.25, 1.7, -1.7, 2.2, -2.2]) {
+    const c = Math.cos(w), sn = Math.sin(w);
+    const nx = dx * c - dz * sn, nz = dx * sn + dz * c;
+    const px = e.pos.x + nx * weite, pz = e.pos.z + nz * weite;
+    if (Math.abs(px) > 195 || Math.abs(pz) > 195) continue;
+    if (inWater(px, pz) || inGebaeude(px, pz)) continue;
+    return { x: nx, z: nz };
+  }
+  return { x: dx, z: dz };
+}
+
 function inGebaeude(x, z) {
   for (const c of collidersNear(x, z)) {
     if (c.klein) continue;
@@ -19328,7 +19344,7 @@ function updateEnemies(dtBild) {
       if (!e.flieht && e.mut < MUT_FLUCHT && e.betaeubtT <= 0 && dp < 22) {
         e.flieht = true;
         popupWorld('Ich hau ab!', e.pos, '#ffd0a8');
-      } else if (e.flieht && (dp > 34 || e.mut > 0.4)) {
+      } else if (e.flieht && !e.eventFlucht && (dp > 34 || e.mut > 0.4)) {
         e.flieht = false;
         e.mut = Math.max(e.mut, 0.42);
         e.state = 'patrol'; e.target = null;
@@ -19351,7 +19367,13 @@ function updateEnemies(dtBild) {
     if (e.dieb || e.flieht) {
       const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
       const dd = Math.hypot(dx, dz) || 1;
-      moveX = dx / dd; moveZ = dz / dd;
+      /* ---- Nicht stur geradeaus ----
+         Bisher lief ein Fliehender exakt vom Helden weg - also regelmaessig
+         frontal in eine Fassade, wo er dann stehenblieb und sich abfangen
+         liess. Jetzt wird die Fluchtrichtung gedreht, bis der Weg frei
+         ist; die Richtung "weg vom Helden" bleibt dabei die erste Wahl. */
+      const fr = fluchtRichtung(e, dx / dd, dz / dd);
+      moveX = fr.x; moveZ = fr.z;
       speed = (e.typ ? e.typ.tempo : 5) * 1.5;
       anim = 'run';
       e.facing = dampAngle(e.facing, Math.atan2(moveX, moveZ), dt * 8);
@@ -20114,6 +20136,664 @@ function setzeBeacon(pos, farbe) {
 function updateCrimeBeacon() {
   const alive = crimeGang ? crimeGang.enemies.filter((e) => !e.dead) : [];
   setzeBeacon(alive.length ? alive[0].pos : null);
+}
+
+/* ======================= Weltereignisse =======================
+   Die Stadt hat viele funktionierende Einzelsysteme: Gegner mit
+   Archetypen, einen Kampfregisseur, Moral, Zivilisten mit
+   Gefahrenerkennung, ein Fussgaengernetz, Verkehr. Was fehlte, waren
+   SITUATIONEN, in denen diese Systeme aufeinandertreffen.
+
+   Diese Ebene ist bewusst duenn. Sie steuert KEINE einzelnen Figuren -
+   die behalten ihre eigene KI. Sie entscheidet nur:
+     wann entsteht etwas, wo, mit wem, wie schwer,
+     wann eskaliert es, wann ist es vorbei, wann wird aufgeraeumt.
+
+   Der Regisseur laeuft mit wenigen Entscheidungen je Sekunde; die
+   Teilnehmer bewegen sich weiterhin ueber ihre gewohnten Schleifen. */
+
+const EVENT_DEBUG = false;
+
+/* ---- Lebenslauf eines Ereignisses ----
+   WARTEN     angelegt, laeuft leise (Spieler weiss noch nichts)
+   AKTIV      entdeckt oder in vollem Gang
+   ESKALIERT  hat sich veraendert (z.B. ein Taeter flieht)
+   GELOEST    Ziel erreicht
+   GESCHEITERT ausgelaufen oder Taeter entkommen
+   AUFRAEUMEN Nachphase: Marker weg, Rollen zurueck, Koerper spaeter
+   FERTIG     wird aus der Liste genommen */
+const EV = {
+  liste: [],
+  naechsteId: 1,
+  tickCd: 0,
+  ruheCd: 12,             // Ruhephase bis zum naechsten grossen Ereignis
+  letzteArten: [],        // gegen Wiederholung derselben Art
+  gesperrt: [],           // {x, z, t} Orte, an denen gerade nichts Neues entsteht
+  statistik: { gestartet: 0, entdeckt: 0, geloest: 0, gescheitert: 0, ignoriert: 0,
+               arten: {}, ketten: 0, aufraeumFehler: 0,
+               entkommen: 0, gefangen: 0, gerettet: 0, spawnVersuche: 0,
+               spawnGueltig: 0, spawnSichtbar: 0, spawnImHaus: 0,
+               spawnImWasser: 0, spawnZuNah: 0, spawnBelegt: 0 },
+  verlauf: [],            // die letzten Ereignisse fuer Tests
+  aktivZeit: 0, gesamtZeit: 0, ruheSumme: 0, letzterStart: 0,
+};
+
+/* Wie weit ein Ereignis vom Spieler entfernt entsteht.
+   Hergeleitet aus der echten Stadt und dem Tempo: das Strassenraster ist
+   350 m breit (7 Bloecke a 50 m), im Netzschwung erreicht man gemessen
+   25 bis 40 m/s. Naeher als 55 m waere ein Aufploppen vor der Nase,
+   weiter als 190 m bekommt man nichts mehr mit - das sind rund fuenf
+   Sekunden Schwung, also eine Strecke, die sich zu fliegen lohnt. */
+const EV_NAH = 55, EV_FERN = 190;
+/* Innerhalb dieses Winkels vor der Kamera gilt eine Stelle als "im Blick". */
+const EV_SICHT_KEGEL = 0.55;          // cos(56 Grad)
+/* Ab hier bemerkt der Spieler ein Ereignis von selbst. */
+const EV_ENTDECK_NAH = 42;
+/* So lange gilt ein Ort nach einem Ereignis als gesperrt. */
+const EV_SPERRE = 95;
+/* Hoechstens so viele Ereignisse gleichzeitig: eines, das zaehlt, und
+   hoechstens eines im Hintergrund. */
+const EV_MAX_GROSS = 1, EV_MAX_GESAMT = 2;
+
+/* Gewichte der Arten. Klein und haeufig, gross und selten. */
+const EV_ARTEN = [
+  { art: 'ueberfall', gewicht: 34, schwere: 1 },
+  { art: 'gang',      gewicht: 22, schwere: 2 },
+  { art: 'unfall',    gewicht: 16, schwere: 1 },
+  { art: 'enforcer',  gewicht: 3,  schwere: 4 },
+];
+
+function evLog() { if (EVENT_DEBUG) console.log.apply(console, arguments); }
+
+/* ---- Ist die Stelle vom Spieler aus zu sehen? ----
+   Drei Bedingungen zusammen: nah genug, im Blickkegel der Kamera UND
+   freie Sicht. Nur dann waere ein Auftauchen ein sichtbares Aufploppen. */
+function evImBlick(x, z) {
+  const dx = x - player.pos.x, dz = z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 130) return false;
+  const f = camForward();
+  const dot = (dx * f.x + dz * f.z) / Math.max(0.001, d);
+  if (dot < EV_SICHT_KEGEL) return false;
+  const y = groundY(x, z, 2) + 1.2;
+  return freieSicht(player.pos.x, player.pos.y + 1.5, player.pos.z, x, y, z);
+}
+
+/* Taugt die Stelle ueberhaupt fuer ein Ereignis? */
+function evOrtTauglich(x, z) {
+  if (Math.abs(x) > 190 && !(x > PROM_X0 && x < RIVER_X0)) return false;
+  if (inWater(x, z)) { EV.statistik.spawnImWasser++; return false; }
+  if (onBridge(x, z)) return false;                 // schmales Deck
+  if (inGebaeude(x, z)) { EV.statistik.spawnImHaus++; return false; }
+  const y = groundY(x, z, 2);
+  if (y < -0.5 || y > 1.5) return false;            // nicht im Schacht, nicht auf dem Dach
+  /* Genug freie Flaeche: das pruefen wir mit dem Mass, das auch die
+     Fussgaenger benutzen. */
+  if (typeof gehPlatzFrei === 'function' && !gehPlatzFrei(x, z, 1.6)) return false;
+  /* Nicht mitten auf einer Kreuzung. */
+  const u = ((x - ORIGIN) % PITCH + PITCH) % PITCH;
+  const v = ((z - ORIGIN) % PITCH + PITCH) % PITCH;
+  if (x > ORIGIN && x < ORIGIN + BLOCKS * PITCH && z > ORIGIN && z < ORIGIN + BLOCKS * PITCH) {
+    if (u < ROAD_HALF + 2 && v < ROAD_HALF + 2) return false;
+  }
+  /* Nicht in einem gesperrten Bereich und nicht in einem laufenden Ereignis. */
+  for (const g of EV.gesperrt) if (Math.hypot(g.x - x, g.z - z) < 30) return false;
+  for (const e of EV.liste) {
+    if (e.zustand === 'FERTIG') continue;
+    if (Math.hypot(e.ort.x - x, e.ort.z - z) < 45) { EV.statistik.spawnBelegt++; return false; }
+  }
+  return true;
+}
+
+/* ---- Einen Ort suchen ----
+   Bewertet wird: freie Flaeche, Entfernung (mittig ist am besten),
+   Menschen in der Naehe (ein Ueberfall ohne Zeugen ist langweilig) und
+   Anbindung. Zurueck kommt der beste von mehreren Versuchen. */
+function evSucheOrt(minD, maxD, willLeute) {
+  let bestP = null, bestW = -1e9;
+  for (let i = 0; i < 26; i++) {
+    EV.statistik.spawnVersuche++;
+    const a = Math.random() * TAU;
+    const r = minD + Math.random() * (maxD - minD);
+    const x = player.pos.x + Math.cos(a) * r;
+    const z = player.pos.z + Math.sin(a) * r;
+    if (!evOrtTauglich(x, z)) continue;
+    if (evImBlick(x, z)) { EV.statistik.spawnSichtbar++; continue; }
+    EV.statistik.spawnGueltig++;
+    let w = 0;
+    /* Entfernung: die Mitte des erlaubten Bandes ist am besten. */
+    const mitte = (minD + maxD) / 2;
+    w -= Math.abs(r - mitte) / mitte * 20;
+    /* Menschen in der Naehe */
+    let leute = 0;
+    for (const c of civilians) {
+      if (c.eingestiegen > 0) continue;
+      if (Math.hypot(c.pos.x - x, c.pos.z - z) < 18) leute++;
+    }
+    w += willLeute ? Math.min(leute, 5) * 9 : -Math.min(leute, 5) * 2;
+    /* Freiraum */
+    if (typeof gehFreiMass === 'function') w += clamp(gehFreiMass(x, z) * 4, 0, 14);
+    if (w > bestW) { bestW = w; bestP = { x, z, y: groundY(x, z, 2) }; }
+  }
+  return bestP;
+}
+
+/* ---- Ein Ereignis anlegen ---- */
+function evNeu(art, schwere, ort) {
+  const e = {
+    id: EV.naechsteId++,
+    art, schwere,
+    zustand: 'WARTEN',
+    ort: { x: ort.x, y: ort.y, z: ort.z },
+    radius: 22,
+    seit: 0, lebenszeit: 0,
+    /* Ein Unfall darf die Fahrbahn nicht ewig blockieren - der Verkehr
+       staut sich dahinter ueber die vorhandene Abstandsregelung von
+       selbst, und das soll ein Moment sein, keine Dauereinrichtung. */
+    maxLeben: art === 'enforcer' ? 300 : art === 'gang' ? 240
+            : art === 'unfall' ? 75 : 180,
+    entdeckt: false,
+    gegner: [], zivilisten: [], gang: null,
+    ziel: '',                 // Text der Hauptbedingung
+    kette: null,              // Folgeereignis
+    ausKette: false,
+    nachphase: 0,
+    fluechtige: [],
+    rettung: null,
+  };
+  EV.liste.push(e);
+  EV.statistik.gestartet++;
+  EV.statistik.arten[art] = (EV.statistik.arten[art] || 0) + 1;
+  EV.letzteArten.push(art);
+  if (EV.letzteArten.length > 4) EV.letzteArten.shift();
+  EV.letzterStart = EV.gesamtZeit;
+  evLog('[EV] neu', e.id, art, 'Schwere', schwere, 'bei',
+        Math.round(ort.x), Math.round(ort.z));
+  return e;
+}
+
+/* Wie viele Gegner welcher Art? Die Schwere entscheidet ueber Zahl UND
+   Rollen - nicht ueber Lebenspunkte. */
+function evGangGroesse(schwere) {
+  if (schwere <= 1) return 2 + (Math.random() < 0.5 ? 1 : 0);
+  if (schwere === 2) return 3 + Math.floor(Math.random() * 2);
+  if (schwere === 3) return 5 + Math.floor(Math.random() * 2);
+  return 4;
+}
+
+/* Bevorzugte Archetypen je Schwere. waehleGanov wuerfelt sonst frei -
+   bei einem Taschendiebstahl stand dann schon mal ein Brecher. */
+const EV_ROLLEN = {
+  1: ['schlaeger', 'flink'],
+  2: ['schlaeger', 'schlaeger', 'waechter', 'werfer'],
+  3: ['schlaeger', 'brecher', 'flink', 'werfer', 'schlaeger'],
+  4: ['schlaeger', 'brecher', 'werfer'],
+};
+
+/* Die Gegner eines Ereignisses auf die gewuenschten Rollen umstellen.
+   spawnGang wuerfelt die Typen selbst; hier werden sie danach passend
+   gesetzt, damit die Zusammenstellung zur Schwere passt. */
+function evSetzeRollen(gang, schwere) {
+  const wunsch = EV_ROLLEN[schwere] || EV_ROLLEN[1];
+  const lebende = gang.enemies.filter((e) => !e.dead);
+  for (let i = 0; i < lebende.length; i++) {
+    const name = wunsch[i % wunsch.length];
+    const typ = GANOVEN.find((g) => g.art === name);
+    if (!typ) continue;
+    const e = lebende[i];
+    e.typ = typ;
+    e.hp = typ.hp; e.hpMax = typ.hp;
+    e.radius = 0.4 * typ.groesse;
+    if (e.visual && e.visual.root) e.visual.root.scale.setScalar(typ.groesse);
+    if (MUT_BASIS[typ.art] !== undefined) e.mut = MUT_BASIS[typ.art];
+  }
+}
+
+/* ---- Ereignis aufbauen ---- */
+function evBaue(e) {
+  if (e.art === 'unfall') return evBaueUnfall(e);
+  const n = e.art === 'enforcer' ? evGangGroesse(4) : evGangGroesse(e.schwere);
+  const gang = spawnGang(e.ort.x, e.ort.z, n);
+  e.gang = gang;
+  gang.ausEvent = e.id;
+  evSetzeRollen(gang, e.art === 'enforcer' ? 4 : e.schwere);
+  for (const g of gang.enemies) {
+    g.eventId = e.id;
+    g.eventRolle = 'taeter';
+    e.gegner.push(g);
+  }
+  if (e.art === 'enforcer') {
+    const chef = gang.enemies[0];
+    machBoss(chef, 'ENFORCER');
+    chef.eventRolle = 'boss';
+  }
+  /* Opfer: moeglichst ein Zivilist, der ohnehin dort ist. */
+  if (e.art === 'ueberfall' || e.art === 'gang') {
+    const opfer = evSucheOpfer(e.ort.x, e.ort.z, e.art === 'gang' ? 2 : 1);
+    for (const c of opfer) {
+      c.eventId = e.id; c.eventRolle = 'opfer';
+      e.zivilisten.push(c);
+      /* Die Taeter nehmen ihn ins Visier - ueber die vorhandene KI. */
+      for (const g of e.gegner) if (!g.target) { g.state = 'chase'; g.target = c; break; }
+    }
+  }
+  e.ziel = e.art === 'enforcer' ? 'ENFORCER stoppen'
+         : e.art === 'gang' ? 'Gang stoppen'
+         : 'Überfall stoppen';
+  return true;
+}
+
+/* Vorhandene Zivilisten in der Naehe als Opfer nehmen - das wirkt
+   natuerlicher, als extra jemanden hinzustellen. */
+function evSucheOpfer(x, z, wieViele) {
+  const kand = [];
+  for (const c of civilians) {
+    if (c.eventId || c.state === 'hurt' || c.eingestiegen > 0) continue;
+    const d = Math.hypot(c.pos.x - x, c.pos.z - z);
+    if (d < 26) kand.push({ c, d });
+  }
+  kand.sort((a, b) => a.d - b.d);
+  return kand.slice(0, wieViele).map((k) => k.c);
+}
+
+/* ---- Verkehrsunfall ----
+   Bewusst einfach: ein Wagen steht schraeg, jemand braucht Hilfe, der
+   Verkehr dahinter wird langsamer. Keine Explosionen, keine neue
+   Fahrzeugphysik. */
+function evBaueUnfall(e) {
+  /* ---- Der Ort kommt hier vom AUTO, nicht umgekehrt ----
+     Erst einen Platz zu suchen und dann ein Auto daneben zu hoffen ging
+     gemessen fast immer schief: die Wagen fahren auf ihren Spuren, und
+     ein zufaellig gewaehlter Gehwegpunkt hat selten einen in Reichweite.
+     Gesucht wird deshalb unter allen Wagen im erlaubten Entfernungsband
+     einer, der gerade nicht im Blick liegt. */
+  let auto = null, best = -1;
+  for (const c of cars) {
+    if (c.aus || c.flucht || c.eventId) continue;
+    const p = c.mesh.position;
+    const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+    if (d < EV_NAH || d > EV_FERN) continue;
+    if (inWater(p.x, p.z) || onBridge(p.x, p.z)) continue;
+    if (evImBlick(p.x, p.z)) { EV.statistik.spawnSichtbar++; continue; }
+    let gesperrt = false;
+    for (const g of EV.gesperrt) if (Math.hypot(g.x - p.x, g.z - p.z) < 30) gesperrt = true;
+    if (gesperrt) continue;
+    /* Am liebsten mittig im Band und mit Leuten in der Naehe. */
+    const mitte = (EV_NAH + EV_FERN) / 2;
+    let w = -Math.abs(d - mitte) / mitte * 20;
+    let leute = 0;
+    for (const cv of civilians) {
+      if (cv.eingestiegen > 0) continue;
+      if (Math.hypot(cv.pos.x - p.x, cv.pos.z - p.z) < 20) leute++;
+    }
+    w += Math.min(leute, 4) * 8;
+    if (w > best) { best = w; auto = c; }
+  }
+  if (!auto) return false;
+  auto.eventId = e.id;
+  auto.altTempo = auto.speed;
+  auto.speed = 0;
+  auto.unfall = true;
+  e.auto = auto;
+  e.ort.x = auto.mesh.position.x; e.ort.z = auto.mesh.position.z;
+  /* Jemand in der Naehe ist verletzt - ueber die vorhandene Mechanik. */
+  const opfer = evSucheOpfer(e.ort.x, e.ort.z, 1);
+  if (opfer.length) {
+    const c = opfer[0];
+    c.eventId = e.id; c.eventRolle = 'verletzt';
+    e.zivilisten.push(c);
+    c.hp = 0; c.state = 'hurt'; c.hurtT = 60; c.hilfeBar = true;
+    if (c.kreuz) c.kreuz.visible = true;
+    e.rettung = c;
+  }
+  e.ziel = 'Verletzten versorgen';
+  return true;
+}
+
+/* ---- Entdeckung ----
+   Der Spieler soll ein Ereignis nicht magisch aus 500 m kennen. Es gilt
+   als entdeckt, wenn er nah genug ist, es sieht, oder wenn er nah genug
+   fuer den Hilferuf ist. */
+function evPruefeEntdeckung(e) {
+  if (e.entdeckt) return;
+  const d = Math.hypot(e.ort.x - player.pos.x, e.ort.z - player.pos.z);
+  let jetzt = false;
+  if (d < EV_ENTDECK_NAH) jetzt = true;
+  else if (d < 110 && evImBlick(e.ort.x, e.ort.z)) jetzt = true;
+  if (!jetzt) return;
+  e.entdeckt = true;
+  EV.statistik.entdeckt++;
+  if (e.zustand === 'WARTEN') e.zustand = 'AKTIV';
+  const ton = e.art === 'enforcer' ? 'kick' : 'sinn';
+  if (SFX[ton]) SFX[ton]();
+  popupScreen((e.art === 'enforcer' ? '⚠️ ' : '🚨 ') + e.ziel);
+  evLog('[EV] entdeckt', e.id, e.art);
+}
+
+/* Nur das wichtigste Ereignis bekommt Marker und Zieltext. */
+function evWichtigstes() {
+  let best = null, bestW = -1;
+  for (const e of EV.liste) {
+    if (!e.entdeckt) continue;
+    if (e.zustand !== 'AKTIV' && e.zustand !== 'ESKALIERT') continue;
+    const w = e.schwere * 10 -
+      Math.hypot(e.ort.x - player.pos.x, e.ort.z - player.pos.z) / 40;
+    if (w > bestW) { bestW = w; best = e; }
+  }
+  return best;
+}
+
+/* Wo genau steckt das Ereignis gerade? Der Marker soll dem Geschehen
+   folgen, nicht auf dem Startpunkt kleben. */
+function evBrennpunkt(e) {
+  if (e.fluechtige.length) {
+    const f = e.fluechtige.find((g) => !g.dead && g.webStufe < 3);
+    if (f) return f.pos;
+  }
+  const lebend = e.gegner.filter((g) => !g.dead);
+  if (lebend.length) return lebend[0].pos;
+  if (e.rettung && e.rettung.hilfeBar) return e.rettung.pos;
+  return e.ort;
+}
+
+/* ---- Ein Taeter verliert den Mut und rennt weg ----
+   Das ist keine eigene Erfindung: die Moral gibt es schon, hier wird nur
+   daraus ein Verfolgungsziel. */
+function evPruefeFlucht(e, dt) {
+  if (e.art === 'enforcer') return;                 // der Boss rennt nicht
+  for (const g of e.gegner) {
+    if (g.dead || g.eventRolle === 'fluechtig') continue;
+    /* Die Entscheidung faellt NICHT hier, sondern im vorhandenen
+       Moralsystem: e.flieht wird dort gesetzt, sobald der Mut unter die
+       Fluchtschwelle faellt. Der Regisseur macht daraus nur ein
+       Verfolgungsziel - und sorgt dafuer, dass der Taeter nicht nach
+       dreissig Metern wieder umdreht. */
+    if (!g.flieht || g.webT > 0) continue;
+    const dp = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
+    if (dp > 60) continue;
+    g.eventRolle = 'fluechtig';
+    g.eventFlucht = true;
+    e.fluechtige.push(g);
+    if (e.zustand === 'AKTIV') {
+      e.zustand = 'ESKALIERT';
+      e.ziel = 'Flüchtenden Täter stoppen';
+      EV.statistik.ketten++;
+      popupScreen('🏃 Ein Täter flieht!');
+      evLog('[EV] Flucht', e.id);
+    }
+  }
+}
+
+/* Ist der Fluechtende weit genug weg, ist er entkommen. Kein Game Over -
+   die Stadt ist gross. */
+function evPruefeFluechtige(e) {
+  for (let i = e.fluechtige.length - 1; i >= 0; i--) {
+    const g = e.fluechtige[i];
+    if (g.dead) { e.fluechtige.splice(i, 1); EV.statistik.gefangen++; continue; }
+    if (g.webStufe >= 3 || g.webT > 0.5) {
+      /* Mit dem Netz gestoppt - kurz gesichert, dann raus aus der Liste. */
+      /* Der Regisseur laeuft im Takt EV_TICK, nicht je Bild - mit 1/60
+         haette das Sichern statt 1,2 s ganze 18 s gedauert. */
+      g.gesichertT = (g.gesichertT || 0) + EV_TICK;
+      if (g.gesichertT > 1.2) {
+        e.fluechtige.splice(i, 1);
+        g.eventRolle = 'gefasst'; g.eventFlucht = false;
+        EV.statistik.gefangen++;
+        addScore(90, 'Täter gestoppt!', g.pos);
+        setzeRuf(+4, 'Ruf +4', g.pos);
+      }
+      continue;
+    }
+    const d = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
+    if (d > 200) {
+      e.fluechtige.splice(i, 1);
+      g.eventRolle = null; g.eventFlucht = false; g.flieht = false;
+      EV.statistik.entkommen++;
+      popupScreen('💨 Der Täter ist entkommen');
+      setzeRuf(-3);
+    }
+  }
+}
+
+/* ---- Ist das Ereignis vorbei? ---- */
+function evPruefeEnde(e) {
+  const lebend = e.gegner.filter((g) => !g.dead && g.webStufe < 3);
+  if (e.art === 'unfall') {
+    if (e.rettung) {
+      /* Mit Verletztem: vorbei, sobald ihm geholfen wurde. */
+      if (!e.rettung.hilfeBar) {
+        EV.statistik.gerettet++;
+        evEnde(e, true, '🚑 Verletzter versorgt');
+      }
+    } else if (e.lebenszeit > 35) {
+      /* Ohne Verletzten steht der Wagen eine Weile im Weg und wird dann
+         weggeraeumt - sonst waere das Ereignis im selben Bild vorbei. */
+      evEnde(e, true, null);
+    }
+    return;
+  }
+  if (lebend.length === 0 && e.fluechtige.length === 0) {
+    /* ---- Kette: nach dem Kampf bleibt jemand verletzt zurueck ----
+       Das ist der Uebergang, der die Welt zusammenhaengen laesst. */
+    if (!e.rettung && e.zivilisten.length) {
+      const c = e.zivilisten.find((z) => z.state === 'hurt' && z.hilfeBar);
+      if (c) {
+        e.rettung = c;
+        e.ziel = 'Verletzten versorgen';
+        e.zustand = 'ESKALIERT';
+        EV.statistik.ketten++;
+        popupScreen('🆘 Jemand braucht Hilfe');
+        evLog('[EV] Kette Rettung', e.id);
+        return;
+      }
+    }
+    if (e.rettung && e.rettung.hilfeBar) return;    // noch zu retten
+    if (e.rettung) EV.statistik.gerettet++;
+    evEnde(e, true, '✅ ' + (e.art === 'enforcer' ? 'ENFORCER besiegt' : 'Situation entschärft'));
+  }
+}
+
+function evEnde(e, erfolg, text) {
+  if (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT' ||
+      e.zustand === 'AUFRAEUMEN' || e.zustand === 'FERTIG') return;
+  e.zustand = erfolg ? 'GELOEST' : 'GESCHEITERT';
+  if (erfolg) EV.statistik.geloest++; else EV.statistik.gescheitert++;
+  if (!e.entdeckt) EV.statistik.ignoriert++;
+  if (e.entdeckt && text) popupScreen(text);
+  if (e.entdeckt && erfolg) {
+    const p = e.schwere * 70;
+    addScore(p, '', e.ort);
+    setzeRuf(e.schwere * 2);
+  }
+  /* Eine kurze Nachphase: nicht alles verschwindet im selben Bild. */
+  e.nachphase = erfolg ? 6 : 3;
+  EV.gesperrt.push({ x: e.ort.x, z: e.ort.z, t: EV_SPERRE });
+  EV.verlauf.push({ id: e.id, art: e.art, schwere: e.schwere,
+                    erfolg, entdeckt: e.entdeckt,
+                    dauer: +e.lebenszeit.toFixed(1),
+                    gegner: e.gegner.length });
+  if (EV.verlauf.length > 40) EV.verlauf.shift();
+  /* Nach einem grossen Ereignis darf die Stadt durchatmen. */
+  EV.ruheCd = e.schwere >= 3 ? 75 : e.schwere === 2 ? 45 : 28;
+  evLog('[EV] Ende', e.id, e.art, erfolg ? 'geloest' : 'gescheitert');
+}
+
+/* ---- Aufraeumen ----
+   Jede Rolle wieder loeschen, sonst bleibt ein Zivilist fuer immer
+   "Opfer" und ein Auto steht in zehn Minuten noch quer. */
+function evAufraeumen(e) {
+  for (const c of e.zivilisten) {
+    if (c.eventId === e.id) { c.eventId = null; c.eventRolle = null; }
+  }
+  for (const g of e.gegner) {
+    if (g.eventId === e.id) { g.eventId = null; g.eventRolle = null; }
+    g.eventFlucht = false;
+    g.gesichertT = 0;
+  }
+  if (e.auto) {
+    e.auto.eventId = null; e.auto.unfall = false;
+    if (e.auto.altTempo !== undefined) e.auto.speed = e.auto.altTempo;
+  }
+  if (e.gang) e.gang.ausEvent = null;
+  e.fluechtige.length = 0;
+  e.zustand = 'FERTIG';
+}
+
+/* Sicherheitsnetz: haengt irgendwo noch eine Rolle, ohne dass es ein
+   Ereignis dazu gibt, wird sie geloescht. Findet Lecks. */
+function evLeckPruefung() {
+  const ids = new Set(EV.liste.filter((e) => e.zustand !== 'FERTIG').map((e) => e.id));
+  let leck = 0;
+  for (const c of civilians) if (c.eventId && !ids.has(c.eventId)) { c.eventId = null; c.eventRolle = null; leck++; }
+  for (const g of enemies) if (g.eventId && !ids.has(g.eventId)) {
+    g.eventId = null; g.eventRolle = null; g.eventFlucht = false; leck++; }
+  for (const a of cars) if (a.eventId && !ids.has(a.eventId)) {
+    a.eventId = null; a.unfall = false;
+    if (a.altTempo !== undefined) a.speed = a.altTempo;
+    leck++;
+  }
+  if (leck) EV.statistik.aufraeumFehler += leck;
+  return leck;
+}
+
+/* ---- Auswahl der naechsten Art ----
+   Gewichtet, aber mit Gedaechtnis: fuenfmal hintereinander derselbe
+   Ueberfall waere keine Stadt, sondern eine Schleife. */
+function evWaehleArt() {
+  const gross = EV.liste.filter((e) => e.schwere >= 2 &&
+    e.zustand !== 'FERTIG' && e.zustand !== 'AUFRAEUMEN').length;
+  let summe = 0;
+  const moeglich = [];
+  for (const a of EV_ARTEN) {
+    if (a.schwere >= 2 && gross >= EV_MAX_GROSS) continue;
+    let g = a.gewicht;
+    /* Kommt die Art gerade oft vor, wird sie unwahrscheinlicher. */
+    const wieOft = EV.letzteArten.filter((x) => x === a.art).length;
+    g *= Math.pow(0.45, wieOft);
+    if (g <= 0.01) continue;
+    moeglich.push({ art: a.art, schwere: a.schwere, g });
+    summe += g;
+  }
+  if (!moeglich.length) return null;
+  let r = Math.random() * summe;
+  for (const m of moeglich) { r -= m.g; if (r <= 0) return m; }
+  return moeglich[0];
+}
+
+/* ---- Der Regisseur ----
+   Laeuft vier Mal je Sekunde und faellt nur Entscheidungen. */
+const EV_TICK = 0.25;
+function updateWeltEreignisse(dt) {
+  EV.gesamtZeit += dt;
+  /* Ereignisse altern immer, auch zwischen den Entscheidungen. */
+  let aktiveGross = 0;
+  for (const e of EV.liste) {
+    if (e.zustand === 'FERTIG') continue;
+    e.seit += dt; e.lebenszeit += dt;
+    if (e.zustand === 'AKTIV' || e.zustand === 'ESKALIERT') aktiveGross++;
+  }
+  if (aktiveGross) EV.aktivZeit += dt;
+  else EV.ruheSumme += dt;
+
+  EV.tickCd -= dt;
+  if (EV.tickCd > 0) return;
+  EV.tickCd = EV_TICK;
+  const tdt = EV_TICK;
+
+  /* Sperren altern */
+  for (let i = EV.gesperrt.length - 1; i >= 0; i--) {
+    EV.gesperrt[i].t -= tdt;
+    if (EV.gesperrt[i].t <= 0) EV.gesperrt.splice(i, 1);
+  }
+  if (EV.ruheCd > 0) EV.ruheCd -= tdt;
+
+  /* --- Laufende Ereignisse --- */
+  for (let i = EV.liste.length - 1; i >= 0; i--) {
+    const e = EV.liste[i];
+    if (e.zustand === 'FERTIG') { EV.liste.splice(i, 1); continue; }
+    if (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT') {
+      e.nachphase -= tdt;
+      if (e.nachphase <= 0) evAufraeumen(e);
+      continue;
+    }
+    evPruefeEntdeckung(e);
+    /* ---- Entfernungsstufe ----
+       Weit weg und noch nicht entdeckt: nur die Uhr laeuft. Die Figuren
+       bewegen sich ohnehin ueber ihre eigenen Schleifen weiter - der
+       Regisseur spart sich hier die Detailfragen. */
+    const dSp = Math.hypot(e.ort.x - player.pos.x, e.ort.z - player.pos.z);
+    e.nah = dSp < 120;
+    if (e.nah || e.entdeckt) {
+      evPruefeFlucht(e, tdt);
+      evPruefeFluechtige(e);
+    }
+    evPruefeEnde(e);
+    /* Auslaufen: kein Ereignis lebt ewig. */
+    if (e.lebenszeit > e.maxLeben) {
+      evEnde(e, false, e.entdeckt ? '⌛ Die Situation hat sich aufgelöst' : null);
+      continue;
+    }
+    /* Sehr weit weg und nie entdeckt: still aufloesen. */
+    if (!e.entdeckt && dSp > 320 && e.lebenszeit > 30) {
+      evEnde(e, false, null);
+    }
+  }
+
+  /* --- Neues Ereignis? --- */
+  const gesamt = EV.liste.filter((e) => e.zustand !== 'FERTIG' &&
+                                        e.zustand !== 'AUFRAEUMEN').length;
+  if (EV.ruheCd <= 0 && gesamt < EV_MAX_GESAMT && !player.dead) {
+    const wahl = evWaehleArt();
+    if (wahl) {
+      const ort = evSucheOrt(EV_NAH, EV_FERN, wahl.art !== 'unfall');
+      if (ort) {
+        const e = evNeu(wahl.art, wahl.schwere, ort);
+        if (!evBaue(e)) {
+          /* Konnte nicht aufgebaut werden (z.B. kein Auto in der Naehe) -
+             sauber wieder wegraeumen statt halb stehen lassen. */
+          e.zustand = 'FERTIG';
+          EV.statistik.gestartet--;
+          EV.statistik.arten[e.art]--;
+          EV.ruheCd = 6;
+        } else {
+          EV.ruheCd = wahl.schwere >= 3 ? 40 : 16;
+        }
+      } else {
+        EV.ruheCd = 4;             // gleich noch einmal versuchen
+      }
+    }
+  }
+
+  /* --- Marker und Zieltext --- */
+  const wichtig = evWichtigstes();
+  if (wichtig) {
+    const p = evBrennpunkt(wichtig);
+    /* Der Boss bekommt einen anderen Ton in der Farbe. */
+    setzeBeacon(p, wichtig.art === 'enforcer' ? 0xff8a1e : 0xff2233);
+    if (!MISSION.art) showObjective(wichtig.ziel);
+    EV.zeigt = wichtig.id;
+  } else if (EV.zeigt) {
+    EV.zeigt = null;
+    if (!MISSION.art && !crimeGang) { setzeBeacon(null); hideObjective(); }
+  }
+
+  /* Solange ein Ereignis laeuft, haelt sich das Auftragssystem zurueck -
+     sonst laufen zwei Zielanzeigen gegeneinander. */
+  if (wichtig && !MISSION.art) missionCd = Math.max(missionCd, 12);
+
+  if (EVENT_DEBUG) evLeckPruefung();
+}
+
+/* Ein Ereignis von aussen anstossen - nur fuer Tests. */
+function evStarte(art, schwere) {
+  const a = EV_ARTEN.find((x) => x.art === art);
+  if (!a) return null;
+  const ort = evSucheOrt(EV_NAH, EV_FERN, art !== 'unfall');
+  if (!ort) return null;
+  const e = evNeu(art, schwere === undefined ? a.schwere : schwere, ort);
+  if (!evBaue(e)) { e.zustand = 'FERTIG'; return null; }
+  EV.ruheCd = 20;
+  return e;
 }
 
 /* ======================= Aufträge =======================
@@ -21059,6 +21739,7 @@ function simuliere(dt) {
   updateEnemies(dt);
   if (COMBAT_DEBUG) zeigeKampfTafel(dt);
   if (PED_DEBUG) zeigeGehnetz(dt);
+  updateWeltEreignisse(dt);
   updateCamera(dt);
   updateEffekte(dt);
   updateZiehObjekte(dt);
@@ -21163,6 +21844,39 @@ if (window.__WEBHERO_TEST__ === true) {
     },
     tryJump, startSwing, stopSwing, findAnchor, tryAttack, dodge, webShot, webZip,
     uppercut, packenUndWerfen,
+    /* ---- Weltereignisse ---- */
+    evStand() {
+      return EV.liste.filter((e) => e.zustand !== 'FERTIG').map((e) => ({
+        id: e.id, art: e.art, schwere: e.schwere, zustand: e.zustand,
+        entdeckt: e.entdeckt, ziel: e.ziel,
+        ort: [Math.round(e.ort.x), Math.round(e.ort.z)],
+        leben: +e.lebenszeit.toFixed(1),
+        gegner: e.gegner.filter((g) => !g.dead).length,
+        gegnerGesamt: e.gegner.length,
+        zivilisten: e.zivilisten.length,
+        fluechtige: e.fluechtige.length,
+        rettungOffen: !!(e.rettung && e.rettung.hilfeBar),
+      }));
+    },
+    evStatistik() {
+      return Object.assign({}, EV.statistik, {
+        gesamtZeit: +EV.gesamtZeit.toFixed(1),
+        aktivZeit: +EV.aktivZeit.toFixed(1),
+        ruheZeit: +EV.ruheSumme.toFixed(1),
+        anteilAktiv: EV.gesamtZeit > 0 ? +(EV.aktivZeit / EV.gesamtZeit).toFixed(3) : 0,
+        offen: EV.liste.filter((e) => e.zustand !== 'FERTIG').length,
+      });
+    },
+    evVerlauf() { return EV.verlauf.slice(); },
+    evStarte,
+    evRuheAus() { EV.ruheCd = 0; },
+    evLeck() { return evLeckPruefung(); },
+    evOrtTauglich, evImBlick,
+    evAlleBeenden() {
+      for (const e of EV.liste) { evEnde(e, false, null); e.nachphase = 0; evAufraeumen(e); }
+      EV.liste.length = 0;
+    },
+    get evRuhe() { return +EV.ruheCd.toFixed(1); },
     /* ---- Animationslabor ----
        Reicht die Laborfunktionen der Figurendarstellung durch. Nur mit
        eingefrorener Schleife sinnvoll (frier(true)) - sonst schreibt
