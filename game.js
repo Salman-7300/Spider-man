@@ -9998,8 +9998,27 @@ function tryJump() {
     player.state = 'air';
     player.jumps = 1;
     const dir = inputDir();
-    player.vel.set(w.nx * 7.5, 9.5, w.nz * 7.5);
-    if (dir) { player.vel.x += dir.x * 3; player.vel.z += dir.z * 3; }
+    /* ---- Abstossen ist nicht verhandelbar ----
+       Hier stand schlicht "vel += dir * 3". Wer die Wand hinaufrennt,
+       haelt aber W gedrueckt und zeigt damit IN die Wand - gemessen
+       blieben von den 7,5 m/s Wegstossen nur noch 4,2 uebrig, und der
+       Wandsprung trug die Figur kaum von der Fassade fort. Jetzt darf die
+       Eingabe nur ergaenzen: der Anteil LAENGS der Wand zaehlt voll, der
+       senkrechte nur, wenn er von der Wand weg zeigt. */
+    let zx = w.nx * 7.5, zz = w.nz * 7.5;
+    if (dir) {
+      const raus = dir.x * w.nx + dir.z * w.nz;         // >0 = von der Wand weg
+      const lx = dir.x - w.nx * raus, lz = dir.z - w.nz * raus;
+      zx += lx * 3 + w.nx * Math.max(0, raus) * 3;
+      zz += lz * 3 + w.nz * Math.max(0, raus) * 3;
+    }
+    /* Und der Schwung des Wandlaufs geht in die Hoehe ueber, statt beim
+       Absprung verloren zu gehen - erst dadurch wird aus Wandlauf,
+       Wandsprung und Netzschwung eine Kette. */
+    const hoch = 9.5 + clamp((player.wandSchwung || 0) * 0.45, 0, 4.5);
+    player.vel.set(zx, hoch, zz);
+    player.wandSchwung = 0;
+    player.wandlauf = false;
     player.wallInfo = null;
     /* Der Absprung von der Wand ist eine eigene Bewegung: abstossen,
        einmal ueberschlagen, dann in den Fall. Vorher schaltete die Figur
