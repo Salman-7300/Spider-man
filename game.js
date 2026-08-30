@@ -20906,6 +20906,7 @@ if (window.__WEBHERO_TEST__ === true) {
                liste: MOT.liste.slice(0, 40) };
     },
     tryJump, startSwing, stopSwing, findAnchor, tryAttack, dodge, webShot, webZip,
+    uppercut, packenUndWerfen,
     /* Tastenzustand direkt setzen: synthetische KeyboardEvents kommen im
        Testbrowser ohne Fokus nicht zuverlaessig an, das Halten von Leertaste
        ist fuer den Netzschwung aber Pflicht. */
