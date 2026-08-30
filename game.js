@@ -20199,6 +20199,9 @@ const EV_SPERRE = 95;
 /* Hoechstens so viele Ereignisse gleichzeitig: eines, das zaehlt, und
    hoechstens eines im Hintergrund. */
 const EV_MAX_GROSS = 1, EV_MAX_GESAMT = 2;
+/* Ab so vielen lebenden Ganoven in der Stadt entstehen keine neuen
+   Krawall-Ereignisse mehr. */
+const EV_GEGNER_MAX = 26;
 
 /* Gewichte der Arten. Klein und haeufig, gross und selten. */
 const EV_ARTEN = [
@@ -20654,10 +20657,32 @@ function evAufraeumen(e) {
   for (const c of e.zivilisten) {
     if (c.eventId === e.id) { c.eventId = null; c.eventRolle = null; }
   }
+  /* ---- Die Taeter muessen auch wieder verschwinden ----
+     Gemessen ueber 64 Ereignisse: die Zahl der Gegner in der Welt stieg
+     von 13 auf 227, weil jedes Ereignis eine neue Gang anlegte und die
+     Ueberlebenden fuer immer stehenblieben. Besiegte loesen sich ueber
+     ihre Todeszeit von selbst auf; wer davonkommt, wird hier abgeraeumt -
+     aber nur ausser Sichtweite, sonst verschwaende jemand vor der Nase
+     des Spielers. Wer in der Naehe steht, bleibt und gehoert von da an
+     zur Stadt. */
   for (const g of e.gegner) {
     if (g.eventId === e.id) { g.eventId = null; g.eventRolle = null; }
     g.eventFlucht = false;
     g.gesichertT = 0;
+    if (g.dead) continue;
+    const dw = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
+    if (dw < 70) continue;
+    const gi = enemies.indexOf(g);
+    if (gi >= 0) enemies.splice(gi, 1);
+    if (g.visual && g.visual.root) scene.remove(g.visual.root);
+    if (g.gang) {
+      const gj = g.gang.enemies.indexOf(g);
+      if (gj >= 0) g.gang.enemies.splice(gj, 1);
+    }
+  }
+  if (e.gang && !e.gang.enemies.length) {
+    const gk = gangs.indexOf(e.gang);
+    if (gk >= 0) gangs.splice(gk, 1);
   }
   if (e.auto) {
     e.auto.eventId = null; e.auto.unfall = false;
@@ -20688,12 +20713,15 @@ function evLeckPruefung() {
 /* ---- Auswahl der naechsten Art ----
    Gewichtet, aber mit Gedaechtnis: fuenfmal hintereinander derselbe
    Ueberfall waere keine Stadt, sondern eine Schleife. */
-function evWaehleArt() {
+function evWaehleArt(nurOhneGegner) {
   const gross = EV.liste.filter((e) => e.schwere >= 2 &&
     e.zustand !== 'FERTIG' && e.zustand !== 'AUFRAEUMEN').length;
   let summe = 0;
   const moeglich = [];
   for (const a of EV_ARTEN) {
+    /* Ist die Stadt schon voller Ganoven, kommt nur noch ein Ereignis
+       ohne zusaetzliche Gegner in Frage (der Verkehrsunfall). */
+    if (nurOhneGegner && a.art !== 'unfall') continue;
     if (a.schwere >= 2 && gross >= EV_MAX_GROSS) continue;
     let g = a.gewicht;
     /* Kommt die Art gerade oft vor, wird sie unwahrscheinlicher. */
@@ -20777,8 +20805,9 @@ function updateWeltEreignisse(dt) {
   /* --- Neues Ereignis? --- */
   const gesamt = EV.liste.filter((e) => e.zustand !== 'FERTIG' &&
                                         e.zustand !== 'AUFRAEUMEN').length;
+  const lebendeGegner = enemies.reduce((n, g) => n + (g.dead ? 0 : 1), 0);
   if (EV.ruheCd <= 0 && gesamt < EV_MAX_GESAMT && !player.dead) {
-    const wahl = evWaehleArt();
+    const wahl = evWaehleArt(lebendeGegner >= EV_GEGNER_MAX);
     if (wahl) {
       const ort = evSucheOrt(EV_NAH, EV_FERN, wahl.art !== 'unfall');
       if (ort) {
