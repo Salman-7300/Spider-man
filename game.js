@@ -20353,6 +20353,10 @@ const EV = {
                spawnImWasser: 0, spawnZuNah: 0, spawnBelegt: 0 },
   verlauf: [],            // die letzten Ereignisse fuer Tests
   aktivZeit: 0, erlebtZeit: 0, gesamtZeit: 0, ruheSumme: 0, letzterStart: 0,
+  /* Gleitende Schaetzung, welcher Anteil der Zeit gerade Betrieb ist.
+     Startet auf der Zielmarke, damit die erste Viertelstunde nicht
+     ungebremst laeuft. Siehe EV_ZIEL_AKTIV. */
+  taktAnteil: 0.42,
 };
 
 /* Wie weit ein Ereignis vom Spieler entfernt entsteht.
@@ -20376,6 +20380,16 @@ const EV_SPERRE = 95;
 /* Hoechstens so viele Ereignisse gleichzeitig: eines, das zaehlt, und
    hoechstens eines im Hintergrund. */
 const EV_MAX_GROSS = 1, EV_MAX_GESAMT = 2;
+/* ---- Taktbremse ----
+   Laufzeiten und Ruhezeiten allein steuern den Rhythmus nur locker: ueber
+   drei 30-Minuten-Laeufe lag der Anteil aktiver Zeit bei 42, 54 und 59
+   Prozent. Der Wunsch war ausdruecklich, auch einfach schwingen und die
+   Stadt ansehen zu koennen - 59 Prozent Betrieb ist keine Ruhe mehr.
+   Der Anteil wird deshalb laufend mitgeschaetzt (gleitend ueber rund acht
+   Minuten), und solange er ueber der Zielmarke liegt, entsteht nichts
+   Neues. Laufende Ereignisse bleiben unberuehrt - gebremst wird nur der
+   Nachschub. */
+const EV_ZIEL_AKTIV = 0.42, EV_TAKT_FENSTER = 480;
 /* Ab so vielen lebenden Ganoven in der Stadt entstehen keine neuen
    Krawall-Ereignisse mehr. */
 const EV_GEGNER_MAX = 26;
@@ -20934,6 +20948,9 @@ function updateWeltEreignisse(dt) {
   }
   if (aktiveGross) EV.aktivZeit += dt; else EV.ruheSumme += dt;
   if (erlebt) EV.erlebtZeit += dt;
+  /* Gleitender Mittelwert ueber EV_TAKT_FENSTER Sekunden. */
+  EV.taktAnteil += ((aktiveGross ? 1 : 0) - EV.taktAnteil) *
+                   Math.min(1, dt / EV_TAKT_FENSTER);
 
   EV.tickCd -= dt;
   if (EV.tickCd > 0) return;
@@ -20983,7 +21000,8 @@ function updateWeltEreignisse(dt) {
   const gesamt = EV.liste.filter((e) => e.zustand !== 'FERTIG' &&
                                         e.zustand !== 'AUFRAEUMEN').length;
   const lebendeGegner = enemies.reduce((n, g) => n + (g.dead ? 0 : 1), 0);
-  if (EV.ruheCd <= 0 && gesamt < EV_MAX_GESAMT && !player.dead) {
+  if (EV.ruheCd <= 0 && gesamt < EV_MAX_GESAMT && !player.dead &&
+      EV.taktAnteil < EV_ZIEL_AKTIV) {
     const wahl = evWaehleArt(lebendeGegner >= EV_GEGNER_MAX);
     if (wahl) {
       const ort = evSucheOrt(EV_NAH, EV_FERN, wahl.art !== 'unfall');
@@ -22109,6 +22127,7 @@ if (window.__WEBHERO_TEST__ === true) {
         anteilAktiv: EV.gesamtZeit > 0 ? +(EV.aktivZeit / EV.gesamtZeit).toFixed(3) : 0,
         erlebtZeit: +EV.erlebtZeit.toFixed(1),
         anteilErlebt: EV.gesamtZeit > 0 ? +(EV.erlebtZeit / EV.gesamtZeit).toFixed(3) : 0,
+        taktAnteil: +EV.taktAnteil.toFixed(3),
         offen: EV.liste.filter((e) => e.zustand !== 'FERTIG').length,
       });
     },
