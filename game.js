@@ -6035,6 +6035,10 @@ function makeGlbVisual(m) {
   /* Geglaettete Lage im Netzbogen und der zuletzt gespielte Zustand. */
   let bogenGlatt = 0, letzterKey = null;
   let angriff = null, angriffT = 0;
+  /* Welche Bewegung die laufende Einmal-Bewegung ist. Gebraucht, um sie
+     gezielt abbrechen zu koennen, ohne aus Versehen eine andere zu
+     treffen, die im selben Bild schon uebernommen hat. */
+  let angriffArt = null;
   return {
     root, procedural: false, mixer,
     /* Nur fuer Messungen im Test: die Knochen des Rigs. */
@@ -6521,7 +6525,7 @@ function makeGlbVisual(m) {
         const b = actions[k];
         if (b && b !== a) { b.stop(); b.setEffectiveWeight(0); }
       }
-      angriff = null; angriffT = 0; current = a; letzterKey = key;
+      angriff = null; angriffT = 0; angriffArt = null; current = a; letzterKey = key;
       const d = a.getClip().duration;
       a.reset();
       a.setLoop(THREE.LoopRepeat, Infinity);
@@ -6543,7 +6547,7 @@ function makeGlbVisual(m) {
         const b = actions[k];
         if (b) { b.paused = false; b.timeScale = 1; }
       }
-      current = null; angriff = null; angriffT = 0; letzterKey = null;
+      current = null; angriff = null; angriffT = 0; angriffArt = null; letzterKey = null;
     },
     /* Knochenlage im EIGENEN System der Figur - also ohne ihre Drehung und
        ohne ihren Weg durch die Welt. Nur so misst man die HALTUNG.
@@ -7417,7 +7421,7 @@ function makeGlbVisual(m) {
         hartRein = HART_UEBERGANG.has(key);
         if (hartRein) { angriff.stop(); angriff.setEffectiveWeight(0); }
         else blendeAus(angriff, 0.22);
-        angriff = null; current = null;
+        angriff = null; angriffArt = null; current = null;
       }
       if (dist2 > 45 * 45) {
         lodAcc += dt;
@@ -7700,7 +7704,7 @@ function makeGlbVisual(m) {
                      : (verkette === 1 ? d * 0.18 : 0);
       a.time = ab;
       a.timeScale = v; a.play();
-      angriff = a;
+      angriff = a; angriffArt = art || 'attack';
       const ende = fen ? fVon + fSpanne : d;
       const rest = (ende - ab) / v;
       angriffT = zielDauer ? Math.min(zielDauer, rest) : rest;
@@ -7709,13 +7713,18 @@ function makeGlbVisual(m) {
     /* Eine laufende Einmal-Bewegung sofort abbrechen. Nötig, wenn die
        Figur mitten in der Landerolle wieder den Boden verlässt – sonst
        rollt sie frei schwebend in der Luft weiter. */
-    brichOneShot(blende) {
+    /* nurArt: nur abbrechen, wenn wirklich noch DIESE Bewegung laeuft.
+       Ohne die Einschraenkung riss der Abbruch beim Netzschwung die
+       Wurfbewegung mit, die im selben Bild schon uebernommen hatte. */
+    brichOneShot(blende, nurArt) {
       if (!angriff) return false;
+      if (nurArt && angriffArt !== nurArt) return false;
       blendeAus(angriff, blende === undefined ? 0.14 : blende);
-      angriff = null; angriffT = 0; current = null;
+      angriff = null; angriffT = 0; angriffArt = null; current = null;
       return true;
     },
     get einmalLaeuft() { return !!angriff; },
+    get einmalArt() { return angriffArt; },
     /* Welche Bewegungsdatei laeuft gerade wirklich? Nur zur Kontrolle -
        der Wunschname und der gefundene Clip koennen auseinandergehen. */
     get aktuellerClip() {
@@ -7743,7 +7752,7 @@ function makeGlbVisual(m) {
       a.reset(); blendeEin(a, 0.09, wAlt);
       a.time = vonZeit;
       a.timeScale = v; a.play();
-      angriff = a;
+      angriff = a; angriffArt = art;
       angriffT = Math.min(zielDauer, rest / v);
       return angriffT;
     },
@@ -7767,7 +7776,7 @@ function makeGlbVisual(m) {
       a.reset(); blendeEin(a, 0.1, wAlt);
       a.time = fVon;
       a.timeScale = v; a.play();
-      angriff = a;
+      angriff = a; angriffArt = 'kante';
       angriffT = Math.min(zielDauer, fSpanne / v);
       return angriffT;
     },
@@ -7815,7 +7824,7 @@ function makeGlbVisual(m) {
          (0,68 bis 1,31 m), weil die Ausgangshaltung dann mitten in der
          Rolle liegt. Es bleibt beim harten Schnitt ab Bild null. */
       a.reset(); blendeEin(a, bl, wAlt); a.timeScale = v; a.play();
-      angriff = a;
+      angriff = a; angriffArt = welche || 'rolle';
       angriffT = Math.min(zielDauer, d / v);
       return angriffT;
     },
@@ -7903,6 +7912,7 @@ function makeProceduralVisual(cfg) {
     play(key, p, dt) { poseHuman(human, key, p, dt); },
     attackOneShot() {},
     brichOneShot() { return false; },
+    get einmalArt() { return null; },
     abOneShot() { return 0; },
     get einmalLaeuft() { return false; },
     rolleOneShot() { return 0; },
@@ -10487,7 +10497,8 @@ function uppercut() {
   const ziel = nearestEnemy(2.8, 0.0);
   const dauer = heroVisual.attackOneShot(0, 'uppercut', 0.6) || 0.6;
   player.attack = { type: 'punch', t: 0, arm: 'R', art: 'uppercut',
-                    hitDone: false, finisher: false, stufe: 0, dauer, hebt: true };
+                    hitDone: false, finisher: false, stufe: 0, dauer, hebt: true,
+                    amBoden: player.onGround };
   player.attackCd = dauer * 0.8;
   if (ziel) {
     const dx = ziel.pos.x - player.pos.x, dz = ziel.pos.z - player.pos.z;
@@ -10597,7 +10608,8 @@ function packenUndWerfen() {
                                          griff ? 0.95 : 0.75) || 0.75;
   player.attackCd = dauer * 0.8;
   player.attack = { type: 'punch', t: 0, arm: 'R', art: griff ? 'wurfgriff' : 'wurf',
-                    hitDone: true, finisher: false, stufe: 0, dauer };
+                    hitDone: true, finisher: false, stufe: 0, dauer,
+                    amBoden: player.onGround };
   const f = camForward();
   player.facing = Math.atan2(f.x, f.z);
   /* ---- Zupacken statt sofort schleudern ----
@@ -10752,7 +10764,8 @@ function tryAttack(type) {
   const wieTritt = k.art === 'kick' || k.art === 'luftangriff' || k.art === 'knie' ||
                    k.art === 'symkombo' || k.art === 'stampfen';
   player.attack = { type: wieTritt ? 'kick' : 'punch', t: 0, arm, art: k.art,
-                    hitDone: false, finisher, stufe, dauer, wucht: !!k.wucht };
+                    hitDone: false, finisher, stufe, dauer, wucht: !!k.wucht,
+                    amBoden: player.onGround };
   if (player.onGround && type !== 'kick') {
     player.stufe = (stufe + 1) % KOMBO.length;
     player.comboTimer = Math.max(player.comboTimer, 1.6);
@@ -12767,6 +12780,36 @@ function updatePlayer(dt) {
   if (!player.onGround && (player.hartLandung > 0 || player.landT > 0 || player.rollT > 0)) {
     player.hartLandung = 0; player.landT = 0; player.rollT = 0;
     if (heroVisual.brichOneShot) heroVisual.brichOneShot(0.16);
+  }
+  /* ---- Ein Nahkampfschlag ist eine Bewegung FUER DEN BODEN ----
+     Verliess die Figur ihn mitten darin - Sprung, Netzschwung, Netz-Zug,
+     Wand -, lief der Schlag bisher unbeirrt zu Ende. Gemessen: nach dem
+     Absprung hielt der Tritt noch 42 Bilder (0,70 s) volles Gewicht, der
+     rechte Fuss stand dabei 1,33 m neben der Fallhaltung. Die Figur flog
+     also mit angewinkeltem Tritt durch die Luft, und weil die laufende
+     Einmal-Bewegung die Haltungsrechnung ueberspringt, kam in dieser Zeit
+     auch keine Flug- oder Schwunghaltung zustande.
+     Abgebrochen wird nur, wenn wirklich noch DIESE Bewegung laeuft: beim
+     Netzschwung hat der Netzwurf im selben Bild schon uebernommen, und
+     der darf nicht mitgerissen werden. */
+  /* Die Kojotenzeit zaehlt noch als Boden. Wer ueber eine Bordsteinkante
+     schlaegt, verliert damit nicht mitten im Schlag die Bewegung; ein
+     echter Sprung setzt den Zaehler ohnehin auf null und bricht sofort
+     ab. Gemessen: im Dauernahkampf am Boden ist die Figur in 900 Bildern
+     164 Bilder lang wirklich in der Luft, aber kein einziges Mal nur ein
+     bis drei Bilder - es gibt also kein Flackern, das hier faelschlich
+     abbrechen wuerde. */
+  if (player.attack && player.attack.amBoden && player.attack.art &&
+      ((!player.onGround && !(player.bodenAb > 0)) ||
+       player.state === 'swing' || player.state === 'zip' ||
+       player.state === 'climb')) {
+    const art = player.attack.art;
+    player.attack = null;
+    MOT.bodenAbbruch = (MOT.bodenAbbruch || 0) + 1;
+    /* Nach dem Abbruch soll der Luftangriff sofort moeglich sein - die
+       Sperre gehoert zum abgebrochenen Schlag, nicht zum neuen. */
+    player.attackCd = Math.min(player.attackCd, 0.08);
+    if (heroVisual.brichOneShot) heroVisual.brichOneShot(0.12, art);
   }
   if (player.hitT > 0) player.hitT -= dt;
   /* Verliert man mitten in der Rolle den Boden (Bordstein, Kante), wird
@@ -21921,6 +21964,7 @@ if (window.__WEBHERO_TEST__ === true) {
       MOT.verloreneSprung = 0; MOT.verloreneSchwung = 0; MOT.verloreneAngriff = 0;
       MOT.gepufferteSprung = 0; MOT.gepufferteSchwung = 0; MOT.gepufferteAngriff = 0;
       MOT.liste.length = 0; MOT.letzte = null; MOT.uebergaenge = {};
+      MOT.bodenAbbruch = 0;
       MOT.landungen = {};
       MOT.fovMax = 0; MOT.rollMax = 0; MOT.kamMax = 0; MOT.kamRucke = 0;
       MOT.kamHeran = 0; MOT.kamZurueck = 0;
@@ -21938,6 +21982,7 @@ if (window.__WEBHERO_TEST__ === true) {
                kamHeran: MOT.kamHeran, kamZurueck: MOT.kamZurueck,
                uebergaenge: Object.assign({}, MOT.uebergaenge),
                landungen: Object.assign({}, MOT.landungen),
+               bodenAbbruch: MOT.bodenAbbruch || 0,
                liste: MOT.liste.slice(0, 40) };
     },
     tryJump, startSwing, stopSwing, findAnchor, tryAttack, dodge, webShot, webZip,
