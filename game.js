@@ -10289,7 +10289,12 @@ function gegnerLoslassen(art) {
 }
 
 function packenUndWerfen() {
-  if (!heroVisual || player.dead || player.state === 'climb') return;
+  if (!heroVisual || player.dead || player.state === 'climb') {
+    /* Verworfen statt ausgefuehrt - das ist die Eingabe, die im Spiel
+       "nicht angekommen" wirkt. */
+    motMelden('verloreneAngriff');
+    return;
+  }
   if (!stufeFrei('wurf')) { popupScreen('🔒 Packen & Werfen ab Stufe 3'); return; }
   /* Haelt man schon jemanden, wirft der zweite Druck ihn. */
   if (player.haeltGegner) {
@@ -10411,6 +10416,7 @@ function tryAttack(type) {
      sonst geht direkt nach einem Konter der Gegenschlag verloren. */
   if (player.rollT > 0) {
     player.attackBuffer = { type, t: Math.max(0.5, player.rollT + 0.25) };
+    motMelden('gepufferteAngriff');
     return;
   }
   /* Zu früh gedrückt? Eingabe kurz merken und automatisch nachziehen –
@@ -10422,6 +10428,7 @@ function tryAttack(type) {
        schnelles Klicken komplett. Deshalb war von der Kombo nichts zu
        sehen: Stufe 2 wurde nie erreicht. */
     player.attackBuffer = { type, t: Math.max(0.5, player.attackCd + 0.25) };
+    motMelden('gepufferteAngriff');
     return;
   }
   player.attackBuffer = null;
@@ -11775,8 +11782,23 @@ function updatePlayer(dt) {
       /* Gebremst wird erst NACH dem Treffer. Vorher hat die Bremse schon
          den Ausfallschritt zum Gegner abgewürgt – die Figur kam gar nicht
          in Reichweite und schlug ins Leere. */
-      const b = Math.max(0, 1 - dt * (player.attack.hitDone ? 9 : 1.2));
-      player.vel.x *= b; player.vel.z *= b;
+      /* ---- Wer sich bewegen will, bewegt sich auch im Schlag ----
+         Die Richtungstaste wurde waehrend eines Angriffs komplett
+         ignoriert, und nach dem Treffer bremste dt*9. Gemessen blieb von
+         6,8 m/s Anlauf noch 0,7 m/s uebrig: jeder Schlag hat den Lauf
+         abgewuergt, und danach musste man wieder von null anfahren.
+         Jetzt zieht die Eingabe weiter, nur mit gedrosseltem Ziel - vor
+         dem Treffer 70 %, danach 45 % des Gehtempos. Ohne Eingabe bleibt
+         es bei der alten Bremse, damit der Schlag Wucht behaelt. */
+      if (dir) {
+        const zielT = speed * (player.attack.hitDone ? 0.45 : 0.7);
+        const rate = player.attack.hitDone ? 6 : 3;
+        player.vel.x = lerp(player.vel.x, dir.x * zielT, Math.min(1, dt * rate));
+        player.vel.z = lerp(player.vel.z, dir.z * zielT, Math.min(1, dt * rate));
+      } else {
+        const b = Math.max(0, 1 - dt * (player.attack.hitDone ? 9 : 1.2));
+        player.vel.x *= b; player.vel.z *= b;
+      }
       if (dir) player.facing = dampAngle(player.facing, Math.atan2(dir.x, dir.z), Math.min(1, dt * 3));
     } else if (dir) {
       /* ---- Anlauf ----
@@ -20864,7 +20886,7 @@ if (window.__WEBHERO_TEST__ === true) {
                landungen: Object.assign({}, MOT.landungen),
                liste: MOT.liste.slice(0, 40) };
     },
-    tryJump, startSwing, stopSwing, findAnchor,
+    tryJump, startSwing, stopSwing, findAnchor, tryAttack, dodge, webShot, webZip,
     /* Tastenzustand direkt setzen: synthetische KeyboardEvents kommen im
        Testbrowser ohne Fokus nicht zuverlaessig an, das Halten von Leertaste
        ist fuer den Netzschwung aber Pflicht. */
