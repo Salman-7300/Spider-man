@@ -7528,6 +7528,11 @@ function makeGlbVisual(m) {
       }
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
+      /* Kampfhaltung: dieselbe Datei, die auch die wartenden Passanten
+         benutzen ("warten") - Knie gebeugt, Gewicht auf dem vorderen Bein,
+         Haende offen und bereit. Eine eigene Kampfhaltung gibt es unter
+         den geladenen Bewegungen nicht, und erfunden wird keine. */
+      if (key === 'kampfstand') want = findClip(m.clips, 'warten') ? 'warten' : 'idle';
 
       if ((key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
            key === 'klettern_seit') && !findClip(m.clips, key)) {
@@ -10217,6 +10222,11 @@ function zipImFenster(z) {
    Alle drei sind bewusst kurz - ein Puffer, der eine Sekunde haelt,
    fuehrt Aktionen aus, die man laengst nicht mehr will. */
 const KOJOTE = 0.13, SPRUNG_PUFFER = 0.15, SCHWUNG_PUFFER = 0.22;
+/* Ab welchem Abstand ein Gegner als "dicht daneben" gilt und die Figur
+   im Stand die Kampfhaltung einnimmt statt der ruhigen Stehbewegung.
+   Sieben Meter: das ist rund ein Anlauf - naeher heran, und der Gegner
+   ist im naechsten Moment da. */
+const KAMPF_NAH = 7;
 function tryJump() {
   if (player.dead) return;
   /* ---- Kurz vor dem Boden gedrueckt ----
@@ -13019,7 +13029,20 @@ function updatePlayer(dt) {
       SFX.schritt && SFX.schritt(leise ? 0.18 : clamp(hSpeed / CFG.sprintSpeed, 0.3, 1),
                                  leise);
     }
-  } else player.anim = 'idle';
+  } else {
+    /* ---- Steht ein Gegner dicht daneben, wird gewartet, nicht gestanden ----
+       Bisher fiel die Figur zwischen zwei Schlaegen in dieselbe ruhige
+       Stehbewegung wie mitten auf einem leeren Dach: Arme haengen, Knie
+       durchgestreckt, Gewicht auf beiden Beinen. Das las sich wie
+       "Kampf vorbei", waehrend der Gegner noch zwei Meter weiter stand.
+       Eine eigene Kampfhaltung gibt es unter den geladenen Bewegungen
+       nicht; genommen wird deshalb die Wartehaltung ("warten"): Knie
+       gebeugt, Gewicht auf dem vorderen Bein, Haende offen. Erfunden
+       wird nichts. */
+    const nah = player.hp > 0 && !player.dead && nearestEnemy(KAMPF_NAH, -1);
+    player.anim = (nah && heroVisual.hatClip && heroVisual.hatClip('warten'))
+      ? 'kampfstand' : 'idle';
+  }
 
   if (player.anim !== 'run' && player.anim !== 'idle' && player.vel.lengthSq() > 4 && player.state !== 'climb') {
     player.facing = dampAngle(player.facing, Math.atan2(player.vel.x, player.vel.z), dt * 6);
