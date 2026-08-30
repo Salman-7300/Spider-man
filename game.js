@@ -8498,7 +8498,7 @@ const player = {
   haltenT: 0, duckt: false, duckMisch: 0,
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
-  dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0,
+  dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0, landArt: 'weich',
   schussT: 0, schussZiel: V3(0, 0, 0), wurfT: 0, freiFallMisch: 0,
   haeltObjekt: null,
   hurtCd: 0, regenCd: 0,
@@ -9799,6 +9799,41 @@ function aufSchmalemHalt() {
     return true;
   }
   return false;
+}
+
+/* ---- Wo geht es hinunter? ----
+   Die Dachhocke gab es bisher ueberall auf einem hohen Dach - mitten auf
+   der Flaeche genauso wie an der Kante. Die Haltung meint aber die Kante:
+   dort hockt man und schaut hinunter. Hier wird deshalb in acht
+   Richtungen nachgesehen, wo der Boden abbricht, und die naechste dieser
+   Richtungen zurueckgegeben.
+   Rueckgabe: null oder { dx, dz, d } mit d = Abstand bis zum Abbruch. */
+const KANTE_SUCH = 2.2;          // so weit wird nach vorn geschaut
+const KANTE_TIEF = 3.0;          // ab so viel Hoehenunterschied ist es eine Kante
+function dachKante(x, z, y) {
+  let best = null;
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4;
+    const dx = Math.sin(a), dz = Math.cos(a);
+    /* In kleinen Schritten hinaus, bis der Boden wegbricht. Der erste
+       Schritt, an dem es tief hinuntergeht, ist die Kante. */
+    for (let r = 0.5; r <= KANTE_SUCH; r += 0.35) {
+      const px = x + dx * r, pz = z + dz * r;
+      /* groundY kennt nur Strasse, Gehweg, Bruecke und U-Bahn - Daecher
+         stecken in den Kollisionskoerpern. Ohne sie meldete jeder Punkt
+         auf einem Dach sofort einen Abbruch. */
+      let gy = groundY(px, pz, y);
+      for (const c of collidersNear(px, pz)) {
+        if (px < c.x0 || px > c.x1 || pz < c.z0 || pz > c.z1) continue;
+        if (c.h > gy && c.h <= y + 0.6) gy = c.h;
+      }
+      if (y - gy > KANTE_TIEF) {
+        if (!best || r < best.d) best = { dx, dz, d: r };
+        break;
+      }
+    }
+  }
+  return best;
 }
 
 /* Wie lange vor dem Anschlag der Absprung als "perfekt" zaehlt. */
@@ -12073,6 +12108,28 @@ function updatePlayer(dt) {
 
   if (player.onGround) {
     const kamVomSchwung = player.state === 'swing' || player.gleiten || player.gleitAus > 0;
+    /* ---- Landungen haben vier Staerken ----
+       Bisher entschied jede Verzweigung fuer sich, was beim Aufkommen
+       passiert - eine benennbare Staerke gab es nicht, und damit auch
+       keine Moeglichkeit, Kamera, Staub und Ton daran zu haengen oder
+       nachzumessen, welche Landung wie oft vorkommt.
+         weich   bis  6 m/s - kein Aufkommen, die Figur laeuft durch
+         normal  bis 17 m/s - kurzes Abfedern
+         hart    bis 26 m/s - Abrollen oder Landehocke
+         episch  darueber   - dazu Staub, Wucht und Kameraschlag
+       Der Schwung- und Gleitausgang zaehlt mindestens als hart: dort
+       kommt die Wucht aus dem waagerechten Tempo, nicht aus der Hoehe. */
+    if (!wasOnGround) {
+      const waagAn = Math.hypot(player.vel.x, player.vel.z);
+      const wucht = Math.max(fallTempo, kamVomSchwung ? waagAn : 0);
+      /* Die Schwellen sind an der Fallhoehe gemessen: mit der Schwerkraft
+         des Spiels sind 8 m rund 17 m/s, 18 m rund 26 und 30 m rund 33.
+         Episch soll ein echter Sturz sein, kein Sprung vom Dach nebenan. */
+      player.landArt = wucht > 32 ? 'episch' : wucht > 17 ? 'hart'
+                     : wucht > 6 ? 'normal' : 'weich';
+      if (kamVomSchwung && player.landArt === 'normal' && wucht > 9) player.landArt = 'hart';
+      motLanden(player.landArt);
+    }
     if (player.state === 'swing') stopSwing(false);
     if (!wasOnGround && player.vel.length() < 4) SFX.swoosh();
     /* Aufkommen war lautlos. Die Wucht richtet sich nach der Fallhoehe. */
@@ -12117,8 +12174,11 @@ function updatePlayer(dt) {
         player.dreiPunktSeite = Math.random() < 0.5 ? 'L' : 'R';
         player.vel.x *= 0.12; player.vel.z *= 0.12;
       }
-      camShake = Math.max(camShake, 0.2);
-      staubWolke(player.pos, 1.7);
+      /* Die epische Landung hebt sich sichtbar ab - vorher sah eine
+         Ankunft mit 30 m/s genauso aus wie eine mit 12. */
+      const ep = player.landArt === 'episch';
+      camShake = Math.max(camShake, ep ? 0.38 : 0.2);
+      staubWolke(player.pos, ep ? 2.6 : 1.7);
       SFX.kick();
     } else if (!wasOnGround && fallTempo > 6) {
       player.landT = clamp(fallTempo / 26, 0.18, 0.42);
@@ -12148,8 +12208,9 @@ function updatePlayer(dt) {
           const f = _v1.set(Math.sin(player.facing), 0, Math.cos(player.facing));
           player.vel.x = f.x * 7; player.vel.z = f.z * 7;
         }
-        camShake = Math.max(camShake, 0.16);
-        staubWolke(player.pos, 1.4);
+        const ep2 = player.landArt === 'episch';
+        camShake = Math.max(camShake, ep2 ? 0.34 : 0.16);
+        staubWolke(player.pos, ep2 ? 2.4 : 1.4);
         SFX.swoosh();
       }
     }
@@ -12379,7 +12440,14 @@ function updatePlayer(dt) {
        Jetzt wird in jedem Bild direkt nachgesehen, ob der Halt unter den
        Fuessen wirklich eine schmale Spitze hoch ueber der Strasse ist. */
     player.mastHocke = aufSchmalemHalt();
-    const hoch = player.pos.y - SLAB_H > 12 || aufFahrzeug || player.mastHocke;
+    /* ---- An der Kante hockt es sich anders ----
+       Nur gesucht, wenn ueberhaupt still oben gestanden wird - der
+       Strahlentest kostet sonst in jedem Bild acht Suchlaeufe. */
+    const hochGenug = player.pos.y - SLAB_H > 12;
+    player.dachKante = (hochGenug && player.onGround && hSpeed < 1.2 &&
+                        !player.mastHocke && !aufFahrzeug)
+                       ? dachKante(player.pos.x, player.pos.z, player.pos.y) : null;
+    const hoch = hochGenug || aufFahrzeug || player.mastHocke;
     /* Auf dem Fahrzeug zaehlt die EIGENE Bewegung. Die des Wagens steckt
        gar nicht in player.vel - die Plattform verschiebt die Figur direkt -,
        deshalb genuegt hier das gewohnte Tempo. */
@@ -12388,8 +12456,24 @@ function updatePlayer(dt) {
                   !KAT.aktiv && player.state !== 'climb' && player.state !== 'swing';
     const warHocke = (player.hockeT || 0) > 0.9;
     /* Auf dem Fahrzeug schneller in die Hocke - man faehrt ja mit. */
+    /* An der Kante geht die Figur schnell in die Hocke - dort ist sie
+       gemeint. Mitten auf der Dachflaeche dauert es weiterhin lange,
+       damit man nicht bei jedem kurzen Stehenbleiben hockt. */
+    const anKante = !!player.dachKante && player.dachKante.d <= 1.6;
     player.hockeT = (hoch && ruhig)
-      ? (player.hockeT || 0) + dt * (aufFahrzeug || player.mastHocke ? 3.5 : 1) : 0;
+      ? (player.hockeT || 0) + dt * (aufFahrzeug || player.mastHocke ? 3.5
+                                     : anKante ? 2.6 : 0.8) : 0;
+    /* Und sie dreht sich dabei zur Kante, statt mit dem Ruecken zur
+       Tiefe zu hocken. Gedreht wird langsam und nur ohne Eingabe -
+       eine harte Drehung waere ein sichtbarer Sprung. */
+    if (anKante && ruhig && player.hockeT > 0.05 && player.hockeT < 1.6) {
+      const k = player.dachKante;
+      const ziel = Math.atan2(k.dx, k.dz);
+      let dw = ziel - player.facing;
+      while (dw > Math.PI) dw -= Math.PI * 2;
+      while (dw < -Math.PI) dw += Math.PI * 2;
+      player.facing += clamp(dw, -1, 1) * Math.min(1, dt * 4.5);
+    }
     /* Aufrichten: die Duckbewegung ab der Hockstelle nach vorn abspielen.
        Vorher wechselte die Figur in einem Bild von der Hocke in den
        Stand. */
@@ -12511,8 +12595,10 @@ const MOT = {
   liste: [], letzte: null,
   fovMax: 0, rollMax: 0,
   uebergaenge: {},
+  landungen: {},
 };
 function motMelden(art) { if (MOT.an) MOT[art] = (MOT[art] || 0) + 1; }
+function motLanden(art) { if (MOT.an) MOT.landungen[art] = (MOT.landungen[art] || 0) + 1; }
 function spielerTelemetrie(dt) {
   if (!MOT.an && !PLAYER_MOTION_DEBUG) return;
   const l = MOT.letzte;
@@ -20686,6 +20772,7 @@ if (window.__WEBHERO_TEST__ === true) {
       MOT.verloreneSprung = 0; MOT.verloreneSchwung = 0; MOT.verloreneAngriff = 0;
       MOT.gepufferteSprung = 0; MOT.gepufferteSchwung = 0; MOT.gepufferteAngriff = 0;
       MOT.liste.length = 0; MOT.letzte = null; MOT.uebergaenge = {};
+      MOT.landungen = {};
       MOT.fovMax = 0; MOT.rollMax = 0;
     },
     motStand() {
@@ -20697,6 +20784,7 @@ if (window.__WEBHERO_TEST__ === true) {
                             angriff: MOT.gepufferteAngriff },
                fovMax: +MOT.fovMax.toFixed(3), rollMax: +MOT.rollMax.toFixed(4),
                uebergaenge: Object.assign({}, MOT.uebergaenge),
+               landungen: Object.assign({}, MOT.landungen),
                liste: MOT.liste.slice(0, 40) };
     },
     tryJump, startSwing, stopSwing, findAnchor,
