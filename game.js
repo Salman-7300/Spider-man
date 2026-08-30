@@ -4151,6 +4151,7 @@ function loadGlbAssets(done) {
         const mass = messeModell(gltf.scene);
         const h = mass.maxY - mass.minY;
         glbModels[slot] = {
+          __quelle: slot,
           scene: gltf.scene,
           ruhe: ruheKarte(gltf.scene),
           /* Auch die im Modell selbst mitgelieferten Bewegungen bekommen
@@ -4640,6 +4641,9 @@ const SCHUSS_DAUER = 0.3;
    der einzige gemessene Fall (zip_ab -> zip_dreh) liess sich auch hart
    nicht retten und wird jetzt gar nicht mehr gefahren. */
 const HART_UEBERGANG = new Set();
+/* Nur zum Vergleichen in den Pruefskripten: das alte Zielverhalten ohne
+   Ruhelage (freie, zufaellige Rollung um die Knochenachse). */
+let ZIELE_ALT = false;
 let BLEND_ROLLE = 0.012;   // praktisch harter Schnitt, siehe rolleOneShot
 /* Kunststuecke in der Luft (Doppelsprung, Ueberschlag zwischen zwei
    Boegen) blenden weich ein. Mit dem harten Schnitt sprangen Knie und
@@ -5928,7 +5932,21 @@ function makeGlbVisual(m) {
 
   /* Einen Knochen auf einen Weltpunkt ausrichten (einfache Ziel-Kinematik).
      Die Knochenachse ergibt sich aus der Lage des Kindknochens. */
-  function zieleKnochen(bone, child, zielWelt, staerke) {
+  /* ---- Die Rollung um die eigene Achse muss mitbestimmt werden ----
+     setFromUnitVectors liefert die kuerzeste Drehung zwischen zwei
+     Richtungen und wurde hier als ABSOLUTE lokale Drehung gesetzt. Damit
+     war die Ruheausrichtung des Knochens verworfen und die Drehung um die
+     eigene Laengsachse voellig unbestimmt - bei einem gespiegelt
+     benannten Skelett faellt sie links anders aus als rechts.
+     Gemessen in der Dachhocke (scratchpad/torsion.js): der linke
+     Unterschenkel stand um 155 Grad um seine eigene Achse verdreht, der
+     rechte nur um 43; linker Oberarm 145 Grad, rechter 20. Die Richtung
+     stimmte jeweils - verdreht war der Knochen in sich, und genau das
+     schraubt beim Skinning das Mesh zusammen.
+     Jetzt wird die RUHEHALTUNG als Grundlage genommen und nur die noetige
+     Schwenkung daraufgelegt: die Torsion bleibt damit die der Ruhelage. */
+  const _zrA = new THREE.Vector3(), _zrQ = new THREE.Quaternion();
+  function zieleKnochen(bone, child, zielWelt, staerke, freieRollung) {
     if (!bone || !child) return;
     bone.updateMatrixWorld(true);
     _va.copy(child.position).normalize();                       // Knochenachse (lokal)
@@ -5936,7 +5954,16 @@ function makeGlbVisual(m) {
     _vb.subVectors(zielWelt, _vb).normalize();                  // Zielrichtung (Welt)
     bone.parent.getWorldQuaternion(_q2);
     _vb.applyQuaternion(_q2.invert());                          // in Elternraum
-    _q.setFromUnitVectors(_va, _vb);
+    const ruhe = (freieRollung || ZIELE_ALT) ? null : ruheDrehung.get(bone);
+    if (ruhe) {
+      /* Wohin zeigt der Knochen in seiner Ruhehaltung? */
+      _zrA.copy(_va).applyQuaternion(ruhe);
+      /* Nur die Drehung von dort zum Ziel - die Ruhetorsion bleibt. */
+      _zrQ.setFromUnitVectors(_zrA, _vb);
+      _q.copy(_zrQ).multiply(ruhe);
+    } else {
+      _q.setFromUnitVectors(_va, _vb);
+    }
     bone.quaternion.slerp(_q, staerke === undefined ? 1 : staerke);
     bone.updateMatrixWorld(true);
   }
@@ -6523,6 +6550,8 @@ function makeGlbVisual(m) {
        Weltkoordinaten taugen dafuer nicht: dreht sich die Figur (Rolle,
        Netz-Zug, Schwung), springt jeder Knochen in der Welt, obwohl die
        Haltung stetig bleibt. */
+    /* Ruhedrehung eines Knochens - fuer die Torsionsmessung. */
+    ruheVon(bone) { const q = ruheDrehung.get(bone); return q ? q.clone() : null; },
     laborKnochenLokal(liste) {
       root.updateMatrixWorld(true);
       const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
@@ -7893,6 +7922,11 @@ function makeCharacterVisual(kind, cfg) {
   }
   const v = m ? makeGlbVisual(m) : makeProceduralVisual(cfg);
   if (kind === 'civilian' && m) faerbeKleidung(v);
+  /* Welches Modell steckt wirklich dahinter? Fuer die Sichtpruefung
+     wichtig: dieselbe Bewegungsdatei kann auf zwei Modellen voellig
+     verschieden aussehen, wenn ihre Ruhehaltungen abweichen. */
+  v.art = kind;
+  v.quelle = m ? (m.__quelle || null) : 'prozedural';
   scene.add(v.root);
   return v;
 }
@@ -21951,6 +21985,7 @@ if (window.__WEBHERO_TEST__ === true) {
     animClip(key, t01) { return heroVisual && heroVisual.laborClip ? heroVisual.laborClip(key, t01) : null; },
     animAus() { if (heroVisual && heroVisual.laborAus) heroVisual.laborAus(); },
     setzeRollBlende(v) { BLEND_ROLLE = v; },
+    setzeZieleAlt(v) { ZIELE_ALT = !!v; },
     rollBlende() { return BLEND_ROLLE; },
     animKnochen(liste) { return heroVisual && heroVisual.laborKnochen ? heroVisual.laborKnochen(liste) : {}; },
     animKnochenLokal(liste) { return heroVisual && heroVisual.laborKnochenLokal ? heroVisual.laborKnochenLokal(liste) : {}; },
