@@ -20187,8 +20187,13 @@ const EV = {
 const EV_NAH = 55, EV_FERN = 190;
 /* Innerhalb dieses Winkels vor der Kamera gilt eine Stelle als "im Blick". */
 const EV_SICHT_KEGEL = 0.55;          // cos(56 Grad)
-/* Ab hier bemerkt der Spieler ein Ereignis von selbst. */
-const EV_ENTDECK_NAH = 42;
+/* Ab hier bemerkt der Spieler ein Ereignis von selbst - er steht dann
+   praktisch daneben. */
+const EV_ENTDECK_NAH = 55;
+/* So weit traegt ein Hilferuf oder Kampflaerm. Gemessen im 30-Minuten-Lauf
+   war die reine Sichtentdeckung zu wenig: wer nicht zufaellig in die
+   richtige Richtung schaut, bekommt sonst nie etwas mit. */
+const EV_HOER = 95;
 /* So lange gilt ein Ort nach einem Ereignis als gesperrt. */
 const EV_SPERRE = 95;
 /* Hoechstens so viele Ereignisse gleichzeitig: eines, das zaehlt, und
@@ -20454,12 +20459,23 @@ function evBaueUnfall(e) {
    Der Spieler soll ein Ereignis nicht magisch aus 500 m kennen. Es gilt
    als entdeckt, wenn er nah genug ist, es sieht, oder wenn er nah genug
    fuer den Hilferuf ist. */
+/* Macht das Ereignis Laerm? Ein Ueberfall mit Opfer und ein Kampf schon,
+   ein stehendes Auto nicht. */
+function evLaut(e) {
+  if (e.art === 'unfall') return !!(e.rettung && e.rettung.hilfeBar);
+  if (e.lebenszeit < 3) return false;
+  return e.gegner.some((g) => !g.dead);
+}
+
 function evPruefeEntdeckung(e) {
   if (e.entdeckt) return;
   const d = Math.hypot(e.ort.x - player.pos.x, e.ort.z - player.pos.z);
   let jetzt = false;
   if (d < EV_ENTDECK_NAH) jetzt = true;
-  else if (d < 110 && evImBlick(e.ort.x, e.ort.z)) jetzt = true;
+  /* Hoeren: wo gekaempft oder um Hilfe gerufen wird, ist es laut. Das
+     gilt nur fuer Ereignisse, in denen wirklich etwas los ist. */
+  else if (d < EV_HOER && evLaut(e)) jetzt = true;
+  else if (d < 130 && evImBlick(e.ort.x, e.ort.z)) jetzt = true;
   if (!jetzt) return;
   e.entdeckt = true;
   EV.statistik.entdeckt++;
@@ -20607,6 +20623,12 @@ function evEnde(e, erfolg, text) {
   }
   /* Eine kurze Nachphase: nicht alles verschwindet im selben Bild. */
   e.nachphase = erfolg ? 6 : 3;
+  /* ---- Haken fuer spaeter ----
+     Ein abgeschlossenes Ereignis merkt sich, dass hier eigentlich jemand
+     nachkommen muesste (Polizei, Rettungsdienst). Solange es dafuer keine
+     eigenen Figuren und keine KI gibt, wird nichts erzeugt - der Merker
+     steht nur bereit, damit die Rolle spaeter ohne Umbau dazukommt. */
+  e.brauchtNachschub = !erfolg || !!e.rettung;
   EV.gesperrt.push({ x: e.ort.x, z: e.ort.z, t: EV_SPERRE });
   EV.verlauf.push({ id: e.id, art: e.art, schwere: e.schwere,
                     erfolg, entdeckt: e.entdeckt,
@@ -22104,7 +22126,7 @@ if (window.__WEBHERO_TEST__ === true) {
       const teile = { updatePlayer, updateWetter, updateTagNacht, updateCars, updateHelis,
                       updateCivilians, updateEnemies, updateCamera, updateEffekte,
                       updateKlatscher, updateSpinnenSinn, updateKlang, updateVoegel, updateMission,
-                      updateHeroVisual };
+                      updateHeroVisual, updateWeltEreignisse };
       const out = {};
       for (const name in teile) {
         const f = teile[name];
