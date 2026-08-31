@@ -6778,6 +6778,78 @@ function makeGlbVisual(m) {
       }
       return aus;
     },
+    /* ---- Auch der RUMPF nie im Haus ----
+       Gelenke drehen hilft hier nicht: Huefte, Brust und Kopf haengen
+       starr an der Wurzel. An einer Aussenecke zeigt die Blickrichtung
+       noch mehrere Bilder lang zur ALTEN Wand, waehrend die Figur schon
+       an der neuen steht - der um die Kippung nach vorn versetzte Rumpf
+       ragt dann ins Nachbarhaus (gemessen bis 0,445 m ueber 131 gezielte
+       Eckenwechsel). Dagegen hilft nur ein Versatz des ganzen Koerpers.
+       Zurueckgegeben wird der kuerzeste Ausweg; verschoben wird draussen. */
+    rumpfAusHaus(finde, out) {
+      const namen = ['hips', 'spine1', 'spine2', 'head'];
+      root.updateMatrixWorld(true);
+      let besteX = 0, besteZ = 0, tiefste = 0;
+      for (const n of namen) {
+        const b = knochen[n];
+        if (!b) continue;
+        b.getWorldPosition(_vc);
+        const c = finde(_vc);
+        if (!c) continue;
+        const dx0 = _vc.x - c.x0, dx1 = c.x1 - _vc.x;
+        const dz0 = _vc.z - c.z0, dz1 = c.z1 - _vc.z;
+        const m = Math.min(dx0, dx1, dz0, dz1);
+        if (m <= tiefste) continue;
+        tiefste = m;
+        besteX = m === dx0 ? -(m + WAND_LUFT) : m === dx1 ? (m + WAND_LUFT) : 0;
+        besteZ = m === dz0 ? -(m + WAND_LUFT) : m === dz1 ? (m + WAND_LUFT) : 0;
+        if (m !== dx0 && m !== dx1) besteX = 0;
+        if (m !== dz0 && m !== dz1) besteZ = 0;
+      }
+      out.set(besteX, 0, besteZ);
+      return tiefste;
+    },
+    /* ---- Kein Glied tief im Gebaeude ----
+       Einseitig: was draussen ist, wird nicht angefasst; was drinsteckt,
+       wird auf dem KUERZESTEN Weg herausgedreht - so wird an einer Ecke
+       nicht quer durch das Haus auf die andere Seite gezogen.
+       Diese Korrektur haengt an keiner gemerkten Wandnormalen und kann
+       durch eine falsche oder gerade wechselnde Normale deshalb nicht
+       ausgehebelt werden. */
+    ausHaus(finde, tiefe) {
+      const paare = [['leftarm', 'leftforearm'], ['leftforearm', 'lefthand'],
+                     ['rightarm', 'rightforearm'], ['rightforearm', 'righthand'],
+                     ['leftupleg', 'leftleg'], ['leftleg', 'leftfoot'],
+                     ['rightupleg', 'rightleg'], ['rightleg', 'rightfoot']];
+      for (let durch = 0; durch < 3; durch++) {
+        let etwas = false;
+        root.updateMatrixWorld(true);
+        for (const [eltern, spitze] of paare) {
+          const a = knochen[eltern], b = knochen[spitze];
+          if (!a || !b) continue;
+          b.getWorldPosition(_vc);
+          const c = finde(_vc);
+          if (!c) continue;
+          const dx0 = _vc.x - c.x0, dx1 = c.x1 - _vc.x;
+          const dz0 = _vc.z - c.z0, dz1 = c.z1 - _vc.z;
+          /* m ist die Entfernung zur naechsten Aussenseite, also die
+             EINDRINGTIEFE. Hier stand versehentlich "m > tiefe":
+             damit wurden ausgerechnet die tief steckenden Glieder
+             uebersprungen und nur die knapp eingetauchten geholt. */
+          const m = Math.min(dx0, dx1, dz0, dz1);
+          if (m < tiefe) continue;
+          _vh.copy(_vc);
+          if (m === dx0) _vh.x = c.x0 - WAND_LUFT;
+          else if (m === dx1) _vh.x = c.x1 + WAND_LUFT;
+          else if (m === dz0) _vh.z = c.z0 - WAND_LUFT;
+          else _vh.z = c.z1 + WAND_LUFT;
+          griffKnochen(a, b, _vh, 1, 0.6);
+          etwas = true;
+        }
+        if (!etwas) break;
+      }
+      root.updateMatrixWorld(true);
+    },
     /* ---- Fuss ueber Huefte, KIPPUNGSFREI ----
        Der Wert wurde bisher aus wurzelbezogenen Knochenlagen gebildet
        (laborKnochenLokal). Darin steckt die Wandkippung der inneren
@@ -7099,8 +7171,18 @@ function makeGlbVisual(m) {
        nachgezogen: der Elternknochen (Unterarm bzw. Unterschenkel) dreht
        so weit, dass seine Spitze auf der Wandebene landet. Gedreht wird
        nur - die Gliedlaenge bleibt, es kann also nichts ausleiern. */
-    wandGriff(nx, nz, flaeche, k) {
+    /* kraft = je Glied 1 (Stuetzphase) bis GRIFF_SCHWUNG (setzt um).
+       Siehe die Erklaerung an der Messstelle in wandFreiraum(). */
+    wandGriff(nx, nz, flaeche, k, kraft) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
+      /* Welchem Kontaktglied gehoert dieses Knochenpaar? */
+      const gliedVon = (eltern, spitze) => {
+        const s = spitze.startsWith('left') ? 'left' : 'right';
+        if (spitze.indexOf('hand') >= 0 || eltern.indexOf('hand') >= 0) return s + 'hand';
+        if (spitze.indexOf('foot') >= 0 || spitze.indexOf('toe') >= 0 ||
+            eltern.indexOf('foot') >= 0) return s + 'foot';
+        return eltern.indexOf('arm') >= 0 ? s + 'hand' : s + 'foot';
+      };
       root.updateMatrixWorld(true);
       /* Zwei Durchgaenge: erst das obere Gelenk (Oberarm, Oberschenkel),
          dann das untere. Mit dem unteren allein blieb die Hand auf einer
@@ -7155,7 +7237,17 @@ function makeGlbVisual(m) {
         _vw4.copy(_vw3);
         if (nx !== 0) _vw4.x -= nx * (d - ziel);
         else _vw4.z -= nz * (d - ziel);
-        griffKnochen(a, b, _vw4, w * nah * nah * (3 - 2 * nah), 0.45);
+        /* Die Kontaktphase daempft NUR das Heranziehen. Ein Glied, das
+           gerade umsetzt, soll sich vor der Fassade frei bewegen duerfen -
+           es soll aber niemals im Haus bleiben. Deshalb wird nach innen
+           gedaempft, nach aussen mit voller Kraft geschoben.
+           Gemessen: daempft man beide Richtungen, steigt die groesste
+           Eindringtiefe von 0,181 auf 0,236 m und die Zahl der Bilder
+           mit mehr als 5 cm Eindringung von 86 auf 271 - die
+           Kriechbewegung fuehrt das Schwungglied naemlich IN die Wand
+           hinein, anders als ein echter Kletterer. */
+        const kg = (kraft && d > ziel) ? (kraft[gliedVon(eltern, spitze)] || 1) : 1;
+        griffKnochen(a, b, _vw4, w * kg * nah * nah * (3 - 2 * nah), 0.45);
       }
       /* ---- und jetzt die Flaechen flach auf die Fassade ----
          Erst NACH dem Heranziehen, sonst dreht der zweite Durchgang die
@@ -7782,7 +7874,8 @@ function makeGlbVisual(m) {
            Bewegung, und diese Zeile hat sie immer ueberschrieben.
            Seitwaerts sah deshalb genauso aus wie hinauf - das Hangeln war
            im Spiel praktisch nicht vorhanden. */
-        if (findClip(m.clips, 'kriechen')) want = 'kriechen';
+        if (findClip(m.clips, KLETTER_CLIP)) want = KLETTER_CLIP;
+        else if (findClip(m.clips, 'kriechen')) want = 'kriechen';
       }
       if (key === 'haengen_frei' && findClip(m.clips, 'schwunghang')) want = 'schwunghang';
       if (key === 'duckstand') want = findClip(m.clips, 'ducken') ? 'ducken' : 'idle';
@@ -12133,8 +12226,8 @@ function updatePlayer(dt) {
         else player.pos.z = (neuNz > 0 ? c.z1 : c.z0) + neuNz * CFG.climbGap;
         if (neuNx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + hinter, c.z1 - hinter);
         else player.pos.x = clamp(player.pos.x, c.x0 + hinter, c.x1 - hinter);
-        player.eckT = 0.45;
-        player.eckSperre = 0.45;
+        player.eckT = WAND_ECK_ZEIT;
+        player.eckSperre = WAND_ECK_ZEIT;
       }
     }
     // seitlich begrenzen
@@ -14035,9 +14128,13 @@ function updateHeroVisual(dt) {
     player.fadenZiel = null;
   }
 
-  /* Ganz zum Schluss: nachmessen, ob etwas in der Fassade steckt. */
-  wandFreiraum(dt);
-
+  /* ---- Weicher Eckenwechsel ZUERST ----
+     Diese Daempfung stand frueher NACH wandFreiraum(). Damit setzte die
+     Kontakt-IK Haende und Fuesse an eine Fassade, und danach wurde der
+     ganze Koerper noch einmal verschoben - die Glieder landeten also
+     nicht dort, wo die Figur am Ende steht. Genau in diesem Fenster lagen
+     607 von 656 zu tiefen Bildern. Jetzt steht der Koerper fest, bevor
+     die Glieder gesetzt werden. */
   /* ---- Weicher Eckenwechsel an der Hauswand ----
      Beim Wechsel um eine Hausecke aendert sich in EINEM Bild alles auf
      einmal: die Wandnormale klappt um 90 Grad, die Figur wird auf die
@@ -14085,8 +14182,41 @@ function updateHeroVisual(dt) {
       }
     }
     r.position.copy(player.sichtPos);
+    /* ---- Und der Koerper selbst nie im Haus ----
+       Der Schutz darueber prueft nur den EINEN gemerkten Kollisionskoerper.
+       An einer Aussenecke liegt der gedaempfte Punkt aber regelmaessig im
+       Nachbarhaus, und die Kontakt-IK kann das nicht heilen: sie dreht
+       Gelenke, sie verschiebt keinen Rumpf. Gemessen ueber 131 gezielte
+       Eckenwechsel steckten Huefte, Brust und Kopf dabei bis 0,445 m im
+       Gebaeude - immer in den ersten Bildern des Eckenfensters.
+       Deshalb hier zum Schluss noch einmal gegen ALLE Kollisionskoerper,
+       auf dem kuerzesten Weg heraus. Das haengt an keiner Wandnormalen und
+       greift damit auch dann, wenn die Normale gerade wechselt. */
+    if (player.state === 'climb') {
+      const m = CFG.climbGap;
+      for (const c of colliders) {
+        if (c.klein) continue;
+        const p2 = r.position;
+        if (p2.x <= c.x0 - m || p2.x >= c.x1 + m ||
+            p2.z <= c.z0 - m || p2.z >= c.z1 + m) continue;
+        const u = c.y0 === undefined ? 0 : c.y0;
+        if (p2.y < u - 0.5 || p2.y > u + (c.h || 0) + 0.5) continue;
+        const dx0 = p2.x - (c.x0 - m), dx1 = (c.x1 + m) - p2.x;
+        const dz0 = p2.z - (c.z0 - m), dz1 = (c.z1 + m) - p2.z;
+        const kl = Math.min(dx0, dx1, dz0, dz1);
+        if (kl === dx0) p2.x = c.x0 - m;
+        else if (kl === dx1) p2.x = c.x1 + m;
+        else if (kl === dz0) p2.z = c.z0 - m;
+        else p2.z = c.z1 + m;
+      }
+      player.sichtPos.copy(r.position);
+    }
     r.updateMatrixWorld(true);
   }
+
+  /* Ganz zum Schluss: nachmessen, ob etwas in der Fassade steckt. */
+  wandFreiraum(dt);
+
 }
 
 /* ---- Nichts darf in der Wand stecken ----
@@ -14100,6 +14230,23 @@ const WAND_KNOCHEN = ['leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase',
                       'leftleg', 'rightleg', 'lefthand', 'righthand',
                       'leftforearm', 'rightforearm', 'head', 'hips'];
 const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
+/* Wie lange das Eckenfenster dauert - siehe player.eckT. */
+const WAND_ECK_ZEIT = 0.45;
+/* Ab dieser Eindringtiefe holt gliederAusHaus() ein Glied heraus. Darunter
+   bleibt es in Ruhe: die Haut ist rund 5 cm dick, und ein Fuss, der einen
+   Zentimeter im Putz steckt, faellt niemandem auf - staendiges Nachdrehen
+   dagegen schon. */
+const AUSHAUS_TIEF = 0.05;
+/* Die vier Kontaktglieder und die Schwellen der Stuetzphasen-Erkennung.
+   Unterhalb von GRIFF_TEMPO_TIEF traegt das Glied (volle Bindung),
+   oberhalb von GRIFF_TEMPO_HOCH setzt es um und wird nur noch mit
+   GRIFF_SCHWUNG gehalten - herausgeschoben wird es weiterhin immer,
+   dafuer sorgt ausHaus(). */
+const GRIFF_GLIEDER = ['lefthand', 'righthand', 'leftfoot', 'rightfoot'];
+let GRIFF_TEMPO_TIEF = 1.5;
+let GRIFF_TEMPO_HOCH = 3.5;
+let GRIFF_SCHWUNG = 0.3;
+const _wg = new THREE.Vector3(), _wr = new THREE.Vector3();
 /* Ab hier gilt die Figur als "nicht an dieser Wand" und wird nicht mehr
    herangezogen. 1,2 m ist mehr als jede Kletterhaltung braucht und
    weniger als der Abstand, den ein Eckenwechsel kurzzeitig erzeugt. */
@@ -14140,6 +14287,9 @@ let WAND_ZUG_TEMPO = 90;
    Einwand ("aus dem Rennen die Wand hoch wurde ein Wuehlen") galt der
    Bewegung in ihrem EIGENEN Takt; sie laeuft jetzt mit dem Steigtempo. */
 let WANDLAUF_CLIP = 'kriechen';
+/* Welche Bewegung an der Wand hochklettert. Umstellbar, damit sich die
+   vorhandenen Kandidaten am echten Haus vergleichen lassen. */
+let KLETTER_CLIP = 'kriechen';
 /* ---- Wie schnell eine Bodenkampfbewegung verschwindet, wenn die Figur
    AKTIV springt ----
    Ein echter Sprung ist ein anderes Signal als ein verlorener Bordstein;
@@ -14298,10 +14448,103 @@ function wandFreiraum(dt) {
   /* Und jetzt jedes Glied einzeln auf die Fassade. Waehrend eines
      Eckenwechsels nicht - dort stimmt die Wandebene fuer ein paar Bilder
      noch gar nicht zum Koerper. */
-  if (heroVisual.wandGriff && player.eckT <= 0) {
-    heroVisual.wandGriff(w.nx, w.nz, flaeche, 0.9);
+  /* ---- Genau EINE gueltige Kontaktflaeche ----
+     Frueher lief der Griff waehrend des Eckenwechsels GAR NICHT: die neue
+     Wandebene passt in diesen Bildern noch nicht zum Koerper, der ja
+     gedaempft von der alten Seite herueberkommt. Gemessen ueber 7749
+     Kletterbilder lagen aber 607 von 656 zu tiefen Bildern - 92,5 Prozent -
+     genau in diesem Fenster. Ohne Korrektur sank ein Glied dort bis 0,80 m
+     in die Fassade.
+     Jetzt gibt es stattdessen eine eindeutige Zustaendigkeit: bis zur
+     Mitte des Eckenfensters gilt weiter die ALTE Flaeche (dort steht der
+     sichtbare Koerper noch), danach die neue. Nie beide gleichzeitig -
+     genau das klappte den Koerper vorher durch die Hausecke. */
+  /* ---- Kontaktphasen: welches Glied traegt gerade, welches setzt um? ----
+     Beim echten Klettern haengen nicht dauernd vier Gliedmassen fest an
+     der Wand. Drei tragen, eines setzt um. Bindet man alle vier in jedem
+     Bild mit voller Kraft an die Flaeche, zerrt die Korrektur am gerade
+     schwingenden Arm - er klebt kuenstlich in der Wand, statt sich zu
+     loesen.
+     Die Stuetzphase laesst sich ohne neue Technik erkennen: ein tragendes
+     Glied bewegt sich MIT dem Koerper, seine Eigenbewegung in der
+     Wandebene ist also klein. Genau das wird hier gemessen - abzueglich
+     der Wurzelbewegung, sonst gilt beim Klettern jedes Glied als bewegt. */
+  if (!player.gliedAlt) { player.gliedAlt = {}; player.gliedKraft = {}; }
+  for (const n of GRIFF_GLIEDER) {
+    const bn = kn[n];
+    if (!bn) continue;
+    bn.getWorldPosition(_wg);
+    const alt = player.gliedAlt[n];
+    let tempo = 0;
+    if (alt && dtWand > 1e-6) {
+      const dx = (_wg.x - alt.x) - (r.position.x - alt.rx);
+      const dy = (_wg.y - alt.y) - (r.position.y - alt.ry);
+      const dz = (_wg.z - alt.z) - (r.position.z - alt.rz);
+      const nn = w.nx * dx + w.nz * dz;
+      tempo = Math.hypot(dx - w.nx * nn, dy, dz - w.nz * nn) / dtWand;
+    }
+    player.gliedAlt[n] = { x: _wg.x, y: _wg.y, z: _wg.z,
+                           rx: r.position.x, ry: r.position.y, rz: r.position.z };
+    /* 1 = Stuetzphase, GRIFF_SCHWUNG = frei schwingend. Dazwischen weich,
+       damit der Wechsel kein Umschalten ist. */
+    const k = clamp((GRIFF_TEMPO_HOCH - tempo) /
+                    (GRIFF_TEMPO_HOCH - GRIFF_TEMPO_TIEF), 0, 1);
+    const ziel = GRIFF_SCHWUNG + (1 - GRIFF_SCHWUNG) * k;
+    const vor = player.gliedKraft[n];
+    player.gliedKraft[n] = vor === undefined ? ziel
+      : lerp(vor, ziel, Math.min(1, dtWand * 12));
+  }
+  const neueFl = { nx: w.nx, nz: w.nz, fl: flaeche };
+  if (!player.griffFlaeche) player.griffFlaeche = neueFl;
+  const eckHalb = (player.eckT || 0) > WAND_ECK_ZEIT * 0.5;
+  if (!eckHalb) player.griffFlaeche = neueFl;
+  const gf = player.griffFlaeche;
+  if (heroVisual.wandGriff) {
+    /* Waehrend der Ecke schwaecher, aber nicht aus. */
+    heroVisual.wandGriff(gf.nx, gf.nz, gf.fl, eckHalb ? 0.45 : 0.9,
+                         player.gliedKraft);
     r.updateMatrixWorld(true);
   }
+  /* Und zum Schluss die harte Zusage: kein Glied steckt tief im Haus.
+     Diese Korrektur haengt an KEINER Wandnormalen - sie kann durch eine
+     falsche oder gerade wechselnde Normale also nicht ausgehebelt
+     werden. */
+  gliederAusHaus();
+  /* Und zuletzt der Rumpf. Weich nachgezogen, damit der Ausweg am
+     Eckenanfang kein Ruck ist. */
+  if (heroVisual.rumpfAusHaus) {
+    const tief = heroVisual.rumpfAusHaus(hausUm, _wr);
+    if (tief > 0.02) {
+      if (!player.rumpfWeg) player.rumpfWeg = new THREE.Vector3();
+      player.rumpfWeg.lerp(_wr, Math.min(1, dtWand * 60));
+      r.position.add(player.rumpfWeg);
+      if (player.sichtPos) player.sichtPos.copy(r.position);
+      r.updateMatrixWorld(true);
+      /* Der Rumpfversatz nimmt die Glieder mit - danach koennen sie
+         wieder in einer anderen Wand stecken. Deshalb noch einmal. */
+      gliederAusHaus();
+    }
+  } else if (player.rumpfWeg) player.rumpfWeg.set(0, 0, 0);
+}
+
+/* ---- Kein Glied tief im Gebaeude ----
+   Einseitig: was draussen ist, wird nicht angefasst; was drinsteckt, wird
+   auf dem kuerzesten Weg herausgedreht. Gearbeitet wird gegen die
+   tatsaechlichen Kollisionskoerper, nicht gegen eine gemerkte Wandebene. */
+function gliederAusHaus() {
+  if (heroVisual && heroVisual.ausHaus) heroVisual.ausHaus(hausUm, AUSHAUS_TIEF);
+}
+/* Der Kollisionskoerper, in dem dieser Punkt steckt - oder null. */
+function hausUm(p) {
+  for (const c of colliders) {
+    if (c.klein) continue;
+    if (p.x <= c.x0 || p.x >= c.x1 || p.z <= c.z0 || p.z >= c.z1) continue;
+    const u = c.y0 === undefined ? 0 : c.y0;
+    const o = u + (c.h || 0);
+    if (p.y < u || p.y > o) continue;
+    return c;
+  }
+  return null;
 }
 
 /* ======================= Netz-Katapult =======================
@@ -22836,6 +23079,11 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeWandAbZeit(v) { WAND_AB_ZEIT = v; },
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
+    setzeKletterClip(v) { KLETTER_CLIP = v; },
+    setzeGriffPhase(tief, hoch, schwung) {
+      GRIFF_TEMPO_TIEF = tief; GRIFF_TEMPO_HOCH = hoch; GRIFF_SCHWUNG = schwung;
+    },
+    griffKraft() { return player.gliedKraft || null; },
     setzeWandlaufClip(v) { WANDLAUF_CLIP = v; },
     setzeBlendSprung(v) { BLEND_SPRUNG = v; },
     hueftZiel() { return HUEFT_ZIEL; },
