@@ -4751,11 +4751,29 @@ const KAU = {
   /* Nacken zeigt auf einen Punkt ueber sich (Weltmass), der Kopf
      bekommt danach nur die Blickneigung. */
   kopfHoch: 0.22, kopfVorn: 0.06, kopfNeig: 0.35,
-  knieV: 0.30, knieQ: 0.30, knieH: 0.05,     // Knie weit auseinander, knapp ueber der Huefte
-  fussV: 0.34, fussQ: 0.30, fussH: -0.80,    // Fuesse breit unter den Knien
+  /* ---- Tiefer und kompakter ----
+     Gemessen sass das Knie nur 0,058 m ueber der Huefte und die Fuesse
+     standen 0,618 m auseinander: das las sich als breite Froschhocke,
+     nicht als Perch. Die ikonische Haltung ist eng und tief - die
+     Oberschenkel kommen hoch, die Fuesse stehen unter dem Koerper. */
+  knieV: 0.26, knieQ: 0.25, knieH: 0.19,     // Knie eng und deutlich ueber der Huefte
+  fussV: 0.32, fussQ: 0.24, fussH: -0.78,    // Fuesse schmal unter den Knien
   fussDreh: 0.16, zehTief: 0.05, zehQuer: 0.075,
   armV: 0.35, armQ: 0.62, armRest: 0.42,     // Arme NEBEN den Knien, nicht davor
   handV: 0.42, handQ: 0.72, handHoch: 0.21,
+  /* ---- Und nicht spiegelsymmetrisch ----
+     Beide Haende gleich weit vorn und gleich weit aussen sahen aus wie
+     eine Turnuebung. Die bekannte Haltung ist unsymmetrisch: eine Hand
+     stuetzt vorn nahe der Mitte auf, der andere Arm bleibt aussen am Knie
+     und etwas hoeher. Der Unterschied macht die Silhouette lesbar. */
+  /* Gestaffelt VOR/ZURUECK, nicht nach aussen. Der erste Versuch schob
+     den freien Arm zur Seite und nach oben (freiQuer 1,20 / freiHoch
+     2,1) - gemessen standen die Haende danach 0,955 m auseinander und die
+     linke 0,394 m ueber dem Dach: das sah aus, als greife die Figur nach
+     etwas neben sich, nicht als hocke sie. Beide Haende bleiben deshalb
+     auf der Flaeche; unsymmetrisch ist nur, wie weit vorn sie liegen. */
+  fuehrVor: 1.40, fuehrQuer: 0.55,           // die aufstuetzende (rechte) Hand
+  freiVor: 0.60, freiQuer: 0.95, freiHoch: 1.0,   // die hintere (linke) Hand
 };
 /* Wie weit die Sohle unter dem Knoechel liegt (fuer die Stuetzebene der
    Haende). KAU.handHoch sagt, wie hoch das Handgelenk ueber dieser Ebene
@@ -4766,6 +4784,19 @@ const KAU_SOHLE = 0.095;
    Fuesse standen 0,37 m von der Mastachse entfernt, der Mast hat aber nur
    0,30 m Radius. Mit 0,42 sind es 0,21 m - alles liegt auf. */
 const KAU_ENG = 0.42;
+/* ---- Dach-Perch und Mast-Perch sind zwei verschiedene Haltungen ----
+   Die tiefe, kompakte Perch-Haltung ist fuer die Dachkante gemacht. Auf
+   einer Laterne bringt sie die Schulter naeher an die Sohlenebene, und
+   weil der Zielpunkt der Hand auf dieser Ebene liegt, greift der Arm
+   dann weiter aus: gemessen standen die Haende auf einem Mast mit 0,30 m
+   Radius ploetzlich 0,58 statt 0,38 m von der Achse entfernt - also
+   neben dem Halt in der Luft.
+   Nur den Arm schmaler zu stellen half nicht (0,58 -> 0,54): die
+   Reichweite bleibt gleich, sie dreht sich lediglich nach vorn. Auf
+   einem schmalen Halt gilt deshalb weiter die flachere Hocke von
+   vorher - dort passt sie, und sie muss auch nicht ikonisch sein. */
+const KAU_MAST = { knieV: 0.30, knieQ: 0.30, knieH: 0.05,
+                   fussV: 0.34, fussQ: 0.30, fussH: -0.80 };
 
 const GLB_CLIP_PATTERNS = {
   idle: [/idle/i, /stand/i, /breath/i],
@@ -7089,7 +7120,12 @@ function makeGlbVisual(m) {
        auf dem Halt aufliegt. */
     poseKauern(k, eng) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
-      const q = 1 - clamp(eng === undefined ? 0 : eng, 0, 1) * KAU_ENG;
+      const eg = clamp(eng === undefined ? 0 : eng, 0, 1);
+      const q = 1 - eg * KAU_ENG;
+      /* Zwischen Dach-Perch und Mast-Perch ueberblenden. */
+      const M = (n) => lerp(KAU[n], KAU_MAST[n], eg);
+      const kV = M('knieV'), kQ = M('knieQ'), kH = M('knieH');
+      const fV = M('fussV'), fQ = M('fussQ'), fH = M('fussH');
       const hueft = knochen.hips;
       if (!hueft) return;
       /* Erst der Rumpf: rund nach vorn, Kopf dagegen wieder hoch. Er wird
@@ -7150,10 +7186,10 @@ function makeGlbVisual(m) {
         const fuss = knochen[p + 'foot'];
         if (ober && unter) {
           /* Knie nach VORN OBEN - das macht die Hocke aus. */
-          zieleKnochen(ober, unter, ziel(KAU.knieV, vz * KAU.knieQ * q, KAU.knieH), w);
+          zieleKnochen(ober, unter, ziel(kV, vz * kQ * q, kH), w);
           if (fuss) {
             /* Unterschenkel wieder nach hinten unten auf den Boden. */
-            zieleKnochen(unter, fuss, ziel(KAU.fussV, vz * KAU.fussQ * q, KAU.fussH), w);
+            zieleKnochen(unter, fuss, ziel(fV, vz * fQ * q, fH), w);
             /* Fussohle flach und die Zehen NACH VORN.
                Vorher stand hier nur eine feste Nachdrehung des Fusses.
                Das reichte nicht: zieleKnochen richtet den Unterschenkel
@@ -7215,9 +7251,20 @@ function makeGlbVisual(m) {
             .addScaledVector(_vw1, vz * quer * waag)
             .setY(_vw3.y - Math.min(hoch, laenge));
         };
-        zieleKnochen(arm, varm, aufEbene(arm, varm, KAU.armV * q, KAU.armQ * q, KAU.armRest), w);
+        /* Auf einem schmalen Halt wird die Unsymmetrie zurueckgenommen -
+           dort brauchen beide Haende den Mast. */
+        const sym = 1 - eg;
+        const fuehrend = p === 'right';
+        const fv = 1 + ((fuehrend ? KAU.fuehrVor : KAU.freiVor) - 1) * sym;
+        const fq = 1 + (((fuehrend ? KAU.fuehrQuer : KAU.freiQuer)) - 1) * sym;
+        const fh = 1 + (((fuehrend ? 1 : KAU.freiHoch)) - 1) * sym;
+        zieleKnochen(arm, varm,
+          aufEbene(arm, varm, KAU.armV * q * fv, KAU.armQ * q * fq,
+                   KAU.armRest), w);
         varm.updateMatrixWorld(true);
-        zieleKnochen(varm, hand, aufEbene(varm, hand, KAU.handV * q, KAU.handQ * q, KAU.handHoch), w);
+        zieleKnochen(varm, hand,
+          aufEbene(varm, hand, KAU.handV * q * fv, KAU.handQ * q * fq,
+                   KAU.handHoch * fh), w);
       }
     },
     poseDreiPunkt(k, seite) {
