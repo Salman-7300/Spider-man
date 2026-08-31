@@ -5738,6 +5738,21 @@ function makeGlbVisual(m) {
   const basisY = inner.position.y;
   /* Kippung der inneren Gruppe (Wandkriechen), immer <= 0. */
   let innerKipp = 0;
+  /* Bremse fuer den Bodenausgleich. Waehrend des Wandabgangs steht der
+     Koerper noch schraeg und die Kriechbewegung laeuft noch mit fast
+     vollem Gewicht - der "tiefste Fuss" ist dann kein Fuss auf dem Boden,
+     sondern ein Fuss an der Fassade. Gemessen riss der Ausgleich die Figur
+     dadurch in EINEM Bild 30,5 cm nach unten (inner.position.y 0,979 ->
+     0,674). 1 = ganz aus, 0 = normal. */
+  let ausgleichBremse = 0;
+  /* Den Bodenausgleich anlegen. Waehrend des Wandabgangs wird er
+     ANTEILIG angelegt: an der Wand haelt wandKriechen() die Figur auf
+     basisY (dort ist "unten" die Fassade, der Bodenausgleich waere
+     sinnlos), am Boden gilt er voll. Ohne diesen Anteil sprang die Figur
+     im ersten Bodenbild um die volle Korrektur - gemessen 23,6 cm. */
+  const legeY = (extra) => {
+    inner.position.y = basisY + bodenKorrektur * (1 - ausgleichBremse) + (extra || 0);
+  };
   let fussRuhe = null, bodenKorrektur = 0, schattenAn = true;
   /* Höhe des Knöchels über der Sohle. */
   const KNOECHEL_HOCH = 0.095;
@@ -5785,6 +5800,9 @@ function makeGlbVisual(m) {
   });
   const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
   const _va = new THREE.Vector3(), _vb = new THREE.Vector3();
+  /* Hilfsgroessen fuer laborFussUeberHuefte. */
+  const _vc = new THREE.Vector3(), _vh = new THREE.Vector3();
+  const _qb = new THREE.Quaternion();
   /* Ruhelage jedes Knochens JETZT sichern – vor der ersten Bewegung.
      Beim Mixamo-Skelett liegt die Ruhedrehung der Oberschenkel bei rund
      ±π um Z. Wer diese Winkel als Eulerwerte gegen 0 zieht, dreht das Bein
@@ -6663,6 +6681,14 @@ function makeGlbVisual(m) {
     },
     /* Ist die Figur gerade an die Wand gekippt? */
     get wandGekippt() { return innerKipp < -0.02; },
+    /* Rohwerte der Wandkippung - nur fuer die Fehlersuche. */
+    get kippWerte() {
+      return { kipp: +innerKipp.toFixed(4),
+               rollZ: +inner.rotation.z.toFixed(4),
+               posY: +inner.position.y.toFixed(4),
+               korr: +bodenKorrektur.toFixed(4), brems: +ausgleichBremse.toFixed(3),
+               posZ: +inner.position.z.toFixed(4) };
+    },
     /* ================= Animationslabor (nur Tests) =================
        Eine Bewegung isoliert und angehalten an einer bestimmten Stelle
        zeigen. Ohne das muesste man fuer jeden Frame durch die halbe Stadt
@@ -6752,6 +6778,32 @@ function makeGlbVisual(m) {
       }
       return aus;
     },
+    /* ---- Fuss ueber Huefte, KIPPUNGSFREI ----
+       Der Wert wurde bisher aus wurzelbezogenen Knochenlagen gebildet
+       (laborKnochenLokal). Darin steckt die Wandkippung der inneren
+       Gruppe mit drin: derselbe unveraenderte Koerper liefert bei -90
+       Grad einen voellig anderen Zahlenwert. Genau daher stammten die
+       gemeldeten "Bein 0,62 m ueber der Huefte" und der scheinbare
+       Sprung von 0,230 auf 0,478 m beim Wandabgang - im Koerpersystem
+       gemessen bewegte sich dort in Wahrheit kein Knochen (-0,526 vor
+       und nach dem Uebergang).
+       Deshalb wird hier auf die Hochachse des BECKENS projiziert. Der
+       Wert ist damit unabhaengig von Kippung und Blickrichtung. */
+    laborFussUeberHuefte() {
+      const h = knochen.hips;
+      if (!h) return null;
+      root.updateMatrixWorld(true);
+      h.getWorldPosition(_vb); h.getWorldQuaternion(_qb);
+      _vh.set(0, 1, 0).applyQuaternion(_qb);
+      const aus = {};
+      for (const s of ['leftfoot', 'rightfoot']) {
+        const f = knochen[s];
+        if (!f) continue;
+        f.getWorldPosition(_vc);
+        aus[s] = +_vc.sub(_vb).dot(_vh).toFixed(4);
+      }
+      return aus;
+    },
     /* Welche Bewegungen laufen gerade mit welchem Gewicht? Damit laesst
        sich pruefen, ob ein Knochen mehrere "Besitzer" hat. */
     laborGewichte() {
@@ -6773,7 +6825,18 @@ function makeGlbVisual(m) {
         inner.rotation.x = innerKipp;
       } else if (inner.rotation.x !== 0) { innerKipp = 0; inner.rotation.x = 0; }
       /* Die Rolle um die Wandnormale genauso zuruecknehmen - sonst haengt
-         die Figur nach dem Loslassen quer in der Luft. */
+         die Figur nach dem Loslassen quer in der Luft.
+         ERST AUF DEN KURZEN WEG BRINGEN: wandKriechen() dreht in kleinen
+         Schritten immer ueber den kuerzesten Weg und laesst den Zahlenwert
+         dabei aufwachsen. Gemessen stand beim Ablegen von der Wand
+         rotation.z = 4,709 - dasselbe wie -1,574, aber das Herunterziehen
+         auf null nahm den Zahlenwert woertlich und drehte die Figur 270
+         Grad vorwaerts statt 90 Grad zurueck. Genau das war der grosse
+         sichtbare Schlenker beim Abgang auf Mast und Laterne. */
+      if (WAND_AB_AN) {
+        while (inner.rotation.z > Math.PI) inner.rotation.z -= Math.PI * 2;
+        while (inner.rotation.z < -Math.PI) inner.rotation.z += Math.PI * 2;
+      }
       if (Math.abs(inner.rotation.z) > 0.0005) {
         inner.rotation.z = lerp(inner.rotation.z, 0, Math.max(k, 0.12));
       } else inner.rotation.z = 0;
@@ -7389,9 +7452,12 @@ function makeGlbVisual(m) {
          Früher sprang er nach oben sofort – beim Laufen wandert der tiefste
          Fuß aber in jedem Schritt auf und ab, dadurch hüpfte der ganze
          Körper im Schritttakt. Genau das hat das Laufen unruhig gemacht. */
-      bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.35));
-      inner.position.y = basisY + bodenKorrektur;
+      const kk = clamp(k === undefined ? 0.12 : k, 0, 0.35) * (1 - ausgleichBremse);
+      bodenKorrektur = lerp(bodenKorrektur, ziel, kk);
+      legeY();
     },
+    /* Siehe ausgleichBremse. */
+    setzeAusgleichBremse(v) { ausgleichBremse = clamp(v, 0, 1); },
     /* ---- Ein Arm greift zum Netzfaden ----
        Wer eine Muelltonne am Faden vor sich her traegt, laesst den Arm
        nicht herunterhaengen. Vorher tat er genau das: der Gegenstand
@@ -7429,7 +7495,7 @@ function makeGlbVisual(m) {
       for (const b of punkte) { b.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
       const ziel = clamp(bodenKorrektur + (root.position.y - tiefster), -1.1, 0.9);
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.5));
-      inner.position.y = basisY + bodenKorrektur;
+      legeY();
     },
     /* Ducken: tief in die Knie, Rumpf nach vorn, Arme angelegt. Die
        Laufbewegung liefert weiter den Takt, diese Pose legt sich darüber –
@@ -7458,7 +7524,7 @@ function makeGlbVisual(m) {
         for (const f of fuesse) { f.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
         inner.position.y += (fussRuhe - 0.015) - (tiefster - root.position.y);
       } else {
-        inner.position.y = basisY + bodenKorrektur - 0.34 * w;
+        legeY(-0.34 * w);
       }
     },
     /* ---- Auf einer Bank sitzen ----
@@ -7621,7 +7687,7 @@ function makeGlbVisual(m) {
       const ueber = tiefster - root.position.y - 0.05;      // Restluft
       const ziel = clamp(bodenKorrektur - ueber, -1.6, 0.35);
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.25 : k, 0, 1));
-      inner.position.y = basisY + bodenKorrektur;
+      legeY();
     },
     /* Gibt es für diesen Zustand eine echte geladene Bewegung?
        Wenn ja, hat sie Vorrang vor allen selbstgebauten Posen. */
@@ -13156,9 +13222,14 @@ function updatePlayer(dt) {
     /* Auf dem Fahrzeug zaehlt die EIGENE Bewegung. Die des Wagens steckt
        gar nicht in player.vel - die Plattform verschiebt die Figur direkt -,
        deshalb genuegt hier das gewohnte Tempo. */
+    /* Waehrend des Wandabgangs noch nicht in die Hocke gehen: sonst baut
+       die Hocke ihre Haltung auf, waehrend die Wandhaltung noch fuehrt -
+       genau die beiden Besitzer, die sich am Mast im Bild gestritten
+       haben. Erst Wand loesen, dann hocken. */
     const ruhig = player.onGround && !dir && hSpeed < 0.6 && !player.attack &&
                   player.rollT <= 0 && player.hitT <= 0 && !player.duckt &&
-                  !KAT.aktiv && player.state !== 'climb' && player.state !== 'swing';
+                  !KAT.aktiv && player.state !== 'climb' && player.state !== 'swing' &&
+                  !((player.wandAbT || 0) > 0);
     const warHocke = (player.hockeT || 0) > 0.9;
     /* Auf dem Fahrzeug schneller in die Hocke - man faehrt ja mit. */
     /* An der Kante geht die Figur schnell in die Hocke - dort ist sie
@@ -13413,6 +13484,17 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
 /* Wie weit der Setzpunkt der Figur beim Wandkriechen von der Wand weg
    liegt. Wird unten nachgemessen. */
 let KRIECH_TIEFE = 0.30;
+/* Dauer des kontrollierten Wandabgangs. Sie ist bewusst etwas laenger als
+   die Ausblende des Wandclips (0,22 s) - sonst waere die Haltung schon
+   weg, waehrend der Clip noch sichtbar ist. */
+let WAND_AB_ZEIT = 0.26;
+/* Beim Kantenzug laeuft der Abgang um diesen Faktor schneller ab. */
+let WAND_AB_KANTE = 3.2;
+/* Nur fuer den Vorher/Nachher-Vergleich abschaltbar: false stellt den
+   alten, harten Abgang wieder her (kein Abgangsfenster, keine Bremse,
+   Rolle wird ueber den Zahlenwert statt ueber den kuerzesten Weg
+   heruntergezogen). */
+let WAND_AB_AN = true;
 /* Eigengeschwindigkeit der Kriechbewegung AN DER WAND. Am Boden sind es
    0,85 m/s (GANG_REF), an der Fassade weniger: dort greift die Hand nach
    oben und der Koerper zieht nach, die Hand legt also je Takt weniger
@@ -13628,9 +13710,6 @@ function updateHeroVisual(dt) {
     }
   }
 
-  if (player.state !== 'climb' && heroVisual.versatzAus) {
-    heroVisual.versatzAus(Math.min(1, dt * 8));
-  }
   /* Wandkriechen: an einer echten Hauswand, nicht beim Wandlauf und nicht
      beim ruhigen Haengen. Braucht die Kriechbewegung. */
   /* An der Wand gibt es zwei Bewegungen, und beide werden mit DERSELBEN
@@ -13646,6 +13725,70 @@ function updateHeroVisual(dt) {
     : player.wandlauf && heroVisual.hatClip && heroVisual.hatClip('run') ? 'lauf'
     : heroVisual.hatClip && heroVisual.hatClip('kriechen') ? 'kriechen' : null;
   player.wandKriechen = !!player.wandModus;
+  /* ================= Kontrollierter Abgang von der Wand =================
+     Gemessen an Mast und Laterne: der Zustand springt in EINEM einzigen
+     Bild von climb auf ground. In genau diesem Bild passierte alles
+     gleichzeitig und jedes mit einem anderen Tempo:
+       wandModus -> null      : alle Wandhaltungen fielen hart weg,
+       Clip 'kriechen'        : lief mit 0,924 Gewicht noch 13 Bilder weiter,
+       versatzAus             : zog Kippung und Rolle mit dt*8 herunter,
+       bodenAusgleich         : riss den Koerper 30,5 cm nach unten,
+       mastHocke/hockeT       : begann sofort die Hocke aufzubauen.
+     Ergebnis war die gemeldete Zwischenpose: Bein 0,478 m ueber der
+     Huefte, Koerper noch liegend, Zustand aber schon ground.
+     Eine andere Blendzahl half deshalb nicht - es fehlte eine PHASE.
+     Diese Phase gehoert dem Wandabgang: solange sie laeuft, fuehrt die
+     Wandhaltung weiter und wird gemeinsam mit dem Clip heruntergefahren.
+     Erst danach uebernehmen Bodenausgleich und Hocke. */
+  if (player.wandModus && player.wallInfo) {
+    player.wandLetztN = player.wandLetztN || { x: 0, z: 0 };
+    player.wandLetztN.x = player.wallInfo.nx;
+    player.wandLetztN.z = player.wallInfo.nz;
+  }
+  if (WAND_AB_AN && player.wandModusAlt && !player.wandModus &&
+      heroVisual.wandGekippt) {
+    player.wandAbT = WAND_AB_ZEIT;
+  }
+  player.wandModusAlt = player.wandModus;
+  /* Der Kantenzug ist selbst schon ein sauber gebauter Uebergang: die
+     Bewegung 'kante' zieht die Figur ueber die Bruestung, und sie soll
+     dabei nicht mehr seitlich an der Wand liegen. Gemessen ueber 61
+     Uebergaenge liefen 900 Kantenbilder mit noch deutlich gekipptem
+     Koerper. Das Fenster wird deshalb hier verkuerzt - NICHT hart
+     abgeschnitten: ein harter Schnitt gab die Kippung an versatzAus
+     zurueck und erzeugte dort wieder einen Sprung von 0,209 rad in einem
+     Bild. Verkuerzt bleibt der Verlauf stetig. */
+  if (player.wandAbT > 0) {
+    /* Beim Kantenzug schneller, aber weiter STETIG: ein hartes Kuerzen des
+       Fensters (auf 0 oder auf einen festen Restwert) verschob den Sprung
+       nur - die Kippung machte dann 0,209 bzw. 0,316 rad in einem Bild.
+       Ueber das Tempo bleibt der Verlauf glatt. */
+    player.wandAbT = Math.max(0, player.wandAbT -
+      dt * (player.state === 'kante' ? WAND_AB_KANTE : 1));
+  }
+  /* Anteil der noch laufenden Wandphase, 1 -> 0. */
+  const wandAb = clamp((player.wandAbT || 0) / WAND_AB_ZEIT, 0, 1);
+  /* An der Wand ueberschreibt wandKriechen() inner.position.y ohnehin.
+     Der Bodenausgleich lief darunter blind weiter und driftete gemessen
+     auf -0,236 - unsichtbar, bis die Figur die Wand verliess: dann wurde
+     genau dieser Wert in einem Bild wirksam. Deshalb wird er an der Wand
+     eingefroren und erst nach dem Abgang wieder freigegeben. */
+  if (heroVisual.setzeAusgleichBremse) {
+    heroVisual.setzeAusgleichBremse(!WAND_AB_AN ? 0
+                                    : player.state === 'climb' ? 1 : wandAb);
+  }
+  if (wandAb > 0.001 && heroVisual.wandKriechen) {
+    /* Kippung, Rolle und Tiefe zusammen mit dem Clip herunterfahren.
+       wandKriechen() dreht die Rolle ueber den kuerzesten Weg - dadurch
+       loest sich die Figur zurueck aus der Wand statt sich vorwaerts
+       durchzudrehen. */
+    heroVisual.wandKriechen(wandAb, KRIECH_TIEFE * wandAb,
+                            (player.wandRoll || 0) * wandAb);
+    const n = player.wandLetztN;
+    if (n && heroVisual.wandHuefteFlach) heroVisual.wandHuefteFlach(n.x, n.z, wandAb);
+  } else if (player.state !== 'climb' && heroVisual.versatzAus) {
+    heroVisual.versatzAus(Math.min(1, dt * 8));
+  }
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
   heroVisual.play(player.anim, {
     wandKriechen: player.wandKriechen,
@@ -22382,6 +22525,8 @@ function poseLogSchreibe(dt) {
     },
     ort: [+player.pos.x.toFixed(2), +player.pos.y.toFixed(2), +player.pos.z.toFixed(2)],
     gier: +player.facing.toFixed(3),
+    kipp: heroVisual.kippWerte || null,
+    fussHoch: heroVisual.laborFussUeberHuefte ? heroVisual.laborFussUeberHuefte() : null,
     wand: w ? [+w.nx.toFixed(2), +w.nz.toFixed(2)] : null,
     wandAbstand: player.state === 'climb' ? poseLogWandAbstand() : null,
     kanteAbstand: (player.hockeT || 0) > 0.9
@@ -22421,15 +22566,19 @@ function poseLogPruefe(e) {
       else if (w > 0.35 && POSE_LOG.luftBilder > 15) melde('kampfInLuftHaengt', n);
     }
   } else POSE_LOG.luftBilder = 0;
-  /* 2. Bein unnatuerlich hoch: Fuss ueber Hueftmitte, ohne Angriff.
-     NICHT an der Wand: dort liegt die Figur um 90 Grad gekippt, und ein
-     Fuss ueber der Huefte ist die Regel statt die Ausnahme. Ohne diese
-     Einschraenkung meldete der Logger in einem 15-Minuten-Lauf 3692 Mal
-     eine Selbstverstaendlichkeit. */
-  if (!e.flags.attack && e.zustand !== 'climb' && !e.flags.wandModus) {
-    for (const s of ['leftfoot', 'rightfoot']) {
-      const f = e.knochen[s];
-      if (f && f.y - h.y > 0.15) melde('beinZuHoch', { seite: s, ueberHuefte: +(f.y - h.y).toFixed(3) });
+  /* 2. Bein unnatuerlich hoch: Fuss ueber der Huefte, ohne Angriff.
+     Frueher wurde dafuer die WURZELBEZOGENE Knochenlage genommen. Darin
+     steckt die Wandkippung mit drin - an der Wand meldete der Logger
+     dadurch in einem 15-Minuten-Lauf 3692 Mal eine Selbstverstaendlich-
+     keit, und der Ausweg war, den Kletterzustand einfach auszunehmen.
+     Damit war die Pruefung aber genau dort blind, wo der gemeldete
+     Fehler sass: im Uebergang von der Wand herunter.
+     Jetzt wird im Koerpersystem gemessen (laborFussUeberHuefte), und die
+     Ausnahme kann entfallen. */
+  if (!e.flags.attack && e.fussHoch) {
+    for (const s in e.fussHoch) {
+      const v = e.fussHoch[s];
+      if (v > 0.15) melde('beinZuHoch', { seite: s, ueberHuefte: +v.toFixed(3) });
     }
   }
   /* 3. Wandkontakt. Ein SCHWUNGBEIN darf die Wand im Schritt verlassen -
@@ -22682,6 +22831,9 @@ if (window.__WEBHERO_TEST__ === true) {
        ist fuer den Netzschwung aber Pflicht. */
     taste(code, an) { keys[code] = !!an; },
     setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
+    /* Siehe WAND_AB_AN - nur fuer den Vorher/Nachher-Vergleich. */
+    setzeWandAbgang(v) { WAND_AB_AN = !!v; },
+    setzeWandAbZeit(v) { WAND_AB_ZEIT = v; },
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     setzeWandlaufClip(v) { WANDLAUF_CLIP = v; },
