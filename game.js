@@ -7685,7 +7685,8 @@ function makeGlbVisual(m) {
          Rueckschritt: das ist ein flaches Kriechen, und aus dem Rennen die
          Wand hoch wurde damit ein Wuehlen. */
       if (p.wandModus === 'lauf') {
-        if (findClip(m.clips, 'run')) want = 'run';
+        if (findClip(m.clips, WANDLAUF_CLIP)) want = WANDLAUF_CLIP;
+        else if (findClip(m.clips, 'run')) want = 'run';
       } else if (p.wandModus === 'kriechen') {
         /* An der Wand fuehrt die Kriechbewegung - die, mit der die
            Wandkippung gebaut wurde.
@@ -12061,7 +12062,9 @@ function updatePlayer(dt) {
       const vSteig = Math.abs(hoch);
       /* Beim Rennen die Eigengeschwindigkeit des Laufs, beim Klettern die
          der Kriechbewegung an der Wand. */
-      const eigen = player.wandlauf ? (GANG_REF.run || 4.2) : KLETTER_REF;
+      /* Der Wandlauf faehrt jetzt dieselbe Bewegung wie das Klettern,
+         also gilt auch dieselbe Eigengeschwindigkeit. */
+      const eigen = KLETTER_REF;
       player.klettertempo = clamp(vSteig / eigen, 0.5, 5.0) * (up < 0 ? -1 : 1);
     }
     /* Oben angekommen → über die Kante ziehen. Vorher wurde die Figur
@@ -13928,6 +13931,32 @@ const WAND_ZUG_WEIT = 1.2;
    Ab rund dt*90 ist die Durchdringung vollstaendig weg; darueber aendert
    sich nichts mehr. Siehe wandFreiraum. */
 let WAND_ZUG_TEMPO = 90;
+/* ---- Welche Bewegung den Wandlauf fuehrt ----
+   Hier lief der aufrechte Laufschritt, zur Wand gekippt. Der ist dafuer
+   geometrisch ungeeignet, und das laesst sich messen. Kippt man eine
+   Figur um -90 Grad an die Wand, wird aus "unten" die Richtung IN die
+   Fassade. Ein Clip passt also nur, wenn Haende und Fuesse auf aehnlicher
+   Hoehe liegen. Abstand Haende zu Fuessen laengs dieser Achse, ueber je
+   24 Stellen des Clips:
+     kriechen       0,06 bis 0,17 m   Rumpf 0,364 ueber dem tiefsten Punkt
+     klettern       0,28 bis 1,06     Rumpf 1,019
+     wandlauf       0,40 bis 0,86     Rumpf 0,910
+     sprint         0,59 bis 0,83     Rumpf 1,124
+     run            0,67 bis 0,88     Rumpf 1,170
+   Mit dem Laufschritt stehen die Haende also gut einen halben Meter neben
+   der Wand in der Luft, und keine Zielkinematik holt sie dort heran -
+   ein Arm, dessen Schulter einen halben Meter weg ist, laesst sich nicht
+   flach an die Fassade drehen, ohne dass er verrenkt aussieht.
+   Im Spiel an derselben Stelle gemessen (Abstand zur Fassade, und wie
+   flach die Handflaeche aufliegt; -1 waere flach):
+     run        Brust 0,484  Kopf 0,639  Haende 0,128 / 0,298  Flaeche -0,55 / +0,03
+     wandlauf   Brust 0,473  Kopf 0,526  Haende 0,451 / 0,812  Flaeche -0,86 / -0,59
+     kriechen   Brust 0,205  Kopf 0,205  Haende 0,088 / 0,067  Flaeche -0,96 / -0,94
+   Es ist also dieselbe Bewegung wie beim Klettern, nur schneller
+   abgespielt - und genau das ist ein Wandlauf. Der frueher hier notierte
+   Einwand ("aus dem Rennen die Wand hoch wurde ein Wuehlen") galt der
+   Bewegung in ihrem EIGENEN Takt; sie laeuft jetzt mit dem Steigtempo. */
+let WANDLAUF_CLIP = 'kriechen';
 /* Zielabstand des Rumpfes zur Fassade und die Tiefe, bis zu der Haende
    und Fuesse dafuer eintauchen duerfen (wandGriff holt sie danach
    wieder heraus). */
@@ -22591,6 +22620,7 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
+    setzeWandlaufClip(v) { WANDLAUF_CLIP = v; },
     hueftZiel() { return HUEFT_ZIEL; },
     kriechTiefe() { return KRIECH_TIEFE; },
     mausRechts(an) { swingHeld = !!an; },
