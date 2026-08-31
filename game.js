@@ -4655,6 +4655,18 @@ const BLEND_KUNST = 0.14;
 /* Bis hierher greift die Figur nach der Fassade, und ueber diese Strecke
    blendet der Griff aus (siehe wandGriff). */
 const WAND_GRIFF_WEIT = 0.45;
+/* Welche Knochen mit welcher Flaeche an der Fassade liegen sollen.
+   Gemessen in der Kriechbewegung, in der Haende und Fuesse flach auf dem
+   Boden liegen: die Handflaeche liegt auf der lokalen +Z-Achse, die
+   Fusssohle auf -Z. Die Laengsachse ist bei beiden +Y. */
+const WAND_FLAECHEN = [['lefthand', 1], ['righthand', 1],
+                       ['leftfoot', -1], ['rightfoot', -1]];
+/* Nicht ganz bis zum Anschlag: eine Hand, die zu hundert Prozent flach
+   auf die Wand gezwungen wird, verliert jede Regung aus der Bewegung. */
+const WAND_FLAECH_KRAFT = 0.85;
+/* Ab 0,20 m Abstand wird eine Flaeche gar nicht mehr auf die Wand
+   gedreht, unter 0,10 m voll. */
+const WAND_FLAECH_WEIT = 0.20, WAND_FLAECH_BAND = 0.10;
 /* Wie weit das Becken an der Wand in die Fassadenebene zurueckgedreht
    wird. Nicht ganz: die Kriechbewegung lebt von der Beckendrehung. */
 const WAND_HUEFT_FLACH = 0.75;
@@ -6027,6 +6039,55 @@ function makeGlbVisual(m) {
     bone.updateMatrixWorld(true);
   }
 
+  /* ---- Handflaeche und Fusssohle wirklich AUF die Wand legen ----
+     wandGriff() zieht Haende und Fuesse an die Fassade heran, dreht aber
+     nur die Gliedmasse als Ganzes - wie die Hand dabei um ihre eigene
+     Achse steht, bleibt dem Clip ueberlassen. Gemessen an der Wand
+     (Anteil der Flaechennormalen laengs der Wandnormalen, 1 waere flach
+     aufliegend): die linke Hand lag mit 0,95 bis 1,00 sauber auf, die
+     rechte streute zwischen 0,04 und 0,99 - sie stand also bis zu 88 Grad
+     verkantet auf der Fassade. Die Fusssohlen lagen zwischen -0,57 und
+     +0,59, also durchweg schraeg, und die Zehen steckten dabei 2 bis 9 cm
+     IN der Wand, waehrend der Knoechel davor stand.
+     Gedreht wird nur um die EIGENE Laengsachse des Knochens: die Richtung
+     der Gliedmasse bleibt damit genau so, wie wandGriff sie gestellt hat,
+     und es aendert sich ausschliesslich, wie die Flaeche dazu verkantet
+     ist.
+     Welche lokale Achse die Flaeche ist, wurde nicht geraten, sondern in
+     der Kriechbewegung gemessen, in der Haende und Fuesse flach auf dem
+     Boden liegen: Handflaeche und Sohle liegen auf der lokalen Z-Achse
+     (Hand +Z, Sohle -Z). */
+  const _vwHin = new THREE.Vector3(), _vwFlaeche = new THREE.Vector3();
+  const _vwAchse = new THREE.Vector3(0, 1, 0);
+  const _rf0 = new THREE.Vector3(), _rf1 = new THREE.Vector3();
+  const _rf2 = new THREE.Vector3(), _rf3 = new THREE.Vector3();
+  const _rfq = new THREE.Quaternion(), _rfq2 = new THREE.Quaternion();
+  function rolleAufFlaeche(bone, achse, flaeche, zielWelt, staerke) {
+    if (!bone) return;
+    const k = clamp(staerke === undefined ? 1 : staerke, 0, 1);
+    if (k <= 0) return;
+    bone.updateMatrixWorld(true);
+    bone.getWorldQuaternion(_rfq2);
+    _rf0.copy(achse).applyQuaternion(_rfq2).normalize();   // Laengsachse (Welt)
+    _rf1.copy(flaeche).applyQuaternion(_rfq2);             // Flaechennormale (Welt)
+    /* Beide senkrecht zur Laengsachse betrachten - alles andere liesse
+       sich durch eine Drehung um diese Achse ohnehin nicht erreichen. */
+    _rf1.addScaledVector(_rf0, -_rf1.dot(_rf0));
+    _rf2.copy(zielWelt).addScaledVector(_rf0, -zielWelt.dot(_rf0));
+    if (_rf1.lengthSq() < 1e-8 || _rf2.lengthSq() < 1e-8) return;
+    _rf1.normalize(); _rf2.normalize();
+    let winkel = Math.acos(clamp(_rf1.dot(_rf2), -1, 1));
+    if (winkel < 1e-4) return;
+    /* Richtung der Drehung aus dem Vorzeichen des Spatprodukts. */
+    _rf3.crossVectors(_rf1, _rf2);
+    if (_rf3.dot(_rf0) < 0) winkel = -winkel;
+    _rfq.setFromAxisAngle(_rf0, winkel * k);
+    _rfq2.premultiply(_rfq);
+    bone.parent.getWorldQuaternion(_rfq);
+    bone.quaternion.copy(_rfq.invert()).multiply(_rfq2);
+    bone.updateMatrixWorld(true);
+  }
+
   const _gp0 = new THREE.Vector3(), _gp1 = new THREE.Vector3();
   const _gu = new THREE.Vector3(), _gv = new THREE.Vector3(), _gax = new THREE.Vector3();
   function griffKnochen(bone, child, zielWelt, staerke, maxWinkel) {
@@ -6933,15 +6994,31 @@ function makeGlbVisual(m) {
          einen Rest von zwoelf Zentimetern stehen - den holt das untere
          Gelenk danach. Zielten beide auf dieselbe Ebene, schob der zweite
          Durchgang die Hand hinter die Fassade (gemessen -10 cm). */
+      /* ---- Auch der Fuss und die Hand selbst werden ausgerichtet ----
+         Bisher endete die Kette beim Knoechel und beim Handgelenk. Der
+         Fuss behielt danach die Richtung, die die Kriechbewegung ihm gab -
+         und die zeigt IN die Wand: gemessen stand der Knoechel 6 bis 9 cm
+         VOR der Fassade, die Zehe aber 2 bis 9 cm DAHINTER. Die Figur
+         stand also mit der Fussspitze im Haus statt mit der Sohle darauf.
+         Eine Drehung um die eigene Achse kann das nicht heilen - dafuer
+         muss die Richtung des Fusses selbst stimmen. Deshalb zeigen jetzt
+         auch Zehe und Mittelfinger auf die Wandebene; damit liegen Fuss
+         und Hand parallel zur Fassade. */
       const paare = [['leftarm', 'leftforearm', 0.12], ['rightarm', 'rightforearm', 0.12],
                      ['leftupleg', 'leftleg', 0.12], ['rightupleg', 'rightleg', 0.12],
                      ['leftforearm', 'lefthand', 0], ['rightforearm', 'righthand', 0],
-                     ['leftleg', 'leftfoot', 0], ['rightleg', 'rightfoot', 0]];
+                     ['leftleg', 'leftfoot', 0], ['rightleg', 'rightfoot', 0],
+                     ['leftfoot', 'lefttoebase', 0], ['rightfoot', 'righttoebase', 0],
+                     ['lefthand', 'lefthandmiddle1', 0], ['righthand', 'righthandmiddle1', 0]];
       /* Zwei Durchlaeufe: griffKnochen dreht je Aufruf hoechstens 0,45 rad
          weit. Steckt ein Glied tief in der Fassade, reicht ein Durchgang
          nicht - gemessen blieb der Fuss beim Wandlauf 10 cm drin. Der
          zweite Durchlauf holt den Rest. */
-      for (let durch = 0; durch < 2; durch++)
+      /* Drei statt zwei Durchlaeufe. griffKnochen dreht je Aufruf
+         hoechstens 0,45 rad; das Schwungbein im Wandlauf steckte damit
+         weiterhin bis zu 61 cm in der Fassade. Der dritte Durchlauf holt
+         den Rest - gemessen 0,611 -> 0,352 m. */
+      for (let durch = 0; durch < 3; durch++)
       for (const [eltern, spitze, rest] of paare) {
         const a = knochen[eltern], b = knochen[spitze];
         if (!a || !b) continue;
@@ -6963,6 +7040,28 @@ function makeGlbVisual(m) {
         if (nx !== 0) _vw4.x -= nx * (d - ziel);
         else _vw4.z -= nz * (d - ziel);
         griffKnochen(a, b, _vw4, w * nah * nah * (3 - 2 * nah), 0.45);
+      }
+      /* ---- und jetzt die Flaechen flach auf die Fassade ----
+         Erst NACH dem Heranziehen, sonst dreht der zweite Durchgang die
+         gerade gelegte Flaeche wieder weg. Gedreht wird nur um die eigene
+         Laengsachse, die Richtung der Gliedmasse bleibt also stehen.
+         Nur wer nah genug dran ist, wird gedreht - eine Hand mitten im
+         Schwung soll ihre Bewegung behalten. */
+      _vwHin.set(-nx, 0, -nz);              // in die Wand hinein
+      for (const [name, sohle] of WAND_FLAECHEN) {
+        const bn = knochen[name];
+        if (!bn) continue;
+        bn.getWorldPosition(_vw3);
+        const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
+        /* Engeres Band als beim Heranziehen: gedreht wird nur, was die
+           Wand auch wirklich beruehrt. Beim Wandlauf schwingen die Arme
+           im Laufschritt 29 cm vor der Fassade - eine Hand dort flach auf
+           die Wand zu drehen sah aus wie ein Krampf. */
+        const nah = clamp((WAND_FLAECH_WEIT - d) / WAND_FLAECH_BAND, 0, 1);
+        if (nah <= 0.001) continue;
+        _vwFlaeche.set(0, 0, sohle);        // +Z Handflaeche, -Z Fusssohle
+        rolleAufFlaeche(bn, _vwAchse, _vwFlaeche, _vwHin,
+                        w * nah * nah * (3 - 2 * nah) * WAND_FLAECH_KRAFT);
       }
     },
     /* Faust: die vier Finger und der Daumen werden eingerollt. Beim
@@ -13732,7 +13831,19 @@ const WAND_ZUG_WEIT = 1.2;
 /* Zielabstand des Rumpfes zur Fassade und die Tiefe, bis zu der Haende
    und Fuesse dafuer eintauchen duerfen (wandGriff holt sie danach
    wieder heraus). */
-const HUEFT_ZIEL = 0.26;
+/* ---- Wie dicht der Rumpf an der Fassade haengt ----
+   Gemessen mit 0,26: Brust 0,22 bis 0,31 m und Kopf 0,15 bis 0,31 m vor
+   der Wand - die Figur schwebte sichtbar davor, statt zu kleben. Ein
+   Durchlauf ueber 0,26 / 0,20 / 0,16 / 0,12 (alle Klettermodi, je vier
+   Proben) ergab:
+     0,26  Brust 0,22-0,31  Kopf 0,15-0,31  tiefster Kontakt -0,044
+     0,20  Brust 0,16-0,25  Kopf 0,09-0,25  tiefster Kontakt -0,008
+     0,16  Brust 0,12-0,21  Kopf 0,05-0,21  tiefster Kontakt -0,005
+     0,12  Brust 0,08-0,17  Kopf 0,01-0,17  tiefster Kontakt -0,006
+   Bei 0,12 kommt der Kopf auf einen Zentimeter an die Fassade - das ist
+   ein Bild vom Durchstecken entfernt. 0,16 haelt den Koerper an der Wand
+   und laesst trotzdem Luft. */
+let HUEFT_ZIEL = 0.16;
 const WAND_TIEF_MAX = -0.10;
 const _wk = V3(0, 0, 0);
 const _wl = new THREE.Vector3();
@@ -13815,6 +13926,14 @@ function wandFreiraum(dt) {
     const raus = Math.max(0, WAND_LUFT - min);        // aus der Wand heraus
     const rein = Math.min(0, WAND_TIEF_MAX - min);    // so weit hoechstens hinein
     ziel = clamp(HUEFT_ZIEL - huefte, rein, raus);
+    /* Geprueft und VERWORFEN: den Koerper zusaetzlich herauszuschieben,
+       sobald ein Glied tiefer als WAND_TIEF_MAX steckt. Waehrend des
+       Kletterschritts taucht das Schwungbein regelmaessig kurz ein - die
+       ganze Figur wich dann jedes Mal aus. Gemessen stieg der Abstand der
+       Huefte von 0,16 auf 0,25 bis 0,31 m und beim Wandlauf sogar auf
+       0,74 m; die Brust stand bis zu 1,06 m vor der Fassade. Die
+       einzelnen Glieder holt wandGriff heraus, und das ist der richtige
+       Ort dafuer. */
   }
   if (!player.wandLuft) player.wandLuft = new THREE.Vector3();
   _wl.set(w.nx * ziel, 0, w.nz * ziel);
@@ -22343,6 +22462,8 @@ if (window.__WEBHERO_TEST__ === true) {
        ist fuer den Netzschwung aber Pflicht. */
     taste(code, an) { keys[code] = !!an; },
     setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
+    setzeHueftZiel(v) { HUEFT_ZIEL = v; },
+    hueftZiel() { return HUEFT_ZIEL; },
     kriechTiefe() { return KRIECH_TIEFE; },
     mausRechts(an) { swingHeld = !!an; },
     get swingObj() { return player.swing; },
