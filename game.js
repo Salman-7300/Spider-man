@@ -4636,6 +4636,8 @@ const ANGRIFF_FENSTER = {
 /* Wie lange die selbstgebaute Schusshaltung ueber der Bewegungsdatei
    liegt. Sie blendet ein und aus - siehe updateHeroVisual. */
 const SCHUSS_DAUER = 0.3;
+/* Wie lange der Wurfarm beim Anschwingen zum Anker greift. */
+const WURF_ZEIT = 0.26;
 /* Uebergaenge, bei denen zwischen zwei Haltungen keine gueltige Mischung
    liegt - siehe play(). Hart geschnitten statt geblendet. Derzeit leer:
    der einzige gemessene Fall (zip_ab -> zip_dreh) liess sich auch hart
@@ -9830,13 +9832,20 @@ function startSwing() {
   /* Der Wurf selbst ist eine eigene kurze Bewegung: der Arm holt aus und
      schiesst den Faden. Vorher hing die Figur im ersten Bild einfach schon
      am Netz - man sah nie, wie das Netz losging. */
-  if (heroVisual.hatClip && heroVisual.hatClip('netzwurf') && heroVisual.attackOneShot) {
-    /* Der Wurf lief mit 1,4-fachem Tempo (0,41-s-Datei in 0,3 s gepresst).
-       Die Arme peitschten dadurch, und die Beine bekamen im selben Moment
-       noch die Flughaltung mit - genau das war das Zappeln am Anfang des
-       Bogens. Jetzt laeuft er in seinem EIGENEN Takt und blendet lang ein. */
-    player.wurfT = heroVisual.attackOneShot(0, 'netzwurf', 0.46, 3) || 0.46;
-  }
+  /* ---- Der Wurf ist KEINE Bewegungsdatei mehr ----
+     Hier lief 'netzwurf'. Vermessen ist das aber gar keine Bewegung: ueber
+     die ganze Cliplaenge steht der linke Fuss unveraendert 0,611 m ueber
+     der Huefte und der rechte bei -0,829, und die Wurfhand bewegt sich mit
+     einem Spitzentempo von 0,007 (echte Ueberschlaege liegen bei 0,195 bis
+     0,566). Es ist eine eingefrorene EINZELPOSE mit hochgerissenem Bein -
+     und die lief 0,41 s lang bei JEDEM Netzwurf, also auch dann, wenn man
+     in der Luft nur zweimal die Sprungtaste drueckt.
+     Genau das war das hochgerissene Bein. Jetzt fuehrt die Schwunghaltung
+     von Anfang an die Beine, und nur der Wurfarm greift zusaetzlich zum
+     Anker - mit derselben Zielkinematik, die auch der gewoehnliche
+     Netzschuss benutzt. Erfunden wird nichts. */
+  player.wurfT = WURF_ZEIT;
+  player.schussZiel.copy(anchor);
   SFX.thwip();
   return true;
 }
@@ -13461,8 +13470,11 @@ function updateHeroVisual(dt) {
          beim Anschwingen.
          Solange der Wurf laeuft, fuehrt er allein; die Schwunghaltung
          blendet sich danach ueber ihre eigene Blende ein. */
-      if (player.wurfT > 0) { player.wurfT -= dt; }
-      else MISCH.wunsch = 'schwung';
+      /* Die Schwunghaltung fuehrt von Anfang an - sie hat die Beine, und
+         die waren beim alten Wurfclip das Problem. Der Wurfarm wird
+         danach darueber gelegt (siehe unten). */
+      if (player.wurfT > 0) player.wurfT -= dt;
+      MISCH.wunsch = 'schwung';
       MISCH.schwungArg = [(MISCH.ankerGlatt || player.swing.anchor).clone(),
                           player.swing.hand, elapsed,
                           player.bogenGlatt, r.rotation.x, beideHaende];
@@ -13600,6 +13612,18 @@ function updateHeroVisual(dt) {
      Umschalten UND das gesonderte Nachgleiten - der Mischer laesst jede
      Haltung von allein ausklingen, auch die Gleithaltung. */
   if (!heroVisual.procedural) mischeHaltungen(dt);
+
+  /* ---- Der Wurfarm greift zum Anker ----
+     Nur der Arm, nicht der ganze Koerper: die Beine kommen aus der
+     Schwunghaltung. Ein- und ausgeblendet, damit die Hand am Ende nicht
+     springt - dieselbe Loesung wie beim gewoehnlichen Netzschuss. */
+  if (player.wurfT > 0 && player.state === 'swing' && player.swing &&
+      heroVisual.poseSchuss && !heroVisual.procedural) {
+    const ein = clamp((WURF_ZEIT - player.wurfT) / 0.05, 0, 1);
+    const aus = clamp(player.wurfT / 0.12, 0, 1);
+    heroVisual.poseSchuss(player.swing.anchor, player.swing.hand,
+                          Math.min(ein, aus));
+  }
 
   /* Für die Neigung im nächsten Bild. */
   player.altVelX = player.vel.x; player.altVelZ = player.vel.z;
@@ -21981,6 +22005,137 @@ function zeigeKampfTafel(dt) {
   kampfTafel.textContent = z.join('\n');
 }
 
+/* ================= Haltungs-Ringpuffer (nur Tests) =================
+   Viele sichtbare Fehler entstehen nicht IN einem Clip, sondern aus dem
+   Zusammenspiel: vorheriger Zustand, Blende, selbstgebaute Haltung,
+   Zielkinematik, Eingabefolge, Weltkontakt. Im Standbild sieht man dann
+   eine falsche Haltung und weiss nicht, woher sie kommt.
+   Der Ringpuffer haelt die letzten Sekunden vollstaendig vor: Zustand,
+   Flags, laufende Bewegungen mit Gewicht und Stelle, und die Lage der
+   wichtigen Knochen im EIGENEN System der Figur. Damit laesst sich ein
+   Fehler rueckwaerts aufloesen, statt ihn zu erraten.
+   Kostet nichts, solange er aus ist. */
+const POSE_LOG = {
+  an: false, sekunden: 4, ring: [], kopf: 0, fehler: [], luftBilder: 0,
+};
+const POSE_KNOCHEN = ['hips', 'spine2', 'head', 'leftarm', 'rightarm',
+  'leftforearm', 'rightforearm', 'lefthand', 'righthand',
+  'leftupleg', 'rightupleg', 'leftleg', 'rightleg',
+  'leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase'];
+function poseLogSchreibe(dt) {
+  if (!POSE_LOG.an || !heroVisual || !heroVisual.laborKnochenLokal) return;
+  const max = Math.round(POSE_LOG.sekunden * 60);
+  const k = heroVisual.laborKnochenLokal(POSE_KNOCHEN);
+  const g = heroVisual.laborGewichte ? heroVisual.laborGewichte() : {};
+  const w = player.wallInfo;
+  const e = {
+    t: +elapsed.toFixed(3),
+    zustand: player.state,
+    anim: player.anim,
+    clip: heroVisual.aktuellerClip,
+    einmalArt: heroVisual.einmalArt,
+    gewichte: g,
+    flags: {
+      onGround: player.onGround, jumps: player.jumps,
+      luftSalto: +(player.luftSalto || 0).toFixed(3),
+      saltoCd: +(player.saltoCd || 0).toFixed(3),
+      kunstArt: player.kunstArt || null,
+      attack: player.attack ? player.attack.art : null,
+      rollT: +(player.rollT || 0).toFixed(3),
+      landT: +(player.landT || 0).toFixed(3),
+      hockeT: +(player.hockeT || 0).toFixed(2),
+      mastHocke: !!player.mastHocke,
+      wandModus: player.wandModus || null,
+      wandRuhe: +(player.wandRuhe || 0).toFixed(2),
+      gleiten: !!player.gleiten,
+      swingLock: !!player.swingLock,
+    },
+    ort: [+player.pos.x.toFixed(2), +player.pos.y.toFixed(2), +player.pos.z.toFixed(2)],
+    gier: +player.facing.toFixed(3),
+    wand: w ? [+w.nx.toFixed(2), +w.nz.toFixed(2)] : null,
+    wandAbstand: player.state === 'climb' ? poseLogWandAbstand() : null,
+    kanteAbstand: (player.hockeT || 0) > 0.9
+      ? (() => { const k = dachKante(player.pos.x, player.pos.z, player.pos.y);
+                 return k ? +k.d.toFixed(2) : 99; })()
+      : null,
+    knochen: k,
+  };
+  if (POSE_LOG.ring.length < max) POSE_LOG.ring.push(e);
+  else { POSE_LOG.ring[POSE_LOG.kopf] = e; POSE_LOG.kopf = (POSE_LOG.kopf + 1) % max; }
+  poseLogPruefe(e);
+}
+/* ---- Fail-Logger ----
+   Bedingungen, die im Bild als Fehler auffallen. Sie werden mit dem
+   ganzen Eintrag gemerkt, damit man hinterher sieht, was gerade lief. */
+function poseLogPruefe(e) {
+  const melde = (art, wert) => {
+    if (POSE_LOG.fehler.length > 400) return;
+    POSE_LOG.fehler.push({ art, wert, t: e.t, zustand: e.zustand,
+      clip: e.clip, einmalArt: e.einmalArt,
+      gewichte: e.gewichte, flags: e.flags });
+  };
+  const h = e.knochen.hips;
+  if (!h) return;
+  /* 1. Alte Bodenkampfbewegung haelt noch Gewicht, obwohl die Figur
+     fliegt. Ein AUSBLENDENDER Rest ist in Ordnung - er dauert 0,12 s und
+     ist genau die Loesung aus der letzten Phase. Gemeldet wird nur, was
+     wirklich haengt: entweder laeuft die Einmal-Bewegung noch (dann
+     gehoert ihr die Haltung), oder der Rest steht nach einer Viertel-
+     sekunde in der Luft immer noch da. */
+  if (e.zustand === 'air' || e.zustand === 'swing' || e.zustand === 'zip') {
+    POSE_LOG.luftBilder++;
+    for (const n in e.gewichte) {
+      if (!KAMPF_CLIPS.has(n)) continue;
+      const w = e.gewichte[n].w;
+      if (e.einmalArt === n && w > 0.25) melde('kampfInLuftLaeuft', n);
+      else if (w > 0.35 && POSE_LOG.luftBilder > 15) melde('kampfInLuftHaengt', n);
+    }
+  } else POSE_LOG.luftBilder = 0;
+  /* 2. Bein unnatuerlich hoch: Fuss ueber Hueftmitte, ohne Angriff. */
+  if (!e.flags.attack) {
+    for (const s of ['leftfoot', 'rightfoot']) {
+      const f = e.knochen[s];
+      if (f && f.y - h.y > 0.15) melde('beinZuHoch', { seite: s, ueberHuefte: +(f.y - h.y).toFixed(3) });
+    }
+  }
+  /* 3. Wandkontakt: Hand oder Fuss zu weit vor der Fassade. */
+  if (e.zustand === 'climb' && e.wandAbstand) {
+    for (const n in e.wandAbstand) {
+      const d = e.wandAbstand[n];
+      if (d > WAND_KONTAKT_MAX) melde('wandKontaktFehlt', { knochen: n, abstand: d });
+      if (d < -0.05) melde('wandDurchdringung', { knochen: n, abstand: d });
+    }
+  }
+  /* 4. Dachhocke weit von der Kante. */
+  if (e.flags.hockeT > 0.9 && e.kanteAbstand !== null && e.kanteAbstand > 2.5) {
+    melde('hockeWeitVonKante', e.kanteAbstand);
+  }
+}
+/* Abstand der Kontaktknochen zur Fassadenebene, positiv = davor. */
+const _plv = new THREE.Vector3();
+function poseLogWandAbstand() {
+  const w = player.wallInfo;
+  if (!w || !w.col || !heroVisual || !heroVisual.knochen) return null;
+  const c = w.col;
+  const fx = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0) : 0;
+  const fz = w.nz !== 0 ? (w.nz > 0 ? c.z1 : c.z0) : 0;
+  const aus = {};
+  for (const n of ['lefthand', 'righthand', 'leftfoot', 'rightfoot',
+                   'lefttoebase', 'righttoebase', 'hips', 'spine2', 'head']) {
+    const b = heroVisual.knochen[n];
+    if (!b) continue;
+    b.getWorldPosition(_plv);
+    aus[n] = +((_plv.x - fx) * w.nx + (_plv.z - fz) * w.nz).toFixed(3);
+  }
+  return aus;
+}
+/* Bewegungen, die AM BODEN gehoeren. luftangriff und knie stehen
+   bewusst NICHT drin - das sind die Luftangriffe, die dort hingehoeren. */
+const KAMPF_CLIPS = new Set(['punch', 'punch2', 'punch3', 'hook', 'hook2',
+  'kick', 'uppercut', 'wurf', 'wurfgriff', 'stampfen', 'symkombo',
+  'attack', 'block']);
+const WAND_KONTAKT_MAX = 0.22;
+
 function simuliere(dt) {
   updateGamepad();
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
@@ -22000,6 +22155,7 @@ function simuliere(dt) {
   if (PED_DEBUG) zeigeGehnetz(dt);
   updateWeltEreignisse(dt);
   updateCamera(dt);
+  poseLogSchreibe(dt);
   updateEffekte(dt);
   updateZiehObjekte(dt);
   updateGriff(dt);
@@ -22137,6 +22293,20 @@ if (window.__WEBHERO_TEST__ === true) {
        wartet ein Test, der schnell viele Ereignisse braucht, auf einen
        Regler, der genau dafuer da ist, sie zu bremsen. */
     evRuheAus() { EV.ruheCd = 0; EV.taktAnteil = 0; },
+    /* ---- Haltungs-Ringpuffer und Fail-Logger (nur Tests) ---- */
+    poseLogAn(an, sekunden) {
+      POSE_LOG.an = !!an;
+      if (sekunden) POSE_LOG.sekunden = sekunden;
+      POSE_LOG.ring.length = 0; POSE_LOG.kopf = 0; POSE_LOG.fehler.length = 0;
+    },
+    /* Die letzten Bilder in zeitlicher Reihenfolge. */
+    poseLog() {
+      const r = POSE_LOG.ring, k = POSE_LOG.kopf;
+      return r.length < Math.round(POSE_LOG.sekunden * 60)
+        ? r.slice() : r.slice(k).concat(r.slice(0, k));
+    },
+    poseFehler() { return POSE_LOG.fehler.slice(); },
+    poseFehlerLeeren() { POSE_LOG.fehler.length = 0; },
     evLeck() { return evLeckPruefung(); },
     evOrtTauglich, evImBlick,
     evAlleBeenden() {
