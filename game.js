@@ -13918,6 +13918,16 @@ const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
    herangezogen. 1,2 m ist mehr als jede Kletterhaltung braucht und
    weniger als der Abstand, den ein Eckenwechsel kurzzeitig erzeugt. */
 const WAND_ZUG_WEIT = 1.2;
+/* Wie schnell die Wandkorrektur nachgezogen wird, wenn die Wand dieselbe
+   bleibt. Durchlauf ueber 100 Greifvorgaenge, jeweils Bild -3 bis +6:
+     dt*14  100 von 100 Faellen im Haus, tiefst -0,357 m, Mittel -0,332
+     dt*25  100 Faelle, tiefst -0,215, Mittel -0,190
+     dt*45   42 Faelle, tiefst -0,051, Mittel -0,040
+     dt*90    0 Faelle
+     dt*200   0 Faelle
+   Ab rund dt*90 ist die Durchdringung vollstaendig weg; darueber aendert
+   sich nichts mehr. Siehe wandFreiraum. */
+let WAND_ZUG_TEMPO = 90;
 /* Zielabstand des Rumpfes zur Fassade und die Tiefe, bis zu der Haende
    und Fuesse dafuer eintauchen duerfen (wandGriff holt sie danach
    wieder heraus). */
@@ -14027,16 +14037,29 @@ function wandFreiraum(dt) {
   }
   if (!player.wandLuft) player.wandLuft = new THREE.Vector3();
   _wl.set(w.nx * ziel, 0, w.nz * ziel);
-  /* Geprueft und VERWORFEN: die Korrektur beim ANGREIFEN sofort setzen
-     statt einzuschwingen. Der Gedanke war, dass die Figur in den vier
-     Einschwingbildern in der Fassade steckt - gemessen sassen in einem
-     sauberen Kletterlauf 97 Prozent der Bilder exakt auf dem Zielabstand
-     und die uebrigen 3 Prozent unmittelbar nach dem Zugreifen (tiefster
-     Wert -0,262 m). Das Sofortsetzen aenderte daran nichts (weiterhin 8
-     von 260 Bildern, tiefster Wert -0,279): die Durchdringung kommt nicht
-     aus der Nachfuehrung, sondern aus der einblendenden Kriechhaltung
-     selbst. Der Punkt bleibt offen. */
-  player.wandLuft.lerp(_wl, Math.min(1, dtWand * 14));
+  /* ---- Wie schnell die Korrektur nachgezogen wird ----
+     Sie lief mit dt*14, also rund zehn Bilder bis zum vollen Wert. Die
+     Kletterhaltung selbst zieht den Koerper aber in ein bis zwei Bildern
+     an die Wand. Beim Zugreifen jagt der Regler damit einem Ziel
+     hinterher, das sich in der Zwischenzeit umgedreht hat, und schiesst
+     nach innen durch. Frame fuer Frame gemessen ueber 100 Greifvorgaenge:
+       Bild +0  Huefte +0,386   Korrektur 0,018   (Ziel: nach INNEN)
+       Bild +1  Huefte -0,008   Korrektur 0,051
+       Bild +3  Huefte -0,248   Korrektur 0,266   (tiefster Punkt)
+       Bild +6  Huefte -0,210   Korrektur 0,598   (Regler noch unterwegs)
+     100 von 100 Greifvorgaengen steckten dabei im Haus, im Mittel
+     0,332 m tief.
+     Das Ziel wird in JEDEM Bild aus der aktuellen Hueftlage neu bestimmt,
+     die Nachfuehrung ist also eine Fixpunktiteration - sie darf schnell
+     sein. Langsam muss sie nur beim Eckenwechsel bleiben: dort springt
+     die Wandnormale in einem Bild um 90 Grad, waehrend der Koerper noch
+     zur alten Wand steht, und ein harter Sprung waere sichtbar. */
+  const eckWechsel = (player.eckT || 0) > 0 ||
+                     player.wandNormAlt === undefined ||
+                     player.wandNormAlt.x !== w.nx || player.wandNormAlt.z !== w.nz;
+  if (!player.wandNormAlt) player.wandNormAlt = { x: w.nx, z: w.nz };
+  else { player.wandNormAlt.x = w.nx; player.wandNormAlt.z = w.nz; }
+  player.wandLuft.lerp(_wl, Math.min(1, dtWand * (eckWechsel ? 14 : WAND_ZUG_TEMPO)));
   if (player.wandLuft.lengthSq() < 1e-8) player.wandLuft.set(0, 0, 0);
   r.position.add(player.wandLuft);
   r.updateMatrixWorld(true);
@@ -22567,6 +22590,7 @@ if (window.__WEBHERO_TEST__ === true) {
     taste(code, an) { keys[code] = !!an; },
     setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
+    setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     hueftZiel() { return HUEFT_ZIEL; },
     kriechTiefe() { return KRIECH_TIEFE; },
     mausRechts(an) { swingHeld = !!an; },
