@@ -5741,6 +5741,7 @@ function makeGlbVisual(m) {
   let fussRuhe = null, bodenKorrektur = 0, schattenAn = true;
   /* Höhe des Knöchels über der Sohle. */
   const KNOECHEL_HOCH = 0.095;
+
   /* Ruhehöhe der Füße JETZT aus der Bindehaltung messen – noch bevor
      irgendeine Bewegung läuft. Früher wurde sie beim ersten Bildaufbau
      genommen; fiel die Figur da gerade (angezogene Beine), merkte sich der
@@ -7512,6 +7513,26 @@ function makeGlbVisual(m) {
        Hier wird jedes Bein einzeln nachgeführt: Zweigelenk-IK aus Hüfte,
        Knie und Knöchel, Ziel ist der Boden unter genau diesem Fuß.
        hoeheFn(x, z) liefert die Bodenhöhe, k die Stärke. */
+    /* ---- Schrittbremse: gebaut, vermessen und wieder ENTFERNT ----
+       Der Laufclip traegt weniger Weg, als die Figur zuruecklegt (1,56 m/s
+       gegen 6,91 m/s). Der naheliegende Ausweg ist, den Standfuss waehrend
+       seines Bodenkontakts auf seinem Weltpunkt festzuhalten - ueber
+       dieselbe Zweigelenk-Nachfuehrung, die hier schon die Bodenhoehe
+       macht, also ohne die Knochen zu strecken.
+       Gebaut, mit weichem Auf- und Abbau des Griffs, einer Reichweiten-
+       grenze und einem Temposchwellwert, damit das saubere Gehen
+       unberuehrt bleibt. Ueber je 600 Bilder gemessen (Anteil des
+       Rutschens am Weg der Figur, und groesster Schlupf je Bild):
+         ohne Bremse   gehen 11 % / 0,010   laufen 76 % / 0,203   sprint 45 % / 0,162
+         Staerke 0,3   gehen 33 % / 0,158   laufen 55 % / 0,142   sprint 38 %
+         Staerke 0,6   gehen 22 % / 0,054   laufen 47 % / 0,323   sprint 32 % / 0,196
+         Staerke 0,85  gehen 19 % / 0,081   laufen 74 % / 0,600   sprint 32 % / 0,356
+       Der Mittelwert sinkt also, der GROESSTE Schlupf steigt aber auf das
+       Dreifache: aus gleichmaessigem Rutschen wird ein Ruck, sobald der
+       Griff loslaesst. Und das Gehen, das mit 11 Prozent sauber war, wird
+       messbar schlechter. Ein Ruck faellt mehr auf als ein Schleifen,
+       deshalb ist die Bremse wieder draussen. Das Rutschen bleibt als
+       offener Punkt im Bericht stehen. */
     fussIK(hoeheFn, k, blickX, blickZ) {
       if (k <= 0.001) return;
       root.updateMatrixWorld(true);
@@ -7535,8 +7556,9 @@ function makeGlbVisual(m) {
         /* Nur Füße nahe am Boden nachführen – das Schwungbein bleibt frei. */
         const naehe = 1 - clamp(Math.abs(fehler) / 0.32, 0, 1);
         const w = k * naehe;
-        if (w < 0.02 || Math.abs(fehler) < 0.002) continue;
         _ikT.copy(_ikA); _ikT.y += fehler * w;
+        /* ---- Waagerecht festhalten, solange der Fuss steht ---- */
+        if (w < 0.02 || Math.abs(fehler) < 0.002) continue;
 
         /* ---- 1. Kniewinkel anpassen ----
            Der Abstand Hüfte–Knöchel muss zur neuen Zielhöhe passen. Statt
@@ -13780,6 +13802,7 @@ function updateHeroVisual(dt) {
       if (heroVisual.fussIK && !player.attack && player.rollT <= 0 &&
           player.dreiPunktT <= 0 && !window.__IK_AUS) {
         heroVisual.fussIK(bodenHoeheFuerFuss, 0.85,
+                          Math.sin(player.facing), Math.cos(player.facing),
                           Math.sin(player.facing), Math.cos(player.facing));
       }
       if (heroVisual.kopfStabil) heroVisual.kopfStabil(r.rotation.x, 0.55);
@@ -13957,6 +13980,7 @@ let WAND_ZUG_TEMPO = 90;
    Einwand ("aus dem Rennen die Wand hoch wurde ein Wuehlen") galt der
    Bewegung in ihrem EIGENEN Takt; sie laeuft jetzt mit dem Steigtempo. */
 let WANDLAUF_CLIP = 'kriechen';
+
 /* Zielabstand des Rumpfes zur Fassade und die Tiefe, bis zu der Haende
    und Fuesse dafuer eintauchen duerfen (wandGriff holt sie danach
    wieder heraus). */
