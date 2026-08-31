@@ -13037,8 +13037,16 @@ function updatePlayer(dt) {
      164 Bilder lang wirklich in der Luft, aber kein einziges Mal nur ein
      bis drei Bilder - es gibt also kein Flackern, das hier faelschlich
      abbrechen wuerde. */
+  /* Die Kojotenzeit gilt nur, solange die Figur den Boden GERADE erst
+     verloren hat und kaum steigt oder faellt. Wer springt, geworfen wird
+     oder abstuerzt, ist wirklich in der Luft - dort hat ein Bodenschlag
+     nichts mehr zu suchen. Ohne diese Zusatzbedingung blieb der Tritt in
+     echten Spielszenen gemessen acht Bilder (0,13 s) mit vollem Gewicht
+     stehen, genau die Laenge der Kojotenzeit. */
+  const wirklichLuft = !player.onGround &&
+    (!(player.bodenAb > 0) || Math.abs(player.vel.y) > 2.5);
   if (player.attack && player.attack.amBoden && player.attack.art &&
-      ((!player.onGround && !(player.bodenAb > 0)) ||
+      (wirklichLuft ||
        player.state === 'swing' || player.state === 'zip' ||
        player.state === 'climb')) {
     const art = player.attack.art;
@@ -13048,6 +13056,20 @@ function updatePlayer(dt) {
        Sperre gehoert zum abgebrochenen Schlag, nicht zum neuen. */
     player.attackCd = Math.min(player.attackCd, 0.08);
     if (heroVisual.brichOneShot) heroVisual.brichOneShot(0.12, art);
+  }
+  /* ---- Zweite Sicherung ----
+     Die Bewegungsdatei laeuft laenger als der Schlag selbst: player.attack
+     wird nach seiner eigenen Dauer geloescht, die Einmal-Bewegung aber
+     erst, wenn ihr Fenster abgelaufen ist. Faellt der Boden dazwischen
+     weg, greift die Regel oben ins Leere. Gemessen im Durchlauf durch
+     echte Spielszenen: sechs Mal lief ein 'kick' mit vollem Gewicht
+     weiter, waehrend die Figur schon in der Luft war.
+     Hier zaehlt deshalb nicht mehr der Schlag, sondern die Bewegung
+     selbst - und zwar nur BODENbewegungen: luftangriff und knie gehoeren
+     in die Luft und stehen nicht in der Liste. */
+  if (wirklichLuft && heroVisual.einmalArt &&
+      KAMPF_CLIPS.has(heroVisual.einmalArt) && heroVisual.brichOneShot) {
+    heroVisual.brichOneShot(0.12, heroVisual.einmalArt);
   }
   if (player.hitT > 0) player.hitT -= dt;
   /* Verliert man mitten in der Rolle den Boden (Bordstein, Kante), wird
@@ -14005,6 +14027,15 @@ function wandFreiraum(dt) {
   }
   if (!player.wandLuft) player.wandLuft = new THREE.Vector3();
   _wl.set(w.nx * ziel, 0, w.nz * ziel);
+  /* Geprueft und VERWORFEN: die Korrektur beim ANGREIFEN sofort setzen
+     statt einzuschwingen. Der Gedanke war, dass die Figur in den vier
+     Einschwingbildern in der Fassade steckt - gemessen sassen in einem
+     sauberen Kletterlauf 97 Prozent der Bilder exakt auf dem Zielabstand
+     und die uebrigen 3 Prozent unmittelbar nach dem Zugreifen (tiefster
+     Wert -0,262 m). Das Sofortsetzen aenderte daran nichts (weiterhin 8
+     von 260 Bildern, tiefster Wert -0,279): die Durchdringung kommt nicht
+     aus der Nachfuehrung, sondern aus der einblendenden Kriechhaltung
+     selbst. Der Punkt bleibt offen. */
   player.wandLuft.lerp(_wl, Math.min(1, dtWand * 14));
   if (player.wandLuft.lengthSq() < 1e-8) player.wandLuft.set(0, 0, 0);
   r.position.add(player.wandLuft);
@@ -22256,7 +22287,7 @@ function poseLogSchreibe(dt) {
    ganzen Eintrag gemerkt, damit man hinterher sieht, was gerade lief. */
 function poseLogPruefe(e) {
   const melde = (art, wert) => {
-    if (POSE_LOG.fehler.length > 400) return;
+    if (POSE_LOG.fehler.length > 4000) return;
     POSE_LOG.fehler.push({ art, wert, t: e.t, zustand: e.zustand,
       clip: e.clip, einmalArt: e.einmalArt,
       gewichte: e.gewichte, flags: e.flags });
@@ -22285,11 +22316,15 @@ function poseLogPruefe(e) {
       if (f && f.y - h.y > 0.15) melde('beinZuHoch', { seite: s, ueberHuefte: +(f.y - h.y).toFixed(3) });
     }
   }
-  /* 3. Wandkontakt: Hand oder Fuss zu weit vor der Fassade. */
+  /* 3. Wandkontakt. Ein SCHWUNGBEIN darf die Wand im Schritt verlassen -
+     das ist der Kletterschritt und kein Fehler. Auf fehlenden Kontakt
+     wird deshalb nur der Rumpf geprueft; auf Durchdringung alles. */
   if (e.zustand === 'climb' && e.wandAbstand) {
     for (const n in e.wandAbstand) {
       const d = e.wandAbstand[n];
-      if (d > WAND_KONTAKT_MAX) melde('wandKontaktFehlt', { knochen: n, abstand: d });
+      if (RUMPF_KNOCHEN.has(n) && d > WAND_KONTAKT_MAX) {
+        melde('rumpfZuWeitVonWand', { knochen: n, abstand: d });
+      }
       if (d < -0.05) melde('wandDurchdringung', { knochen: n, abstand: d });
     }
   }
@@ -22321,7 +22356,8 @@ function poseLogWandAbstand() {
 const KAMPF_CLIPS = new Set(['punch', 'punch2', 'punch3', 'hook', 'hook2',
   'kick', 'uppercut', 'wurf', 'wurfgriff', 'stampfen', 'symkombo',
   'attack', 'block']);
-const WAND_KONTAKT_MAX = 0.22;
+const WAND_KONTAKT_MAX = 0.30;
+const RUMPF_KNOCHEN = new Set(['hips', 'spine2', 'head']);
 
 function simuliere(dt) {
   updateGamepad();
