@@ -22413,8 +22413,12 @@ function poseLogPruefe(e) {
       else if (w > 0.35 && POSE_LOG.luftBilder > 15) melde('kampfInLuftHaengt', n);
     }
   } else POSE_LOG.luftBilder = 0;
-  /* 2. Bein unnatuerlich hoch: Fuss ueber Hueftmitte, ohne Angriff. */
-  if (!e.flags.attack) {
+  /* 2. Bein unnatuerlich hoch: Fuss ueber Hueftmitte, ohne Angriff.
+     NICHT an der Wand: dort liegt die Figur um 90 Grad gekippt, und ein
+     Fuss ueber der Huefte ist die Regel statt die Ausnahme. Ohne diese
+     Einschraenkung meldete der Logger in einem 15-Minuten-Lauf 3692 Mal
+     eine Selbstverstaendlichkeit. */
+  if (!e.flags.attack && e.zustand !== 'climb' && !e.flags.wandModus) {
     for (const s of ['leftfoot', 'rightfoot']) {
       const f = e.knochen[s];
       if (f && f.y - h.y > 0.15) melde('beinZuHoch', { seite: s, ueberHuefte: +(f.y - h.y).toFixed(3) });
