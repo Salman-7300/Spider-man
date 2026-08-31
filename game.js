@@ -3988,7 +3988,7 @@ const GANG_REF = {
   kriechen: 0.85,
   schleichen: 2.0,
   ducken: 1.15,
-  walk: 1.45,
+  walk: 1.49,
   /* ---- Nachgemessen, weil die Fuesse im Lauf rutschten ----
      Wie viel Weg ein Gangclip WIRKLICH traegt, laesst sich messen: wie
      weit der Standfuss waehrend seines Bodenkontakts relativ zur Huefte
@@ -4010,8 +4010,32 @@ const GANG_REF = {
      Ganz weg geht das Rutschen mit diesen Dateien nicht - dafuer muesste
      der Clip bei 6,91 m/s 4,4-fach laufen, und das waere ein Wischen.
      Der Rest ist offen und steht so im Bericht. */
-  run: 2.6,
-  sprint: 3.8,
+  /* NACHGEMESSEN mit dem richtigen Verfahren. Die Zahlen oben stammen aus
+     "Schrittweite mal zwei Schritte durch Cliplaenge". Diese Formel setzt
+     voraus, dass der Fuss die ganze Schrittweite waehrend des Kontakts
+     zuruecklegt und der Kontakt genau eine halbe Runde dauert - beides
+     stimmt nicht. Sie liefert fuer walk 0,81 m/s, waehrend derselbe
+     Gehschritt seit jeher mit 1,45 sauber aussieht.
+     Richtig ist die Rueckwaertsgeschwindigkeit des STANDFUSSES relativ
+     zur Huefte, gemittelt ueber den Bodenkontakt - das ist genau das
+     Tempo, mit dem der Boden unter der Figur durchlaeuft. Dieses
+     Verfahren liefert fuer walk 1,49 und bestaetigt damit den seit
+     langem eingestellten Wert. Gemessen:
+       walk 1,49   run 2,21   sprint 3,96   (m/s bei einfachem Tempo) */
+  run: 2.21,
+  /* Fuer den Sprintclip steht hier NICHT die gemessene Eigen-
+     geschwindigkeit (3,96), sondern der Wert, der im Spiel am wenigsten
+     rutscht. Beides faellt hier auseinander, weil der Zeitfaktor bei
+     11 m/s ohnehin am Anschlag von 3,0 haengt und weil die Fussgeschwin-
+     digkeit innerhalb eines Schritts nicht gleichmaessig ist. Gemessen
+     wurde deshalb durchprobiert (Netto-Rutschen je Bodenkontakt, Median):
+       Ref  2,8   Lauf 25,4 %   Sprint 24,1 %
+       Ref  3,0   Lauf 20,8 %   Sprint 22,0 %
+       Ref  3,2   Lauf 17,0 %   Sprint 23,7 %   <- gewaehlt
+       Ref  3,4   Lauf 18,4 %   Sprint 24,3 %
+       Ref  3,8   Lauf 19,7 %   Sprint 32,8 %
+       Ref  3,96  Lauf 22,1 %   Sprint 28,6 % */
+  sprint: 3.2,
   /* "Bully Walking", der Gang im Symbiontenanzug. Wie die anderen
      Gangarten abgetastet: bei 1,0 m/s steht der Fuss praktisch still
      (0,006 m/s Restbewegung), bei 1,2 sind es 0,09 - so viel wie beim
@@ -4020,6 +4044,12 @@ const GANG_REF = {
   symgang: 1.2,
 };
 const GANG_CLIPS = Object.keys(GANG_REF);
+/* Umschaltpunkte zwischen den Laufdateien, siehe play(). Sie liegen dort,
+   wo die naechste Datei mit einem angenehmeren Zeitfaktor laeuft als die
+   vorige mit einem zu hohen. */
+let GANG_UM_LAUF = 2.5;
+let GANG_UM_SPRINT = 4.0;
+let GANG_UM_BAND = 0.35;
 /* Stelle im Duck-Clip, an der die Figur im Stand angehalten wird.
    Abgetastet: dort ist der Hoehenunterschied zwischen den Fuessen am
    kleinsten und beide stehen am tiefsten. */
@@ -6209,6 +6239,8 @@ function makeGlbVisual(m) {
   let current = null;
   let lodAcc = 0, lodFrame = 0;
   let vGlatt = 0, geht = true;
+  /* Welche Laufdatei gerade passt: 0 walk, 1 run, 2 sprint. Siehe play(). */
+  let gangStufe = 0;
   let letzterTakt = null;
   /* Geglaettete Lage im Netzbogen und der zuletzt gespielte Zustand. */
   let bogenGlatt = 0, letzterKey = null;
@@ -7919,6 +7951,33 @@ function makeGlbVisual(m) {
         /* Im Symbiontenanzug ein schwerer, breitbeiniger Gang statt des
            normalen Schritts ("Bully Walking" aus animation-1). */
         if (p.symbiont && p.gang === 'walk' && findClip(m.clips, 'symgang')) want = 'symgang';
+        /* ---- Die Bewegungsdatei nach dem TEMPO, nicht nach der Taste ----
+           Die befohlene Gangart sagt, wie schnell die Figur laufen soll -
+           sie sagt nicht, welche Datei dieses Tempo tragen kann. Genau
+           daran hing das Rutschen: die Laufgangart faehrt 7 m/s, der
+           Clip 'run' traegt aber nur 2,21 m/s und muesste dafuer 3,17-fach
+           laufen - ueber dem Anschlag von 3,0.
+           Gemessen (Rueckwaertsbewegung des Standfusses relativ zur
+           Huefte, gemittelt ueber den Bodenkontakt):
+             walk    1,49 m/s   Schritt 0,75 m   Dauer 1,033 s
+             run     2,21 m/s   Schritt 0,90 m   Dauer 0,700 s
+             sprint  3,96 m/s   Schritt 0,83 m   Dauer 0,533 s
+           Bei 7 m/s braucht 'sprint' also nur 1,77-fach statt 3,17-fach.
+           Deshalb wird die Datei nach dem tatsaechlichen Tempo gewaehlt.
+           Die Gangart bleibt unveraendert - sie steuert weiterhin das
+           Spielgefuehl, nur nicht mehr die Datei. */
+        else if (p.gang === 'walk' || p.gang === 'run' || p.gang === 'sprint') {
+          const habe = (n) => !!findClip(m.clips, n);
+          /* Hysterese, damit die Datei an der Schwelle nicht flattert. */
+          if (gangStufe === 0 && vBoden > GANG_UM_LAUF + GANG_UM_BAND) gangStufe = 1;
+          else if (gangStufe === 1 && vBoden < GANG_UM_LAUF - GANG_UM_BAND) gangStufe = 0;
+          if (gangStufe === 1 && vBoden > GANG_UM_SPRINT + GANG_UM_BAND) gangStufe = 2;
+          else if (gangStufe === 2 && vBoden < GANG_UM_SPRINT - GANG_UM_BAND) gangStufe = 1;
+          const kette = gangStufe >= 2 ? ['sprint', 'run', 'walk']
+                      : gangStufe === 1 ? ['run', 'sprint', 'walk']
+                      : ['walk', 'run', 'sprint'];
+          for (const n of kette) if (habe(n)) { want = n; break; }
+        }
         else if (p.gang && findClip(m.clips, p.gang)) want = p.gang;
         else if (findClip(m.clips, 'walk')) {
           if (geht && vBoden > 3.2) geht = false;
