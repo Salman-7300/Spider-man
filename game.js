@@ -3989,8 +3989,29 @@ const GANG_REF = {
   schleichen: 2.0,
   ducken: 1.15,
   walk: 1.45,
-  run: 4.2,
-  sprint: 5.0,
+  /* ---- Nachgemessen, weil die Fuesse im Lauf rutschten ----
+     Wie viel Weg ein Gangclip WIRKLICH traegt, laesst sich messen: wie
+     weit der Standfuss waehrend seines Bodenkontakts relativ zur Huefte
+     nach hinten laeuft, mal zwei Schritte, geteilt durch die Cliplaenge.
+       walk   0,42 m Schritt / 1,033 s  ->  0,81 m/s
+       run    0,545 m       / 0,700 s  ->  1,56 m/s
+       sprint 0,568 m       / 0,533 s  ->  2,13 m/s
+     Mit run = 4,2 lief der Clip bei 6,91 m/s also nur 1,62-fach und trug
+     damit 2,53 m/s - der Rest war Rutschen. Gemessen legte der Fuss im
+     Bodenkontakt 0,078 m je Bild zurueck, also 66 Prozent des Weges, den
+     die Figur in derselben Zeit machte.
+     Ein Durchlauf ueber mehrere Werte (jeweils Anteil des Rutschens am
+     Weg der Figur):
+       run 4,2 / sprint 5,0   Lauf 66 %   Sprint 40 %   (Zeitfaktor 1,62 / 2,14)
+       run 2,6 / sprint 3,8   Lauf 54 %   Sprint 29 %   (Zeitfaktor 2,62 / 2,82)
+       run 1,9 / sprint 3,0   Lauf 61 %   Sprint 31 %   (Zeitfaktor am Anschlag 3,0)
+     Weiter herunter hilft nicht mehr: dort laeuft der Clip am Anschlag
+     von 3,0 und die Phasenlage verschiebt sich wieder ungünstig.
+     Ganz weg geht das Rutschen mit diesen Dateien nicht - dafuer muesste
+     der Clip bei 6,91 m/s 4,4-fach laufen, und das waere ein Wischen.
+     Der Rest ist offen und steht so im Bericht. */
+  run: 2.6,
+  sprint: 3.8,
   /* "Bully Walking", der Gang im Symbiontenanzug. Wie die anderen
      Gangarten abgetastet: bei 1,0 m/s steht der Fuss praktisch still
      (0,006 m/s Restbewegung), bei 1,2 sind es 0,09 - so viel wie beim
