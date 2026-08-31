@@ -10573,6 +10573,11 @@ function tryJump() {
     player.onGround = false;
     player.state = 'air';
     player.jumps = 1;
+    /* Ein ECHTER Sprung ist ein anderes Signal als ein verlorener
+       Bordstein: hier will der Spieler weg vom Boden, und eine
+       Bodenkampfbewegung hat sofort nichts mehr zu suchen. Der Merker
+       faellt beim naechsten Bodenkontakt wieder weg. */
+    player.aktivGesprungen = true;
     /* Die Sperre bleibt zunächst bestehen. Wurde sie hier sofort gelöst,
        war ein einzelner Tastendruck Sprung UND Schwung im selben Bild –
        man kam gar nicht mehr zum Springen. Wer die Taste GEDRÜCKT HÄLT,
@@ -12849,6 +12854,7 @@ function updatePlayer(dt) {
     player.jumps = 0;
     /* Solange man am Boden ist, laeuft die Kojotenzeit voll. */
     player.bodenAb = KOJOTE;
+    player.aktivGesprungen = false;
     /* ---- Gepufferter Sprung ----
        Kurz vor dem Aufkommen gedrueckt: jetzt sofort ausfuehren, damit
        Landung und neuer Absprung eine Bewegung bleiben. */
@@ -13080,7 +13086,9 @@ function updatePlayer(dt) {
     /* Nach dem Abbruch soll der Luftangriff sofort moeglich sein - die
        Sperre gehoert zum abgebrochenen Schlag, nicht zum neuen. */
     player.attackCd = Math.min(player.attackCd, 0.08);
-    if (heroVisual.brichOneShot) heroVisual.brichOneShot(0.12, art);
+    if (heroVisual.brichOneShot) {
+      heroVisual.brichOneShot(player.aktivGesprungen ? BLEND_SPRUNG : 0.12, art);
+    }
   }
   /* ---- Zweite Sicherung ----
      Die Bewegungsdatei laeuft laenger als der Schlag selbst: player.attack
@@ -13094,7 +13102,8 @@ function updatePlayer(dt) {
      in die Luft und stehen nicht in der Liste. */
   if (wirklichLuft && heroVisual.einmalArt &&
       KAMPF_CLIPS.has(heroVisual.einmalArt) && heroVisual.brichOneShot) {
-    heroVisual.brichOneShot(0.12, heroVisual.einmalArt);
+    heroVisual.brichOneShot(player.aktivGesprungen ? BLEND_SPRUNG : 0.12,
+                            heroVisual.einmalArt);
   }
   if (player.hitT > 0) player.hitT -= dt;
   /* Verliert man mitten in der Rolle den Boden (Bordstein, Kante), wird
@@ -13980,6 +13989,25 @@ let WAND_ZUG_TEMPO = 90;
    Einwand ("aus dem Rennen die Wand hoch wurde ein Wuehlen") galt der
    Bewegung in ihrem EIGENEN Takt; sie laeuft jetzt mit dem Steigtempo. */
 let WANDLAUF_CLIP = 'kriechen';
+/* ---- Wie schnell eine Bodenkampfbewegung verschwindet, wenn die Figur
+   AKTIV springt ----
+   Ein echter Sprung ist ein anderes Signal als ein verlorener Bordstein;
+   dort darf es schneller gehen. Wie viel schneller, ist ausgemessen -
+   ueber 40 Sprungabbrueche zu verschiedenen Zeitpunkten des Schlags,
+   jeweils Bilder mit Restgewicht und groesster Haltungssprung je Bild:
+     0      s   0 Bilder   0,856 m   <- harter Schnitt, sichtbarer Ruck
+     0,017 s   0 Bilder   0,845 m   <- ebenso
+     0,033 s   1 Bild     0,499 m
+     0,05  s   2 Bilder   0,354 m
+     0,067 s   3 Bilder   0,273 m
+     0,09  s   4 Bilder   0,211 m
+     0,12  s   6 Bilder   0,171 m   <- bisher
+   Hart zu schneiden bringt zwar null Restbilder, erzeugt aber genau den
+   Koerpersprung, den es zu vermeiden gilt. 0,067 s halbiert das
+   Restgewicht gegenueber vorher und bleibt mit 0,273 m unter der Marke,
+   ab der ein Haltungssprung im Bild auffaellt (in Phase 7 an mehreren
+   Uebergaengen bei rund 0,3 m bestimmt). */
+let BLEND_SPRUNG = 0.067;
 
 /* Zielabstand des Rumpfes zur Fassade und die Tiefe, bis zu der Haende
    und Fuesse dafuer eintauchen duerfen (wandGriff holt sie danach
@@ -22645,6 +22673,7 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     setzeWandlaufClip(v) { WANDLAUF_CLIP = v; },
+    setzeBlendSprung(v) { BLEND_SPRUNG = v; },
     hueftZiel() { return HUEFT_ZIEL; },
     kriechTiefe() { return KRIECH_TIEFE; },
     mausRechts(an) { swingHeld = !!an; },
