@@ -7781,6 +7781,14 @@ function makeGlbVisual(m) {
           phase = (current.time % cd) / cd;
         }
         const wAlt = gewichtVon(a);
+        /* Geprueft und OHNE WIRKUNG: von einer liegenden Wandhaltung
+           kuerzer wegblenden (0,07 statt 0,22 s), weil sich beim Ankommen
+           auf einer Laterne die Kriechbewegung mit dem aufrechten Stehen
+           mischt - gemessen ein Fuss bis 0,62 m ueber der Huefte bei noch
+           92 Prozent Gewicht der Kriechbewegung. Die Zahl blieb gleich
+           (87 gegen 91 Meldungen je 12 000 Bilder); der Uebergang laeuft
+           also nicht ueber diese Blende. Der Punkt steht offen im
+           Bericht. */
         blendeAus(current, hartRein ? 0.012 : 0.22);
         /* Umfallen und Liegenbleiben laufen genau einmal und bleiben im
            letzten Bild stehen – sonst fällt die Figur endlos immer wieder. */
