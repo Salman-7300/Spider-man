@@ -22892,6 +22892,7 @@ function poseLogSchreibe(dt) {
       mastHocke: !!player.mastHocke,
       wandModus: player.wandModus || null,
       wandRuhe: +(player.wandRuhe || 0).toFixed(2),
+      eckT: +(player.eckT || 0).toFixed(2),
       gleiten: !!player.gleiten,
       swingLock: !!player.swingLock,
     },
@@ -22901,6 +22902,7 @@ function poseLogSchreibe(dt) {
     fussHoch: heroVisual.laborFussUeberHuefte ? heroVisual.laborFussUeberHuefte() : null,
     wand: w ? [+w.nx.toFixed(2), +w.nz.toFixed(2)] : null,
     wandAbstand: player.state === 'climb' ? poseLogWandAbstand() : null,
+    imHaus: player.state === 'climb' ? poseLogImHaus() : null,
     kanteAbstand: (player.hockeT || 0) > 0.9
       ? (() => { const k = dachKante(player.pos.x, player.pos.z, player.pos.y);
                  return k ? +k.d.toFixed(2) : 99; })()
@@ -22959,10 +22961,23 @@ function poseLogPruefe(e) {
   if (e.zustand === 'climb' && e.wandAbstand) {
     for (const n in e.wandAbstand) {
       const d = e.wandAbstand[n];
-      if (RUMPF_KNOCHEN.has(n) && d > WAND_KONTAKT_MAX) {
+      /* Waehrend des Eckenwechsels NICHT: dort kommt der sichtbare
+         Koerper gedaempft von der alten Seite herueber und steht deshalb
+         voellig zu Recht weiter von der neuen Ebene weg. Ausserhalb des
+         Eckenfensters liegt die Brust im 95. Perzentil bei 0,216 m. */
+      if (RUMPF_KNOCHEN.has(n) && d > WAND_KONTAKT_MAX && !(e.flags.eckT > 0)) {
         melde('rumpfZuWeitVonWand', { knochen: n, abstand: d });
       }
-      if (d < -0.05) melde('wandDurchdringung', { knochen: n, abstand: d });
+      /* Fuer die DURCHDRINGUNG zaehlt nicht der Abstand zur unendlich
+         gedachten Wandebene, sondern ob der Knochen wirklich im Quader
+         steckt. Ein Glied, das sauber um eine Hausecke greift, liegt
+         hinter der Ebene der alten Seite, ohne irgendwo im Haus zu sein -
+         mit dem Ebenenmass meldete der Logger das als bis zu 1,5 m tiefe
+         Durchdringung. Genau daher stammt die frueher berichtete
+         "Gliedmasse 1,51 m im Gebaeude". */
+      if (e.imHaus && e.imHaus[n] > 0.05) {
+        melde('wandDurchdringung', { knochen: n, tiefe: e.imHaus[n] });
+      }
     }
   }
   /* 4. Dachhocke weit von der Kante. */
@@ -22985,6 +23000,32 @@ function poseLogWandAbstand() {
     if (!b) continue;
     b.getWorldPosition(_plv);
     aus[n] = +((_plv.x - fx) * w.nx + (_plv.z - fz) * w.nz).toFixed(3);
+  }
+  return aus;
+}
+/* ---- Wie tief steckt ein Knochen WIRKLICH im Gebaeude? ----
+   Gemessen gegen die Kollisionskoerper, nicht gegen eine gedachte Ebene.
+   Zurueckgegeben wird je Knochen die Entfernung zur naechsten Aussenseite
+   des Quaders, in dem er steckt - also die Eindringtiefe. Steckt er
+   nirgends, steht 0 da. */
+function poseLogImHaus() {
+  if (!heroVisual || !heroVisual.knochen) return null;
+  const aus = {};
+  for (const n of ['lefthand', 'righthand', 'leftfoot', 'rightfoot',
+                   'lefttoebase', 'righttoebase', 'hips', 'spine2', 'head']) {
+    const b = heroVisual.knochen[n];
+    if (!b) continue;
+    b.getWorldPosition(_plv);
+    let t = 0;
+    for (const c of colliders) {
+      if (c.klein) continue;
+      if (_plv.x <= c.x0 || _plv.x >= c.x1 || _plv.z <= c.z0 || _plv.z >= c.z1) continue;
+      const u = c.y0 === undefined ? 0 : c.y0;
+      if (_plv.y < u || _plv.y > u + (c.h || 0)) continue;
+      const m = Math.min(_plv.x - c.x0, c.x1 - _plv.x, _plv.z - c.z0, c.z1 - _plv.z);
+      if (m > t) t = m;
+    }
+    aus[n] = +t.toFixed(3);
   }
   return aus;
 }
