@@ -21875,7 +21875,12 @@ function evPruefeFluechtige(e) {
        Zug. Gemessen war der Ausgang deshalb immer "entkommen", nie
        "gefasst". Bei laufender Verfolgung uebernimmt respVerfolgung
        nach Zeit und Abstand zum Streifenwagen. */
-    const jagd = RESP.liste.some((r) => r.evId === e.id && r.jagd && r.wagen);
+    /* Es genuegt, dass die Polizei GERUFEN ist. Auf das Fahrzeug zu
+       warten reicht nicht: die Anfahrtsverzoegerung betraegt 4 bis 9 s,
+       und wenn der Spieler weggeht, ist der Taeter schon vorher 200 m
+       weit weg. Gemessen feuerte die alte Regel deshalb immer zuerst,
+       und "gefasst" blieb unerreichbar. */
+    const jagd = RESP.liste.some((r) => r.evId === e.id && r.art === 'polizei');
     if (d > 200 && !jagd) {
       e.fluechtige.splice(i, 1);
       g.eventRolle = null; g.eventFlucht = false; g.flieht = false;
