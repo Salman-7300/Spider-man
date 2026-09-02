@@ -4686,6 +4686,8 @@ const ANGRIFF_FENSTER = {
 
 /* Wie lange die selbstgebaute Schusshaltung ueber der Bewegungsdatei
    liegt. Sie blendet ein und aus - siehe updateHeroVisual. */
+/* Wie lange die Armhaltung nach dem Netz-Zug ausklingt. */
+const ZIP_NACH = 0.16;
 const SCHUSS_DAUER = 0.3;
 /* Wie lange der Wurfarm beim Anschwingen zum Anker greift. */
 const WURF_ZEIT = 0.26;
@@ -4698,6 +4700,8 @@ const HART_UEBERGANG = new Set();
    Ruhelage (freie, zufaellige Rollung um die Knochenachse). */
 let ZIELE_ALT = false;
 let BLEND_ROLLE = 0.012;   // praktisch harter Schnitt, siehe rolleOneShot
+/* Nur fuer Messreihen: erzwingt eine bestimmte Rollbewegung. */
+let ROLL_ZWANG = null;
 /* Kunststuecke in der Luft (Doppelsprung, Ueberschlag zwischen zwei
    Boegen) blenden weich ein. Mit dem harten Schnitt sprangen Knie und
    Schultern in einem einzigen Bild um mehr als 100 Grad - das war der
@@ -10926,8 +10930,28 @@ function dodge() {
      Richtungen; gewaehlt wird nach dem Winkel zwischen Blick- und
      Ausweichrichtung. */
   const acht = RICHT_8[Math.round(Math.atan2(seit, vor) / (Math.PI / 4)) & 7];
-  const wunsch = (zurSeite ? 'ausw_' : 'rolle_') + acht;
-  let welche = heroVisual.hatClip && heroVisual.hatClip(wunsch) ? wunsch
+  let wunsch = (zurSeite ? 'ausw_' : 'rolle_') + acht;
+  /* ---- Vorwaertsrolle: die schlichte 'roll' passt besser an den Lauf ----
+     Die acht gerichteten Rollen haben eine Anfangshaltung, die vom Lauf
+     weit entfernt ist - der harte Schnitt (siehe rolleOneShot, dort steht,
+     warum er hart bleiben muss) sprang deshalb sichtbar im linken Arm.
+     Gemessen als groesste Aenderung einer LOKALEN Knochendrehung in einem
+     Bild, ueber zwoelf Ausweichbewegungen:
+       rolle_v    148,5 Grad   (leftforearm)
+       roll        85,6 Grad   (leftleg)
+       frontflip   71,4 Grad   (leftforearm, dafuer insgesamt unruhiger)
+     Zum Vergleich: der normale Sprintschritt selbst kommt auf bis zu
+     49,1 Grad je Bild - so viel Bewegung ist also voellig gewoehnlich.
+     Bei 'roll' sitzt der groesste Sprung ausserdem im BEIN, das sich in
+     einer Rolle ohnehin dreht, statt im Arm.
+     Nur fuer die Vorwaertsrichtungen: seitwaerts und rueckwaerts wuerde
+     eine Vorwaertsrolle die Richtung falsch zeigen. */
+  if (!zurSeite && (acht === 'v' || acht === 'vl' || acht === 'vr') &&
+      heroVisual.hatClip && heroVisual.hatClip('roll')) {
+    wunsch = 'roll';
+  }
+  let welche = ROLL_ZWANG ? ROLL_ZWANG
+             : heroVisual.hatClip && heroVisual.hatClip(wunsch) ? wunsch
              : (zurSeite && heroVisual.hatClip && heroVisual.hatClip(seit > 0 ? 'ausweichenR' : 'ausweichenL')
                  ? (seit > 0 ? 'ausweichenR' : 'ausweichenL') : 'roll');
   /* Beim reinen Schritt zur Seite hin und wieder der Drehausweicher. */
@@ -14082,6 +14106,11 @@ function updateHeroVisual(dt) {
       else if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
       heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
+      /* Das Ziel fuer das Ausblenden merken, siehe unten. */
+      if (!player.zipNachZiel) player.zipNachZiel = new THREE.Vector3();
+      player.zipNachZiel.copy(player.zip.target);
+      player.zipNachHand = player.zip.hand;
+      player.zipNachT = ZIP_NACH;
     } else if (player.schussT > 0) {
       player.schussT -= dt;
       /* ---- Die Schusshaltung wird GEBLENDET, nicht geschaltet ----
@@ -14150,6 +14179,25 @@ function updateHeroVisual(dt) {
     const aus = clamp(player.wurfT / 0.12, 0, 1);
     heroVisual.poseSchuss(player.swing.anchor, player.swing.hand,
                           Math.min(ein, aus));
+  }
+
+  /* ---- Nach dem Netz-Zug den Arm nicht fallen lassen ----
+     Waehrend des Zugs zeigt der Arm mit voller Staerke zum Anker
+     (poseSchuss). Endete der Zug, hoerte das in EINEM Bild auf - und weil
+     eine gesetzte Haltung keine Blende hat, sprang der Unterarm. Gemessen
+     als groesste Aenderung einer lokalen Knochendrehung in einem Bild:
+     106,4 Grad am linken Unterarm, waehrend der normale Sprintschritt
+     hoechstens 49,1 Grad erreicht.
+     Jetzt laeuft die Armhaltung nach dem Zug noch kurz aus. Das ist die
+     "kurze neutrale Uebergangshaltung" - nicht eine andere Blendzahl,
+     sondern ueberhaupt erst eine. */
+  if (player.zipNachT > 0) {
+    player.zipNachT = Math.max(0, player.zipNachT - dt);
+    if (player.state !== 'zip' && player.zipNachZiel && heroVisual.poseSchuss &&
+        !heroVisual.procedural) {
+      heroVisual.poseSchuss(player.zipNachZiel, player.zipNachHand,
+                            player.zipNachT / ZIP_NACH);
+    }
   }
 
   /* Für die Neigung im nächsten Bild. */
@@ -23112,6 +23160,7 @@ if (window.__WEBHERO_TEST__ === true) {
     animClip(key, t01) { return heroVisual && heroVisual.laborClip ? heroVisual.laborClip(key, t01) : null; },
     animAus() { if (heroVisual && heroVisual.laborAus) heroVisual.laborAus(); },
     setzeRollBlende(v) { BLEND_ROLLE = v; },
+    setzeRollClip(v) { ROLL_ZWANG = v || null; },
     setzeZieleAlt(v) { ZIELE_ALT = !!v; },
     rollBlende() { return BLEND_ROLLE; },
     animKnochen(liste) { return heroVisual && heroVisual.laborKnochen ? heroVisual.laborKnochen(liste) : {}; },
