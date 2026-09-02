@@ -23592,7 +23592,17 @@ function starteMission() {
     if (helis.length) helis[0].zielMitte = { x: g.home.x, z: g.home.z };
 
   } else if (art === 'flucht') {
-    const car = pick(cars);
+    /* ---- Kein Einsatzfahrzeug und kein Streifenwagen als Fluchtauto ----
+       pick(cars) nahm bisher jeden Wagen, also auch einen, der gerade im
+       Einsatz war. Dann floh ein Einsatzwagen vor sich selbst: die
+       Autojagd fand ihn als Fluechtenden UND als Verfolger, der Abstand
+       war folglich exakt 0 (gemessen im 30-Minuten-Lauf als
+       autojagdMinAbstand 0). Ein fliehender Streifenwagen waere auch
+       ohne diesen Fehler Unsinn. */
+    const kand = cars.filter((c) => !c.aus && !c.notfall && !c.notfallWeg &&
+                                    !(c.typ && c.typ.art === 'polizei'));
+    if (!kand.length) { missionCd = 8; return; }
+    const car = pick(kand);
     car.altSpeed = car.speed;
     car.speed = 22;
     car.flucht = true;
