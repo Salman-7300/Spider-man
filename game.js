@@ -22337,7 +22337,57 @@ function respStartpunkt(halt) {
      abgebrochen werden. Ein sauberer Abbruch ist aber deutlich harmloser
      als ein Fahrzeug, das ausrueckt und nie ankommt - und er zaehlt sich
      auch ehrlich. Deshalb bleibt es bei der einen Spur. */
-  return respStartAufSpur(halt, halt.lane, zLinie);
+  const auf = respStartAufSpur(halt, halt.lane, zLinie);
+  if (auf) return auf;
+  return respStartQuer(halt, zLinie);
+}
+
+/* ---- Zweite Wahl: Anfahrt ueber die Querstrasse ----
+   Steht der Spieler dicht am Ereignis, verdeckt er fast jeden Punkt der
+   Zielspur, und der Einsatz wurde mangels Startpunkt abgebrochen
+   (gemessen: 22 von 102 Anforderungen). Der Wagen kann aber genauso gut
+   auf der Querachse starten und an der Linie zLinie auf die Zielspur
+   abbiegen - das ist genau der Zweig von respLenke, der zuverlaessig
+   arbeitet (im Gegensatz zum Spurwechsel auf gleicher Achse, der schon
+   einmal verworfen wurde).
+
+   Damit das aufgeht, muss zweierlei stimmen:
+     - zLinie muss vor dem Wagen liegen, in SEINER Einbahnrichtung;
+     - nach dem Abbiegen ist seine neue Laengslage seine alte Spur, und
+       die muss vor dem Halteplatz liegen (in dessen Fahrtrichtung). */
+function respStartQuer(halt, zLinie) {
+  const fahrt = halt.lane > zLinie ? 1 : -1;
+  const quer = halt.achse === 'x' ? 'z' : 'x';
+  const kand = [];
+  for (let i = 0; i <= BLOCKS; i++) {
+    const linie = ORIGIN + i * PITCH;
+    for (const seite of [1, -1]) {
+      const spur = linie + seite * 3;              // Spur auf der Querachse
+      if ((halt.s - spur) * fahrt < 15) continue;  // nach dem Abbiegen zu spaet
+      for (const weit of [70, 100, 45, 130]) {
+        const st = zLinie - seite * weit;          // Anlauf bis zur Linie
+        if (st < ORIGIN - 3 || st > ORIGIN + BLOCKS * PITCH + 3) continue;
+        const px = quer === 'x' ? st : spur;
+        const pz = quer === 'x' ? spur : st;
+        if (Math.abs(px) > 185 || Math.abs(pz) > 185) continue;
+        if (px > AUTO_X_MAX) continue;
+        if (inWater(px, pz) || inGebaeude(px, pz)) continue;
+        if (evImBlick(px, pz)) continue;
+        if (Math.hypot(px - player.pos.x, pz - player.pos.z) < 45) continue;
+        let frei = true;
+        for (const o of cars) {
+          if (o.aus || o.axis !== quer || Math.abs(o.lane - spur) > 0.5) continue;
+          if (Math.abs(o.s - st) < 9) { frei = false; break; }
+        }
+        if (!frei) continue;
+        kand.push({ achse: quer, lane: spur, s: st, dir: seite,
+                    d: Math.abs(spur - halt.s) + weit });
+      }
+    }
+  }
+  if (!kand.length) return null;
+  kand.sort((a, b) => a.d - b.d);
+  return kand[0];
 }
 
 function respStartAufSpur(halt, spur, zLinie) {
