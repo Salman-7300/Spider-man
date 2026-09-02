@@ -14404,6 +14404,8 @@ const WAND_KNOCHEN = ['leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase',
 const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
 /* Wie lange das Eckenfenster dauert - siehe player.eckT. */
 const WAND_ECK_ZEIT = 0.45;
+/* So lange gilt das Anlegen an eine Wand als Uebergang, siehe oben. */
+const WAND_ANLEGE_ZEIT = 0.26;
 /* Ab dieser Eindringtiefe holt gliederAusHaus() ein Glied heraus. Darunter
    bleibt es in Ruhe: die Haut ist rund 5 cm dick, und ein Fuss, der einen
    Zentimeter im Putz steckt, faellt niemandem auf - staendiges Nachdrehen
@@ -14507,6 +14509,7 @@ function wandFreiraum(dt) {
   /* Nicht an der Wand: die Korrektur sanft ausblenden, damit sie beim
      Loslassen nicht als Ruck stehen bleibt. */
   if (player.state !== 'climb' || !player.wallInfo) {
+    player.wandVorherAn = false;
     if (player.wandLuft && player.wandLuft.lengthSq() > 1e-8) {
       player.wandLuft.multiplyScalar(Math.pow(0.02, clamp(dtWand, 0, 0.1) / 0.15));
     }
@@ -14608,6 +14611,17 @@ function wandFreiraum(dt) {
      sein. Langsam muss sie nur beim Eckenwechsel bleiben: dort springt
      die Wandnormale in einem Bild um 90 Grad, waehrend der Koerper noch
      zur alten Wand steht, und ein harter Sprung waere sichtbar. */
+  /* GEPRUEFT UND ZURUECKGENOMMEN: das erste Anlegen an eine Wand nicht
+     mehr als Eckenwechsel zu behandeln (dort ist ja keine alte Wand, vor
+     der man den Koerper schuetzen muesste). Es hat am Rumpfabstand nichts
+     geaendert - der stammt aus dem Aufkippen, nicht aus dieser Bremse -
+     und es hat den Wandgriff beim ersten Zugreifen zerstoert: 0 von 180
+     Fehlern wurden zu 119 von 244. Die Bremse bleibt also wie sie war.
+     Die Zeit seit dem Anlegen wird trotzdem gefuehrt, der Fail-Logger
+     braucht sie. */
+  player.wandAnlegen = player.wandVorherAn
+    ? Math.max(0, (player.wandAnlegen || 0) - dtWand) : WAND_ANLEGE_ZEIT;
+  player.wandVorherAn = true;
   const eckWechsel = (player.eckT || 0) > 0 ||
                      player.wandNormAlt === undefined ||
                      player.wandNormAlt.x !== w.nx || player.wandNormAlt.z !== w.nz;
@@ -22955,6 +22969,7 @@ function poseLogSchreibe(dt) {
       wandModus: player.wandModus || null,
       wandRuhe: +(player.wandRuhe || 0).toFixed(2),
       eckT: +(player.eckT || 0).toFixed(2),
+      anlegen: +(player.wandAnlegen || 0).toFixed(2),
       gleiten: !!player.gleiten,
       swingLock: !!player.swingLock,
     },
@@ -23027,7 +23042,16 @@ function poseLogPruefe(e) {
          Koerper gedaempft von der alten Seite herueber und steht deshalb
          voellig zu Recht weiter von der neuen Ebene weg. Ausserhalb des
          Eckenfensters liegt die Brust im 95. Perzentil bei 0,216 m. */
-      if (RUMPF_KNOCHEN.has(n) && d > WAND_KONTAKT_MAX && !(e.flags.eckT > 0)) {
+      /* Auch nicht in den ersten Bildern nach dem Anlegen: dort DREHT
+         sich der Koerper gerade erst auf die Wand, und solange er das
+         tut, steht die Brust zwangslaeufig weiter weg. Gemessen ueber 72
+         Anlaeufe braucht die Kippung rund 15 Bilder, danach liegt der
+         Rumpf bei 0,16 bis 0,19 m. Ein schnelleres Aufkippen wurde
+         geprueft und macht es schlechter: mit 0,45 statt 0,28 steigen die
+         Bilder ueber 0,30 m von 244 auf 408, mit 0,65 auf 524 - die Figur
+         schwingt dann ueber die Wandlage hinaus. */
+      if (RUMPF_KNOCHEN.has(n) && d > WAND_KONTAKT_MAX && !(e.flags.eckT > 0) &&
+          !(e.flags.anlegen > 0)) {
         melde('rumpfZuWeitVonWand', { knochen: n, abstand: d });
       }
       /* Fuer die DURCHDRINGUNG zaehlt nicht der Abstand zur unendlich
