@@ -22267,6 +22267,16 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
         /* Nicht auf einer Kreuzung halten. */
         const kk = Math.round((s - ORIGIN) / PITCH);
         if (Math.abs(s - (ORIGIN + kk * PITCH)) < kreuz) continue;
+        /* ---- Erreichbarkeit ----
+           Der Platz muss auf der Fahrbahn LIEGEN, nicht nur in ihrer
+           Naehe. Die Laengslage einer Spur endet bei ORIGIN - 3 bzw.
+           ORIGIN + BLOCKS * PITCH + 3 (siehe setzeAutoGrenzen). Fehlte
+           diese Pruefung, entstanden am Stadtrand Halteplaetze bei
+           s = -183,4 - fuenf Meter hinter dem Ende des Asphalts. Der
+           Wagen fuhr bis zum Fahrbahnende, stand dort 7,7 m vor seinem
+           Ziel und kam nie an: gemessen 13 Zwangsankuenfte, alle mit
+           genau diesem Halteplatz. */
+        if (s < ORIGIN - 3 || s > ORIGIN + BLOCKS * PITCH + 3) continue;
         const px = achse === 'x' ? s : lane;
         const pz = achse === 'x' ? lane : s;
         if (Math.abs(px) > 190 || Math.abs(pz) > 190) continue;
