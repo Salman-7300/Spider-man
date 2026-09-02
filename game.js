@@ -16432,6 +16432,7 @@ function updateCars(dt) {
     car.aus = !fahren;
     if (!fahren) { car.tempoJetzt = 0; continue; }
     setzeAutoGrenzen(car);
+    if (RESP.trace) car.bremse = null;
     let ziel = car.speed;
     const eigenLaenge = (car.typ ? car.typ.laenge : 4.4);
     /* Ein Fluchtauto hält weder an Ampeln noch hinter Vordermännern –
@@ -16441,6 +16442,11 @@ function updateCars(dt) {
       for (const o of cars) {
         if (o === car || o.aus || o.axis !== car.axis || Math.abs(o.lane - car.lane) > 0.5) continue;
         const gap = (o.s - car.s) * car.dir - (eigenLaenge + (o.typ ? o.typ.laenge : 4.4)) / 2;
+        if (RESP.trace && gap > -3 && gap < 9) {
+          car.bremse = 'vordermann gap=' + gap.toFixed(1) +
+                       ' dessenTempo=' + (o.tempoJetzt || 0).toFixed(2) +
+                       ' dessenBremse=' + (o.bremse || '?');
+        }
         if (gap > 0 && gap < 9) ziel = Math.min(ziel, (o.tempoJetzt || 0) * 0.85);
         if (gap <= 0 && gap > -3) ziel = 0;
       }
@@ -16450,6 +16456,8 @@ function updateCars(dt) {
       if (zustand !== 'gruen') {
         const d = abstandZurKreuzung(car) - (ROAD_HALF + eigenLaenge / 2 + 0.6);
         const bremsweg = (car.tempoJetzt * car.tempoJetzt) / 16 + 2;
+        if (RESP.trace && d > -1.5 && d < bremsweg)
+          car.bremse = 'ampel ' + zustand + ' d=' + d.toFixed(1);
         if (d > -1.5 && d < bremsweg) ziel = Math.min(ziel, Math.max(0, d * 1.6));
       }
 
@@ -16469,6 +16477,7 @@ function updateCars(dt) {
                                       : Math.abs(fg.pos.x - car.lane);
         if (quer > 3.0) continue;
         const d = laengs - (eigenLaenge / 2 + 1.6);
+        if (RESP.trace && d < 9) car.bremse = 'fussgaenger d=' + d.toFixed(1);
         if (d < 0.5) { ziel = 0; car.fussgaenger = 1.2; }
         else if (d < 9) { ziel = Math.min(ziel, Math.max(0, d * 0.9)); car.fussgaenger = 1.2; }
         else ziel = Math.min(ziel, car.speed * 0.7);   // aus der Ferne nur vom Gas
@@ -16501,6 +16510,7 @@ function updateCars(dt) {
         }
         if (warten) {
           const halt = dKreuz - (ROAD_HALF + eigenLaenge / 2 + 0.8);
+          if (RESP.trace) car.bremse = 'querverkehr halt=' + halt.toFixed(1);
           if (halt > -1.5) ziel = Math.min(ziel, Math.max(0, halt * 1.6));
         }
       }
@@ -16556,6 +16566,7 @@ function updateCars(dt) {
       }
     }
     if (hindernis) {
+      if (RESP.trace) car.bremse = 'hindernis ' + hindernis.toFixed(1);
       ziel = Math.min(ziel, Math.max(0, (hindernis - 4) * 1.2));
       car.hupCd -= dt;
       if (car.hupCd <= 0) { SFX.hupe(); car.hupCd = rand(1.4, 3); }
@@ -22673,6 +22684,21 @@ function respAnfahrt(ein) {
 function respUnterwegs(ein, dt) {
   const car = ein.wagen;
   if (!car) { ein.zustand = 'FERTIG'; return; }
+  /* Regelmaessige Probe, nicht nur an Kreuzungen: ein Wagen, der gar
+     nicht faehrt, erreicht auch keine Kreuzung und stuende sonst als
+     leerer Fahrtenschreiber da. */
+  if (RESP.trace) {
+    ein.probeCd = (ein.probeCd || 0) - dt;
+    if (ein.probeCd <= 0) {
+      ein.probeCd = 2;
+      respSpur(ein, 'probe', car, undefined,
+               { tempo: +car.tempoJetzt.toFixed(2),
+                 halt: car.notfallHalt === null || car.notfallHalt === undefined
+                       ? null : +car.notfallHalt.toFixed(1),
+                 rest: car.notfallHalt === null || car.notfallHalt === undefined
+                       ? null : +((car.notfallHalt - car.s) * car.dir).toFixed(1) });
+    }
+  }
   const d = Math.hypot(car.mesh.position.x - ein.halt.x,
                        car.mesh.position.z - ein.halt.z);
   car.notfallHalt = null;
