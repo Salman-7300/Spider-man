@@ -21868,7 +21868,15 @@ function evPruefeFluechtige(e) {
       continue;
     }
     const d = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
-    if (d > 200) {
+    /* ---- Laeuft eine Verfolgung, entscheidet die ----
+       Sonst gewinnt diese Entfernungsregel immer das Rennen: sobald der
+       Spieler weit genug weg ist, gilt der Taeter als entkommen, und
+       eine Streife, die direkt hinter ihm ist, kommt gar nicht mehr zum
+       Zug. Gemessen war der Ausgang deshalb immer "entkommen", nie
+       "gefasst". Bei laufender Verfolgung uebernimmt respVerfolgung
+       nach Zeit und Abstand zum Streifenwagen. */
+    const jagd = RESP.liste.some((r) => r.evId === e.id && r.jagd && r.wagen);
+    if (d > 200 && !jagd) {
       e.fluechtige.splice(i, 1);
       g.eventRolle = null; g.eventFlucht = false; g.flieht = false;
       EV.statistik.entkommen++;
