@@ -22323,18 +22323,21 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
    dahinter gelegt. */
 function respStartpunkt(halt) {
   const zLinie = ORIGIN + Math.round((halt.lane - ORIGIN) / PITCH) * PITCH;
-  /* Erste Wahl: die Zielspur selbst, in ihrer Einbahnrichtung, weit
-     genug dahinter. Reicht das nicht (der Spieler steht im Weg oder die
-     Strasse endet), gibt es als zweite Wahl die GEGENSPUR derselben
-     Linie - auch die ist eine gueltige Einbahn, nur andersherum, und
-     respLenke bringt den Wagen an der Kreuzung hinueber. Vorher wurde
-     stattdessen einfach die Richtung umgedreht; das war die Geisterfahrt
-     und damit die Frontalsperre. */
-  for (const spur of [halt.lane, 2 * zLinie - halt.lane]) {
-    const st = respStartAufSpur(halt, spur, zLinie);
-    if (st) return st;
-  }
-  return null;
+  /* Nur die Zielspur selbst, in ihrer Einbahnrichtung, weit genug
+     dahinter.
+
+     Verworfen: die Gegenspur derselben Linie als zweite Wahl. Sie ist
+     zwar eine gueltige Einbahn, aber der Wagen muss dann an einer
+     Kreuzung hinueberwechseln, und genau dieser Zweig von respLenke ist
+     der schwache. Gemessen ueber 100 Routen:
+         nur Zielspur      0 Zwangsankuenfte, p95 32,4 s, max 33 s
+         mit Gegenspur    22 Zwangsankuenfte, p95 82,7 s, max 83,9 s
+     Der Gewinn waere gewesen, dass in einem kuenstlichen Testfall (der
+     Spieler steht direkt am Ereignis) 3 von 11 Anforderungen nicht mehr
+     abgebrochen werden. Ein sauberer Abbruch ist aber deutlich harmloser
+     als ein Fahrzeug, das ausrueckt und nie ankommt - und er zaehlt sich
+     auch ehrlich. Deshalb bleibt es bei der einen Spur. */
+  return respStartAufSpur(halt, halt.lane, zLinie);
 }
 
 function respStartAufSpur(halt, spur, zLinie) {
