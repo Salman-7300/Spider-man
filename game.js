@@ -16290,6 +16290,9 @@ function spawnCars() {
     const lane = line + laneSign * 3;
     const isBridgeRoad = axis === 'x' && line === BRIDGE_Z;
     const typ = waehleFahrzeug();
+    /* Ein Polizeiwagen im normalen Verkehr ist eine Streife: er faehrt
+       wie jeder andere, ohne Sirene und ohne Licht - und steht dem
+       Dispatch als naechste Einheit zur Verfuegung (siehe respStreife). */
     /* ---- Die Brueckenstrasse endet an der Kaimauer drueben ----
        Sie reichte bis SHORE_X1 - 10, also mitten in den Stadtteil am
        anderen Ufer. Dort liegt aber ein EIGENES Strassenraster (SHORE_*),
@@ -16658,11 +16661,23 @@ function updateCars(dt) {
       car.mesh.position.set(zx, 0, zz);
       car.mesh.rotation.y = zy;
     }
+    /* ---- Blaulicht nur im Einsatz ----
+       Der Balken blinkte bei JEDEM Polizeiwagen, also auch bei den zwei
+       Streifen, die ohnehin im normalen Verkehr mitfahren. Damit sah die
+       ganze Stadt so aus, als sei dauernd etwas los, und ein echter
+       Einsatz hob sich nicht mehr ab. Gemessen: 2 von 2 fahrenden
+       Streifenwagen mit Licht, ohne dass ein Einsatz lief. */
     const bl = car.mesh.userData && car.mesh.userData.blaulicht;
     if (bl) {
-      const an = (elapsed * 6) % 2 < 1;
-      bl.children[0].visible = an;
-      bl.children[1].visible = !an;
+      const an = !!(car.notfall || car.blaulichtAn);
+      if (!an) {
+        if (bl.children[0].visible) bl.children[0].visible = false;
+        if (bl.children[1].visible) bl.children[1].visible = false;
+      } else {
+        const takt = (elapsed * 6) % 2 < 1;
+        bl.children[0].visible = takt;
+        bl.children[1].visible = !takt;
+      }
     }
   }
 }
@@ -22149,7 +22164,8 @@ const RESP = {
                gesichert: 0, versorgt: 0, ohneHaltepunkt: 0,
                fernAbschluss: 0, aufraeumFehler: 0,
                emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0,
-               zwangsAnkunft: 0, weiterHalt: 0 },
+               zwangsAnkunft: 0, weiterHalt: 0,
+               ausStreife: 0, zurueckInStreife: 0 },
   rufCd: 0,
   /* Fahrtenschreiber. Nur fuer die Pruefskripte, im Spiel aus. */
   trace: false,
@@ -22428,7 +22444,7 @@ function respBaueWagen(ein, start) {
     vx: 0, vz: 0, hitCd: 0, kurve: 0, kreuzung: null,
     /* Daran erkennt updateCars den Einsatzwagen: er faehrt immer (nicht
        nach Tageszeit), er lenkt gezielt und er hat Vorrang-Verhalten. */
-    notfall: ein.art, notfallEinsatz: ein, sirene: true,
+    notfall: ein.art, notfallEinsatz: ein, sirene: true, blaulichtAn: true,
   };
   setzeAutoGrenzen(car);
   /* Sofort an die richtige Stelle setzen. updateCars laeuft VOR
@@ -22807,9 +22823,49 @@ function updateResponders(dt) {
   }
 }
 
+/* ---- Ist schon eine Streife in der Naehe? ----
+   Zwei Polizeiwagen fahren ohnehin im normalen Verkehr mit. Sie erst am
+   Stadtrand neu zu erzeugen, waehrend eine Streife zwei Strassen weiter
+   faehrt, ist genau der Unterschied zwischen "die Polizei ist da" und
+   "die Polizei wird bei Bedarf erzeugt". Also wird zuerst gefragt.
+
+   Nicht jede Streife wird umgedreht: sie muss frei sein, in sinnvoller
+   Entfernung, und sie darf nicht direkt vor den Augen des Spielers vom
+   Streifendienst in den Einsatz springen. */
+const RESP_STREIFE_NAH = 130;    // weiter weg lohnt der Umweg nicht
+const RESP_STREIFE_MIN = 25;     // direkt daneben wirkt es wie gezaubert
+function respStreife(halt) {
+  let best = null, bestD = 1e9;
+  for (const c of cars) {
+    if (c.aus || c.notfall || c.flucht || c.notfallWeg) continue;
+    if (!c.typ || c.typ.art !== 'polizei') continue;
+    const cx = c.mesh.position.x, cz = c.mesh.position.z;
+    const d = Math.hypot(cx - halt.x, cz - halt.z);
+    if (d > RESP_STREIFE_NAH || d < RESP_STREIFE_MIN) continue;
+    /* Nicht vor der Nase des Spielers umschalten. */
+    if (Math.hypot(cx - player.pos.x, cz - player.pos.z) < 40 &&
+        evImBlick(cx, cz)) continue;
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+
 /* Losfahren, sobald die Wartezeit um ist. */
 function respAnfahrt(ein) {
   if (ein.t < ein.wartet) return;
+  /* Erst die vorhandene Streife, dann ein neuer Wagen. */
+  if (ein.art === 'polizei') {
+    const st = respStreife(ein.halt);
+    if (st) {
+      st.notfall = ein.art; st.notfallEinsatz = ein;
+      st.sirene = true; st.blaulichtAn = true;
+      st.altSpeed = st.speed; st.speed = 15;
+      st.ausStreife = true;
+      ein.wagen = st; ein.zustand = 'UNTERWEGS'; ein.t = 0;
+      RESP.statistik.ausgerueckt++; RESP.statistik.ausStreife++;
+      return;
+    }
+  }
   const start = respStartpunkt(ein.halt);
   if (!start) {
     /* Kein sauberer Startpunkt (Spieler steht ueberall im Blick): spaeter
@@ -23094,6 +23150,18 @@ function respAufraeumen(ein) {
 }
 
 function respLoescheWagen(car) {
+  /* Eine Streife, die den Einsatz uebernommen hat, gehoert der Stadt und
+     nicht dem Einsatz: sie wird nicht geloescht, sondern macht wieder
+     Streifendienst - Sirene aus, Licht aus, normales Tempo. */
+  if (car.ausStreife) {
+    car.notfall = null; car.notfallEinsatz = null;
+    car.sirene = false; car.blaulichtAn = false;
+    car.notfallHalt = null; car.notfallWeg = 0;
+    if (car.altSpeed !== undefined) { car.speed = car.altSpeed; car.altSpeed = undefined; }
+    car.ausStreife = false;
+    RESP.statistik.zurueckInStreife++;
+    return;
+  }
   const i = cars.indexOf(car);
   if (i >= 0) cars.splice(i, 1);
   if (car.mesh) scene.remove(car.mesh);
