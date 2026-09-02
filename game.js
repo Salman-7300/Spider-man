@@ -7282,7 +7282,8 @@ function makeGlbVisual(m) {
            mit mehr als 5 cm Eindringung von 86 auf 271 - die
            Kriechbewegung fuehrt das Schwungglied naemlich IN die Wand
            hinein, anders als ein echter Kletterer. */
-        const kg = (kraft && d > ziel) ? (kraft[gliedVon(eltern, spitze)] || 1) : 1;
+        const gl = gliedVon(eltern, spitze);
+        const kg = (kraft && d > ziel) ? (kraft[gl] || 1) : 1;
         griffKnochen(a, b, _vw4, w * kg * nah * nah * (3 - 2 * nah), 0.45);
       }
       /* ---- und jetzt die Flaechen flach auf die Fassade ----
@@ -12339,13 +12340,29 @@ function updatePlayer(dt) {
        Fassade stehen, statt zu rutschen. */
     if (bewegt === 0 && !player.wandlauf) player.klettertempo = 0;
     else {
-      const vSteig = Math.abs(hoch);
+      /* ---- Das TEMPO IN DER WANDEBENE zaehlt, nicht nur das Steigen ----
+         Hier stand Math.abs(hoch), also allein die senkrechte
+         Geschwindigkeit. Beim seitlichen Hangeln ist die aber nahe null,
+         waehrend die Figur mit 4,4 m/s an der Fassade entlangfaehrt: der
+         Zeitfaktor fiel dadurch auf den unteren Anschlag von 0,5, die
+         Bewegung stand praktisch still und der ganze Koerper glitt
+         seitwaerts weg. Gemessen rutschte die Hand dabei um 106 Prozent
+         des Koerperwegs - sie hielt sich also ueberhaupt nicht fest. */
+      const vSteig = Math.hypot(hoch, side * sTempo);
       /* Beim Rennen die Eigengeschwindigkeit des Laufs, beim Klettern die
          der Kriechbewegung an der Wand. */
       /* Der Wandlauf faehrt jetzt dieselbe Bewegung wie das Klettern,
          also gilt auch dieselbe Eigengeschwindigkeit. */
-      const eigen = KLETTER_REF;
-      player.klettertempo = clamp(vSteig / eigen, 0.5, 5.0) * (up < 0 ? -1 : 1);
+      /* Je Kletterdatei ihre EIGENE Geschwindigkeit. Vorher galt fuer alle
+         derselbe Wert 0,62 - gemessen (die greifende Hand wandert relativ
+         zur Huefte genauso schnell nach unten, wie der Koerper hinaufsteigt):
+           climb 0,985   klettern 0,980   klettern_frei 1,032
+           klettern_seit 0,584   kriechen 0,279   wandlauf 1,970
+         Mit dem gemeinsamen Wert lief die Kriechbewegung also 2,2-fach zu
+         schnell und die Kletterbewegung 1,6-fach zu langsam. Genau das war
+         der Hauptanteil an der hohen Knochengeschwindigkeit beim Klettern. */
+      const eigen = KLETTER_REFS[heroVisual.aktuellerClip] || KLETTER_REF;
+      player.klettertempo = clamp(vSteig / eigen, 0.5, KLETTER_MAX) * (up < 0 ? -1 : 1);
     }
     /* Oben angekommen → über die Kante ziehen. Vorher wurde die Figur
        einfach aufs Dach versetzt und nach oben geschleudert; jetzt läuft
@@ -13680,6 +13697,22 @@ let WAND_AB_AN = true;
    Weg zurueck. Abgetastet an der Weltgeschwindigkeit der Haende - bei
    diesem Wert steht die greifende Hand am ruhigsten. */
 const KLETTER_REF = 0.62;
+/* Gemessene Eigengeschwindigkeit je Wandbewegung, siehe updatePlayer. */
+/* ---- Obergrenze fuer das Abspieltempo an der Wand ----
+   Wie am Boden (dort 3,0) darf auch die Wandbewegung nicht zum Zeitraffer
+   werden. Gemessen ueber 2800 Kletterbilder, groesste Aenderung einer
+   lokalen Knochendrehung je Bild:
+     Grenze 5,0   Median 35,0   p95 80,2   p99 97,3   ueber 60 Grad 542
+     Grenze 3,5   Median 25,1   p95 66,4   p99 80,4   ueber 60 Grad 220
+     Grenze 2,5   Median 18,5   p95 49,7   p99 68,0   ueber 60 Grad  60
+   Das Handrutschen aendert sich dabei praktisch nicht (Median 0,99 -> 0,94):
+   die Haende gleiten an dieser Fassade ohnehin durchgehend, weil eine
+   Bodenkriechbewegung keine Greifphasen an einer senkrechten Wand hat.
+   Die ruhigere Bewegung ist also ohne Gegenwert zu haben. */
+let KLETTER_MAX = 2.5;
+const KLETTER_REFS = { climb: 0.985, klettern: 0.980, klettern_frei: 1.032,
+                       klettern_seit: 0.584, kriechen: 0.279, wandlauf: 1.970,
+                       haengen_frei: 0.985 };
 /* Stelle im Kriechclip (0..1), an der die Figur an der Wand ruht.
    Abgetastet: dort liegen beide Haende und beide Fuesse am dichtesten an
    der Fassade. */
@@ -13982,6 +14015,11 @@ function updateHeroVisual(dt) {
     phase: player.phase,
     speed01: clamp(hSpeed / CFG.sprintSpeed, 0, 1),
     speed: hSpeed,
+    /* Bewegung IN der Wandebene, fuer die Wahl der Kletterbewegung:
+       hoch = senkrecht, quer = an der Fassade entlang. */
+    wandHoch: player.vel.y,
+    wandQuer: player.wallInfo
+      ? (-player.vel.x * player.wallInfo.nz + player.vel.z * player.wallInfo.nx) : 0,
     tempo: player.klettertempo,
     t: elapsed,
     hand: player.swing ? player.swing.hand : netzHand,
@@ -23251,6 +23289,8 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     setzeKletterClip(v) { KLETTER_CLIP = v; },
+    setzeKletterRef(v) { for (const k in KLETTER_REFS) KLETTER_REFS[k] = v; },
+    setzeKletterMax(v) { KLETTER_MAX = v; },
     setzeGriffPhase(tief, hoch, schwung) {
       GRIFF_TEMPO_TIEF = tief; GRIFF_TEMPO_HOCH = hoch; GRIFF_SCHWUNG = schwung;
     },
