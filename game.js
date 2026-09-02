@@ -22123,7 +22123,10 @@ const RESP_NAH = 150, RESP_FERN_AUS = 260;
    beliebig viele Streifenwagen. */
 const RESP_MAX = 2;
 /* Suchbereich fuer den Halteplatz: so weit vom Ereignis entfernt. */
+/* Halteplatz: nah genug, um dazuzugehoeren, weit genug, um nicht im
+   Geschehen zu stehen. Der Rettungswagen stellt sich etwas enger. */
 const RESP_HALT_NAH = 8, RESP_HALT_FERN = 20;
+const RESP_HALT_FERN_EMS = 18;
 /* Arbeitszeiten vor Ort. */
 const RESP_SICHERN = 5.0, RESP_BEHANDELN = 6.0;
 /* Uniformfarben. Kein Wappen, keine Marke - nur eindeutig erkennbar. */
@@ -22165,8 +22168,9 @@ function respUniform(v, art) {
    Entfernung, die weder mitten auf einer Kreuzung noch auf einem
    Ueberweg liegt. Gefahren wird ohnehin nur auf dem Raster, es geht hier
    also nur um die STELLE auf der Spur. */
-function respHaltepunkt(ort, belegt) {
+function respHaltepunkt(ort, belegt, art) {
   const kand = [];
+  const fern = art === 'ems' ? RESP_HALT_FERN_EMS : RESP_HALT_FERN;
   for (const achse of ['x', 'z']) {
     const quer = achse === 'x' ? ort.z : ort.x;
     const laengs = achse === 'x' ? ort.x : ort.z;
@@ -22177,7 +22181,7 @@ function respHaltepunkt(ort, belegt) {
     for (const seite of [1, -1]) {
       const lane = linie + seite * 3;
       const dQuer = Math.abs(lane - quer);
-      if (dQuer > RESP_HALT_FERN) continue;
+      if (dQuer > fern) continue;
       /* So weit muss es laengs noch sein, damit der Abstand stimmt. */
       const rest = Math.sqrt(Math.max(0,
         RESP_HALT_NAH * RESP_HALT_NAH + 16 - dQuer * dQuer));
@@ -22192,7 +22196,7 @@ function respHaltepunkt(ort, belegt) {
         if (px > AUTO_X_MAX) continue;
         if (inWater(px, pz) || onBridge(px, pz) || inGebaeude(px, pz)) continue;
         const d = Math.hypot(px - ort.x, pz - ort.z);
-        if (d < RESP_HALT_NAH - 1 || d > RESP_HALT_FERN) continue;
+        if (d < RESP_HALT_NAH - 1 || d > fern) continue;
         /* Nicht auf einen schon vergebenen Platz. */
         let frei = true;
         for (const b of (belegt || [])) {
@@ -22447,7 +22451,7 @@ function respIstGesichert(g) {
 }
 
 function respStarte(e, art, ziele) {
-  const halt = respHaltepunkt(e.ort);
+  const halt = respHaltepunkt(e.ort, null, art);
   if (!halt) { RESP.statistik.ohneHaltepunkt++; return null; }
   const ein = {
     id: RESP.naechsteId++,
@@ -24260,6 +24264,7 @@ if (window.__WEBHERO_TEST__ === true) {
         x: +c.mesh.position.x.toFixed(1), z: +c.mesh.position.z.toFixed(1) }));
     },
     respLeck() { return respLeckPruefung(); },
+    haltepunkt: respHaltepunkt,
     respAnzahl() {
       let leute = 0;
       for (const e of RESP.liste) leute += e.leute.length;
