@@ -18386,7 +18386,7 @@ function updateCivilians(dtBild) {
        quer zur Fahrbahn zur Seite - dorthin, wo der naechste Gehweg ist. */
     if (c.state !== 'hurt' && c.pos.y < 2.5 && (c.autoWeg || 0) <= 0) {
       for (const car of cars) {
-        if (car.aus || (car.tempoJetzt || 0) < 3) continue;
+        if (car.aus) continue;
         const cx = car.mesh.position.x, cz = car.mesh.position.z;
         if (Math.abs(cx - c.pos.x) > 22 || Math.abs(cz - c.pos.z) > 22) continue;
         const dx = c.pos.x - cx, dz = c.pos.z - cz;
@@ -18395,7 +18395,19 @@ function updateCivilians(dtBild) {
            nicht noch einmal abgezogen werden, sonst kam als Querabstand
            die doppelte Spurlage heraus und niemand wich je aus. */
         const seit = car.axis === 'x' ? dz : dx;
-        if (vorne < 1 || vorne > 13 || Math.abs(seit) > 2.6) continue;
+        if (vorne > 13 || Math.abs(seit) > 2.6) continue;
+        /* ---- Auch vor einem STEHENDEN Wagen zur Seite ----
+           Sonst verklemmen sich beide: der Wagen bremst fuer jeden in
+           vier Metern auf null, und ausgewichen wurde erst ab Tempo 3.
+           Also blieb der Wagen stehen, WEIL der Passant dastand, und der
+           Passant blieb stehen, WEIL der Wagen stand - gemessen als
+           Bremsgrund "hindernis 4.0" ohne einen einzigen Vordermann.
+           Ein stehender Wagen zaehlt deshalb im Nahbereich mit; weiter
+           weg bleibt es beim alten Verhalten, damit niemand um jedes
+           geparkte Auto herumtanzt. */
+        const faehrt = (car.tempoJetzt || 0) >= 3;
+        if (faehrt) { if (vorne < 1) continue; }
+        else if (vorne < 0.2 || vorne > 7) continue;
         /* Zur Seite, auf der man ohnehin schon steht - der kuerzere Weg. */
         c.autoWeg = 1.1;
         c.autoWegX = car.axis === 'x' ? 0 : (seit >= 0 ? 1 : -1);
