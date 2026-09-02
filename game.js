@@ -22107,7 +22107,7 @@ const RESP = {
                gesichert: 0, versorgt: 0, ohneHaltepunkt: 0,
                fernAbschluss: 0, aufraeumFehler: 0,
                emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0,
-               zwangsAnkunft: 0 },
+               zwangsAnkunft: 0, weiterHalt: 0 },
   rufCd: 0,
   /* Fahrtenschreiber. Nur fuer die Pruefskripte, im Spiel aus. */
   trace: false,
@@ -22130,6 +22130,17 @@ const RESP_MAX = 2;
    Geschehen zu stehen. Der Rettungswagen stellt sich etwas enger. */
 const RESP_HALT_NAH = 8, RESP_HALT_FERN = 20;
 const RESP_HALT_FERN_EMS = 18;
+/* ---- Wenn in der Naehe keine Fahrbahn liegt ----
+   Ein Ereignis mitten im Block hat im Umkreis von 20 m keine Strasse -
+   gemessen bei 1 von 24 Orten. Das war bisher der Abbruch: kein
+   Halteplatz, kein Einsatz, also auch kein Rettungswagen fuer einen
+   Verletzten. Stattdessen wird der Kreis stufenweise groesser, und die
+   Besatzung laeuft das letzte Stueck zu Fuss - das ist ohnehin naeher an
+   der Wirklichkeit als ein Wagen, der bis vor die Haustuer faehrt.
+   Die letzte Stufe ist zugleich die Obergrenze des Fussweges: 20 + 20 =
+   40 m, bei 2,4 m/s gut siebzehn Sekunden. Weiter laeuft keine
+   Besatzung, dann gibt es lieber keinen Halteplatz. */
+const RESP_HALT_STUFEN = [0, 5, 10, 20];   // Zuschlag auf die Obergrenze
 /* Arbeitszeiten vor Ort. */
 const RESP_SICHERN = 5.0, RESP_BEHANDELN = 6.0;
 /* Uniformfarben. Kein Wappen, keine Marke - nur eindeutig erkennbar. */
@@ -22172,8 +22183,17 @@ function respUniform(v, art) {
    Ueberweg liegt. Gefahren wird ohnehin nur auf dem Raster, es geht hier
    also nur um die STELLE auf der Spur. */
 function respHaltepunkt(ort, belegt, art) {
+  const grund = art === 'ems' ? RESP_HALT_FERN_EMS : RESP_HALT_FERN;
+  for (const stufe of RESP_HALT_STUFEN) {
+    const h = respHaltepunktStufe(ort, belegt, grund + stufe);
+    if (h) { h.stufe = stufe; return h; }
+  }
+  return null;
+}
+
+/* Eine einzelne Suchstufe. fern ist die Obergrenze fuer diesen Versuch. */
+function respHaltepunktStufe(ort, belegt, fern) {
   const kand = [];
-  const fern = art === 'ems' ? RESP_HALT_FERN_EMS : RESP_HALT_FERN;
   for (const achse of ['x', 'z']) {
     const quer = achse === 'x' ? ort.z : ort.x;
     const laengs = achse === 'x' ? ort.x : ort.z;
@@ -22456,6 +22476,7 @@ function respIstGesichert(g) {
 function respStarte(e, art, ziele) {
   const halt = respHaltepunkt(e.ort, null, art);
   if (!halt) { RESP.statistik.ohneHaltepunkt++; return null; }
+  if (halt.stufe > 0) RESP.statistik.weiterHalt++;
   const ein = {
     id: RESP.naechsteId++,
     evId: e.id, art,
@@ -22697,11 +22718,15 @@ function respAnkunft(ein, dt) {
   ein.zustand = 'VOR_ORT'; ein.t = 0;
 }
 
-/* Vor Ort: warten, bis alle Leute an ihrem Ziel sind. */
+/* Vor Ort: warten, bis alle Leute an ihrem Ziel sind.
+   Die Geduld richtet sich nach dem Weg: liegt der Halteplatz weiter weg
+   (Ereignis mitten im Block), laufen die Leute laenger. Bei 2,4 m/s
+   braucht eine Besatzung fuer 40 m rund 17 s, mit Umwegen mehr. */
 function respVorOrt(ein, dt) {
   let alleDa = true;
   for (const p of ein.leute) if (p.zustand === 'HIN') alleDa = false;
-  if (alleDa || ein.t > 30) { ein.zustand = 'ARBEIT'; ein.t = 0; }
+  const geduld = 30 + (ein.halt && ein.halt.stufe ? ein.halt.stufe * 1.5 : 0);
+  if (alleDa || ein.t > geduld) { ein.zustand = 'ARBEIT'; ein.t = 0; }
 }
 
 /* Arbeit: sichern bzw. versorgen. */
