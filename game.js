@@ -22866,6 +22866,31 @@ function updateResponders(dt) {
    Streifendienst in den Einsatz springen. */
 const RESP_STREIFE_NAH = 130;    // weiter weg lohnt der Umweg nicht
 const RESP_STREIFE_MIN = 25;     // direkt daneben wirkt es wie gezaubert
+/* ---- Taugt diese Streife fuer diesen Halteplatz? ----
+   Naehe allein genuegt nicht. Ein gebauter Startpunkt liegt immer sauber
+   hinter dem Halteplatz auf der Zielspur; eine Streife steht dagegen
+   irgendwo. Steht sie ungeschickt, braucht sie den Spurwechsel auf
+   gleicher Achse - genau den Zweig, der seit Phase 8.1 als schwach
+   bekannt ist. Ungeprueft uebernommen kostete das messbar:
+   Zwangsankuenfte 0 bis 3 von 97 stiegen auf 11 von 97, p95 von 32 auf
+   82 s. Deshalb dieselbe Erreichbarkeitsfrage wie beim Startpunkt. */
+function respStreifeTaugt(c, halt) {
+  const zLinie = ORIGIN + Math.round((halt.lane - ORIGIN) / PITCH) * PITCH;
+  const fahrt = halt.lane > zLinie ? 1 : -1;
+  if (c.axis === halt.achse) {
+    /* Gleiche Achse: nur auf der Zielspur selbst, und noch weit genug
+       davor. Alles andere waere der schwache Spurwechsel. */
+    if (Math.abs(c.lane - halt.lane) > 0.6) return false;
+    return (halt.s - c.s) * fahrt > 25;
+  }
+  /* Querachse: die Linie der Zielspur muss vor ihr liegen, und ihre
+     eigene Spur - nach dem Abbiegen die Laengslage - noch vor dem
+     Halteplatz. */
+  if ((zLinie - c.s) * c.dir < 20) return false;
+  if ((halt.s - c.lane) * fahrt < 15) return false;
+  return true;
+}
+
 function respStreife(halt) {
   let best = null, bestD = 1e9;
   for (const c of cars) {
@@ -22877,6 +22902,7 @@ function respStreife(halt) {
     /* Nicht vor der Nase des Spielers umschalten. */
     if (Math.hypot(cx - player.pos.x, cz - player.pos.z) < 40 &&
         evImBlick(cx, cz)) continue;
+    if (!respStreifeTaugt(c, halt)) continue;
     if (d < bestD) { bestD = d; best = c; }
   }
   return best;
