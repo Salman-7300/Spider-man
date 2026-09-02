@@ -22183,6 +22183,13 @@ const RESP_HALT_FERN_EMS = 18;
    40 m, bei 2,4 m/s gut siebzehn Sekunden. Weiter laeuft keine
    Besatzung, dann gibt es lieber keinen Halteplatz. */
 const RESP_HALT_STUFEN = [0, 5, 10, 20];   // Zuschlag auf die Obergrenze
+/* Wie nah darf der Platz je Stufe an einer Kreuzung liegen? Am Stadtrand
+   scheitern sonst 121 von 1788 gueltigen Ereignisorten nicht an der
+   Entfernung, sondern an genau dieser Sperre: die Randstrasse hat dort
+   nur eine einzige brauchbare Laengslage, und die liegt neben der
+   Kreuzung. Lieber etwas dichter an der Kreuzung halten als gar nicht
+   kommen - im Notfall stellt sich ein Streifenwagen auch dorthin. */
+const RESP_HALT_KREUZ = [11, 9, 7, 5];
 /* Arbeitszeiten vor Ort. */
 const RESP_SICHERN = 5.0, RESP_BEHANDELN = 6.0;
 /* Uniformfarben. Kein Wappen, keine Marke - nur eindeutig erkennbar. */
@@ -22226,22 +22233,27 @@ function respUniform(v, art) {
    also nur um die STELLE auf der Spur. */
 function respHaltepunkt(ort, belegt, art) {
   const grund = art === 'ems' ? RESP_HALT_FERN_EMS : RESP_HALT_FERN;
-  for (const stufe of RESP_HALT_STUFEN) {
-    const h = respHaltepunktStufe(ort, belegt, grund + stufe);
-    if (h) { h.stufe = stufe; return h; }
+  for (let i = 0; i < RESP_HALT_STUFEN.length; i++) {
+    const h = respHaltepunktStufe(ort, belegt, grund + RESP_HALT_STUFEN[i],
+                                  RESP_HALT_KREUZ[i]);
+    if (h) { h.stufe = RESP_HALT_STUFEN[i]; return h; }
   }
   return null;
 }
 
-/* Eine einzelne Suchstufe. fern ist die Obergrenze fuer diesen Versuch. */
-function respHaltepunktStufe(ort, belegt, fern) {
+/* Eine einzelne Suchstufe. fern ist die Obergrenze fuer diesen Versuch,
+   kreuz der Mindestabstand zur naechsten Kreuzung. */
+function respHaltepunktStufe(ort, belegt, fern, kreuz) {
   const kand = [];
   for (const achse of ['x', 'z']) {
     const quer = achse === 'x' ? ort.z : ort.x;
     const laengs = achse === 'x' ? ort.x : ort.z;
     /* Die naechste Strassenlinie quer zur Fahrtrichtung. */
-    const k = Math.round((quer - ORIGIN) / PITCH);
-    if (k < 0 || k > BLOCKS) continue;
+    /* Die naechste Linie, aber begrenzt auf die, die es wirklich gibt.
+       Ein Ereignis am aeussersten Stadtrand (z = 200) liegt rechnerisch
+       bei Linie 8 - die existiert nicht, und frueher fiel der Ort damit
+       ganz heraus. Richtig ist die aeusserste vorhandene Linie. */
+    const k = clamp(Math.round((quer - ORIGIN) / PITCH), 0, BLOCKS);
     const linie = ORIGIN + k * PITCH;
     for (const seite of [1, -1]) {
       const lane = linie + seite * 3;
@@ -22254,7 +22266,7 @@ function respHaltepunktStufe(ort, belegt, fern) {
         const s = laengs + vor * Math.max(rest, 4);
         /* Nicht auf einer Kreuzung halten. */
         const kk = Math.round((s - ORIGIN) / PITCH);
-        if (Math.abs(s - (ORIGIN + kk * PITCH)) < 11) continue;
+        if (Math.abs(s - (ORIGIN + kk * PITCH)) < kreuz) continue;
         const px = achse === 'x' ? s : lane;
         const pz = achse === 'x' ? lane : s;
         if (Math.abs(px) > 190 || Math.abs(pz) > 190) continue;
