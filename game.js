@@ -16059,7 +16059,14 @@ function makeFahrzeugMesh(typ, farbe) {
       l.position.set(sx, 0, 0);
       balken.add(l);
     }
-    balken.position.set(0, 1.5, -0.2);
+    /* Auf das Dach, nicht hinein. Der Balken sass auf 1,50 m, das Dach
+       des Wagens liegt aber bei 1,98 m - er steckte also knapp einen
+       halben Meter im Blech und war von aussen nie zu sehen. Gemessen an
+       der fertigen Karosserie statt geraten. */
+    {
+      const box = new THREE.Box3().setFromObject(auto);
+      balken.position.set(0, box.max.y + 0.08, -0.2);
+    }
     auto.add(balken);
     auto.userData.blaulicht = balken;
     return auto;
@@ -18420,18 +18427,29 @@ function updateCivilians(dtBild) {
     if (c.staunPause > 0) c.staunPause -= dt;
     /* Neugierige bleiben stehen und schauen, Gleichgueltige laufen
        weiter - vorher reagierte jeder gleich. */
-    if (!threat && c.state !== 'flee' && c.state !== 'hurt' && sichtbar &&
+    /* ---- Auch ein Einsatz zieht Blicke ----
+       Nicht nur der Held: steht ein Streifenwagen mit Blaulicht in der
+       Strasse oder faehrt ein Rettungswagen mit Sirene vorbei, bleiben
+       Leute stehen und schauen hin. Gesetzt wird das von der
+       RESP-Schicht (respZuschauer), hier wird es nur ausgewertet. Der
+       Held hat immer Vorrang - er ist das interessantere Bild. */
+    if (c.gaffEinsatzT > 0) c.gaffEinsatzT -= dt;
+    const gaffEins = (c.gaffEinsatzT > 0 && c.gaffEinsatz) ? c.gaffEinsatz : null;
+    if (!threat && c.state !== 'flee' && c.state !== 'hurt' && (sichtbar || gaffEins) &&
         (c.neugier === undefined || c.neugier > 0.3)) {
       if (c.staunT === undefined || c.staunT <= 0) {
         c.staunT = rand(1.6, 3.4) * (0.6 + (c.neugier || 0.5));
-        c.filmt = Math.random() < 0.45 * (c.neugier || 0.5) * 2;
-        if (Math.random() < 0.25 * (c.neugier || 0.5) * 2)
+        /* Gefilmt und gerufen wird nur beim Helden. Ein Krankenwagen
+           bekommt keine Zurufe. */
+        c.filmt = sichtbar && Math.random() < 0.45 * (c.neugier || 0.5) * 2;
+        if (sichtbar && Math.random() < 0.25 * (c.neugier || 0.5) * 2)
           popupWorld(pick(RUFE), c.pos, '#ffe9a8');
       }
       c.staunT -= dt;
       c.gafft = true;
+      c.gaffZiel = sichtbar ? player.pos : gaffEins;
     } else {
-      c.gafft = false; c.filmt = false; c.staunT = 0;
+      c.gafft = false; c.filmt = false; c.staunT = 0; c.gaffZiel = null;
     }
     /* Ein Teil der Leute laeuft auch ohne den Helden mit dem Handy
        herum - genau das machen Leute auf der Strasse. */
@@ -18550,7 +18568,8 @@ function updateCivilians(dtBild) {
       c.handy.visible = !(c.schirm && c.schirm.visible);
     if (c.gafft) {
       speed = 0; dirX = 0; dirZ = 0;
-      c.facing = dampAngle(c.facing, Math.atan2(player.pos.x - c.pos.x, player.pos.z - c.pos.z), dt * 6);
+      const gz = c.gaffZiel || player.pos;
+      c.facing = dampAngle(c.facing, Math.atan2(gz.x - c.pos.x, gz.z - c.pos.z), dt * 6);
       /* Nicht alle jubeln. Bei hohem Ruf riss frueher JEDER Zuschauer
          beide Arme hoch - drei Leute nebeneinander standen dann in
          derselben T-Haltung, und mehr als diese eine Pose bekam man kaum
@@ -22087,7 +22106,7 @@ const RESP = {
                angekommen: 0, erledigt: 0, abgebrochen: 0,
                gesichert: 0, versorgt: 0, ohneHaltepunkt: 0,
                fernAbschluss: 0, aufraeumFehler: 0,
-               emsFrueh: 0, nachkontrolle: 0 },
+               emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0 },
   rufCd: 0,
 };
 /* Wie lange es dauert, bis nach dem Notruf jemand losfaehrt. Nicht sofort:
@@ -22230,6 +22249,15 @@ function respBaueWagen(ein, start) {
     notfall: ein.art, notfallEinsatz: ein, sirene: true,
   };
   setzeAutoGrenzen(car);
+  /* Sofort an die richtige Stelle setzen. updateCars laeuft VOR
+     updateResponders, der Wagen stuende also ein Bild lang im
+     Weltursprung - mitten im Block, sichtbar, wenn der Spieler dort
+     gerade steht. Gemessen: genau ein Bild je Einsatz bei (0,0). */
+  mesh.position.set(car.axis === 'x' ? car.s : car.lane, 0,
+                    car.axis === 'x' ? car.lane : car.s);
+  mesh.rotation.y = car.axis === 'x'
+    ? (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2)
+    : (car.dir > 0 ? 0 : Math.PI);
   scene.add(mesh);
   cars.push(car);
   return car;
@@ -22315,6 +22343,65 @@ function respAnfordern(e) {
 
 /* Gilt ein Gegner als uebernahmefaehig? Eingesponnen, ausgeknockt oder
    nach einer Flucht gefasst. */
+/* ---- Die Einsatzstelle bleibt bestehen, bis jemand da ist ----
+   Zwei Uhren liefen dem Einsatz bisher davon:
+   1. Das Netz. Voll eingesponnen haelt es 6,4 s - die Streife braucht
+      aber rund eine halbe Minute. Der Taeter riss sich also immer los,
+      lange bevor jemand ankam, und die Kette brach sichtbar ab.
+   2. Die Nachphase des Ereignisses. Sie dauert 6 s, danach raeumt der
+      Regisseur die Stelle ab - auch das passierte waehrend der Anfahrt.
+   Beides wird hier nur nachgezogen, solange der Einsatz wirklich laeuft.
+   Endet er, laufen beide Uhren sofort wieder normal weiter; es kann
+   also nichts dauerhaft festhaengen. Der Regisseur selbst bleibt
+   unveraendert. */
+function respHalteStelle(ein) {
+  if (ein.erledigt) return;
+  if (ein.art === 'polizei') {
+    for (const g of ein.ziele) {
+      if (!g || g.dead || !g.pos) continue;
+      if ((g.webStufe || 0) < 3) continue;
+      g.webT = Math.max(g.webT || 0, 2.0);
+    }
+  }
+  for (const e of EV.liste) {
+    if (e.id !== ein.evId) continue;
+    if (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT')
+      e.nachphase = Math.max(e.nachphase, 3);
+    break;
+  }
+}
+
+/* ---- Die Strasse schaut zu ----
+   Setzt nur ein Blickziel mit Verfallszeit auf vorhandene Passanten. Die
+   Fussgaengerlogik wertet es aus (siehe gaffEinsatz). Es wird niemand
+   bewegt, niemand erzeugt und niemand geloescht - deshalb kann hier auch
+   nichts haengenbleiben: laeuft der Einsatz aus, laeuft die Zeit ab. */
+function respZuschauer(ein, dt) {
+  const car = ein.wagen;
+  const steht = ein.zustand === 'ANKUNFT' || ein.zustand === 'VOR_ORT' ||
+                ein.zustand === 'ARBEIT';
+  const faehrt = car && car.sirene;
+  if (!steht && !faehrt) return;
+  const zx = steht ? ein.ort.x : car.mesh.position.x;
+  const zz = steht ? ein.ort.z : car.mesh.position.z;
+  const weite = steht ? RESP_GAFF_STAND : RESP_GAFF_FAHRT;
+  const hoechstens = steht ? RESP_GAFFER_STAND : RESP_GAFFER_FAHRT;
+  let n = 0;
+  for (const c of civilians) {
+    if (n >= hoechstens) break;
+    if (c.state === 'hurt' || c.state === 'flee' || c.geisel) continue;
+    const d = Math.hypot(c.pos.x - zx, c.pos.z - zz);
+    if (d > weite || d < 2.0) continue;
+    if (!freieSicht(c.pos.x, c.pos.y + 1.2, c.pos.z, zx, 1.2, zz)) continue;
+    /* Nicht jeder ist neugierig - die vorhandene Neugier entscheidet.
+       Wer weitergeht, belegt auch keinen der wenigen Zuschauerplaetze. */
+    if ((c.neugier !== undefined && c.neugier <= 0.3)) continue;
+    n++;
+    c.gaffEinsatz = { x: zx, z: zz };
+    c.gaffEinsatzT = Math.max(c.gaffEinsatzT || 0, steht ? 2.2 : 1.1);
+  }
+}
+
 /* ---- Laufender Notruf fuer Verletzte ----
    Der Ruf am Ereignisende kommt fuer Verletzte grundsaetzlich zu spaet:
    ein Unfall gilt erst dann als beendet, wenn der Verletzte versorgt ist
@@ -22457,6 +22544,15 @@ function respSirene(ein, dt) {
    Jede Stufe hat genau eine Aufgabe, und jede kann von aussen abgebrochen
    werden, ohne etwas liegenzulassen (siehe respAufraeumen). */
 const RESP_TICK = 0.2;
+/* ---- Zuschauer ----
+   Ausdruecklich KEINE Menschentraube: niemand laeuft zur Einsatzstelle
+   hin. Es bleiben nur die stehen, die ohnehin schon in der Naehe sind,
+   und auch die nur begrenzt viele. Ein vorbeifahrender Wagen mit Sirene
+   haelt jemanden nur kurz an, eine stehende Einsatzstelle laenger. */
+const RESP_GAFF_STAND = 17;      // Umkreis um eine stehende Einsatzstelle
+const RESP_GAFF_FAHRT = 13;      // Umkreis um einen Wagen mit Sirene
+const RESP_GAFFER_STAND = 4;     // hoechstens so viele Zuschauer
+const RESP_GAFFER_FAHRT = 3;
 function updateResponders(dt) {
   /* Abgefahrene Wagen und herrenlose Reste regelmaessig einsammeln.
      Ein Einsatzwagen, der auf dem Rueckweg im Verkehr steht (etwa hinter
@@ -22489,8 +22585,10 @@ function updateResponders(dt) {
       case 'ABFAHRT':     respAbfahrt(ein, dt); break;
       case 'FERTIG':      respAufraeumen(ein); RESP.liste.splice(i, 1); continue;
     }
+    respHalteStelle(ein);
     for (const p of ein.leute) respPerson(ein, p, dt);
     if (ein.wagen) respSirene(ein, dt);
+    if (!ein.fern) respZuschauer(ein, dt);
   }
 }
 
@@ -22607,6 +22705,25 @@ function respAbfahrt(ein, dt) {
   let alleDrin = true;
   for (const p of ein.leute) if (p.zustand !== 'WEG') alleDrin = false;
   if (!alleDrin && ein.t < 25) return;
+  /* ---- Der Taeter wird mitgenommen ----
+     Keine erfundene Bewegung, kein Wegzaubern vor der Nase: wer
+     uebernommen wurde, verschwindet erst, wenn der Spieler nicht
+     hinsieht. Schaut er zu, bleibt der Taeter liegen und faellt spaeter
+     dem normalen Aufraeumen des Regisseurs zu. */
+  for (const g of ein.ziele) {
+    if (!g || !g.polizeiGesichert || g.dead || !g.pos) continue;
+    if (evImBlick(g.pos.x, g.pos.z) &&
+        Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z) < 45) continue;
+    const gi = enemies.indexOf(g);
+    if (gi >= 0) enemies.splice(gi, 1);
+    if (g.visual && g.visual.root) scene.remove(g.visual.root);
+    if (g.cocoon) g.cocoon.visible = false;
+    if (g.gang) {
+      const gj = g.gang.enemies.indexOf(g);
+      if (gj >= 0) g.gang.enemies.splice(gj, 1);
+    }
+    RESP.statistik.abgefuehrt = (RESP.statistik.abgefuehrt || 0) + 1;
+  }
   const car = ein.wagen;
   if (car) {
     car.notfallHalt = null;
@@ -24245,7 +24362,7 @@ if (window.__WEBHERO_TEST__ === true) {
     gehSuche() { return { anzahl: gehSucheN, msGesamt: +gehSucheZeit.toFixed(2),
                           msJeSuche: gehSucheN ? +(gehSucheZeit / gehSucheN).toFixed(3) : 0 }; },
     aufFahrbahn() { return AUF_FAHRBAHN.length; },
-    inWasser: inWater, aufBruecke: onBridge,
+    inWasser: inWater, aufBruecke: onBridge, imGebaeude: inGebaeude,
     gegnerLoslassen,
     /* Wie schlagAuf, aber mit frei waehlbaren Eigenschaften des Schlags -
        fuer Aufwaertshaken und Abschluesse in den Pruefskripten. */
@@ -24363,7 +24480,7 @@ if (window.__WEBHERO_TEST__ === true) {
       const teile = { updatePlayer, updateWetter, updateTagNacht, updateCars, updateHelis,
                       updateCivilians, updateEnemies, updateCamera, updateEffekte,
                       updateKlatscher, updateSpinnenSinn, updateKlang, updateVoegel, updateMission,
-                      updateHeroVisual, updateWeltEreignisse };
+                      updateHeroVisual, updateWeltEreignisse, updateResponders };
       const out = {};
       for (const name in teile) {
         const f = teile[name];
