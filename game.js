@@ -22109,6 +22109,8 @@ const RESP = {
                emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0,
                zwangsAnkunft: 0 },
   rufCd: 0,
+  /* Fahrtenschreiber. Nur fuer die Pruefskripte, im Spiel aus. */
+  trace: false,
 };
 /* Wie lange es dauert, bis nach dem Notruf jemand losfaehrt. Nicht sofort:
    eine Sirene, die im selben Bild losgeht, wirkt wie ein Bühnenbild. */
@@ -22484,20 +22486,41 @@ function respStarte(e, art, ziele) {
      - Steht der Wagen schon auf der richtigen Achse, aber auf der
        falschen Spur, biegt er einmal quer ab; die Rueckkehr besorgt dann
        derselbe Zweig. */
+/* Ein Eintrag im Fahrtenschreiber: wo stand der Wagen, welche Spur, was
+   wurde entschieden. Ohne Trace kostet das nichts. */
+function respSpur(ein, was, car, linie, extra) {
+  if (!RESP.trace || !ein) return;
+  if (!ein.spur) ein.spur = [];
+  if (ein.spur.length > 400) return;
+  const z = ein.halt;
+  ein.spur.push(Object.assign({
+    t: +ein.gesamtZeit.toFixed(2), was,
+    achse: car.axis, lane: +car.lane.toFixed(1), s: +car.s.toFixed(1),
+    dir: car.dir, linie: linie === undefined ? null : +linie.toFixed(1),
+    x: +car.mesh.position.x.toFixed(1), z: +car.mesh.position.z.toFixed(1),
+    luft: +Math.hypot(car.mesh.position.x - z.x, car.mesh.position.z - z.z).toFixed(1),
+  }, extra || {}));
+}
+
 function respLenke(car, linie) {
   const ein = car.notfallEinsatz;
   const ziel = (ein && ein.zustand !== 'ABFAHRT') ? ein.halt : null;
-  if (!ziel) return autoKreuzung(car, linie);
+  if (!ziel) { respSpur(ein, 'ohneZiel', car, linie); return autoKreuzung(car, linie); }
   const zLinie = ORIGIN + Math.round((ziel.lane - ORIGIN) / PITCH) * PITCH;
   const ndZiel = ziel.lane > zLinie ? 1 : -1;
   const aufZielspur = car.axis === ziel.achse && Math.abs(car.lane - ziel.lane) < 0.6;
   /* Schon richtig unterwegs: geradeaus bis zum Halt. */
-  if (aufZielspur && (ziel.s - car.s) * car.dir > -2) return false;
+  if (aufZielspur && (ziel.s - car.s) * car.dir > -2) {
+    respSpur(ein, 'geradeaus-aufZielspur', car, linie); return false;
+  }
   let nd;
   if (car.axis !== ziel.achse) {
     /* Auf die Zielachse kann nur an dieser einen Linie gewechselt
        werden. Sonst geradeaus weiter. */
-    if (Math.abs(linie - zLinie) > 0.6) return false;
+    if (Math.abs(linie - zLinie) > 0.6) {
+      respSpur(ein, 'geradeaus-falscheLinie', car, linie, { zLinie: +zLinie.toFixed(1) });
+      return false;
+    }
     nd = ndZiel;
   } else {
     /* Richtige Achse, falsche Spur (oder Ziel liegt hinter uns): einmal
@@ -22517,15 +22540,20 @@ function respLenke(car, linie) {
   const neuesS = car.lane;
   const neuesX = car.axis === 'x' ? neueLane : neuesS;
   const neuesZ = car.axis === 'x' ? neuesS : neueLane;
-  if (neuesX > AUTO_X_MAX) return false;
-  if (neuesS < car.sMin - 0.5 || neuesS > car.sMax + 0.5) return false;
-  if (Math.abs(neuesX) > 190 || Math.abs(neuesZ) > 190) return false;
-  if (inWater(neuesX, neuesZ)) return false;
+  if (neuesX > AUTO_X_MAX) { respSpur(ein, 'abgelehnt-xMax', car, linie); return false; }
+  if (neuesS < car.sMin - 0.5 || neuesS > car.sMax + 0.5) {
+    respSpur(ein, 'abgelehnt-grenzen', car, linie); return false; }
+  if (Math.abs(neuesX) > 190 || Math.abs(neuesZ) > 190) {
+    respSpur(ein, 'abgelehnt-rand', car, linie); return false; }
+  if (inWater(neuesX, neuesZ)) { respSpur(ein, 'abgelehnt-wasser', car, linie); return false; }
   car.axis = car.axis === 'x' ? 'z' : 'x';
   car.lane = neueLane; car.s = neuesS; car.dir = nd;
   car.kreuzung = null;
   car.tempoJetzt *= 0.55; car.kurve = 0.55;
   setzeAutoGrenzen(car);
+  respSpur(ein, aufZielspur ? 'abbiegen-umkehren' : 'abbiegen', car, linie,
+           { zielLane: +ziel.lane.toFixed(1), zielS: +ziel.s.toFixed(1),
+             zielAchse: ziel.achse, aufZielspur });
   return true;
 }
 
@@ -24278,6 +24306,7 @@ if (window.__WEBHERO_TEST__ === true) {
     },
     respLeck() { return respLeckPruefung(); },
     haltepunkt: respHaltepunkt,
+    respTrace(an) { RESP.trace = !!an; },
     respAnzahl() {
       let leute = 0;
       for (const e of RESP.liste) leute += e.leute.length;
