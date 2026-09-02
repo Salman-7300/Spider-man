@@ -22106,7 +22106,8 @@ const RESP = {
                angekommen: 0, erledigt: 0, abgebrochen: 0,
                gesichert: 0, versorgt: 0, ohneHaltepunkt: 0,
                fernAbschluss: 0, aufraeumFehler: 0,
-               emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0 },
+               emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0,
+               zwangsAnkunft: 0 },
   rufCd: 0,
 };
 /* Wie lange es dauert, bis nach dem Notruf jemand losfaehrt. Nicht sofort:
@@ -22504,6 +22505,12 @@ function respLenke(car, linie) {
        Zweig darueber. */
     const querZiel = car.axis === 'x' ? ziel.z : ziel.x;
     nd = querZiel > car.lane ? 1 : -1;
+    /* Richtige Spur, aber schon vorbei: einmal um den Block, Richtung
+       gewuerfelt. Eine gezielte Wahl (Seite der Gegenspur des Ziels)
+       wurde versucht und wieder verworfen - ueber 24 Anfahrten war
+       nichts messbar: 23/23 angekommen vorher wie nachher, Median 24,5
+       bis 26,2 s gegen 25,5 s, Maximum 82 gegen 83,5 s. Die langen
+       Fahrten kommen also nicht von dieser Richtungswahl. */
     if (aufZielspur) nd = Math.random() < 0.5 ? 1 : -1;   // umkehren
   }
   const neueLane = linie + nd * 3;
@@ -22625,8 +22632,14 @@ function respUnterwegs(ein, dt) {
     car.notfallHalt = ein.halt.s;
     if (d < 3.5) { ein.zustand = 'ANKUNFT'; ein.t = 0; RESP.statistik.angekommen++; }
   }
-  /* Nicht endlos suchen. */
-  if (ein.t > 75) { ein.zustand = 'ANKUNFT'; ein.t = 0; }
+  /* Notbremse: irgendwann wird nicht mehr gesucht, sonst faehrt ein
+     Wagen ewig im Kreis. Das ist ausdruecklich KEINE Ankunft - es wird
+     getrennt gezaehlt, damit die Statistik nicht besser aussieht, als
+     die Fahrt war. */
+  if (ein.t > 75) {
+    RESP.statistik.zwangsAnkunft++;
+    ein.zustand = 'ANKUNFT'; ein.t = 0;
+  }
 }
 
 /* Ankunft: Wagen steht, Sirene aus, Leute steigen aus. */
