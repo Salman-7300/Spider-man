@@ -8775,6 +8775,9 @@ const _vHalt = new THREE.Vector3();
 /* Ab welchem Abstand IM RAUM das Handy nicht mehr in die Hand gelegt
    wird, und ueber welche Strecke die Feinarbeit am Arm ausblendet. */
 const HANDY_FERN = 32, HANDY_BAND = 6;
+/* Dasselbe fuer den Regenschirm, siehe dort. Etwas weiter, weil ein
+   Schirm ueber dem Kopf viel groesser ist als ein Handy am Ohr. */
+const SCHIRM_FERN = 38, SCHIRM_BAND = 8;
 const RUHE_POSEN = ['idle', 'idle', 'telefon', 'warten', 'umschauen', 'tippen',
                     'reden', 'streiten', 'trinken', 'gelangweilt', 'froh', 'winken'];
 const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
@@ -18674,12 +18677,31 @@ function updateCivilians(dtBild) {
     }
     /* Der Schirm wird über den Kopf gehalten, nicht am Bein baumeln lassen.
        Der Stock bleibt dabei senkrecht, egal wie die Hand steht. */
-    if (nah && c.schirm && c.schirm.visible && c.visual.poseSchuss) {
-      _v3.set(c.pos.x, c.pos.y + 3.4, c.pos.z);
-      c.visual.poseSchuss(_v3, 'L', 0.9);
-      /* Um den Griff schließt sich eine richtige Faust. */
-      if (c.visual.faust) c.visual.faust('L', 1);
-      if (c.visual.armRuhe) c.visual.armRuhe('R', 0.55);
+    /* ---- Dieselbe weiche Grenze wie beim Handy ----
+       Hier stand noch der alte harte Schalter (naeher als 30 m WAAGERECHT
+       und weniger als 14 m Hoehenunterschied) - genau der, der beim Handy
+       schon als Fehler erkannt und ersetzt wurde. Nachgemessen am Schirm,
+       Spieler faehrt langsam heran:
+         waagerecht   die Schirmhand sprang bei 29,89 m um 0,863 m in EINEM
+                      Bild (beim Handy waren es 0,70 m),
+         von oben     zwanzig Meter ueber dem Zivilisten greift die
+                      Feinarbeit ueberhaupt nicht, der Schirm baumelt am
+                      schwingenden Arm.
+       Jetzt zaehlt der wirkliche Abstand im Raum, und die Feinarbeit
+       blendet ueber acht Meter aus.
+       Anders als das Handy wird der Schirm aber NICHT ausgeblendet: er
+       ist gross und stuende sonst als Aufploppen im Strassenbild. Statt
+       dessen bleibt der Stock auch in der Ferne senkrecht - das ist eine
+       einzige Objektdrehung und kostet nichts. */
+    if (c.schirm && c.schirm.visible) {
+      const schirmStark = clamp((SCHIRM_FERN - dRaum) / SCHIRM_BAND, 0, 1);
+      if (schirmStark > 0.02 && c.visual.poseSchuss) {
+        _v3.set(c.pos.x, c.pos.y + 3.4, c.pos.z);
+        c.visual.poseSchuss(_v3, 'L', 0.9 * schirmStark);
+        /* Um den Griff schließt sich eine richtige Faust. */
+        if (c.visual.faust) c.visual.faust('L', schirmStark);
+        if (c.visual.armRuhe) c.visual.armRuhe('R', 0.55 * schirmStark);
+      }
       /* Der Stock steht senkrecht und läuft mitten durch die Faust. */
       if (c.visual.haltAusgerichtet) {
         c.visual.haltAusgerichtet(c.schirm, c.facing, 0.1, _v2.set(0, 0, 0));
