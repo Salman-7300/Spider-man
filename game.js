@@ -16445,7 +16445,7 @@ function updateCars(dt) {
         if (RESP.trace && gap > -3 && gap < 9) {
           car.bremse = 'vordermann gap=' + gap.toFixed(1) +
                        ' dessenTempo=' + (o.tempoJetzt || 0).toFixed(2) +
-                       ' dessenBremse=' + (o.bremse || '?');
+                       ' dessenDir=' + o.dir + ' meinDir=' + car.dir;
         }
         if (gap > 0 && gap < 9) ziel = Math.min(ziel, (o.tempoJetzt || 0) * 0.85);
         if (gap <= 0 && gap > -3) ziel = 0;
@@ -16614,6 +16614,25 @@ function updateCars(dt) {
       car.kurve = 0.7;                         // Bild zieht weich nach
       car.kreuzung = null;
     }
+    /* ---- Sicherheitsnetz gegen die Frontalsperre ----
+       Fahren zwei Wagen auf derselben Spur gegeneinander, halten sich
+       beide fuer den Vordermann und bleiben beide stehen - niemand gibt
+       nach, das loest sich nie von selbst. Wer dabei entgegen der
+       Einbahnrichtung seiner Spur faehrt, ist der Falsche und wechselt
+       auf die Gegenspur, wo er hingehoert. Greift nur im Stillstand,
+       damit der laufende Verkehr unberuehrt bleibt. */
+    if ((car.tempoJetzt || 0) < 0.05) {
+      const kl = ORIGIN + Math.round((car.lane - ORIGIN) / PITCH) * PITCH;
+      const soll = car.lane > kl ? 1 : -1;
+      if (car.dir !== soll && Math.abs(Math.abs(car.lane - kl) - 3) < 1.5) {
+        car.stauT = (car.stauT || 0) + dt;
+        if (car.stauT > 1.5) {
+          car.lane = kl + car.dir * 3;         // auf die eigene Gegenspur
+          car.stauT = 0; car.kurve = 0.6; car.kreuzung = null;
+          setzeAutoGrenzen(car);
+        }
+      } else car.stauT = 0;
+    } else car.stauT = 0;
     if (car.kurve > 0) car.kurve -= dt;
     if (car.hitCd > 0) car.hitCd -= dt;
 
@@ -22251,21 +22270,44 @@ function respHaltepunktStufe(ort, belegt, fern) {
 }
 
 /* ---- Startpunkt: gueltige Spur, ausser Sicht, mit Fahrweg ---- */
+/* ---- Wo faehrt der Wagen los? ----
+   Entscheidend ist die Einbahnrichtung: eine Spur ist immer Linie plus
+   oder minus drei, und autoKreuzung koppelt Richtung und Seite fest
+   (car.dir = nd, neueLane = linie + nd * 3). Die Spur L+3 wird also
+   immer in Richtung +1 gefahren, L-3 immer in Richtung -1.
+
+   Genau das hat diese Funktion frueher ignoriert: sie probierte den
+   Startpunkt auf BEIDEN Seiten des Halteplatzes (vz = +1 und -1) und
+   setzte die Richtung danach so, dass sie zum Halteplatz zeigt. Lag der
+   Startpunkt auf der falschen Seite, fuhr der Einsatzwagen die Spur
+   verkehrt herum hinunter, traf frontal auf den Gegenverkehr - und dann
+   hielten sich beide gegenseitig fuer den Vordermann und blieben fuer
+   immer stehen (gemessen: gapA = gapO = -1,4, beide Tempo 0, ueber eine
+   Minute unveraendert). Das war die Ursache der Zwangsankuenfte.
+
+   Jetzt wird die Einbahnrichtung vorgegeben und der Startpunkt immer
+   dahinter gelegt. */
 function respStartpunkt(halt) {
-  /* Auf derselben Strasse anfahren, nur weit genug entfernt. */
-  for (const weit of [110, 80, 150, 60]) {
-    for (const vz of [1, -1]) {
-      const s = halt.s - halt.dir * weit * vz;
-      const px = halt.achse === 'x' ? s : halt.lane;
-      const pz = halt.achse === 'x' ? halt.lane : s;
-      if (Math.abs(px) > 185 || Math.abs(pz) > 185) continue;
-      if (px > AUTO_X_MAX) continue;
-      if (inWater(px, pz) || inGebaeude(px, pz)) continue;
-      if (evImBlick(px, pz)) continue;             // nicht vor der Nase
-      if (Math.hypot(px - player.pos.x, pz - player.pos.z) < 45) continue;
-      return { achse: halt.achse, lane: halt.lane, s,
-               dir: (halt.s - s) > 0 ? 1 : -1 };
+  const zLinie = ORIGIN + Math.round((halt.lane - ORIGIN) / PITCH) * PITCH;
+  const fahrt = halt.lane > zLinie ? 1 : -1;
+  for (const weit of [110, 80, 150, 60, 140, 95, 170, 70]) {
+    const s = halt.s - fahrt * weit;
+    const px = halt.achse === 'x' ? s : halt.lane;
+    const pz = halt.achse === 'x' ? halt.lane : s;
+    if (Math.abs(px) > 185 || Math.abs(pz) > 185) continue;
+    if (px > AUTO_X_MAX) continue;
+    if (s < ORIGIN - 3 || s > ORIGIN + BLOCKS * PITCH + 3) continue;
+    if (inWater(px, pz) || inGebaeude(px, pz)) continue;
+    if (evImBlick(px, pz)) continue;             // nicht vor der Nase
+    if (Math.hypot(px - player.pos.x, pz - player.pos.z) < 45) continue;
+    /* Nicht in ein anderes Auto hinein aufmachen. */
+    let frei = true;
+    for (const o of cars) {
+      if (o.aus || o.axis !== halt.achse || Math.abs(o.lane - halt.lane) > 0.5) continue;
+      if (Math.abs(o.s - s) < 9) { frei = false; break; }
     }
+    if (!frei) continue;
+    return { achse: halt.achse, lane: halt.lane, s, dir: fahrt };
   }
   return null;
 }
