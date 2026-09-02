@@ -20303,6 +20303,7 @@ function updateEnemies(dtBild) {
     const fern = Math.abs(e.pos.x - player.pos.x) + Math.abs(e.pos.z - player.pos.z) > FERN
                  && !e.attack && e.warnT <= 0;
     if (fern && ((taktBild + i) % 3)) continue;
+    const dt = fern ? dtBild * 3 : dtBild;
     /* ---- In Gewahrsam ----
        Wer uebernommen ist, kaempft nicht mehr und flieht nicht mehr. Er
        steht, bis er abgefuehrt wird. Ohne das faellt ein gefasster
@@ -20318,7 +20319,6 @@ function updateEnemies(dtBild) {
       }
       continue;
     }
-    const dt = fern ? dtBild * 3 : dtBild;
     if (e.dead) {
       /* ---- Der Körper fällt zu Ende ----
          Vorher wurde e.pos beim Tod nicht mehr angefasst: wer in der Luft
@@ -23067,12 +23067,18 @@ function respAbfahrt(ein, dt) {
     }
     /* Der Wagen fuehrt mit, wen er mitgenommen hat. Kein Innenraum, nur
        die Zahl - sie macht den Abtransport nachpruefbar. */
-    if (ein.wagen) ein.wagen.detainees = (ein.wagen.detainees || 0) + 1;
+    /* Der Wagen wird beim ersten Durchlauf von ABFAHRT abgekoppelt,
+       die Uebernahme kann aber erst spaeter greifen (der Spieler schaut
+       noch hin). Deshalb wird er gemerkt - sonst zaehlt niemand mit,
+       und der Abtransport waere nicht nachpruefbar. */
+    const w = ein.wagen || ein.letzterWagen;
+    if (w) w.detainees = (w.detainees || 0) + 1;
     g.policeCustody = false;
     RESP.statistik.abgefuehrt = (RESP.statistik.abgefuehrt || 0) + 1;
   }
   const car = ein.wagen;
   if (car) {
+    ein.letzterWagen = car;
     car.notfallHalt = null;
     car.notfallEinsatz = null;          // ab jetzt normaler Verkehr
     car.sirene = false;
