@@ -22195,7 +22195,8 @@ const RESP = {
                emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0,
                zwangsAnkunft: 0, weiterHalt: 0,
                ausStreife: 0, zurueckInStreife: 0,
-               verfolgt: 0, hintergrundGefasst: 0, hintergrundEntkommen: 0 },
+               verfolgt: 0, hintergrundGefasst: 0, hintergrundEntkommen: 0,
+               autojagd: 0, autojagdMinAbstand: 999 },
   rufCd: 0,
   /* Fahrtenschreiber. Nur fuer die Pruefskripte, im Spiel aus. */
   trace: false,
@@ -22703,6 +22704,59 @@ function respVerfolgung(ein, dt) {
   ein.jagd = null;
 }
 
+/* ---- Verfolgung eines Fluchtautos ----
+   Das Fluchtauto gehoert dem Auftragssystem, nicht dem Regisseur - es
+   gibt dafuer also kein Ereignis, an das sich ein Einsatz haengen
+   koennte. Deshalb bekommt die Jagd einen eigenen, sehr kleinen
+   Einsatz mit wanderndem Halteplatz; gefahren wird mit der vorhandenen
+   Logik.
+
+   Gerammt wird nicht: kein PIT, keine neue Aufprallrechnung. Der Wagen
+   haelt Abstand, faehrt mit Sirene hinterher und macht Druck. Gestoppt
+   wird das Fluchtauto vom Spieler. */
+const RESP_AUTOJAGD_ABSTAND = 18;
+function respAutojagd(dt) {
+  const flucht = cars.find((c) => c.flucht && !c.aus);
+  /* Laeuft schon eine Jagd? */
+  const jagd = RESP.liste.find((e) => e.autojagd);
+  if (!flucht) {
+    if (jagd) { jagd.autojagd = null; jagd.zustand = 'ABFAHRT'; jagd.t = 0; }
+    return;
+  }
+  if (jagd) {
+    /* Halteplatz hinter dem Fluchtauto nachfuehren - mit Abstand. */
+    const fx = flucht.mesh.position.x, fz = flucht.mesh.position.z;
+    jagd.ort.x = fx; jagd.ort.z = fz;
+    jagd.jagdCd = (jagd.jagdCd || 0) - dt;
+    if (jagd.jagdCd <= 0) {
+      jagd.jagdCd = 1.5;
+      const h = respHaltepunkt({ x: fx, z: fz }, null, 'polizei');
+      if (h) jagd.halt = h;
+    }
+    if (jagd.wagen) {
+      const d = Math.hypot(jagd.wagen.mesh.position.x - fx,
+                           jagd.wagen.mesh.position.z - fz);
+      RESP.statistik.autojagdMinAbstand =
+        Math.min(RESP.statistik.autojagdMinAbstand, +d.toFixed(1));
+      /* Zu dicht: vom Gas. Nur bremsen, nie draengeln. */
+      if (d < RESP_AUTOJAGD_ABSTAND) jagd.wagen.notfallHalt = jagd.wagen.s;
+    }
+    return;
+  }
+  if (RESP.liste.length >= RESP_MAX) return;
+  /* Nur, wenn eine Streife ueberhaupt in Frage kommt. */
+  const h = respHaltepunkt({ x: flucht.mesh.position.x, z: flucht.mesh.position.z },
+                           null, 'polizei');
+  if (!h) return;
+  const e = { id: -2, ort: { x: flucht.mesh.position.x, z: flucht.mesh.position.z },
+              schwere: 2, gegner: [], zivilisten: [], rettung: null };
+  const ein = respStarte(e, 'polizei', []);
+  if (!ein) return;
+  ein.autojagd = true;
+  ein.wartet = 1.5;                 // eine Verfolgung beginnt sofort
+  RESP.statistik.autojagd++;
+}
+
 /* ---- Die Strasse schaut zu ----
    Setzt nur ein Blickziel mit Verfallszeit auf vorhandene Passanten. Die
    Fussgaengerlogik wertet es aus (siehe gaffEinsatz). Es wird niemand
@@ -22938,6 +22992,7 @@ function updateResponders(dt) {
      Leuten auf der Fahrbahn - dafuer bremst er wie jeder andere), soll
      nicht ewig bleiben. */
   vorfallUpdate(dt);
+  respAutojagd(dt);
   RESP.tickCd -= dt;
   if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
   respPruefeVerletzte(dt);
