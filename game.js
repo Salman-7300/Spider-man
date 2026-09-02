@@ -22962,6 +22962,8 @@ function poseLogSchreibe(dt) {
       saltoCd: +(player.saltoCd || 0).toFixed(3),
       kunstArt: player.kunstArt || null,
       attack: player.attack ? player.attack.art : null,
+      angriffAmBoden: !!(player.attack && player.attack.amBoden),
+      kojote: +(player.bodenAb || 0).toFixed(3),
       rollT: +(player.rollT || 0).toFixed(3),
       landT: +(player.landT || 0).toFixed(3),
       hockeT: +(player.hockeT || 0).toFixed(2),
@@ -23013,7 +23015,16 @@ function poseLogPruefe(e) {
     for (const n in e.gewichte) {
       if (!KAMPF_CLIPS.has(n)) continue;
       const w = e.gewichte[n].w;
-      if (e.einmalArt === n && w > 0.25) melde('kampfInLuftLaeuft', n);
+      /* NICHT waehrend der Kojotenzeit. Wer den Boden gerade erst
+         verloren hat und kaum steigt oder faellt, darf seinen Schlag zu
+         Ende bringen - genau dafuer gibt es sie (siehe updatePlayer).
+         Nachgemessen: alle verbliebenen Meldungen dieser Klasse - 14 je
+         12000 Bilder - lagen in diesem Fenster, waren am Boden begonnen
+         und liefen hoechstens acht Bilder. Das ist die gewollte
+         Nachsicht, kein Fehler. */
+      if (e.einmalArt === n && w > 0.25 && !(e.flags.kojote > 0)) {
+        melde('kampfInLuftLaeuft', n);
+      }
       else if (w > 0.35 && POSE_LOG.luftBilder > 15) melde('kampfInLuftHaengt', n);
     }
   } else POSE_LOG.luftBilder = 0;
