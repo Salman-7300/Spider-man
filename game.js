@@ -22323,11 +22323,26 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
    dahinter gelegt. */
 function respStartpunkt(halt) {
   const zLinie = ORIGIN + Math.round((halt.lane - ORIGIN) / PITCH) * PITCH;
-  const fahrt = halt.lane > zLinie ? 1 : -1;
+  /* Erste Wahl: die Zielspur selbst, in ihrer Einbahnrichtung, weit
+     genug dahinter. Reicht das nicht (der Spieler steht im Weg oder die
+     Strasse endet), gibt es als zweite Wahl die GEGENSPUR derselben
+     Linie - auch die ist eine gueltige Einbahn, nur andersherum, und
+     respLenke bringt den Wagen an der Kreuzung hinueber. Vorher wurde
+     stattdessen einfach die Richtung umgedreht; das war die Geisterfahrt
+     und damit die Frontalsperre. */
+  for (const spur of [halt.lane, 2 * zLinie - halt.lane]) {
+    const st = respStartAufSpur(halt, spur, zLinie);
+    if (st) return st;
+  }
+  return null;
+}
+
+function respStartAufSpur(halt, spur, zLinie) {
+  const fahrt = spur > zLinie ? 1 : -1;
   for (const weit of [110, 80, 150, 60, 140, 95, 170, 70]) {
     const s = halt.s - fahrt * weit;
-    const px = halt.achse === 'x' ? s : halt.lane;
-    const pz = halt.achse === 'x' ? halt.lane : s;
+    const px = halt.achse === 'x' ? s : spur;
+    const pz = halt.achse === 'x' ? spur : s;
     if (Math.abs(px) > 185 || Math.abs(pz) > 185) continue;
     if (px > AUTO_X_MAX) continue;
     if (s < ORIGIN - 3 || s > ORIGIN + BLOCKS * PITCH + 3) continue;
@@ -22337,11 +22352,11 @@ function respStartpunkt(halt) {
     /* Nicht in ein anderes Auto hinein aufmachen. */
     let frei = true;
     for (const o of cars) {
-      if (o.aus || o.axis !== halt.achse || Math.abs(o.lane - halt.lane) > 0.5) continue;
+      if (o.aus || o.axis !== halt.achse || Math.abs(o.lane - spur) > 0.5) continue;
       if (Math.abs(o.s - s) < 9) { frei = false; break; }
     }
     if (!frei) continue;
-    return { achse: halt.achse, lane: halt.lane, s, dir: fahrt };
+    return { achse: halt.achse, lane: spur, s, dir: fahrt };
   }
   return null;
 }
