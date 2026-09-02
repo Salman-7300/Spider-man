@@ -23243,6 +23243,15 @@ function respErledige(ein) {
   if (ein.art === 'polizei') {
     for (const g of ein.ziele) {
       if (!g || !g.pos) continue;
+      /* ---- Nur wer wirklich gestoppt ist ----
+         Uebernommen wird ausschliesslich, wer eingesponnen, ausgeknockt
+         oder bereits gefasst ist. Ein Taeter, der noch auf den Beinen
+         ist und laeuft, gehoert dem Spieler - ihn hier einzusammeln
+         hiesse, Spider-Man die Verfolgung wegzunehmen.
+         Gemessen war genau das passiert: der Einsatz erreichte ARBEIT
+         am letzten bekannten Ort des Fluechtigen und setzte ihn in
+         Gewahrsam, obwohl er noch lief und der Spieler danebenstand. */
+      if (!respIstGesichert(g)) continue;
       /* Ab hier gehoert der Taeter der Polizei, nicht mehr dem
          Ereignis. Der Merker haengt am Gegner, damit Abfahrt und
          Aufraeumen wissen, wen sie mitnehmen duerfen - und damit ein
