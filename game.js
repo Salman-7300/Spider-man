@@ -21566,6 +21566,20 @@ function evSucheOrt(minD, maxD, willLeute) {
     w += willLeute ? Math.min(leute, 5) * 9 : -Math.min(leute, 5) * 2;
     /* Freiraum */
     if (typeof gehFreiMass === 'function') w += clamp(gehFreiMass(x, z) * 4, 0, 14);
+    /* ---- Kommt die Polizei dort ueberhaupt hin? ----
+       Nur ein Zuschlag, kein Ausschluss: ein Ereignis ohne
+       Polizeiparkplatz funktioniert spielerisch trotzdem - der Spieler
+       loest es ja selbst. Es soll nur seltener genau dort entstehen.
+       Gemessen liegen 20 von 1788 gueltigen Orten so (Phase 8.1), fast
+       alle in den aeussersten Ecken. */
+    if (typeof respHaltepunkt === 'function' &&
+        respHaltepunkt({ x, z }, null, 'polizei')) w += 8;
+    /* ---- Gerade war hier schon etwas ----
+       Ein frischer Vorfall an derselben Ecke wirkt wie ein Skript, das
+       sich wiederholt. Auch das ist nur ein Abzug, keine Sperre; die
+       harte Sperre macht weiterhin EV.gesperrt. */
+    const alt = vorfallNahe(x, z, 45);
+    if (alt) w -= 14 * (1 - alt.t / VORFALL_DAUER);
     if (w > bestW) { bestW = w; bestP = { x, z, y: groundY(x, z, 2) }; }
   }
   return bestP;
@@ -22180,7 +22194,8 @@ const RESP = {
                fernAbschluss: 0, aufraeumFehler: 0,
                emsFrueh: 0, nachkontrolle: 0, abgefuehrt: 0,
                zwangsAnkunft: 0, weiterHalt: 0,
-               ausStreife: 0, zurueckInStreife: 0 },
+               ausStreife: 0, zurueckInStreife: 0,
+               verfolgt: 0, hintergrundGefasst: 0, hintergrundEntkommen: 0 },
   rufCd: 0,
   /* Fahrtenschreiber. Nur fuer die Pruefskripte, im Spiel aus. */
   trace: false,
@@ -22224,6 +22239,34 @@ const RESP_HALT_KREUZ = [11, 9, 7, 5];
 /* Besatzung je Schwere 1 bis 4. Ab Schwere 3 darf ein zweiter Wagen
    dazukommen (siehe respAnfordern), bei RESP_MAX ist trotzdem Schluss. */
 const RESP_BESATZUNG = [1, 2, 2, 3];
+/* ---- Vorfallgedaechtnis ----
+   Ein sehr kleines, rein zeitliches Gedaechtnis: wo war gerade etwas,
+   wie schwer, wie lange ist es her. Kein Speicherstand, nichts
+   Dauerhaftes - nach anderthalb Minuten ist der Eintrag weg. Es dient
+   nur dazu, dass eine gerade abgearbeitete Stelle nicht sofort wieder
+   als voellig normale Ecke der Stadt behandelt wird. */
+const VORFALL = { liste: [] };
+const VORFALL_DAUER = 90;
+function vorfallMerke(x, z, schwere) {
+  for (const v of VORFALL.liste) {
+    if (Math.hypot(v.x - x, v.z - z) < 25) {
+      v.t = 0; v.schwere = Math.max(v.schwere, schwere); return v;
+    }
+  }
+  const v = { x, z, schwere, t: 0 };
+  VORFALL.liste.push(v);
+  return v;
+}
+function vorfallUpdate(dt) {
+  for (let i = VORFALL.liste.length - 1; i >= 0; i--) {
+    VORFALL.liste[i].t += dt;
+    if (VORFALL.liste[i].t > VORFALL_DAUER) VORFALL.liste.splice(i, 1);
+  }
+}
+function vorfallNahe(x, z, r) {
+  for (const v of VORFALL.liste) if (Math.hypot(v.x - x, v.z - z) < r) return v;
+  return null;
+}
 const RESP_ZWEITWAGEN_AB = 3;
 /* Arbeitszeiten vor Ort. */
 const RESP_SICHERN = 5.0, RESP_BEHANDELN = 6.0;
@@ -22601,6 +22644,65 @@ function respHalteStelle(ein) {
   }
 }
 
+/* ---- Verfolgung eines Fluechtigen ----
+   Regel dieser Phase: die Polizei erzeugt Druck, sie nimmt dem Spieler
+   aber nichts weg. Ist Spider-Man in der Naehe, folgt die Streife nur -
+   sie fasst niemanden. Erst wenn der Spieler sich nicht kuemmert und
+   weit weg ist, darf die Welt die Sache im Hintergrund zu Ende bringen;
+   dort sieht ohnehin niemand zu.
+
+   Es wird kein eigenes Verfolgungsfahrzeug erzeugt und keine zweite
+   Fahrlogik gebaut: der laufende Einsatz bekommt einfach einen neuen
+   Halteplatz in der Naehe des Fluechtigen, und der vorhandene Weg dorthin
+   erledigt den Rest. */
+const RESP_VERFOLG_SPIELER_NAH = 70;   // so nah gilt: der Spieler macht das
+const RESP_VERFOLG_ABSTAND = 16;       // Sicherheitsabstand zum Fluechtigen
+const RESP_VERFOLG_DAUER = 45;         // danach ist der Fluechtige weg
+function respVerfolgung(ein, dt) {
+  if (ein.art !== 'polizei') return;
+  if (ein.zustand === 'ABFAHRT' || ein.zustand === 'FERTIG') return;
+  const e = EV.liste.find((x) => x.id === ein.evId);
+  if (!e || !e.fluechtige || !e.fluechtige.length) { ein.jagd = null; return; }
+  const g = e.fluechtige.find((x) => x && !x.dead && !x.policeCustody);
+  if (!g) { ein.jagd = null; return; }
+  if (!ein.jagd) { ein.jagd = { t: 0 }; RESP.statistik.verfolgt++; }
+  ein.jagd.t += dt;
+
+  const dSpieler = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
+  const spielerDran = dSpieler < RESP_VERFOLG_SPIELER_NAH;
+
+  /* Der Einsatzort wandert mit dem Fluechtigen mit - aber mit Abstand,
+     damit der Wagen ihm nicht in die Hacken faehrt. */
+  ein.ort.x = g.pos.x; ein.ort.z = g.pos.z;
+  if (ein.wagen && !spielerDran) {
+    const neu = respHaltepunkt({ x: g.pos.x, z: g.pos.z }, null, 'polizei');
+    if (neu) ein.halt = neu;
+  }
+
+  if (spielerDran) return;          // Spider-Man ist dran, Polizei haelt sich raus
+
+  /* Der Spieler kuemmert sich nicht: die Welt entscheidet nach Zeit und
+     Entfernung, ohne Zufallsformel. Wer lange genug weglaeuft, ist weg;
+     wer sich nicht weit genug abgesetzt hat, wird gefasst. */
+  if (ein.jagd.t < RESP_VERFOLG_DAUER) return;
+  const dWagen = ein.wagen
+    ? Math.hypot(g.pos.x - ein.wagen.mesh.position.x,
+                 g.pos.z - ein.wagen.mesh.position.z) : 999;
+  const i = e.fluechtige.indexOf(g);
+  if (dWagen < 40) {
+    if (i >= 0) e.fluechtige.splice(i, 1);
+    g.eventRolle = 'gefasst'; g.eventFlucht = false; g.flieht = false;
+    g.policeCustody = true;
+    if (ein.ziele.indexOf(g) < 0) ein.ziele.push(g);
+    RESP.statistik.hintergrundGefasst++;
+  } else {
+    if (i >= 0) e.fluechtige.splice(i, 1);
+    g.eventRolle = null; g.eventFlucht = false; g.flieht = false;
+    RESP.statistik.hintergrundEntkommen++;
+  }
+  ein.jagd = null;
+}
+
 /* ---- Die Strasse schaut zu ----
    Setzt nur ein Blickziel mit Verfallszeit auf vorhandene Passanten. Die
    Fussgaengerlogik wertet es aus (siehe gaffEinsatz). Es wird niemand
@@ -22694,6 +22796,14 @@ function respStarte(e, art, ziele) {
   RESP.liste.push(ein);
   RESP.statistik.angefordert++;
   RESP.statistik[art === 'ems' ? 'ems' : 'polizei']++;
+  vorfallMerke(e.ort.x, e.ort.z, e.schwere || 1);
+  /* Kurze Rueckmeldung, aber nur wenn der Spieler ueberhaupt in der
+     Naehe ist und tatsaechlich jemand ausrueckt. Kein Marker, keine
+     Leiste - die Einsatzkraefte bleiben Weltsimulation. */
+  if (Math.hypot(e.ort.x - player.pos.x, e.ort.z - player.pos.z) < 90) {
+    popupScreen(art === 'ems' ? '🚑 Rettungsdienst alarmiert'
+                              : '🚓 Polizei unterwegs');
+  }
   return ein;
 }
 
@@ -22750,6 +22860,12 @@ function respLenke(car, linie) {
     /* Richtige Achse, falsche Spur (oder Ziel liegt hinter uns): einmal
        quer abbiegen. Zurueck auf die Zielachse geht es dann ueber den
        Zweig darueber. */
+    /* Der bekannte schwache Zweig: Spurwechsel auf GLEICHER Achse. Er
+       wird gezaehlt, damit sich belegen laesst, ob er in dieser Phase
+       ueberhaupt vorkommt - umgebaut wird er nur, wenn er nachweislich
+       einen Einsatz scheitern laesst. */
+    RESP.statistik.gleicheAchse = (RESP.statistik.gleicheAchse || 0) + 1;
+    if (ein) ein.gleicheAchse = (ein.gleicheAchse || 0) + 1;
     const querZiel = car.axis === 'x' ? ziel.z : ziel.x;
     nd = querZiel > car.lane ? 1 : -1;
     /* Richtige Spur, aber schon vorbei: einmal um den Block, Richtung
@@ -22821,6 +22937,7 @@ function updateResponders(dt) {
      Ein Einsatzwagen, der auf dem Rueckweg im Verkehr steht (etwa hinter
      Leuten auf der Fahrbahn - dafuer bremst er wie jeder andere), soll
      nicht ewig bleiben. */
+  vorfallUpdate(dt);
   RESP.tickCd -= dt;
   if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
   respPruefeVerletzte(dt);
@@ -22849,6 +22966,7 @@ function updateResponders(dt) {
       case 'FERTIG':      respAufraeumen(ein); RESP.liste.splice(i, 1); continue;
     }
     respHalteStelle(ein);
+    respVerfolgung(ein, dt);
     for (const p of ein.leute) respPerson(ein, p, dt);
     if (ein.wagen) respSirene(ein, dt);
     if (!ein.fern) respZuschauer(ein, dt);
@@ -24664,6 +24782,8 @@ if (window.__WEBHERO_TEST__ === true) {
     respLeck() { return respLeckPruefung(); },
     haltepunkt: respHaltepunkt,
     respTrace(an) { RESP.trace = !!an; },
+    vorfaelle() { return VORFALL.liste.map((v) => ({ x: +v.x.toFixed(1),
+      z: +v.z.toFixed(1), schwere: v.schwere, t: +v.t.toFixed(1) })); },
     respAnzahl() {
       let leute = 0;
       for (const e of RESP.liste) leute += e.leute.length;
