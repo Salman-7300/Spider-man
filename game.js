@@ -20303,6 +20303,21 @@ function updateEnemies(dtBild) {
     const fern = Math.abs(e.pos.x - player.pos.x) + Math.abs(e.pos.z - player.pos.z) > FERN
                  && !e.attack && e.warnT <= 0;
     if (fern && ((taktBild + i) % 3)) continue;
+    /* ---- In Gewahrsam ----
+       Wer uebernommen ist, kaempft nicht mehr und flieht nicht mehr. Er
+       steht, bis er abgefuehrt wird. Ohne das faellt ein gefasster
+       Taeter in die Kampflogik zurueck, sobald das Netz abgelaufen ist,
+       und schlaegt neben dem Streifenwagen wieder zu. */
+    if (e.policeCustody && !e.dead) {
+      e.state = 'idle'; e.target = null; e.attack = null;
+      e.flieht = false; e.vel.x = 0; e.vel.z = 0;
+      if (e.visual && e.visual.root) {
+        e.visual.root.position.copy(e.pos);
+        e.visual.root.rotation.y = e.facing;
+        e.visual.play(e.webStufe >= 3 ? 'webbed' : 'warten', { t: elapsed }, dt);
+      }
+      continue;
+    }
     const dt = fern ? dtBild * 3 : dtBild;
     if (e.dead) {
       /* ---- Der Körper fällt zu Ende ----
@@ -22206,6 +22221,10 @@ const RESP_HALT_STUFEN = [0, 5, 10, 20];   // Zuschlag auf die Obergrenze
    Kreuzung. Lieber etwas dichter an der Kreuzung halten als gar nicht
    kommen - im Notfall stellt sich ein Streifenwagen auch dorthin. */
 const RESP_HALT_KREUZ = [11, 9, 7, 5];
+/* Besatzung je Schwere 1 bis 4. Ab Schwere 3 darf ein zweiter Wagen
+   dazukommen (siehe respAnfordern), bei RESP_MAX ist trotzdem Schluss. */
+const RESP_BESATZUNG = [1, 2, 2, 3];
+const RESP_ZWEITWAGEN_AB = 3;
 /* Arbeitszeiten vor Ort. */
 const RESP_SICHERN = 5.0, RESP_BEHANDELN = 6.0;
 /* Uniformfarben. Kein Wappen, keine Marke - nur eindeutig erkennbar. */
@@ -22533,7 +22552,16 @@ function respAnfordern(e) {
      Wagen zur selben Stelle. */
   const brauchtEms = (!!patient || !!stabil) && !e.emsGerufen;
   if (!brauchtPolizei && !brauchtEms) return;
-  if (brauchtPolizei) respStarte(e, 'polizei', taeter);
+  if (brauchtPolizei) {
+    respStarte(e, 'polizei', taeter);
+    /* Schwere Lage und niemand verletzt: ein zweiter Streifenwagen
+       sichert mit. Verletzte haben Vorrang vor dem zweiten Wagen - der
+       eine freie Platz gehoert dann dem Rettungsdienst. */
+    if (e.schwere >= RESP_ZWEITWAGEN_AB && !brauchtEms &&
+        taeter.length > 2 && RESP.liste.length < RESP_MAX) {
+      respStarte(e, 'polizei', taeter.slice(2));
+    }
+  }
   if (brauchtEms && RESP.liste.length < RESP_MAX) {
     respStarte(e, 'ems', patient ? [patient] : [stabil]);
   }
@@ -22561,6 +22589,10 @@ function respHalteStelle(ein) {
       g.webT = Math.max(g.webT || 0, 2.0);
     }
   }
+  /* ---- Gewahrsam ----
+     Ab hier gehoert der Taeter der Polizei und nicht mehr dem Ereignis.
+     Der Merker haengt am Gegner, damit Abfahrt und Aufraeumen wissen,
+     wen sie mitnehmen duerfen. */
   for (const e of EV.liste) {
     if (e.id !== ein.evId) continue;
     if (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT')
@@ -22933,9 +22965,16 @@ function respAnkunft(ein, dt) {
   const pz = car ? car.mesh.position.z : ein.halt.z;
   const nah = Math.hypot(px - player.pos.x, pz - player.pos.z) < 32;
   if (nah && evImBlick(px, pz) && ein.t < 8) return;
-  const anzahl = ein.art === 'ems' ? 2 : (ein.schwere >= 2 ? 2 : 1);
+  /* ---- Wie viele steigen aus? ----
+     Nach der vorhandenen Schwere des Ereignisses, nicht nach der Zahl
+     der Gegner: ein einzelner Taeter bei einer schweren Lage bindet
+     trotzdem mehr Leute als bei einem kleinen Ueberfall. */
+  const anzahl = ein.art === 'ems' ? 2
+               : RESP_BESATZUNG[clamp(Math.round(ein.schwere), 1, 4) - 1];
   for (let i = 0; i < anzahl; i++) {
-    const seit = (i === 0 ? 1 : -1) * 1.4;
+    /* Nicht alle auf denselben Punkt: abwechselnd links und rechts,
+       mit wachsendem Abstand. */
+    const seit = (i % 2 === 0 ? 1 : -1) * (1.4 + Math.floor(i / 2) * 1.3);
     const qx = ein.halt.achse === 'x' ? px + rand(-1, 1) : px + seit;
     const qz = ein.halt.achse === 'x' ? pz + seit : pz + rand(-1, 1);
     const p = respBauePerson(ein, qx, qz, i === 0 ? 'fuehrung' : 'hilfe');
@@ -22976,7 +23015,15 @@ function respErledige(ein) {
   if (ein.art === 'polizei') {
     for (const g of ein.ziele) {
       if (!g || !g.pos) continue;
+      /* Ab hier gehoert der Taeter der Polizei, nicht mehr dem
+         Ereignis. Der Merker haengt am Gegner, damit Abfahrt und
+         Aufraeumen wissen, wen sie mitnehmen duerfen - und damit ein
+         gefasster Taeter nicht wieder in die Kampf- oder Fluchtlogik
+         zurueckfaellt. */
       g.polizeiGesichert = true;
+      g.policeCustody = true;
+      g.flieht = false; g.eventFlucht = false;
+      g.target = null; g.state = 'idle';
       RESP.statistik.gesichert++;
     }
   } else {
@@ -23018,6 +23065,10 @@ function respAbfahrt(ein, dt) {
       const gj = g.gang.enemies.indexOf(g);
       if (gj >= 0) g.gang.enemies.splice(gj, 1);
     }
+    /* Der Wagen fuehrt mit, wen er mitgenommen hat. Kein Innenraum, nur
+       die Zahl - sie macht den Abtransport nachpruefbar. */
+    if (ein.wagen) ein.wagen.detainees = (ein.wagen.detainees || 0) + 1;
+    g.policeCustody = false;
     RESP.statistik.abgefuehrt = (RESP.statistik.abgefuehrt || 0) + 1;
   }
   const car = ein.wagen;
@@ -23095,11 +23146,22 @@ function respPerson(ein, p, dt) {
 
 /* Wohin genau geht diese Kraft? Nicht auf das Ziel drauf, sondern
    daneben. */
+/* ---- Wohin geht diese Kraft? ----
+   Nicht auf das Ziel drauf und nicht alle auf denselben Fleck. Jede
+   Kraft bekommt einen eigenen Platz auf einem kleinen Kreis um ihr
+   Ziel; bei mehreren Taetern teilen sich die Leute auf, damit nicht
+   drei Beamte um denselben Eingesponnenen stehen. */
 function respPersonZiel(ein, p) {
-  const z = ein.ziele[0];
-  if (!z || !z.pos) return { x: ein.ort.x, z: ein.ort.z };
-  const seit = p.rolle === 'fuehrung' ? 1.2 : -1.2;
-  return { x: z.pos.x + seit * 0.8, z: z.pos.z + 1.2 };
+  const n = Math.max(1, ein.leute.length);
+  const i = Math.max(0, ein.leute.indexOf(p));
+  /* Bei mehreren Zielen wird reihum zugeteilt. */
+  const z = ein.ziele.length ? ein.ziele[i % ein.ziele.length] : null;
+  if (!z || !z.pos) {
+    const w = (i / n) * Math.PI * 2;
+    return { x: ein.ort.x + Math.cos(w) * 2.2, z: ein.ort.z + Math.sin(w) * 2.2 };
+  }
+  const w = (i / n) * Math.PI * 2 + 0.6;
+  return { x: z.pos.x + Math.cos(w) * 1.5, z: z.pos.z + Math.sin(w) * 1.5 };
 }
 
 /* Gehen auf dem Gehwegnetz. Ist kein Weg zu finden, wird direkt
