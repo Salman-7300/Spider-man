@@ -198,6 +198,26 @@ const SFX = (() => {
       dumpf.frequency.value = 20000 - t * 17200;
       hallG.gain.value = t * 0.32;
     },
+    /* ---- Sirenenton (SFX) ----
+       Ein einzelner Ton des Zweiklangs. Die Abfolge und die Lautstaerke
+       nach Entfernung macht der Aufrufer (respSirene) - hier wird nur
+       gespielt. Kein Doppler, keine Datei. */
+    sirene(freq, vol) {
+      const c = ac(); if (!c || muted) return;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'square'; o.frequency.value = freq;
+      const t = c.currentTime;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol * lautstaerke), t + 0.05);
+      g.gain.setValueAtTime(Math.max(0.0002, vol * lautstaerke), t + 0.45);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+      /* Ein Tiefpass nimmt dem Rechteck die Schaerfe - sonst schneidet
+         die Sirene durch alles andere hindurch. */
+      const f = c.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 1800;
+      o.connect(f); f.connect(g); g.connect(ausgang() || c.destination);
+      o.start(t); o.stop(t + 0.62);
+    },
     setLautstaerke(v) { lautstaerke = clamp(v, 0, 1); },
     toggleMute() { muted = !muted; return muted; },
     /* Ein Netzschuss ist ein Zischen mit einem Klick am Anfang, nicht ein
@@ -16400,7 +16420,7 @@ function updateCars(dt) {
     /* Jedes Auto hat eine feste Nummer; nur die ersten n sind unterwegs.
        So bleibt dasselbe Auto den ganzen Tag über sichtbar. */
     if (car.nr === undefined) car.nr = cars.indexOf(car);
-    const fahren = car.nr < aktiv || car.flucht;
+    const fahren = car.nr < aktiv || car.flucht || !!car.notfall;
     if (car.mesh.visible !== fahren) car.mesh.visible = fahren;
     car.aus = !fahren;
     if (!fahren) { car.tempoJetzt = 0; continue; }
@@ -16479,6 +16499,20 @@ function updateCars(dt) {
       }
     }
 
+    /* ---- Platz machen ----
+       Naehert sich ein Einsatzfahrzeug mit Sirene, nimmt der uebrige
+       Verkehr etwas Tempo weg. Keine Rettungsgasse, kein Spurwechsel -
+       nur ein spuerbares Zoegern, wie man es kennt. */
+    if (!car.notfall && !car.flucht) {
+      for (const o of cars) {
+        if (!o.notfall || !o.sirene || o.aus) continue;
+        const dx3 = o.mesh.position.x - (car.axis === 'x' ? car.s : car.lane);
+        const dz3 = o.mesh.position.z - (car.axis === 'x' ? car.lane : car.s);
+        if (Math.hypot(dx3, dz3) > 26) continue;
+        ziel = Math.min(ziel, car.speed * 0.55);
+        break;
+      }
+    }
     /* ---- Hält jemand auf der Fahrbahn? Bremsen und hupen ----
        Das galt bisher nur fuer den Helden: Passanten wurden ueberfahren,
        ohne dass ein Auto auch nur langsamer wurde. Jetzt zaehlt jeder, der
@@ -16520,6 +16554,22 @@ function updateCars(dt) {
       if (car.hupCd <= 0) { SFX.hupe(); car.hupCd = rand(1.4, 3); }
     } else if (car.hupCd > 0) car.hupCd -= dt;
 
+    /* ---- Einsatzfahrzeug ----
+       Es faehrt ueber dieselbe Spur-, Ampel- und Abstandslogik wie jeder
+       andere Wagen - deshalb kann es weder durch Haeuser noch ueber den
+       Gehweg. Zusaetzlich hat es nur zweierlei: es haelt an seinem
+       Haltepunkt, und es darf etwas zuegiger fahren. Alle Pruefungen auf
+       Fussgaenger, Vordermann und Querverkehr bleiben in Kraft - deshalb
+       faehrt es auch nicht blind bei Rot durch eine Kreuzung. */
+    if (car.notfall) {
+      if (car.notfallHalt !== null && car.notfallHalt !== undefined) {
+        const rest = (car.notfallHalt - car.s) * car.dir;
+        ziel = Math.min(ziel, Math.max(0, rest * 1.1));
+        if (rest < 0.4) ziel = 0;
+      } else if (car.sirene) {
+        ziel = Math.min(car.speed, ziel * 1.25 + 1.5);
+      }
+    }
     /* Weich beschleunigen und bremsen statt sprunghaft. */
     const rampe = ziel < car.tempoJetzt ? 14 : 4.5;
     car.tempoJetzt = car.tempoJetzt + clamp(ziel - car.tempoJetzt, -rampe * dt, rampe * dt);
@@ -16529,7 +16579,8 @@ function updateCars(dt) {
     const kIdx = Math.round((car.s - ORIGIN) / PITCH);
     if (car.kreuzung !== kIdx && Math.abs(car.s - (ORIGIN + kIdx * PITCH)) < 1.4) {
       car.kreuzung = kIdx;
-      autoKreuzung(car, ORIGIN + kIdx * PITCH);
+      if (car.notfall && car.notfallEinsatz) respLenke(car, ORIGIN + kIdx * PITCH);
+      else autoKreuzung(car, ORIGIN + kIdx * PITCH);
     }
     /* Rueckfall: die Brueckenstrasse fuehrt ueber den Fluss zum anderen
        Ufer und hat dort keine Kreuzung mehr - dort bleibt es beim alten
@@ -18260,6 +18311,13 @@ function updateCivilians(dtBild) {
         c.kreuz.visible = true;
         c.kreuz.position.set(c.pos.x, c.pos.y + 1.9 + Math.sin(elapsed * 3) * 0.08, c.pos.z);
       }
+      /* Wer von selbst wieder hochkaeme, waehrend der Rettungswagen
+         schon fuer ihn unterwegs ist, wartet auf ihn. Sonst gewinnt die
+         Genesungsuhr grundsaetzlich das Rennen gegen die Anfahrt und der
+         Rettungsdienst faende nie jemanden vor. Das haelt den Spieler
+         nicht auf: er kann jederzeit selbst helfen, dann macht die
+         Besatzung nur noch eine Nachkontrolle. */
+      if (c.hurtT <= 0 && respWartetAuf(c)) c.hurtT = 0.5;
       if (c.hurtT <= 0) { c.state = 'walk'; c.hp = 20; c.hilfeBar = false; }
       if (!c.hilfeBar && c.kreuz) c.kreuz.visible = false;
       continue;
@@ -21772,7 +21830,12 @@ function evEnde(e, erfolg, text) {
      nachkommen muesste (Polizei, Rettungsdienst). Solange es dafuer keine
      eigenen Figuren und keine KI gibt, wird nichts erzeugt - der Merker
      steht nur bereit, damit die Rolle spaeter ohne Umbau dazukommt. */
-  e.brauchtNachschub = !erfolg || !!e.rettung;
+  /* ---- Haken fuer die Einsatzkraefte ----
+     Gebraucht wird jemand, wenn es etwas zu uebernehmen gibt: gesicherte
+     Taeter oder eine verletzte Person. Ein Taeter, der ENTKOMMEN ist,
+     hinterlaesst nichts - dann faehrt auch niemand hin. */
+  e.brauchtNachschub = e.gegner.some((g) => respIstGesichert(g)) || !!e.rettung;
+  if (e.brauchtNachschub) respAnfordern(e);
   EV.gesperrt.push({ x: e.ort.x, z: e.ort.z, t: EV_SPERRE });
   EV.verlauf.push({ id: e.id, art: e.art, schwere: e.schwere,
                     erfolg, entdeckt: e.entdeckt,
@@ -21998,6 +22061,714 @@ function evStarte(art, schwere) {
   if (!evBaue(e)) { e.zustand = 'FERTIG'; return null; }
   EV.ruheCd = 20;
   return e;
+}
+
+/* ======================= Einsatzkräfte =======================
+   Bis hierher endete jedes Ereignis so: Spider-Man gewinnt, das Ereignis
+   verschwindet, die Stadt ist wieder wie vorher. Der Merker
+   e.brauchtNachschub stand schon bereit (siehe evEnde), es fehlte nur die
+   Rolle dazu.
+
+   Diese Ebene ist bewusst duenn. Der Ereignisregisseur bleibt, wie er
+   ist; er sagt nur "hier wird Hilfe gebraucht". Alles andere - wer kommt,
+   woher, auf welchem Weg, was er vor Ort tut und wann er wieder faehrt -
+   entscheidet RESP.
+
+   Fahrzeuge sind gewoehnliche Eintraege in cars[] und fahren damit ueber
+   dieselbe Spur-, Ampel- und Abstandslogik wie der uebrige Verkehr. Sie
+   koennen deshalb gar nicht durch Haeuser, Wasser oder ueber den Gehweg
+   fahren - nicht weil es verboten waere, sondern weil sie dieselben
+   Schienen benutzen. */
+const RESP = {
+  liste: [],
+  naechsteId: 1,
+  tickCd: 0,
+  statistik: { angefordert: 0, polizei: 0, ems: 0, ausgerueckt: 0,
+               angekommen: 0, erledigt: 0, abgebrochen: 0,
+               gesichert: 0, versorgt: 0, ohneHaltepunkt: 0,
+               fernAbschluss: 0, aufraeumFehler: 0,
+               emsFrueh: 0, nachkontrolle: 0 },
+  rufCd: 0,
+};
+/* Wie lange es dauert, bis nach dem Notruf jemand losfaehrt. Nicht sofort:
+   eine Sirene, die im selben Bild losgeht, wirkt wie ein Bühnenbild. */
+const RESP_RUF_ZEIT = [4, 9];
+/* So lange muss jemand verletzt liegen, bis der Notruf rausgeht. Diese
+   Zeit gehoert dem Spieler: er ist in Sekunden da, der Wagen braucht
+   danach noch die ganze Anfahrt. */
+const RESP_RUF_KARENZ = 6;
+/* Ab hier wird ein Einsatz nur noch grob weitergerechnet, und jenseits
+   von RESP_FERN_AUS schliesst er sich nach einer Mindestzeit von selbst. */
+const RESP_NAH = 150, RESP_FERN_AUS = 260;
+/* Hoechstens so viele Einsaetze gleichzeitig - eine Stadt hat nicht
+   beliebig viele Streifenwagen. */
+const RESP_MAX = 2;
+/* Suchbereich fuer den Halteplatz: so weit vom Ereignis entfernt. */
+const RESP_HALT_NAH = 8, RESP_HALT_FERN = 20;
+/* Arbeitszeiten vor Ort. */
+const RESP_SICHERN = 5.0, RESP_BEHANDELN = 6.0;
+/* Uniformfarben. Kein Wappen, keine Marke - nur eindeutig erkennbar. */
+const RESP_FARBEN = {
+  polizei: { Topmat: 0x1b2a55, Bottommat: 0x161d33, Shoesmat: 0x14141a },
+  ems:     { Topmat: 0xe8e8ee, Bottommat: 0xc22a28, Shoesmat: 0x14141a },
+};
+
+/* ---- Uniform statt Zufallskleidung ----
+   faerbeKleidung() wuerfelt fuer Passanten. Hier stehen die Farben fest,
+   sonst liefe die Streife in Freizeitkleidung herum. */
+function respUniform(v, art) {
+  const wunsch = RESP_FARBEN[art];
+  if (!wunsch) return;
+  const kopien = new Map();
+  v.root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const n = o.material.name;
+    if (!(n in wunsch)) return;
+    let mat = kopien.get(n);
+    if (!mat) {
+      mat = o.material.clone();
+      mat.color = new THREE.Color(wunsch[n]);
+      kopien.set(n, mat);
+    }
+    o.material = mat;
+  });
+  /* Ein kleines helles Abzeichen an der Brust - reicht, um die Rolle auf
+     zehn Meter zu erkennen. */
+  const abz = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.03),
+    new THREE.MeshBasicMaterial({ color: art === 'ems' ? 0xff4436 : 0xf2d24a }));
+  abz.position.set(0.11, 1.32, 0.16);
+  v.root.add(abz);
+  v.abzeichen = abz;
+}
+
+/* ---- Ein sicherer Halteplatz ----
+   Gesucht wird eine gueltige Fahrspur in acht bis zwanzig Metern
+   Entfernung, die weder mitten auf einer Kreuzung noch auf einem
+   Ueberweg liegt. Gefahren wird ohnehin nur auf dem Raster, es geht hier
+   also nur um die STELLE auf der Spur. */
+function respHaltepunkt(ort, belegt) {
+  const kand = [];
+  for (const achse of ['x', 'z']) {
+    const quer = achse === 'x' ? ort.z : ort.x;
+    const laengs = achse === 'x' ? ort.x : ort.z;
+    /* Die naechste Strassenlinie quer zur Fahrtrichtung. */
+    const k = Math.round((quer - ORIGIN) / PITCH);
+    if (k < 0 || k > BLOCKS) continue;
+    const linie = ORIGIN + k * PITCH;
+    for (const seite of [1, -1]) {
+      const lane = linie + seite * 3;
+      const dQuer = Math.abs(lane - quer);
+      if (dQuer > RESP_HALT_FERN) continue;
+      /* So weit muss es laengs noch sein, damit der Abstand stimmt. */
+      const rest = Math.sqrt(Math.max(0,
+        RESP_HALT_NAH * RESP_HALT_NAH + 16 - dQuer * dQuer));
+      for (const vor of [1, -1]) {
+        const s = laengs + vor * Math.max(rest, 4);
+        /* Nicht auf einer Kreuzung halten. */
+        const kk = Math.round((s - ORIGIN) / PITCH);
+        if (Math.abs(s - (ORIGIN + kk * PITCH)) < 11) continue;
+        const px = achse === 'x' ? s : lane;
+        const pz = achse === 'x' ? lane : s;
+        if (Math.abs(px) > 190 || Math.abs(pz) > 190) continue;
+        if (px > AUTO_X_MAX) continue;
+        if (inWater(px, pz) || onBridge(px, pz) || inGebaeude(px, pz)) continue;
+        const d = Math.hypot(px - ort.x, pz - ort.z);
+        if (d < RESP_HALT_NAH - 1 || d > RESP_HALT_FERN) continue;
+        /* Nicht auf einen schon vergebenen Platz. */
+        let frei = true;
+        for (const b of (belegt || [])) {
+          if (Math.hypot(b.x - px, b.z - pz) < 9) { frei = false; break; }
+        }
+        for (const ein of RESP.liste) {
+          if (!ein.halt) continue;
+          if (Math.hypot(ein.halt.x - px, ein.halt.z - pz) < 9) { frei = false; break; }
+        }
+        if (!frei) continue;
+        kand.push({ achse, lane, s, x: px, z: pz, dir: vor > 0 ? -1 : 1, d });
+      }
+    }
+  }
+  if (!kand.length) return null;
+  kand.sort((a, b) => a.d - b.d);
+  return kand[0];
+}
+
+/* ---- Startpunkt: gueltige Spur, ausser Sicht, mit Fahrweg ---- */
+function respStartpunkt(halt) {
+  /* Auf derselben Strasse anfahren, nur weit genug entfernt. */
+  for (const weit of [110, 80, 150, 60]) {
+    for (const vz of [1, -1]) {
+      const s = halt.s - halt.dir * weit * vz;
+      const px = halt.achse === 'x' ? s : halt.lane;
+      const pz = halt.achse === 'x' ? halt.lane : s;
+      if (Math.abs(px) > 185 || Math.abs(pz) > 185) continue;
+      if (px > AUTO_X_MAX) continue;
+      if (inWater(px, pz) || inGebaeude(px, pz)) continue;
+      if (evImBlick(px, pz)) continue;             // nicht vor der Nase
+      if (Math.hypot(px - player.pos.x, pz - player.pos.z) < 45) continue;
+      return { achse: halt.achse, lane: halt.lane, s,
+               dir: (halt.s - s) > 0 ? 1 : -1 };
+    }
+  }
+  return null;
+}
+
+/* ---- Das Einsatzfahrzeug ---- */
+function respBaueWagen(ein, start) {
+  const typ = ein.art === 'ems'
+    ? { art: 'rtw', laenge: 5.4, breite: 2.1, hoehe: 1.9 }
+    : FAHRZEUGE.find((f) => f.art === 'polizei');
+  const mesh = ein.art === 'ems' ? respBaueRtwMesh() : makeFahrzeugMesh(typ, 0xf0f0f2);
+  const car = {
+    axis: start.achse, lane: start.lane, s: start.s, dir: start.dir,
+    sMin: ORIGIN - 3, sMax: ORIGIN + BLOCKS * PITCH + 3,
+    speed: ein.art === 'ems' ? 13 : 15,
+    tempoJetzt: 0, hupCd: 0, typ, mesh,
+    vx: 0, vz: 0, hitCd: 0, kurve: 0, kreuzung: null,
+    /* Daran erkennt updateCars den Einsatzwagen: er faehrt immer (nicht
+       nach Tageszeit), er lenkt gezielt und er hat Vorrang-Verhalten. */
+    notfall: ein.art, notfallEinsatz: ein, sirene: true,
+  };
+  setzeAutoGrenzen(car);
+  scene.add(mesh);
+  cars.push(car);
+  return car;
+}
+
+/* Der Rettungswagen: heller Kasten mit roten Streifen und Balken. Aus der
+   vorhandenen Fahrzeuggeometrie, kein neues Modell. */
+function respBaueRtwMesh() {
+  const g = new THREE.Group();
+  const hell = new THREE.MeshLambertMaterial({ color: 0xf2f2f5 });
+  const rot = new THREE.MeshLambertMaterial({ color: 0xc22a28 });
+  const dunkel = new THREE.MeshLambertMaterial({ color: 0x17181c });
+  const glas = new THREE.MeshLambertMaterial({
+    color: 0x5c7f96, transparent: true, opacity: 0.34, depthWrite: false });
+  const kasten = new THREE.Mesh(new THREE.BoxGeometry(2.1, 1.5, 3.6), hell);
+  kasten.position.set(0, 1.25, -0.6); kasten.castShadow = true; g.add(kasten);
+  const haube = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.95, 1.9), hell);
+  haube.position.set(0, 0.95, 1.75); haube.castShadow = true; g.add(haube);
+  const scheibe = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.6, 0.12), glas);
+  scheibe.position.set(0, 1.28, 2.66); g.add(scheibe);
+  for (const sz of [1, -1]) {
+    const streifen = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.26, 3.4), rot);
+    streifen.position.set(sz * 1.06, 1.15, -0.6); g.add(streifen);
+  }
+  const geo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10);
+  for (const [sx, sz] of [[1, 1.5], [-1, 1.5], [1, -1.7], [-1, -1.7]]) {
+    const w = new THREE.Mesh(geo, dunkel);
+    w.rotation.z = Math.PI / 2;
+    w.position.set(sx * 0.95, 0.42, sz); g.add(w);
+  }
+  const balken = new THREE.Group();
+  for (const [sx, col] of [[-0.3, 0xff3020], [0.3, 0xffffff]]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.3),
+      new THREE.MeshBasicMaterial({ color: col }));
+    l.position.set(sx, 0, 0); balken.add(l);
+  }
+  balken.position.set(0, 2.08, 0.6);
+  g.add(balken);
+  g.userData.blaulicht = balken;
+  return g;
+}
+
+/* ---- Einsatzkraft als Figur ----
+   Ein Zivilistenmodell in Uniform. Ein eigenes Polizeimodell gibt es
+   nicht, und ein erfundenes waere schlechter als ein umgefaerbtes. */
+function respBauePerson(ein, x, z, rolle) {
+  const v = makeCharacterVisual('civilian', {});
+  respUniform(v, ein.art);
+  const p = {
+    einsatz: ein, rolle,
+    visual: v,
+    pos: V3(x, groundY(x, z, 2), z),
+    facing: 0, phase: rand(0, TAU), speed: 0,
+    zustand: 'HIN',            // HIN | ARBEIT | ZURUECK | EINSTEIGEN
+    route: null, routeI: 0, arbeitT: 0,
+    ziel: null,
+  };
+  v.root.position.set(p.pos.x, p.pos.y, p.pos.z);
+  return p;
+}
+
+/* ---- Wer wird gebraucht? ----
+   Die vorhandene Schwere entscheidet, kein zweites Bewertungssystem. */
+function respAnfordern(e) {
+  if (!e || !e.brauchtNachschub) return;
+  if (RESP.liste.length >= RESP_MAX) return;
+  /* Ein Taeter, der entkommen ist, hinterlaesst keine Einsatzstelle -
+     dann faehrt auch niemand zu einer leeren Kreuzung. */
+  const taeter = e.gegner.filter((g) => respIstGesichert(g));
+  const patient = e.rettung && e.rettung.hilfeBar ? e.rettung
+                : e.zivilisten.find((c) => c.state === 'hurt' && c.hilfeBar) || null;
+  const stabil = e.rettung && !e.rettung.hilfeBar ? e.rettung : null;
+  const brauchtPolizei = taeter.length > 0;
+  /* Wurde schon waehrend des Ereignisses gerufen, faehrt kein zweiter
+     Wagen zur selben Stelle. */
+  const brauchtEms = (!!patient || !!stabil) && !e.emsGerufen;
+  if (!brauchtPolizei && !brauchtEms) return;
+  if (brauchtPolizei) respStarte(e, 'polizei', taeter);
+  if (brauchtEms && RESP.liste.length < RESP_MAX) {
+    respStarte(e, 'ems', patient ? [patient] : [stabil]);
+  }
+}
+
+/* Gilt ein Gegner als uebernahmefaehig? Eingesponnen, ausgeknockt oder
+   nach einer Flucht gefasst. */
+/* ---- Laufender Notruf fuer Verletzte ----
+   Der Ruf am Ereignisende kommt fuer Verletzte grundsaetzlich zu spaet:
+   ein Unfall gilt erst dann als beendet, wenn der Verletzte versorgt ist
+   oder von selbst wieder auf den Beinen war - in beiden Faellen gibt es
+   fuer den Rettungsdienst nichts mehr zu tun. Deshalb wird waehrend des
+   Ereignisses gerufen. Der Event-Director bleibt unangetastet; hier wird
+   seine Liste nur gelesen. */
+function respPruefeVerletzte(dt) {
+  RESP.rufCd -= dt;
+  if (RESP.rufCd > 0) return;
+  RESP.rufCd = 1.0;
+  if (RESP.liste.length >= RESP_MAX) return;
+  for (const e of EV.liste) {
+    if (e.emsGerufen) continue;
+    if (e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN') continue;
+    const patient = e.rettung && e.rettung.hilfeBar ? e.rettung
+                  : e.zivilisten.find((c) => c.state === 'hurt' && c.hilfeBar) || null;
+    if (!patient) continue;
+    patient.rufT = (patient.rufT || 0) + 1.0;
+    if (patient.rufT < RESP_RUF_KARENZ) continue;
+    e.emsGerufen = true;
+    if (respStarte(e, 'ems', [patient])) RESP.statistik.emsFrueh++;
+  }
+}
+
+/* Ist fuer diesen Verletzten gerade ein Rettungswagen unterwegs? Wird
+   aus der Liste gelesen statt auf der Figur vermerkt - so kann kein
+   Merker haengenbleiben und jemanden ewig liegen lassen. */
+function respWartetAuf(c) {
+  for (const ein of RESP.liste) {
+    if (ein.art !== 'ems' || ein.erledigt) continue;
+    if (ein.gesamtZeit > 90) continue;          // harte Obergrenze
+    if (ein.ziele.indexOf(c) >= 0) return true;
+  }
+  return false;
+}
+
+function respIstGesichert(g) {
+  if (!g) return false;
+  if (g.eventRolle === 'gefasst') return true;
+  if (g.dead) return true;
+  return g.webStufe >= 3;
+}
+
+function respStarte(e, art, ziele) {
+  const halt = respHaltepunkt(e.ort);
+  if (!halt) { RESP.statistik.ohneHaltepunkt++; return null; }
+  const ein = {
+    id: RESP.naechsteId++,
+    evId: e.id, art,
+    ort: { x: e.ort.x, z: e.ort.z },
+    zustand: 'ANGEFORDERT',
+    t: 0, wartet: rand(RESP_RUF_ZEIT[0], RESP_RUF_ZEIT[1]),
+    halt, wagen: null, leute: [],
+    ziele: ziele.slice(0, 3),
+    schwere: e.schwere,
+    fern: false, gesamtZeit: 0,
+  };
+  RESP.liste.push(ein);
+  RESP.statistik.angefordert++;
+  RESP.statistik[art === 'ems' ? 'ems' : 'polizei']++;
+  return ein;
+}
+
+/* ---- Lenkung des Einsatzfahrzeugs ----
+   Kein Wegenetz noetig: das Strassenraster IST der Graph, und das
+   Abbiegen folgt genau seiner Rechnung (siehe autoKreuzung). Wichtig
+   dabei ist die Umrechnung: biegt ein Wagen an der Linie L ab, faehrt er
+   danach auf der SPUR L+-3 der anderen Achse, und seine neue Laengslage
+   ist seine alte Spur.
+   Daraus folgt die ganze Wegwahl:
+     - Der Halteplatz liegt auf der Spur ziel.lane. Diese Spur gehoert zur
+       Rasterlinie zLinie = die naechste Linie zu ziel.lane.
+     - Auf die Zielachse kommt man deshalb NUR an dieser einen Linie.
+     - Steht der Wagen schon auf der richtigen Achse, aber auf der
+       falschen Spur, biegt er einmal quer ab; die Rueckkehr besorgt dann
+       derselbe Zweig. */
+function respLenke(car, linie) {
+  const ein = car.notfallEinsatz;
+  const ziel = (ein && ein.zustand !== 'ABFAHRT') ? ein.halt : null;
+  if (!ziel) return autoKreuzung(car, linie);
+  const zLinie = ORIGIN + Math.round((ziel.lane - ORIGIN) / PITCH) * PITCH;
+  const ndZiel = ziel.lane > zLinie ? 1 : -1;
+  const aufZielspur = car.axis === ziel.achse && Math.abs(car.lane - ziel.lane) < 0.6;
+  /* Schon richtig unterwegs: geradeaus bis zum Halt. */
+  if (aufZielspur && (ziel.s - car.s) * car.dir > -2) return false;
+  let nd;
+  if (car.axis !== ziel.achse) {
+    /* Auf die Zielachse kann nur an dieser einen Linie gewechselt
+       werden. Sonst geradeaus weiter. */
+    if (Math.abs(linie - zLinie) > 0.6) return false;
+    nd = ndZiel;
+  } else {
+    /* Richtige Achse, falsche Spur (oder Ziel liegt hinter uns): einmal
+       quer abbiegen. Zurueck auf die Zielachse geht es dann ueber den
+       Zweig darueber. */
+    const querZiel = car.axis === 'x' ? ziel.z : ziel.x;
+    nd = querZiel > car.lane ? 1 : -1;
+    if (aufZielspur) nd = Math.random() < 0.5 ? 1 : -1;   // umkehren
+  }
+  const neueLane = linie + nd * 3;
+  const neuesS = car.lane;
+  const neuesX = car.axis === 'x' ? neueLane : neuesS;
+  const neuesZ = car.axis === 'x' ? neuesS : neueLane;
+  if (neuesX > AUTO_X_MAX) return false;
+  if (neuesS < car.sMin - 0.5 || neuesS > car.sMax + 0.5) return false;
+  if (Math.abs(neuesX) > 190 || Math.abs(neuesZ) > 190) return false;
+  if (inWater(neuesX, neuesZ)) return false;
+  car.axis = car.axis === 'x' ? 'z' : 'x';
+  car.lane = neueLane; car.s = neuesS; car.dir = nd;
+  car.kreuzung = null;
+  car.tempoJetzt *= 0.55; car.kurve = 0.55;
+  setzeAutoGrenzen(car);
+  return true;
+}
+
+/* ---- Sirene ----
+   Ein Zweiton mit Entfernungslautstaerke. Kein Doppler, keine Datei. */
+function respSirene(ein, dt) {
+  const car = ein.wagen;
+  if (!car || !car.sirene) return;
+  ein.sirCd = (ein.sirCd || 0) - dt;
+  if (ein.sirCd > 0) return;
+  ein.sirCd = 0.62;
+  const d = Math.hypot(car.mesh.position.x - player.pos.x,
+                       car.mesh.position.z - player.pos.z);
+  if (d > 170) return;
+  const laut = clamp(1 - d / 170, 0, 1);
+  const v = 0.055 * laut * laut;
+  if (v < 0.004) return;
+  ein.sirHoch = !ein.sirHoch;
+  /* Polizei zweitoenig hoeher, Rettungswagen etwas tiefer und langsamer. */
+  const f = ein.art === 'ems' ? (ein.sirHoch ? 640 : 480)
+                              : (ein.sirHoch ? 880 : 660);
+  if (SFX.sirene) SFX.sirene(f, v);
+}
+
+/* ---- Der Einsatz-Ablauf ----
+   ANGEFORDERT -> UNTERWEGS -> ANKUNFT -> VOR_ORT -> ARBEIT -> ABFAHRT -> FERTIG
+   Jede Stufe hat genau eine Aufgabe, und jede kann von aussen abgebrochen
+   werden, ohne etwas liegenzulassen (siehe respAufraeumen). */
+const RESP_TICK = 0.2;
+function updateResponders(dt) {
+  /* Abgefahrene Wagen und herrenlose Reste regelmaessig einsammeln.
+     Ein Einsatzwagen, der auf dem Rueckweg im Verkehr steht (etwa hinter
+     Leuten auf der Fahrbahn - dafuer bremst er wie jeder andere), soll
+     nicht ewig bleiben. */
+  RESP.tickCd -= dt;
+  if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
+  respPruefeVerletzte(dt);
+  for (const c of cars) if (c.notfallWeg) c.notfallWeg += dt;
+  for (let i = RESP.liste.length - 1; i >= 0; i--) {
+    const ein = RESP.liste[i];
+    ein.t += dt; ein.gesamtZeit += dt;
+    const dSp = Math.hypot(ein.ort.x - player.pos.x, ein.ort.z - player.pos.z);
+    ein.fern = dSp > RESP_NAH;
+    /* Ganz weit weg wird nicht mehr gefahren, sondern nur noch die Uhr
+       gestellt: der Einsatz gilt nach einer plausiblen Mindestzeit als
+       erledigt. Sonst simulierte man kilometerweit ein Auto, das niemand
+       sieht. */
+    if (dSp > RESP_FERN_AUS && ein.gesamtZeit > 25) {
+      RESP.statistik.fernAbschluss++;
+      respErledige(ein);
+      respAufraeumen(ein); RESP.liste.splice(i, 1); continue;
+    }
+    switch (ein.zustand) {
+      case 'ANGEFORDERT': respAnfahrt(ein); break;
+      case 'UNTERWEGS':   respUnterwegs(ein, dt); break;
+      case 'ANKUNFT':     respAnkunft(ein, dt); break;
+      case 'VOR_ORT':     respVorOrt(ein, dt); break;
+      case 'ARBEIT':      respArbeit(ein, dt); break;
+      case 'ABFAHRT':     respAbfahrt(ein, dt); break;
+      case 'FERTIG':      respAufraeumen(ein); RESP.liste.splice(i, 1); continue;
+    }
+    for (const p of ein.leute) respPerson(ein, p, dt);
+    if (ein.wagen) respSirene(ein, dt);
+  }
+}
+
+/* Losfahren, sobald die Wartezeit um ist. */
+function respAnfahrt(ein) {
+  if (ein.t < ein.wartet) return;
+  const start = respStartpunkt(ein.halt);
+  if (!start) {
+    /* Kein sauberer Startpunkt (Spieler steht ueberall im Blick): spaeter
+       noch einmal versuchen, aber nicht ewig. */
+    ein.wartet += 3;
+    if (ein.t > 30) { RESP.statistik.abgebrochen++; ein.zustand = 'FERTIG'; }
+    return;
+  }
+  ein.wagen = respBaueWagen(ein, start);
+  ein.zustand = 'UNTERWEGS'; ein.t = 0;
+  RESP.statistik.ausgerueckt++;
+}
+
+/* Unterwegs: das Fahrzeug faehrt ueber die normale Verkehrslogik. Hier
+   wird nur geprueft, ob es angekommen ist. */
+function respUnterwegs(ein, dt) {
+  const car = ein.wagen;
+  if (!car) { ein.zustand = 'FERTIG'; return; }
+  const d = Math.hypot(car.mesh.position.x - ein.halt.x,
+                       car.mesh.position.z - ein.halt.z);
+  car.notfallHalt = null;
+  if (car.axis === ein.halt.achse && Math.abs(car.lane - ein.halt.lane) < 0.6) {
+    /* Auf der Zielspur: jetzt bremsen wir auf den Haltepunkt zu. */
+    car.notfallHalt = ein.halt.s;
+    if (d < 3.5) { ein.zustand = 'ANKUNFT'; ein.t = 0; RESP.statistik.angekommen++; }
+  }
+  /* Nicht endlos suchen. */
+  if (ein.t > 75) { ein.zustand = 'ANKUNFT'; ein.t = 0; }
+}
+
+/* Ankunft: Wagen steht, Sirene aus, Leute steigen aus. */
+function respAnkunft(ein, dt) {
+  const car = ein.wagen;
+  if (car) {
+    car.notfallHalt = ein.halt.s;
+    car.sirene = false;
+    if (car.tempoJetzt > 0.4 && ein.t < 6) return;
+    car.tempoJetzt = 0;
+  }
+  /* Nicht sichtbar hinzaubern: steht der Spieler direkt daneben und
+     schaut hin, wird gewartet, bis er wegsieht - oder bis er weit genug
+     weg ist. Naeher als das sieht man das Auftauchen wirklich. */
+  const px = car ? car.mesh.position.x : ein.halt.x;
+  const pz = car ? car.mesh.position.z : ein.halt.z;
+  const nah = Math.hypot(px - player.pos.x, pz - player.pos.z) < 32;
+  if (nah && evImBlick(px, pz) && ein.t < 8) return;
+  const anzahl = ein.art === 'ems' ? 2 : (ein.schwere >= 2 ? 2 : 1);
+  for (let i = 0; i < anzahl; i++) {
+    const seit = (i === 0 ? 1 : -1) * 1.4;
+    const qx = ein.halt.achse === 'x' ? px + rand(-1, 1) : px + seit;
+    const qz = ein.halt.achse === 'x' ? pz + seit : pz + rand(-1, 1);
+    const p = respBauePerson(ein, qx, qz, i === 0 ? 'fuehrung' : 'hilfe');
+    ein.leute.push(p);
+  }
+  ein.zustand = 'VOR_ORT'; ein.t = 0;
+}
+
+/* Vor Ort: warten, bis alle Leute an ihrem Ziel sind. */
+function respVorOrt(ein, dt) {
+  let alleDa = true;
+  for (const p of ein.leute) if (p.zustand === 'HIN') alleDa = false;
+  if (alleDa || ein.t > 30) { ein.zustand = 'ARBEIT'; ein.t = 0; }
+}
+
+/* Arbeit: sichern bzw. versorgen. */
+function respArbeit(ein, dt) {
+  /* War der Spieler schneller, bleibt nur eine kurze Nachkontrolle. */
+  const nurKontrolle = ein.art === 'ems' &&
+    !ein.ziele.some((c) => c && c.hilfeBar);
+  const dauer = ein.art === 'ems' ? (nurKontrolle ? 2.5 : RESP_BEHANDELN)
+                                  : RESP_SICHERN;
+  if (ein.t < dauer) return;
+  respErledige(ein);
+  ein.zustand = 'ABFAHRT'; ein.t = 0;
+  for (const p of ein.leute) { p.zustand = 'ZURUECK'; p.route = null; }
+}
+
+/* Das eigentliche Ergebnis des Einsatzes. */
+function respErledige(ein) {
+  if (ein.erledigt) return;
+  ein.erledigt = true;
+  RESP.statistik.erledigt++;
+  if (ein.art === 'polizei') {
+    for (const g of ein.ziele) {
+      if (!g || !g.pos) continue;
+      g.polizeiGesichert = true;
+      RESP.statistik.gesichert++;
+    }
+  } else {
+    for (const c of ein.ziele) {
+      if (!c || !c.pos) continue;
+      /* War der Spieler schneller, bleibt es bei einer Nachkontrolle. */
+      if (!c.hilfeBar) { RESP.statistik.nachkontrolle++; continue; }
+      {
+        /* Der Rettungsdienst versorgt - dieselbe vorhandene Mechanik wie
+           bei der Ersten Hilfe des Spielers, nur ohne Punkte fuer ihn. */
+        c.hilfeBar = false; c.savedCd = 12;
+        c.hurtT = Math.min(c.hurtT, 2.5);
+        if (c.kreuz) c.kreuz.visible = false;
+        RESP.statistik.versorgt++;
+      }
+    }
+  }
+}
+
+/* Abfahrt: alle wieder im Wagen, dann wegfahren. */
+function respAbfahrt(ein, dt) {
+  let alleDrin = true;
+  for (const p of ein.leute) if (p.zustand !== 'WEG') alleDrin = false;
+  if (!alleDrin && ein.t < 25) return;
+  const car = ein.wagen;
+  if (car) {
+    car.notfallHalt = null;
+    car.notfallEinsatz = null;          // ab jetzt normaler Verkehr
+    car.sirene = false;
+    /* Der Wagen faehrt ueber die gewoehnliche Verkehrslogik davon und
+       wird geloescht, sobald er weit genug weg oder ausser Sicht ist. */
+    car.notfallWeg = 1;
+    ein.wagen = null;
+  }
+  ein.zustand = 'FERTIG';
+}
+
+/* ---- Eine Einsatzkraft ----
+   Hin zum Ziel, arbeiten, zurueck zum Wagen. Gelaufen wird auf dem
+   vorhandenen Gehwegnetz, nicht quer durch Haeuser. */
+function respPerson(ein, p, dt) {
+  const v = p.visual;
+  if (!v) return;
+  let ziel = null;
+  if (p.zustand === 'HIN') {
+    ziel = respPersonZiel(ein, p);
+    if (!ziel) { p.zustand = 'ARBEIT'; }
+  } else if (p.zustand === 'ZURUECK') {
+    ziel = ein.wagen ? { x: ein.wagen.mesh.position.x, z: ein.wagen.mesh.position.z }
+                     : { x: ein.halt.x, z: ein.halt.z };
+  }
+  let tempo = 0;
+  if (ziel) {
+    const d = Math.hypot(ziel.x - p.pos.x, ziel.z - p.pos.z);
+    const nahGenug = p.zustand === 'HIN' ? 1.8 : 2.4;
+    if (d < nahGenug) {
+      if (p.zustand === 'HIN') { p.zustand = 'ARBEIT'; p.arbeitT = 0; }
+      else { p.zustand = 'WEG'; if (v.root) v.root.visible = false; }
+    } else {
+      tempo = respGehe(p, ziel, dt);
+    }
+  } else if (p.zustand === 'ARBEIT') {
+    p.arbeitT += dt;
+    /* Zum Ziel schauen. */
+    const z = respPersonZiel(ein, p);
+    if (z) {
+      const w = Math.atan2(z.x - p.pos.x, z.z - p.pos.z);
+      let dw = w - p.facing;
+      while (dw > Math.PI) dw -= Math.PI * 2;
+      while (dw < -Math.PI) dw += Math.PI * 2;
+      p.facing += clamp(dw, -1, 1) * Math.min(1, dt * 4);
+    }
+  }
+  if (!v.root) return;
+  if (p.zustand === 'WEG') { v.root.visible = false; return; }
+  /* LOD: Weit weg sieht das niemand. Der Ablauf laeuft weiter (die Uhren
+     muessen stimmen), aber Mixer, Bodenabtastung und Ausgleich - der
+     teure Teil - entfallen, und die Figur wird ausgeblendet. */
+  if (ein.fern) { v.root.visible = false; return; }
+  v.root.visible = true;
+  p.pos.y = groundY(p.pos.x, p.pos.z, 2);
+  v.root.position.set(p.pos.x, p.pos.y, p.pos.z);
+  v.root.rotation.y = p.facing;
+  /* Bewegungen: nur vorhandene Dateien. Fuer das Arbeiten am Boden gibt
+     es keine eigene Kniebewegung - genommen wird 'knie', wo sie passt,
+     sonst die ruhige Wartehaltung. Es wird keine Datei erfunden. */
+  let anim = 'idle';
+  if (tempo > 3.2) anim = 'run';
+  else if (tempo > 0.1) anim = 'walk';
+  else if (p.zustand === 'ARBEIT') {
+    anim = (ein.art === 'ems' && v.hatClip && v.hatClip('knie')) ? 'knie' : 'warten';
+  }
+  v.play(anim, { phase: p.phase, speed01: clamp(tempo / 5.2, 0, 1),
+                 speed: tempo, t: elapsed + p.phase }, dt);
+  if (v.bodenAusgleich) v.bodenAusgleich(Math.min(1, dt * 12));
+}
+
+/* Wohin genau geht diese Kraft? Nicht auf das Ziel drauf, sondern
+   daneben. */
+function respPersonZiel(ein, p) {
+  const z = ein.ziele[0];
+  if (!z || !z.pos) return { x: ein.ort.x, z: ein.ort.z };
+  const seit = p.rolle === 'fuehrung' ? 1.2 : -1.2;
+  return { x: z.pos.x + seit * 0.8, z: z.pos.z + 1.2 };
+}
+
+/* Gehen auf dem Gehwegnetz. Ist kein Weg zu finden, wird direkt
+   gegangen - aber nur, wenn dazwischen kein Haus steht. */
+function respGehe(p, ziel, dt) {
+  if (!p.route || p.routeI >= p.route.length) {
+    const start = gehNaechster(p.pos.x, p.pos.z, 26);
+    const ende = gehNaechster(ziel.x, ziel.z, 26);
+    p.route = (start >= 0 && ende >= 0 && start !== ende)
+      ? gehRoute(start, ende) : null;
+    p.routeI = 0;
+    if (!p.route) p.route = [];
+  }
+  let zx = ziel.x, zz = ziel.z;
+  if (p.route.length && p.routeI < p.route.length) {
+    const k = GEH.knoten[p.route[p.routeI]];
+    if (k) {
+      zx = k.x; zz = k.z;
+      if (Math.hypot(zx - p.pos.x, zz - p.pos.z) < 1.6) { p.routeI++; return p.speed || 0; }
+    }
+  }
+  const dx = zx - p.pos.x, dz = zz - p.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const v = 2.4;
+  p.pos.x += dx / d * v * dt;
+  p.pos.z += dz / d * v * dt;
+  p.facing = Math.atan2(dx, dz);
+  p.speed = v;
+  return v;
+}
+
+/* ---- Aufraeumen ----
+   Jeder Verweis muss weg: Figuren, Fahrzeug, Lichter, Sirene, der
+   reservierte Halteplatz. Sonst waechst die Welt mit jedem Einsatz. */
+function respAufraeumen(ein) {
+  for (const p of ein.leute) {
+    if (p.visual && p.visual.root) scene.remove(p.visual.root);
+    p.visual = null;
+  }
+  ein.leute.length = 0;
+  if (ein.wagen) {
+    respLoescheWagen(ein.wagen);
+    ein.wagen = null;
+  }
+  ein.halt = null;
+  ein.ziele.length = 0;
+  ein.zustand = 'FERTIG';
+}
+
+function respLoescheWagen(car) {
+  const i = cars.indexOf(car);
+  if (i >= 0) cars.splice(i, 1);
+  if (car.mesh) scene.remove(car.mesh);
+  car.notfallEinsatz = null;
+}
+
+/* Sicherheitsnetz gegen Lecks: Einsatzwagen ohne Einsatz und Figuren
+   ohne Wagen. */
+function respLeckPruefung() {
+  let leck = 0;
+  const ids = new Set(RESP.liste.map((e) => e.id));
+  for (let i = cars.length - 1; i >= 0; i--) {
+    const c = cars[i];
+    if (!c.notfall) continue;
+    if (c.notfallEinsatz && ids.has(c.notfallEinsatz.id)) continue;
+    if (c.notfallWeg) {
+      /* Abgefahrener Wagen: verschwindet ausser Sicht. Nach einer Weile
+         genuegt "nicht im Blick" - sonst bliebe ein Wagen, der im
+         Verkehr feststeckt, unbegrenzt stehen. */
+      const d = Math.hypot(c.mesh.position.x - player.pos.x,
+                           c.mesh.position.z - player.pos.z);
+      const sicht = evImBlick(c.mesh.position.x, c.mesh.position.z);
+      if (d > 120 || (d > 45 && !sicht) ||
+          (c.notfallWeg > 30 && !sicht) || c.notfallWeg > 150) {
+        respLoescheWagen(c); leck++;
+      }
+      continue;
+    }
+    respLoescheWagen(c); leck++;
+  }
+  if (leck) RESP.statistik.aufraeumFehler += 0;   // geplantes Entfernen
+  return leck;
 }
 
 /* ======================= Aufträge =======================
@@ -23152,6 +23923,7 @@ function simuliere(dt) {
   if (COMBAT_DEBUG) zeigeKampfTafel(dt);
   if (PED_DEBUG) zeigeGehnetz(dt);
   updateWeltEreignisse(dt);
+  updateResponders(dt);
   updateCamera(dt);
   poseLogSchreibe(dt);
   updateEffekte(dt);
@@ -23348,6 +24120,41 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     setzeKletterClip(v) { KLETTER_CLIP = v; },
+    /* ---- Einsatzkraefte: Zugaenge fuer die Tests ---- */
+    get resp() { return RESP; },
+    respListe() {
+      return RESP.liste.map((e) => ({
+        id: e.id, evId: e.evId, art: e.art, zustand: e.zustand,
+        t: +e.t.toFixed(2), fern: e.fern,
+        wagen: !!e.wagen, leute: e.leute.length,
+        halt: e.halt ? { x: +e.halt.x.toFixed(1), z: +e.halt.z.toFixed(1) } : null,
+        wagenOrt: e.wagen ? { x: +e.wagen.mesh.position.x.toFixed(1),
+                              z: +e.wagen.mesh.position.z.toFixed(1),
+                              v: +e.wagen.tempoJetzt.toFixed(2) } : null,
+        ziele: e.ziele.length,
+      }));
+    },
+    respStatistik() { return RESP.statistik; },
+    respWagen() {
+      return cars.filter((c) => c.notfall).map((c) => ({
+        art: c.notfall, axis: c.axis, lane: +c.lane.toFixed(1),
+        s: +c.s.toFixed(1), v: +c.tempoJetzt.toFixed(2),
+        sirene: !!c.sirene, weg: !!c.notfallWeg,
+        x: +c.mesh.position.x.toFixed(1), z: +c.mesh.position.z.toFixed(1) }));
+    },
+    respLeck() { return respLeckPruefung(); },
+    respAnzahl() {
+      let leute = 0;
+      for (const e of RESP.liste) leute += e.leute.length;
+      return { einsaetze: RESP.liste.length,
+               wagen: cars.filter((c) => c.notfall).length, leute };
+    },
+    /* Einen Einsatz von Hand ausloesen - fuer gezielte Tests. */
+    respTest(art, x, z) {
+      const e = { id: -1, ort: { x, z }, schwere: 1, gegner: [], zivilisten: [],
+                  rettung: null };
+      return respStarte(e, art || 'polizei', []) ? true : false;
+    },
     setzeKletterRef(v) { for (const k in KLETTER_REFS) KLETTER_REFS[k] = v; },
     setzeKletterMax(v) { KLETTER_MAX = v; },
     setzeGriffPhase(tief, hoch, schwung) {
