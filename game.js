@@ -22743,7 +22743,17 @@ function respAutojagd(dt) {
     jagd.jagdCd = (jagd.jagdCd || 0) - dt;
     if (jagd.jagdCd <= 0) {
       jagd.jagdCd = 1.5;
-      const h = respHaltepunkt({ x: fx, z: fz }, null, 'polizei');
+      /* ---- Das Ziel liegt HINTER dem Fluchtauto ----
+         Der Halteplatz wird um den Sicherheitsabstand entgegen der
+         Fahrtrichtung des Fluechtenden versetzt. Ein Bremsbefehl je Bild
+         genuegt dafuer nicht: respUnterwegs setzt notfallHalt in
+         jedem Takt neu auf den Halteplatz und ueberschreibt ihn wieder -
+         gemessen kam der Verfolger dadurch bis auf 0,1 m heran, also
+         mitten hinein. Ueber den Halteplatz gerechnet haelt der Abstand
+         von selbst, ohne gegen die vorhandene Logik zu arbeiten. */
+      const zx = fx - (flucht.axis === 'x' ? flucht.dir : 0) * RESP_AUTOJAGD_ABSTAND;
+      const zz = fz - (flucht.axis === 'z' ? flucht.dir : 0) * RESP_AUTOJAGD_ABSTAND;
+      const h = respHaltepunkt({ x: zx, z: zz }, null, 'polizei');
       if (h) jagd.halt = h;
     }
     if (jagd.wagen) {
@@ -22751,8 +22761,6 @@ function respAutojagd(dt) {
                            jagd.wagen.mesh.position.z - fz);
       RESP.statistik.autojagdMinAbstand =
         Math.min(RESP.statistik.autojagdMinAbstand, +d.toFixed(1));
-      /* Zu dicht: vom Gas. Nur bremsen, nie draengeln. */
-      if (d < RESP_AUTOJAGD_ABSTAND) jagd.wagen.notfallHalt = jagd.wagen.s;
     }
     return;
   }
