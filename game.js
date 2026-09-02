@@ -22196,7 +22196,7 @@ const RESP = {
                zwangsAnkunft: 0, weiterHalt: 0,
                ausStreife: 0, zurueckInStreife: 0,
                verfolgt: 0, hintergrundGefasst: 0, hintergrundEntkommen: 0,
-               autojagd: 0, autojagdMinAbstand: 999 },
+               autojagd: 0, autojagdMinAbstand: 999, fluchtRuf: 0 },
   rufCd: 0,
   /* Fahrtenschreiber. Nur fuer die Pruefskripte, im Spiel aus. */
   trace: false,
@@ -22825,6 +22825,34 @@ function respWartetAuf(c) {
   return false;
 }
 
+/* ---- Laufender Ruf bei einem Fluechtigen ----
+   Die Polizei wurde bisher ausschliesslich am Ereignisende gerufen, und
+   zwar fuer bereits gesicherte Taeter. Ein Fluechtiger bedeutet aber,
+   dass das Ereignis gerade NICHT zu Ende ist - es konnte also nie eine
+   Streife zu einer laufenden Flucht kommen, und die ganze Verfolgung
+   lief ins Leere (gemessen: verfolgt = 0, obwohl ein Fluechtiger
+   unterwegs war).
+
+   Deshalb wird auch waehrend des Ereignisses gerufen, sobald jemand
+   flieht. Das nimmt dem Spieler nichts weg: die Streife faehrt hin und
+   macht Druck, gefasst wird nur, wenn der Spieler weit weg ist
+   (siehe respVerfolgung). */
+const RESP_FLUCHT_KARENZ = 3;
+function respPruefeFlucht(dt) {
+  if (RESP.liste.length >= RESP_MAX) return;
+  for (const e of EV.liste) {
+    if (e.zustand === 'FERTIG') continue;
+    if (!e.fluechtige || !e.fluechtige.length) continue;
+    if (e.polizeiGerufen) continue;
+    const g = e.fluechtige.find((x) => x && !x.dead && !x.policeCustody);
+    if (!g) continue;
+    e.fluchtRufT = (e.fluchtRufT || 0) + dt;
+    if (e.fluchtRufT < RESP_FLUCHT_KARENZ) continue;
+    e.polizeiGerufen = true;
+    if (respStarte(e, 'polizei', [g])) RESP.statistik.fluchtRuf++;
+  }
+}
+
 function respIstGesichert(g) {
   if (!g) return false;
   if (g.eventRolle === 'gefasst') return true;
@@ -22996,6 +23024,7 @@ function updateResponders(dt) {
   RESP.tickCd -= dt;
   if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
   respPruefeVerletzte(dt);
+  respPruefeFlucht(dt);
   for (const c of cars) if (c.notfallWeg) c.notfallWeg += dt;
   for (let i = RESP.liste.length - 1; i >= 0; i--) {
     const ein = RESP.liste[i];
