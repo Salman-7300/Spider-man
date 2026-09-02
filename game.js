@@ -4023,6 +4023,10 @@ const GANG_REF = {
      langem eingestellten Wert. Gemessen:
        walk 1,49   run 2,21   sprint 3,96   (m/s bei einfachem Tempo) */
   run: 2.21,
+  /* Aus sprint abgeleitet, siehe tools/anim-schrittweite.mjs: dieselbe
+     Bewegung, nur holt jedes Bein 40 Prozent weiter aus. Schrittweite
+     0,834 -> 1,080 m, Eigentempo 3,96 -> 5,51 m/s. */
+  sprint_lang: 5.51,
   /* Fuer den Sprintclip steht hier NICHT die gemessene Eigen-
      geschwindigkeit (3,96), sondern der Wert, der im Spiel am wenigsten
      rutscht. Beides faellt hier auseinander, weil der Zeitfaktor bei
@@ -4049,6 +4053,7 @@ const GANG_CLIPS = Object.keys(GANG_REF);
    vorige mit einem zu hohen. */
 let GANG_UM_LAUF = 2.5;
 let GANG_UM_SPRINT = 4.0;
+let GANG_UM_VOLL = 8.0;
 let GANG_UM_BAND = 0.35;
 /* Stelle im Duck-Clip, an der die Figur im Stand angehalten wird.
    Abgetastet: dort ist der Hoehenunterschied zwischen den Fuessen am
@@ -4119,7 +4124,12 @@ const ZIVI_ANIM_PARTS = ['sitzen', 'reden', 'streiten', 'tippen', 'trinken',
 const RICHT_8 = ['v', 'vr', 'r', 'hr', 'h', 'hl', 'l', 'vl'];
 const HELD_ANIM_PARTS = RICHT_8.map((r) => 'ausw_' + r)
   .concat(RICHT_8.map((r) => 'rolle_' + r))
-  .concat(['spin_l', 'spin_r']);
+  /* sprint_lang gibt es nur fuer den Helden - die Datei ist aus seinem
+     eigenen Sprint abgeleitet (tools/anim-schrittweite.mjs). Sie gehoert
+     deshalb hierher und nicht in die Liste fuer alle Figuren, sonst
+     suchten Zivilisten und Gegner eine Datei, die es fuer sie nicht
+     gibt. */
+  .concat(['spin_l', 'spin_r', 'sprint_lang']);
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -4859,7 +4869,11 @@ const GLB_CLIP_PATTERNS = {
   /* Exakter Name zuerst: seit es eine eigene Sprint-Datei gibt, wuerde
      /sprint/ sonst beim Laufen zuschlagen. */
   run: [/^run$/i, /run/i, /jog/i],
-  sprint: [/^sprint$/i, /sprint/i],
+  /* WICHTIG: die genauere Regel muss VOR der lockeren stehen - findClip
+     nimmt den ersten Treffer, und /sprint/i wuerde sonst auch
+     sprint_lang einsammeln. */
+  sprint_lang: [/^sprint_lang$/i],
+  sprint: [/^sprint$/i, /sprint(?!_)/i],
   symgang: [/^symgang$/i], symkombo: [/^symkombo$/i],
   wurfgriff: [/^wurfgriff$/i], kriechen: [/^kriechen$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
@@ -7978,7 +7992,17 @@ function makeGlbVisual(m) {
           else if (gangStufe === 1 && vBoden < GANG_UM_LAUF - GANG_UM_BAND) gangStufe = 0;
           if (gangStufe === 1 && vBoden > GANG_UM_SPRINT + GANG_UM_BAND) gangStufe = 2;
           else if (gangStufe === 2 && vBoden < GANG_UM_SPRINT - GANG_UM_BAND) gangStufe = 1;
-          const kette = gangStufe >= 2 ? ['sprint', 'run', 'walk']
+          /* Vierte Stufe fuer den vollen Sprint: 'sprint_lang' holt weiter
+             aus und traegt 5,51 statt 3,96 m/s. Damit liegt jede Stufe bei
+             einem Zeitfaktor zwischen rund 1 und 2 statt am Anschlag 3,0:
+               walk         bis 2,5 m/s   walk        1,49 m/s
+               run          bis 4,0 m/s   run         2,21 m/s
+               schnell      bis 8,0 m/s   sprint      3,96 m/s
+               voller Lauf  darueber      sprint_lang 5,51 m/s */
+          if (gangStufe === 2 && vBoden > GANG_UM_VOLL + GANG_UM_BAND) gangStufe = 3;
+          else if (gangStufe === 3 && vBoden < GANG_UM_VOLL - GANG_UM_BAND) gangStufe = 2;
+          const kette = gangStufe >= 3 ? ['sprint_lang', 'sprint', 'run', 'walk']
+                      : gangStufe === 2 ? ['sprint', 'sprint_lang', 'run', 'walk']
                       : gangStufe === 1 ? ['run', 'sprint', 'walk']
                       : ['walk', 'run', 'sprint'];
           for (const n of kette) if (habe(n)) { want = n; break; }
