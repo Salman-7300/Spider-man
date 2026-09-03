@@ -16404,6 +16404,82 @@ function baueBesondereOrte() {
 }
 baueBesondereOrte();
 
+/* ======================= Dachleben =======================
+   Daecher waren leer. Sie bekommen jetzt Aufbauten - aber nicht alle
+   (Vorgabe 11), und aus einfacher Geometrie statt neuer Dateien
+   (Vorgabe 12). Alles landet in EINEM zusammengefassten Mesh je Bauart,
+   damit aus rund hundert Aufbauten nicht hundert Zeichenaufrufe werden
+   (Vorgabe 13). */
+const DACH_TEILE = [];        // {x,y,z, bx,by,bz} nur fuer die Pruefung
+function baueDachaufbauten() {
+  const kandidaten = colliders.filter((c) => !c.klein && (c.h || 0) > 22 &&
+    (c.x1 - c.x0) > 9 && (c.z1 - c.z0) > 9);
+  if (!kandidaten.length) return;
+  const kasten = [];            // gesammelte Boxen
+  const rohre = [];
+  const nimm = (arr, x, y, z, bx, by, bz) => {
+    arr.push({ x, y, z, bx, by, bz });
+    DACH_TEILE.push({ x, y, z, bx, by, bz });
+  };
+  let n = 0;
+  for (const c of kandidaten) {
+    /* Nur jedes zweite Dach, sonst wirkt die Stadt wie ein Lagerplatz. */
+    if ((n++ % 2) === 1) continue;
+    const mx = (c.x0 + c.x1) / 2, mz = (c.z0 + c.z1) / 2, y = c.h;
+    /* Der Rand bleibt frei: dort landet und hockt der Spieler. */
+    const rx = Math.max(1.5, (c.x1 - c.x0) / 2 - 3.5);
+    const rz = Math.max(1.5, (c.z1 - c.z0) / 2 - 3.5);
+    const zahl = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < zahl; i++) {
+      const px = mx + rand(-rx, rx), pz = mz + rand(-rz, rz);
+      const art = Math.random();
+      if (art < 0.4) {
+        /* Lueftungskasten */
+        const bx = rand(1.2, 2.2), bz = rand(1.2, 2.2), by = rand(0.7, 1.3);
+        nimm(kasten, px, y + by / 2, pz, bx, by, bz);
+      } else if (art < 0.7) {
+        /* Klimageraet, flacher und breiter */
+        nimm(kasten, px, y + 0.35, pz, rand(1.6, 2.6), 0.7, rand(1.0, 1.6));
+      } else if (art < 0.9) {
+        /* Wassertank auf Fuessen */
+        const h = rand(1.8, 2.6);
+        nimm(kasten, px, y + h / 2, pz, 1.8, h, 1.8);
+      } else {
+        /* Antenne */
+        const h = rand(2.5, 4.5);
+        nimm(rohre, px, y + h / 2, pz, 0.18, h, 0.18);
+      }
+    }
+  }
+  /* ---- Ein Zeichenaufruf je Bauart ----
+     Zuerst hatte ich die Boxen zu einer Geometrie verschmelzen wollen.
+     Geprueft: THREE.BufferGeometryUtils gibt es in diesem Three-Build
+     gar nicht (hatUtils false), der Zweig waere also nie gelaufen und
+     es waeren 72 Einzel-Meshes entstanden. InstancedMesh steckt im Kern
+     und loest es richtig: eine Geometrie, ein Material, beliebig viele
+     Kopien, ein Zeichenaufruf. */
+  const baue = (liste, farbe) => {
+    if (!liste.length) return;
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const mat = new THREE.MeshLambertMaterial({ color: farbe });
+    const mesh = new THREE.InstancedMesh(geo, mat, liste.length);
+    const m4 = new THREE.Matrix4();
+    liste.forEach((t, i) => {
+      m4.makeScale(t.bx, t.by, t.bz);
+      m4.setPosition(t.x, t.y, t.z);
+      mesh.setMatrixAt(i, m4);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = false; mesh.receiveShadow = true;
+    /* Die Aufbauten stehen fest - kein Neuberechnen je Bild. */
+    mesh.frustumCulled = false;
+    cityGroup.add(mesh);
+  };
+  baue(kasten, 0x8b9099);
+  baue(rohre, 0x6a6f78);
+}
+baueDachaufbauten();
+
 /* Besuch pruefen. Laeuft im Takt, nicht je Bild und nicht je POI:
    die Liste ist klein und wird nur alle 0,3 s durchgesehen. */
 function poiUpdate(dt) {
@@ -25084,6 +25160,8 @@ if (window.__WEBHERO_TEST__ === true) {
       x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1),
       name: p.name, besucht: p.besucht })); },
     poiStatistik() { return POI.statistik; },
+    dachTeile() { return DACH_TEILE.map((t) => ({ x: +t.x.toFixed(2), y: +t.y.toFixed(2),
+      z: +t.z.toFixed(2), bx: +t.bx.toFixed(2), by: +t.by.toFixed(2), bz: +t.bz.toFixed(2) })); },
     vorfaelle() { return VORFALL.liste.map((v) => ({ x: +v.x.toFixed(1),
       z: +v.z.toFixed(1), schwere: v.schwere, t: +v.t.toFixed(1) })); },
     respAnzahl() {
