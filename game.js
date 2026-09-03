@@ -22806,6 +22806,14 @@ function respAutojagd(dt) {
           (jagd.wagen === flucht ? 1 : 0);
         RESP.statistik.jagdEng = (RESP.statistik.jagdEng || 0) +
           (jagd.wagen === flucht ? 0 : 1);
+        /* Wer faehrt auf wen auf? Das Fluchtauto ueberspringt in
+           updateCars den ganzen Block mit Vordermann, Ampel und
+           Fussgaengern - es bremst also fuer niemanden. Wenn der
+           Streifenwagen langsamer ist als der Fluechtende, hat nicht die
+           Polizei gerammt, sondern der Fluechtende ist aufgefahren. */
+        const vP = jagd.wagen.tempoJetzt || 0, vF = flucht.tempoJetzt || 0;
+        if (vP < vF - 1) RESP.statistik.jagdOpfer = (RESP.statistik.jagdOpfer || 0) + 1;
+        else RESP.statistik.jagdTaeter = (RESP.statistik.jagdTaeter || 0) + 1;
       }
       RESP.statistik.autojagdMinAbstand =
         Math.min(RESP.statistik.autojagdMinAbstand, +d.toFixed(1));
