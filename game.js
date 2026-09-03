@@ -7742,6 +7742,24 @@ function makeGlbVisual(m) {
       }
       return { huefte, fuss: tiefster === Infinity ? huefte : tiefster };
     },
+    /* ---- Tiefster Punkt der ganzen Figur ----
+       Fuer LIEGENDE und am Boden sitzende Figuren reicht sitzMasse nicht:
+       dort ist nicht der Fuss das Tiefste, sondern Gesaess, Schulter oder
+       Hand. Gemessen lagen deshalb 21 von 40 Verletzten in der Luft
+       (Median 12,5 cm, groesster Fall 9,0 m) und 13 steckten im Boden.
+       Hier wird der wirklich tiefste Knochen gesucht - er ist es, der auf
+       der tragenden Flaeche aufliegen muss. */
+    liegeMasse() {
+      if (!root) return null;
+      root.updateMatrixWorld(true);
+      let tiefster = Infinity;
+      root.traverse((o) => {
+        if (!o.isBone) return;
+        o.getWorldPosition(_vb);
+        if (_vb.y < tiefster) tiefster = _vb.y;
+      });
+      return tiefster === Infinity ? null : tiefster;
+    },
     /* Kopf ruhig halten: Beim Laufen nickt der ganze Körper mit, und mit
        der neuen Vorlage schaut die Figur sonst auf den Asphalt. Kopf und
        Hals nehmen die Neigung des Körpers zum Teil zurück, dadurch bleibt
@@ -19162,6 +19180,33 @@ function updateCivilians(dtBild) {
       c.hurtT -= dt;
       c.visual.root.position.copy(c.pos);
       c.visual.play('sit', { t: elapsed }, dt);
+      /* ---- Der Koerper muss auf einer echten Flaeche liegen ----
+         Vorher wurde die Wurzel einfach auf c.pos gesetzt und die
+         Sitzbewegung darauf abgespielt. Die Bewegung hebt den Koerper
+         aber gegenueber der Wurzel an, und c.pos.y stimmt nicht immer mit
+         dem Boden DARUNTER ueberein. Gemessen (scratchpad/sitzluft.js):
+         21 von 40 Verletzten lagen in der Luft, 13 steckten im Boden, der
+         schlimmste Fall schwebte 9,0 m - das war ein Zivilist auf
+         Strassenhoehe, unter dem der U-Bahn-Bahnsteig als Boden galt.
+         Deshalb: tragende Flaeche hoehenrichtig bestimmen (groundY mit
+         der eigenen Hoehe als Bezug) und den tiefsten Knochen genau
+         darauf legen. */
+      let stuetzY = groundY(c.pos.x, c.pos.z, c.pos.y);
+      /* Liegt die gemeldete Flaeche unplausibel weit unter der Figur, dann
+         steht sie ueber einem Loch - etwa dem offenen U-Bahn-Schacht.
+         Gemessen betraf das 3 von 40 Faellen, mit 9 m Unterschied. Dort
+         wird NICHT hinuntergesetzt (das waere ein Sturz in den Schacht),
+         sondern die eigene Hoehe als Auflage genommen und der Fall
+         gezaehlt. */
+      if (stuetzY !== null && stuetzY !== undefined && c.pos.y - stuetzY > 2.5) {
+        stuetzY = c.pos.y;
+        VALID.floatingDowned++;
+      }
+      const tief = c.visual.liegeMasse ? c.visual.liegeMasse() : null;
+      if (tief !== null && stuetzY !== null && stuetzY !== undefined) {
+        c.visual.root.position.y += (stuetzY - tief);
+        VALID.liegendGesetzt++;
+      }
       /* Ein Verletzter, dem niemand hilft, kostet weiter Ansehen – aber
          nur mäßig und nicht pro Person aufaddiert, sonst ist der Ruf nach
          einer einzigen verpatzten Schlägerei dauerhaft ruiniert. */
@@ -19737,6 +19782,25 @@ function updateCivilians(dtBild) {
      Sonst bleibt der Ruf in einer belebten Stadt dauerhaft am Boden. */
   if (ruf < 65) setzeRuf(Math.min(0.9, 65 - ruf) * dtBild * (liegen === 0 ? 0.25 : 0.06));
 }
+
+/* ======================= Zaehler des Regression Gates =======================
+   Nicht "0 JS-Fehler", sondern was im BILD schiefgehen kann. Jeder Zaehler
+   gehoert zu genau einem gemeldeten Fehler und wird an der Stelle
+   hochgezaehlt, an der die Sache entschieden wird - nicht im Test. */
+const VALID = {
+  liegendGesetzt: 0,      // Verletzte, die auf eine Flaeche gelegt wurden
+  floatingDowned: 0,      // Verletzte ohne tragende Flaeche (Notbremse)
+  floatingSeat: 0,        // Sitzende ohne Sitzanker
+  sitzAbgelehnt: 0,       // Sitzwunsch ohne gueltigen Anker -> idle
+  invalidProp: 0,         // Requisit mit ungueltiger Bounding Box
+  bridgePropInvalid: 0,   // Requisit im Brueckenbereich
+  crosswalkHumpOverlap: 0,// Schwelle ueber einem Zebrastreifen
+  npcStaticPenetration: 0,// Zivilist in einem statischen Hindernis
+  enemyStaticPenetration: 0,
+  playerNpcOverlap: 0,    // Spieler steckt in einer Figur
+  climbSurfaceGap: 0,     // Klettern mit sichtbarem Abstand zur Wand
+  wallrunFailed: 0,       // Anlauf mit Tempo, aber ohne Wandlauf
+};
 
 function hurtCivilian(c, attacker) {
   c.hp -= 10;
@@ -26186,6 +26250,9 @@ if (window.__WEBHERO_TEST__ === true) {
     entStand() { return { cd: +ENT.cd.toFixed(1), saeuleT: +ENT.saeuleT.toFixed(1),
       saeule: !!(ENT.saeule && ENT.saeule.visible), letzte: ENT.letzte }; },
     regen: REGEN,
+    valid: VALID,
+    validZaehler() { return Object.assign({}, VALID); },
+    validReset() { for (const k in VALID) VALID[k] = 0; },
     tag: TAG,
     umgStatistik() { return UMG.statistik; },
     umgSchwaerme() { return UMG.schwaerme.map((s) => ({ x: +s.x.toFixed(1),
