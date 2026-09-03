@@ -23437,6 +23437,7 @@ function updateResponders(dt) {
   vorfallUpdate(dt);
   poiUpdate(dt);
   aktUpdate(dt);
+  herUpdate(dt);
   respAutojagd(dt);
   RESP.tickCd -= dt;
   if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
@@ -23941,6 +23942,207 @@ const rennRinge = [];
 for (let i = 0; i < 8; i++) {
   const m = new THREE.Mesh(ringGeoM, ringMatM.clone());
   m.visible = false; scene.add(m); rennRinge.push(m);
+}
+
+/* ======================= Traversal-Herausforderungen =======================
+   Spider-Mans beste Mechanik ist die Bewegung; die Stadt soll sie nutzen.
+   Drei Konzepte, aber EIN System: alle drei sind "erreiche eine Folge von
+   Punkten in der Zeit". Sie unterscheiden sich nur darin, WO die Punkte
+   liegen - auf Daechern, in der Luft, ueber die Stadt verteilt. Drei
+   getrennte Systeme zu bauen waere dreimal derselbe Code gewesen.
+
+   Keine neue Physik (Vorgabe 21): gefahren wird mit Schwung, Sprint,
+   Sprung, Wandlauf und Zug, so wie sie sind. Die Schwierigkeit steckt in
+   der Route, nicht in kuenstlich veraendertem Tempo (Vorgabe 25). */
+const HER = {
+  angebot: null, aktiv: null, naechsteId: 1, pause: 40,
+  bestzeit: {},        // je Art, nur fuer diese Sitzung (Vorgabe 24)
+  ringe: [],
+  statistik: { angeboten: 0, gestartet: 0, geschafft: 0, verpasst: 0,
+               abgebrochen: 0, jeArt: {} },
+};
+const HER_PAUSE = [70, 140];
+const HER_RING = 7;          // so nah gilt ein Punkt als erreicht
+const HER_WEG = 190;         // so weit weg gilt die Herausforderung als verlassen
+
+function herRing(i) {
+  while (HER.ringe.length <= i) {
+    const m = new THREE.Mesh(ringGeoM, ringMatM.clone());
+    m.visible = false; scene.add(m); HER.ringe.push(m);
+  }
+  return HER.ringe[i];
+}
+function herRingeAus() { for (const r of HER.ringe) r.visible = false; }
+
+/* Ein Dach in einem Ring um einen Punkt. */
+function herDach(x, z, minD, maxD) {
+  const kand = [];
+  for (const c of colliders) {
+    if (c.klein || (c.h || 0) < 16) continue;
+    if ((c.x1 - c.x0) < 7 || (c.z1 - c.z0) < 7) continue;
+    const mx = (c.x0 + c.x1) / 2, mz = (c.z0 + c.z1) / 2;
+    const d = Math.hypot(mx - x, mz - z);
+    if (d < minD || d > maxD) continue;
+    kand.push({ x: mx, y: c.h + 1.2, z: mz });
+  }
+  return kand.length ? pick(kand) : null;
+}
+
+/* Ein Luftpunkt muss ueber dem Haus liegen, das an dieser Stelle steht.
+   Gemessen: mit "Boden + 26 m" lagen 5,8 % der Schwungpunkte IM Gebaeude,
+   bis zu 31 m unter dem Dach - ein Ring, den niemand erreichen kann. Die
+   Hoehe kommt darum vom hoechsten Dach an der Stelle, nicht vom Boden. */
+function herLuftHoehe(x, z) {
+  let dach = 0;
+  for (const c of collidersNear(x, z)) {
+    if (c.klein) continue;
+    if (x > c.x0 - 1.5 && x < c.x1 + 1.5 && z > c.z0 - 1.5 && z < c.z1 + 1.5) {
+      dach = Math.max(dach, c.h || 0);
+    }
+  }
+  return Math.max(24, groundY(x, z, 2) + 26, dach + 8);
+}
+
+/* Die Punkte je Art. Nur die Platzierung unterscheidet sich. */
+function herPunkte(art) {
+  const px = player.pos.x, pz = player.pos.z;
+  const punkte = [];
+  if (art === 'dachlauf') {
+    /* Dicht beieinander liegende Daecher: springen, wandlaufen. */
+    let x = px, z = pz;
+    for (let i = 0; i < 5; i++) {
+      const d = herDach(x, z, 30, 70);
+      if (!d) break;
+      punkte.push(d); x = d.x; z = d.z;
+    }
+  } else if (art === 'schwungbahn') {
+    /* Punkte in der Luft, weit auseinander: eine Schwungroute. */
+    const w = Math.random() * Math.PI * 2;
+    for (let i = 1; i <= 5; i++) {
+      const r = 55 * i;
+      const x = clamp(px + Math.cos(w) * r, -170, 170);
+      const z = clamp(pz + Math.sin(w) * r, -170, 170);
+      if (inWater(x, z) && !onBridge(x, z)) break;
+      punkte.push({ x, y: herLuftHoehe(x, z), z });
+    }
+  } else {
+    /* Zeittor: weit verteilte Daecher, Hoehenwechsel erzwungen. */
+    let x = px, z = pz;
+    for (let i = 0; i < 4; i++) {
+      const d = herDach(x, z, 70, 130);
+      if (!d) break;
+      punkte.push(d); x = d.x; z = d.z;
+    }
+  }
+  return punkte;
+}
+
+/* Die Zeit ergibt sich aus der Streckenlaenge, nicht aus einer
+   Schwierigkeitsstufe: so bleibt sie fair, wenn die Route zufaellig
+   laenger ausfaellt. */
+function herZeit(punkte, art) {
+  let l = 0;
+  let vx = player.pos.x, vz = player.pos.z;
+  for (const p of punkte) { l += Math.hypot(p.x - vx, p.z - vz); vx = p.x; vz = p.z; }
+  const tempo = art === 'schwungbahn' ? 17 : art === 'dachlauf' ? 9 : 13;
+  return Math.max(18, l / tempo + 6);
+}
+
+function herAngebot() {
+  if (HER.aktiv || HER.angebot) return null;
+  const art = pick(['zeittor', 'schwungbahn', 'dachlauf']);
+  const punkte = herPunkte(art);
+  if (punkte.length < 3) return null;
+  const start = herDach(player.pos.x, player.pos.z, 25, 60);
+  if (!start) return null;
+  HER.angebot = { id: HER.naechsteId++, art, punkte, start, t: 0 };
+  HER.statistik.angeboten++;
+  return HER.angebot;
+}
+
+function herStarte(a) {
+  HER.aktiv = { id: a.id, art: a.art, punkte: a.punkte, i: 0, t: 0,
+                zeit: herZeit(a.punkte, a.art) };
+  HER.angebot = null;
+  HER.statistik.gestartet++;
+  HER.statistik.jeArt[a.art] = (HER.statistik.jeArt[a.art] || 0) + 1;
+  popupScreen(a.art === 'schwungbahn' ? '\ud83d\udd78\ufe0f Schwungbahn - los!'
+            : a.art === 'dachlauf' ? '\ud83c\udfc3 Dachlauf - los!'
+            : '\u23f1\ufe0f Zeittor - los!');
+}
+
+function herEnde(grund) {
+  const h = HER.aktiv;
+  if (!h) return;
+  if (grund === 'geschafft') {
+    HER.statistik.geschafft++;
+    const alt = HER.bestzeit[h.art];
+    const neu = !alt || h.t < alt;
+    if (neu) HER.bestzeit[h.art] = +h.t.toFixed(1);
+    popupScreen('\u2705 Geschafft: ' + h.t.toFixed(1) + ' s' +
+                (neu ? ' (Bestzeit)' : ' (best ' + alt.toFixed(1) + ' s)'));
+    addScore(120, '', player.pos);
+  } else if (grund === 'verpasst') {
+    HER.statistik.verpasst++;
+    popupScreen('\u23f1\ufe0f Zeit vorbei');
+  } else {
+    HER.statistik.abgebrochen++;
+  }
+  HER.aktiv = null;
+  herRingeAus();
+}
+
+function herUpdate(dt) {
+  /* ---- Laufende Herausforderung ---- */
+  if (HER.aktiv) {
+    const h = HER.aktiv;
+    h.t += dt;
+    const z = h.punkte[h.i];
+    for (let i = 0; i < h.punkte.length; i++) {
+      const r = herRing(i);
+      r.visible = i >= h.i;              // erledigte Punkte verschwinden
+      if (r.visible) {
+        r.position.set(h.punkte[i].x, h.punkte[i].y, h.punkte[i].z);
+        r.rotation.y += dt * 0.8;
+        r.material.opacity = i === h.i ? 0.9 : 0.35;
+        r.material.transparent = true;
+      }
+    }
+    if (z && Math.hypot(player.pos.x - z.x, player.pos.z - z.z) < HER_RING &&
+        Math.abs(player.pos.y - z.y) < HER_RING + 3) {
+      h.i++;
+      if (h.i >= h.punkte.length) { herEnde('geschafft'); return; }
+    }
+    if (h.t > h.zeit) { herEnde('verpasst'); return; }
+    /* Jederzeit verlassbar - kein Zwang, kein Game Over (Vorgabe 22). */
+    const w = h.punkte[Math.min(h.i, h.punkte.length - 1)];
+    if (Math.hypot(player.pos.x - w.x, player.pos.z - w.z) > HER_WEG) {
+      herEnde('abgebrochen');
+    }
+    return;
+  }
+  /* ---- Angebot ---- */
+  if (HER.angebot) {
+    const a = HER.angebot;
+    a.t += dt;
+    const r = herRing(0);
+    r.visible = true;
+    r.position.set(a.start.x, a.start.y, a.start.z);
+    r.rotation.y += dt * 0.8;
+    r.material.opacity = 0.8; r.material.transparent = true;
+    if (Math.hypot(player.pos.x - a.start.x, player.pos.z - a.start.z) < HER_RING &&
+        Math.abs(player.pos.y - a.start.y) < HER_RING + 3) {
+      herStarte(a); return;
+    }
+    /* Wird es nicht angenommen, verschwindet es wieder. */
+    if (a.t > 90 || Math.hypot(player.pos.x - a.start.x, player.pos.z - a.start.z) > 220) {
+      HER.angebot = null; herRingeAus();
+    }
+    return;
+  }
+  /* ---- Neues Angebot, aber nur nach Ruhe ---- */
+  HER.pause -= dt;
+  if (HER.pause <= 0) { HER.pause = rand(HER_PAUSE[0], HER_PAUSE[1]); herAngebot(); }
 }
 
 const MISSION = { art: null, zeit: 0, daten: null, text: '' };
@@ -25331,6 +25533,23 @@ if (window.__WEBHERO_TEST__ === true) {
       return n;
     },
     aktErzwinge(art) { return art === 'hilfe' ? !!aktHilfe() : !!aktFundstueck(); },
+    her: HER,
+    herStatistik() { return HER.statistik; },
+    herBest() { return HER.bestzeit; },
+    herStand() { return HER.aktiv ? { art: HER.aktiv.art, i: HER.aktiv.i,
+      n: HER.aktiv.punkte.length, t: +HER.aktiv.t.toFixed(1),
+      zeit: +HER.aktiv.zeit.toFixed(1) } : (HER.angebot ? { angebot: HER.angebot.art } : null); },
+    herErzwinge(art) {
+      HER.aktiv = null; HER.angebot = null; herRingeAus();
+      const punkte = herPunkte(art);
+      if (punkte.length < 3) return false;
+      const start = herDach(player.pos.x, player.pos.z, 25, 60);
+      if (!start) return false;
+      HER.angebot = { id: HER.naechsteId++, art, punkte, start, t: 0 };
+      HER.statistik.angeboten++;
+      return true;
+    },
+    herRinge() { return HER.ringe.filter((r) => r.visible).length; },
     dachTeile() { return DACH_TEILE.map((t) => ({ x: +t.x.toFixed(2), y: +t.y.toFixed(2),
       z: +t.z.toFixed(2), bx: +t.bx.toFixed(2), by: +t.by.toFixed(2), bz: +t.bz.toFixed(2) })); },
     vorfaelle() { return VORFALL.liste.map((v) => ({ x: +v.x.toFixed(1),
