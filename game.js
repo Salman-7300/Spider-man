@@ -1104,23 +1104,39 @@ function kitMoebel(t, x, z, ry, bodenY) {
   const W = KIT_WAND, B = bodenY;
   const co = Math.cos(ry), si = Math.sin(ry);
   const ort = (lx, lz) => ({ x: x + lx * co + lz * si, z: z - lx * si + lz * co });
-  /* Kiste an einem Punkt des Modellsystems. */
-  const kiste = (bw, bh, bd, lx, by, lz, farbe) => {
-    const o = ort(lx, lz);
-    deko(bw, bh, bd, o.x, by, o.z, farbe, ry);
-  };
-  /* Kiste MIT Sperre - fuer alles, wogegen man laufen kann. */
-  const moebel = (bw, bh, bd, lx, by, lz, farbe) => {
-    kiste(bw, bh, bd, lx, by, lz, farbe);
-    const r = kitRechteck(x, z, ry, lx - bw / 2, lx + bw / 2, lz - bd / 2, lz + bd / 2);
-    addCollider({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1,
-                  h: by + bh / 2, y0: B - 0.1, klein: true });
-  };
   const ix0 = t.x0 + W, ix1 = t.x1 - W;          // lichte Breite
   const iz0 = t.z0 + W, iz1 = t.z1 - W;          // hinten .. vorn (Tuer)
   const mitte = (ix0 + ix1) / 2;
   const breit = ix1 - ix0, tief2 = iz1 - iz0;
   if (breit < 3 || tief2 < 3) return;
+  /* ---- Innenmoebel duerfen den Raum nicht verlassen ----
+     Geprueft wird die GANZE Grundflaeche, nicht nur der Mittelpunkt.
+     Gerechnet an den Tischen: sie stehen bei 88 % der Raumtiefe und sind
+     1,20 m tief; damit sie hineinpassen, muesste der Raum mindestens
+     5,0 m tief sein - die Schranke oben verlangt aber nur 3 m. In flachen
+     Raeumen standen Tisch und Stuehle deshalb durch die Fassade im
+     Freien; genau das zeigt Screenshot 5.
+     Toleranz 5 cm, damit Stuecke, die bewusst an der Rueckwand anliegen,
+     nicht faelschlich wegfallen. */
+  const RAUM_TOL = 0.05;
+  const imRaum = (bw, bd, lx, lz) =>
+    lx - bw / 2 >= ix0 - RAUM_TOL && lx + bw / 2 <= ix1 + RAUM_TOL &&
+    lz - bd / 2 >= iz0 - RAUM_TOL && lz + bd / 2 <= iz1 + RAUM_TOL;
+  /* Kiste an einem Punkt des Modellsystems. */
+  const kiste = (bw, bh, bd, lx, by, lz, farbe) => {
+    if (!imRaum(bw, bd, lx, lz)) { VALID.invalidProp++; return false; }
+    const o = ort(lx, lz);
+    deko(bw, bh, bd, o.x, by, o.z, farbe, ry);
+    return true;
+  };
+  /* Kiste MIT Sperre - fuer alles, wogegen man laufen kann. */
+  const moebel = (bw, bh, bd, lx, by, lz, farbe) => {
+    if (!kiste(bw, bh, bd, lx, by, lz, farbe)) return false;
+    const r = kitRechteck(x, z, ry, lx - bw / 2, lx + bw / 2, lz - bd / 2, lz + bd / 2);
+    addCollider({ x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1,
+                  h: by + bh / 2, y0: B - 0.1, klein: true });
+    return true;
+  };
 
   /* Einen eigenen Fussboden braucht es nicht - das Modell bringt seinen
      eigenen mit (bei Small_1 als Hochparterre). Nur ein Teppich. */
@@ -1165,6 +1181,10 @@ function kitMoebel(t, x, z, ry, bodenY) {
     const cx2 = mitte + s2 * Math.min(breit / 2 - 1.4, 3.4);
     const cz2 = iz0 + tief2 * reihe;
     if (Math.abs(cx2 - mitte) < 1.0) continue;
+    /* Die Gruppe als GANZES pruefen: sonst faellt der Tisch weg und die
+       Stuehle bleiben einzeln im Raum stehen. Breite = Tisch plus beide
+       Stuehle, Tiefe = Tisch plus Lehnenversatz. */
+    if (!imRaum(2.36, 1.32, cx2, cz2)) { VALID.invalidProp++; continue; }
     moebel(1.20, 0.06, 1.20, cx2, B + 0.75, cz2, 0xa8845c);              // Platte
     kiste(0.16, 0.72, 0.16, cx2, B + 0.36, cz2, 0x5a4a3a);               // Fuss
     kiste(0.60, 0.06, 0.60, cx2, B + 0.03, cz2, 0x5a4a3a);
