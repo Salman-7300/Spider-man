@@ -4857,8 +4857,21 @@ let ROLL_ZWANG = null;
    sichtbare Ruck beim Abspringen und Anschwingen. */
 const BLEND_KUNST = 0.14;
 /* Bis hierher greift die Figur nach der Fassade, und ueber diese Strecke
-   blendet der Griff aus (siehe wandGriff). */
-const WAND_GRIFF_WEIT = 0.45;
+   blendet der Griff aus (siehe wandGriff).
+   Von 0,45 auf 0,60 angehoben. Beim seitlichen Hangeln reichen Hand und
+   Fuss weiter als 45 cm; ab dort liess der Griff los, und das Glied blieb
+   sichtbar in der Luft stehen - das war der gemeldete "ich klettere in
+   der Luft"-Eindruck. Gemessen gegen den echten Baukoerper (nicht gegen
+   eine gedachte Ebene), 9600 Gliedproben ueber zwoelf Haeuser und fuenf
+   Bewegungsrichtungen:
+     0,45   p90 0,198 m   ueber 25 cm: 774   (links 323, rechts 295)
+     0,60   p90 0,104 m   ueber 25 cm: 426   (links 226, rechts 200)
+     0,75   p90 0,104 m   ueber 25 cm: 415
+     0,90   p90 0,104 m   ueber 25 cm: 414
+   Ueber 0,60 bringt es praktisch nichts mehr, kostet aber Reichweite, in
+   der ein Glied an die Wand gezogen wird, das gerade bewusst danach
+   greift. Der Rest von 4,4 % sind genau diese Griffmomente. */
+let WAND_GRIFF_WEIT = 0.60;
 /* Welche Knochen mit welcher Flaeche an der Fassade liegen sollen.
    Gemessen in der Kriechbewegung, in der Haende und Fuesse flach auf dem
    Boden liegen: die Handflaeche liegt auf der lokalen +Z-Achse, die
@@ -26454,6 +26467,7 @@ if (window.__WEBHERO_TEST__ === true) {
       return respStarte(e, art || 'polizei', []) ? true : false;
     },
     setzeKletterRef(v) { for (const k in KLETTER_REFS) KLETTER_REFS[k] = v; },
+    setzeGriffWeit(v) { WAND_GRIFF_WEIT = v; return WAND_GRIFF_WEIT; },
     setzeBeinEng(quer, fuss) {
       if (quer !== undefined) WANDHALT_KNIE_QUER = quer;
       if (fuss !== undefined) WANDHALT_FUSS_QUER = fuss;
