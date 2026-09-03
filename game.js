@@ -16480,6 +16480,144 @@ function baueDachaufbauten() {
 }
 baueDachaufbauten();
 
+/* ======================= Sammelmarken =======================
+   Belohnung fuers Suchen, nicht fuers Ablaufen einer Liste. Die Marken
+   liegen dort, wo man nur mit Bewegung hinkommt - hinter Dachaufbauten,
+   auf hohen Kanten, unter der Bruecke - und nicht auf der Strasse, wo man
+   ohnehin vorbeikommt.
+
+   Sie werden aus der bereits gebauten Welt abgeleitet (DACH_TEILE,
+   colliders, parks, Bruecke), nicht an geratene Koordinaten gesetzt:
+   sonst hingen sie nach jeder Stadtaenderung in der Luft.
+
+   Bewusst KEIN Respawn und keine Zaehlleiste am Bildschirmrand: eine
+   Marke, die wiederkommt, ist keine Entdeckung, und eine Anzeige
+   "7/24" macht aus Neugier eine Aufgabenliste (Vorgaben 42, 43). Der
+   Zaehler erscheint nur im Moment des Fundes. */
+const SAM = {
+  liste: [], gefunden: 0,
+  statistik: { erzeugt: 0, gefunden: 0, jeArt: {} },
+};
+const SAM_NAH = 3.6;          // so nah wird eingesammelt
+const SAM_SICHT = 95;         // weiter weg wird gar nicht gezeichnet
+const SAM_ZIEL = 24;
+
+const samGeo = new THREE.OctahedronGeometry(0.5);
+const samGeoR = new THREE.TorusGeometry(0.85, 0.07, 6, 16);
+const samMat = new THREE.MeshBasicMaterial({ color: 0xff4d5a });
+const samMatR = new THREE.MeshBasicMaterial({ color: 0xf2f6ff,
+  transparent: true, opacity: 0.75 });
+
+function samNeu(art, x, y, z) {
+  /* Nicht zwei Marken auf denselben Fleck. */
+  for (const s of SAM.liste) {
+    if (Math.hypot(s.x - x, s.z - z) < 18 && Math.abs(s.y - y) < 10) return null;
+  }
+  const g = new THREE.Group();
+  const kern = new THREE.Mesh(samGeo, samMat);
+  const ring = new THREE.Mesh(samGeoR, samMatR);
+  ring.rotation.x = Math.PI / 2;
+  g.add(kern); g.add(ring);
+  g.position.set(x, y, z);
+  g.visible = false;                       // erst in Sichtweite
+  g.frustumCulled = true;
+  scene.add(g);
+  const s = { id: SAM.liste.length + 1, art, x, y, z, mesh: g, weg: false };
+  SAM.liste.push(s);
+  SAM.statistik.erzeugt++;
+  SAM.statistik.jeArt[art] = (SAM.statistik.jeArt[art] || 0) + 1;
+  return s;
+}
+
+function baueSammelmarken() {
+  /* ---- 1. Hinter Dachaufbauten: man muss oben sein UND hinsehen ---- */
+  const teile = DACH_TEILE.slice();
+  for (let i = teile.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = teile[i]; teile[i] = teile[j]; teile[j] = t;
+  }
+  for (const t of teile) {
+    if (SAM.statistik.jeArt.DACH >= 9) break;
+    const w = Math.random() * Math.PI * 2;
+    const r = Math.max(t.bx, t.bz) / 2 + 1.1;
+    samNeu('DACH', t.x + Math.cos(w) * r, t.y - t.by / 2 + 1.0, t.z + Math.sin(w) * r);
+  }
+  /* ---- 2. Hohe Kanten: Lohn fuers Klettern ---- */
+  const hoch = colliders.filter((c) => !c.klein && (c.h || 0) > 40 &&
+    (c.x1 - c.x0) > 6 && (c.z1 - c.z0) > 6);
+  hoch.sort((a, b) => (b.h || 0) - (a.h || 0));
+  for (const c of hoch) {
+    if (SAM.statistik.jeArt.KANTE >= 7) break;
+    /* Genau auf der Kante, nicht in der Dachmitte: von unten sichtbar,
+       aber nur mit Klettern oder Wandlauf erreichbar. */
+    const seite = Math.floor(Math.random() * 4);
+    const x = seite === 0 ? c.x0 + 0.9 : seite === 1 ? c.x1 - 0.9 : (c.x0 + c.x1) / 2;
+    const z = seite === 2 ? c.z0 + 0.9 : seite === 3 ? c.z1 - 0.9 : (c.z0 + c.z1) / 2;
+    samNeu('KANTE', x, c.h + 1.1, z);
+  }
+  /* ---- 3. Auf den Brueckenpylonen ----
+     Erster Versuch war die Fahrbahn selbst (BR_HOCH + 3,2 m). Dort faehrt
+     man ohnehin entlang - das ist kein Fund, sondern ein Aufsammeln im
+     Vorbeigehen. Die Pylonspitzen in 44 m ueber dem Fluss sind dagegen
+     ein Ziel: sichtbar von weit her, erreichbar nur mit Schwung oder
+     Klettern. Die Werte stammen aus dem Brueckenbau (PYL_X, PYL_TOP),
+     nicht aus geratenen Koordinaten. */
+  for (const px of [225, 285]) {
+    for (const sz of [-1, 1]) {
+      samNeu('BRUECKE', px, 44 + 1.6, BRIDGE_Z + sz * (BRIDGE_HW + 0.5));
+    }
+  }
+  /* ---- 4. Parks und Promenade: die ersten leichten Funde ---- */
+  for (const p of parks) {
+    if (SAM.statistik.jeArt.PARK >= 3) break;
+    samNeu('PARK', p.x + rand(-p.s / 3, p.s / 3), SLAB_H + 1.2,
+           p.z + rand(-p.s / 3, p.s / 3));
+  }
+  /* ---- 5. Rest auf der Uferpromenade auffuellen ----
+     Begrenzte Zahl von Versuchen: samNeu lehnt zu dichte Plaetze ab, eine
+     Schleife auf "bis voll" koennte sonst nie enden. */
+  for (let i = 0; i < 60 && SAM.liste.length < SAM_ZIEL; i++) {
+    samNeu('PROMENADE', rand(PROM_X0 + 2, RIVER_X0 - 3), SLAB_H + 1.2, rand(-165, 165));
+  }
+}
+baueSammelmarken();
+
+/* Zeichnen nur in der Naehe, Aufsammeln im Takt. Die Marken sind
+   Kleinkram - sie duerfen die Bildrate nicht anfassen. */
+let samTick = 0;
+let samUhr = 0;
+function samUpdate(dt) {
+  samTick -= dt;
+  samUhr += dt;
+  if (samTick > 0) {
+    /* Zwischen den Takten nur die wenigen sichtbaren drehen. */
+    for (const s of SAM.liste) {
+      if (s.weg || !s.mesh.visible) continue;
+      s.mesh.rotation.y += dt * 1.4;
+      s.mesh.position.y = s.y + Math.sin(samUhr * 1.8 + s.id) * 0.18;
+    }
+    return;
+  }
+  samTick = 0.25;
+  for (const s of SAM.liste) {
+    if (s.weg) continue;
+    const d = Math.hypot(player.pos.x - s.x, player.pos.z - s.z);
+    s.mesh.visible = d < SAM_SICHT;
+    if (d < SAM_NAH && Math.abs(player.pos.y - s.y) < SAM_NAH + 1.5) samNimm(s);
+  }
+}
+
+function samNimm(s) {
+  s.weg = true;
+  scene.remove(s.mesh);
+  SAM.gefunden++;
+  SAM.statistik.gefunden++;
+  treffEffekt({ x: s.x, y: s.y, z: s.z }, 1.6, 0xff4d5a);
+  if (SFX && SFX.score) SFX.score();
+  popupScreen('🕷️ Marke ' + SAM.gefunden + '/' + SAM.liste.length);
+  addScore(80, '', { x: s.x, y: s.y, z: s.z });
+}
+
 /* ======================= Weltaktivitaeten =======================
    Kleine zivile Situationen, ausdruecklich KEINE Verbrechen. Sie laufen
    neben dem Ereignis-Regisseur her, ohne ihn anzufassen (Vorgabe 18):
@@ -23436,6 +23574,7 @@ function updateResponders(dt) {
      nicht ewig bleiben. */
   vorfallUpdate(dt);
   poiUpdate(dt);
+  samUpdate(dt);
   aktUpdate(dt);
   herUpdate(dt);
   respAutojagd(dt);
@@ -25533,6 +25672,12 @@ if (window.__WEBHERO_TEST__ === true) {
       return n;
     },
     aktErzwinge(art) { return art === 'hilfe' ? !!aktHilfe() : !!aktFundstueck(); },
+    sam: SAM,
+    samStatistik() { return SAM.statistik; },
+    samListe() { return SAM.liste.map((x) => ({ id: x.id, art: x.art,
+      x: +x.x.toFixed(2), y: +x.y.toFixed(2), z: +x.z.toFixed(2), weg: x.weg,
+      sichtbar: !!(x.mesh && x.mesh.visible) })); },
+    samSichtbar() { let n = 0; for (const x of SAM.liste) if (!x.weg && x.mesh.visible) n++; return n; },
     her: HER,
     herStatistik() { return HER.statistik; },
     herBest() { return HER.bestzeit; },
