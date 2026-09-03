@@ -22779,6 +22779,12 @@ function respAutojagd(dt) {
     if (jagd.wagen) {
       const d = Math.hypot(jagd.wagen.mesh.position.x - fx,
                            jagd.wagen.mesh.position.z - fz);
+      if (d < 1) {
+        RESP.statistik.jagdSelbst = (RESP.statistik.jagdSelbst || 0) +
+          (jagd.wagen === flucht ? 1 : 0);
+        RESP.statistik.jagdEng = (RESP.statistik.jagdEng || 0) +
+          (jagd.wagen === flucht ? 0 : 1);
+      }
       RESP.statistik.autojagdMinAbstand =
         Math.min(RESP.statistik.autojagdMinAbstand, +d.toFixed(1));
     }
