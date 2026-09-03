@@ -1001,6 +1001,9 @@ const KIT_HAEUSER = [
 /* Lichte Hoehe der Tuer und Dicke der Wandscheiben. */
 const KIT_TUER_HOCH = 2.45;
 const KIT_WAND = 0.8;
+/* Wandabstand fuer FREISTEHENDE Innenmoebel (Tische, Stuhlgruppen).
+   Anliegende Stuecke - Regal, Theke - sind davon ausgenommen. */
+const KIT_FREI = 0.25;
 /* Die Modelle haben oben eine schmale Attika: das begehbare Dach liegt
    gemessene 20 cm unter der Oberkante des Umrisses. Ohne diesen Abzug
    steht die Figur 20 cm ueber dem Dach in der Luft. */
@@ -1137,10 +1140,25 @@ function kitMoebel(t, x, z, ry, bodenY) {
      Freien; genau das zeigt Screenshot 5.
      Toleranz 5 cm, damit Stuecke, die bewusst an der Rueckwand anliegen,
      nicht faelschlich wegfallen. */
-  const RAUM_TOL = 0.05;
-  const imRaum = (bw, bd, lx, lz) =>
-    lx - bw / 2 >= ix0 - RAUM_TOL && lx + bw / 2 <= ix1 + RAUM_TOL &&
-    lz - bd / 2 >= iz0 - RAUM_TOL && lz + bd / 2 <= iz1 + RAUM_TOL;
+  /* Kein Ueberstand mehr geduldet: was hinausragt, ragt sichtbar durch die
+     Fassade. Die frueheren 5 cm Toleranz waren genau die Luecke, durch die
+     ein Stuhlbein nach draussen kommt.
+     Freistehende Gruppen halten zusaetzlich Abstand zur Wand (KIT_FREI);
+     Regal und Theke duerfen weiter anliegen - sie GEHOEREN an die Wand,
+     und ein pauschaler Abstand haette sie geloescht. */
+  /* Ein duennes Stueck darf die Wandebene beruehren: Plakate und Tafeln
+     HAENGEN an der Wand, sie stehen nicht davor. Gemessen waren das genau
+     die 80 Stuecke, die eine Null-Toleranz faelschlich geloescht haette -
+     6 cm dick, 1 cm von der Wand. Alles Dickere muss vollstaendig drin
+     bleiben. */
+  const WAND_PLATTE = 0.15;
+  const imRaum = (bw, bd, lx, lz, frei) => {
+    const f = frei || 0;
+    const tolX = bw <= WAND_PLATTE ? bw : 0;
+    const tolZ = bd <= WAND_PLATTE ? bd : 0;
+    return lx - bw / 2 >= ix0 + f - tolX && lx + bw / 2 <= ix1 - f + tolX &&
+           lz - bd / 2 >= iz0 + f - tolZ && lz + bd / 2 <= iz1 - f + tolZ;
+  };
   /* Kiste an einem Punkt des Modellsystems. */
   const kiste = (bw, bh, bd, lx, by, lz, farbe) => {
     if (!imRaum(bw, bd, lx, lz)) { VALID.invalidProp++; return false; }
@@ -1195,15 +1213,24 @@ function kitMoebel(t, x, z, ry, bodenY) {
     }
   }
 
-  /* ---- Tische mit Stuehlen im vorderen Teil ---- */
+  /* ---- Tische mit Stuehlen im vorderen Teil ----
+     Die Gruppe ist 2,36 m breit (Tisch plus beide Stuehle) und 1,32 m tief
+     (Tisch plus Lehnenversatz). Frueher stand sie bei festen 70 % und 88 %
+     der Raumtiefe - in flachen Raeumen ragte sie damit durch die Fassade.
+     Jetzt wird der gueltige Streifen ausgerechnet und die Gruppe darin
+     platziert, statt sie an eine feste Stelle zu setzen und hinterher
+     wegzuwerfen: die Tische bleiben erhalten, sie ruecken nur nach innen. */
+  const grBreit = 2.36, grTief = 1.32;
+  const zMin = iz0 + KIT_FREI + grTief / 2, zMax = iz1 - KIT_FREI - grTief / 2;
+  const xMin = ix0 + KIT_FREI + grBreit / 2, xMax = ix1 - KIT_FREI - grBreit / 2;
   for (const s2 of [-1, 1]) for (const reihe of [0.70, 0.88]) {
-    const cx2 = mitte + s2 * Math.min(breit / 2 - 1.4, 3.4);
-    const cz2 = iz0 + tief2 * reihe;
+    if (zMax < zMin || xMax < xMin) { VALID.invalidProp++; continue; }
+    const cx2 = clamp(mitte + s2 * Math.min(breit / 2 - 1.4, 3.4), xMin, xMax);
+    const cz2 = clamp(iz0 + tief2 * reihe, zMin, zMax);
     if (Math.abs(cx2 - mitte) < 1.0) continue;
-    /* Die Gruppe als GANZES pruefen: sonst faellt der Tisch weg und die
-       Stuehle bleiben einzeln im Raum stehen. Breite = Tisch plus beide
-       Stuehle, Tiefe = Tisch plus Lehnenversatz. */
-    if (!imRaum(2.36, 1.32, cx2, cz2)) { VALID.invalidProp++; continue; }
+    /* Nach dem Einruecken noch einmal pruefen - falls der Raum so schmal
+       ist, dass die Gruppe auch mittig nicht hineinpasst. */
+    if (!imRaum(grBreit, grTief, cx2, cz2, KIT_FREI)) { VALID.invalidProp++; continue; }
     moebel(1.20, 0.06, 1.20, cx2, B + 0.75, cz2, 0xa8845c);              // Platte
     kiste(0.16, 0.72, 0.16, cx2, B + 0.36, cz2, 0x5a4a3a);               // Fuss
     kiste(0.60, 0.06, 0.60, cx2, B + 0.03, cz2, 0x5a4a3a);
