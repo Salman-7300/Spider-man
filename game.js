@@ -2898,7 +2898,8 @@ function baueUBahn(x) {
              pz + (laengs ? 0 : t), 0x8b939c);
       }
       ubCollider({ x0: px - bx / 2, x1: px + bx / 2, z0: pz - bz / 2, z1: pz + bz / 2,
-                    h: SLAB_H + gh, y0: SLAB_H - 0.05, klein: true });
+                    h: SLAB_H + gh, y0: SLAB_H - 0.05, klein: true,
+                    typ: 'gelaender' });
     };
     /* Die beiden Laengsseiten. */
     for (const gz of [gz0, gz1]) gelaender(gx1 - gx0, 0.18, (gx0 + gx1) / 2, gz);
@@ -19658,6 +19659,15 @@ function updateCivilians(dtBild) {
       if (!c.filmt && !(ruf > 45 && c.jubelt)) c.ruhePose = c.gaffPose;
     } else c.gaffPose = null;
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
+    /* ---- Die Lage VOR dem Schritt merken ----
+       collideBody entscheidet damit, auf welcher Seite eines Klotzes die
+       Figur wieder herauskommt. Ohne vorPos faellt diese Entscheidung auf
+       "kuerzeste Strecke" zurueck - und die fuehrt bei einem 20 cm duennen
+       Gelaender quer HINDURCH. merkeVorPos wurde bisher nur fuer den
+       Spieler aufgerufen; Gegner und Zivilisten liefen ohne. Gemessen ueber
+       alle zehn U-Bahn-Eingaenge und acht Anlaufrichtungen endeten 15 von
+       80 Gegner-Jagden mit dem halben Koerper im Gelaender. */
+    merkeVorPos(c);
     c.pos.x += c.vel.x * dt; c.pos.z += c.vel.z * dt;
     collideBody(c);
     /* ---- Festhaengen: in Stufen wieder loesen ----
@@ -19807,6 +19817,7 @@ function updateCivilians(dtBild) {
           const schub = Math.min((SPIELER_ABSTAND - pd) * Math.min(1, dt * 8) * 0.6,
                                  dt * SPIELER_SCHUB_MAX);
           c.pos.x += (px / pd) * schub; c.pos.z += (pz / pd) * schub;
+          collideBody(c);            // siehe Gegner: sonst schiebt es in die Wand
           if (pd < 0.45) VALID.playerNpcOverlap++;
         }
       }
@@ -21473,6 +21484,7 @@ function updateEnemies(dtBild) {
       e.vel.x = lerp(e.vel.x, 0, dt * bremse);
       e.vel.z = lerp(e.vel.z, 0, dt * bremse);
       e.vel.y -= CFG.gravity * dt;
+      merkeVorPos(e);
       e.pos.addScaledVector(e.vel, dt);
       const gy = groundY(e.pos.x, e.pos.z);
       if (e.pos.y < gy) { e.pos.y = gy; e.vel.y = 0; }
@@ -22340,6 +22352,7 @@ function updateEnemies(dtBild) {
     }
     e.vel.x = moveX * speed; e.vel.z = moveZ * speed;
     const vorX = e.pos.x, vorZ = e.pos.z;
+    merkeVorPos(e);
     e.pos.x += e.vel.x * dt; e.pos.z += e.vel.z * dt;
     collideBody(e);
     /* ---- Abstand zum Spieler ----
@@ -22356,6 +22369,13 @@ function updateEnemies(dtBild) {
         const schub = Math.min((GEGNER_ABSTAND - pd) * Math.min(1, dt * 8) * 0.6,
                                dt * SPIELER_SCHUB_MAX);
         e.pos.x += (px / pd) * schub; e.pos.z += (pz / pd) * schub;
+        /* ---- Nach dem Ausweichen noch einmal aufloesen ----
+           Steht der Spieler auf der anderen Seite eines Gelaenders, zeigt
+           das Ausweichen GENAU dorthin - der Gegner wurde in den Riegel
+           geschoben. Gemessen war das die Ursache fuer 15 von 80
+           Gegner-Jagden mit halbem Koerper im Gelaender; die Trennung lief
+           NACH collideBody und wurde nie wieder geprueft. */
+        collideBody(e);
         if (pd < 0.45) VALID.playerNpcOverlap++;
       }
     }
@@ -22436,6 +22456,38 @@ function updateEnemies(dtBild) {
     e.hpBar.g.visible = e.hp < (e.hpMax || CFG.enemyHP);
   }
 
+  /* ---- Am Ende jeden Ganoven einmal aufloesen ----
+     Gemessen (scratchpad/ubgate.js, alle zehn U-Bahn-Eingaenge, acht
+     Anlaufrichtungen): unmittelbar nach dem Bewegungsschritt steckte KEIN
+     Gegner in einem Hindernis - am Bildende dagegen 854 von 29.073
+     Gegnerbildern, ausnahmslos in Gelaendern, rund 0,2 m tief. Die
+     Ursache ist nicht die Bewegung, sondern die Zustaende, die den
+     Bewegungszweig gar nicht durchlaufen: Taumeln, Netz, Gepacktsein,
+     Wurf und die Fern-Sparschaltung. Wer dort verschoben wird, wird nie
+     wieder geprueft.
+     Statt jeden dieser Wege einzeln nachzuruesten, wird am Ende EINMAL
+     fuer alle aufgeloest. Das kostet einen Rasterdurchlauf je Gegner und
+     Bild und macht die Zusage einfach: kein Ganove beendet ein Bild in
+     einem Hindernis. */
+  for (const e of enemies) {
+    if (e.dead || e.anWand || e.gepackt) continue;
+    collideBody(e);
+  }
+  if (VALID._diag) {
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const rr = e.radius;
+      for (const c of colliders) {
+        if ((c.h || 0) < 0.5) continue;
+        const unten = c.y0 === undefined ? -50 : c.y0;
+        if (c.h <= e.pos.y + 0.15 || unten >= e.pos.y + 1.7) continue;
+        if (e.pos.x <= c.x0 - rr || e.pos.x >= c.x1 + rr ||
+            e.pos.z <= c.z0 - rr || e.pos.z >= c.z1 + rr) continue;
+        VALID._endeUpdate = (VALID._endeUpdate || 0) + 1;
+        break;
+      }
+    }
+  }
   /* Nachschub */
   const alive = enemies.filter((e) => !e.dead).length;
   gangRespawnT -= dtBild;
@@ -26173,6 +26225,21 @@ function simuliere(dt) {
   if (PED_DEBUG) zeigeGehnetz(dt);
   updateWeltEreignisse(dt);
   updateResponders(dt);
+  if (VALID._diag) {
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const rr = e.radius;
+      for (const c of colliders) {
+        if ((c.h || 0) < 0.5) continue;
+        const unten = c.y0 === undefined ? -50 : c.y0;
+        if (c.h <= e.pos.y + 0.15 || unten >= e.pos.y + 1.7) continue;
+        if (e.pos.x <= c.x0 - rr || e.pos.x >= c.x1 + rr ||
+            e.pos.z <= c.z0 - rr || e.pos.z >= c.z1 + rr) continue;
+        VALID._bildEnde = (VALID._bildEnde || 0) + 1;
+        break;
+      }
+    }
+  }
   updateCamera(dt);
   poseLogSchreibe(dt);
   updateEffekte(dt);
@@ -26440,6 +26507,7 @@ if (window.__WEBHERO_TEST__ === true) {
     valid: VALID,
     validZaehler() { return Object.assign({}, VALID); },
     validReset() { for (const k in VALID) VALID[k] = 0; },
+    diagAn(an) { VALID._diag = !!an; VALID._nachAufloesung = 0; VALID._bildEnde = 0; VALID._endeUpdate = 0; },
     zebraFlaechen() { return ZEBRA.map((r) => ({ x0: +r.x0.toFixed(1),
       x1: +r.x1.toFixed(1), z0: +r.z0.toFixed(1), z1: +r.z1.toFixed(1) })); },
     aufZebra,
