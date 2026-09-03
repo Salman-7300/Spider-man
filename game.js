@@ -23796,6 +23796,7 @@ function updateResponders(dt) {
      nicht ewig bleiben. */
   vorfallUpdate(dt);
   taktUpdate(dt);
+  entUpdate(dt);
   umgUpdate(dt);
   poiUpdate(dt);
   samUpdate(dt);
@@ -24563,6 +24564,105 @@ function taktErlaubt() {
   if (TAKT.anteil > TAKT_ZIEL) { TAKT.statistik.abgelehntQuote++; return false; }
   TAKT.statistik.erlaubt++;
   return true;
+}
+
+/* ======================= Umsehen =======================
+   Die Stadt ist jetzt voller Dinge - aber woher soll der Spieler wissen,
+   dass es sie gibt? Der uebliche Weg waere eine Karte voller Symbole.
+   Genau das soll es nicht sein (Vorgaben 42, 43): eine Liste abzuarbeiten
+   ist das Gegenteil von Entdecken.
+
+   Statt dessen haengt der Hinweis an einer Handlung, die der Spieler
+   ohnehin macht: sich auf einer Dachkante hinhocken und schauen. Wer
+   hockt, bekommt EINEN Hinweis auf EINE Sache in der Naehe - Richtung und
+   Art, mehr nicht. Kein Wegpunkt, keine Entfernung, keine Liste.
+
+   Ausgeloest wird ueber player.hockeT, den vorhandenen Hockzaehler; es
+   entsteht also keine neue Eingabe und keine neue Haltung. */
+const ENT = {
+  cd: 0, letzte: null, saeule: null, saeuleT: 0,
+  statistik: { hinweise: 0, jeArt: {}, ohneZiel: 0 },
+};
+const ENT_PAUSE = 22;         // so lange kein zweiter Hinweis
+const ENT_NAH = 35;           // naeher braucht niemand einen Hinweis
+const ENT_FERN = 210;
+const ENT_SAEULE = 4.5;       // so lange steht die Lichtsaeule
+
+function entSaeule() {
+  if (ENT.saeule) return ENT.saeule;
+  const g = new THREE.CylinderGeometry(0.7, 0.7, 60, 8, 1, true);
+  const m = new THREE.MeshBasicMaterial({ color: 0x8fd6ff, transparent: true,
+    opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+  ENT.saeule = new THREE.Mesh(g, m);
+  ENT.saeule.visible = false;
+  scene.add(ENT.saeule);
+  return ENT.saeule;
+}
+
+function entRichtung(dx, dz) {
+  /* -z gilt in dieser Stadt als Norden; das Raster ist danach gebaut. */
+  const w = (Math.atan2(dx, -dz) * 180 / Math.PI + 360) % 360;
+  const n = ['Norden', 'Nordosten', 'Osten', 'Suedosten', 'Sueden',
+             'Suedwesten', 'Westen', 'Nordwesten'];
+  return n[Math.round(w / 45) % 8];
+}
+
+/* Alle offenen Sachen einsammeln - ohne sie anzufassen. */
+function entZiele() {
+  const z = [];
+  for (const p of POI.liste) {
+    if (!p.besucht) z.push({ art: 'ort', x: p.x, y: p.y, z: p.z,
+      text: p.art === 'LANDMARK' ? 'ein bekannter Ort' : 'ein Ort, den du noch nicht kennst' });
+  }
+  for (const s of SAM.liste) {
+    if (!s.weg) z.push({ art: 'marke', x: s.x, y: s.y, z: s.z, text: 'eine Marke' });
+  }
+  for (const a of AKT.liste) {
+    z.push({ art: 'aktivitaet', x: a.x, y: a.y, z: a.z, text: 'jemand, der dich brauchen koennte' });
+  }
+  if (HER.angebot) {
+    const s = HER.angebot.start;
+    z.push({ art: 'herausforderung', x: s.x, y: s.y, z: s.z, text: 'eine Strecke' });
+  }
+  return z;
+}
+
+function entUpdate(dt) {
+  /* ---- Lichtsaeule ausblenden ---- */
+  if (ENT.saeuleT > 0) {
+    ENT.saeuleT -= dt;
+    const s = entSaeule();
+    s.material.opacity = clamp(ENT.saeuleT / ENT_SAEULE, 0, 1) * 0.30;
+    s.visible = ENT.saeuleT > 0;
+  }
+  ENT.cd -= dt;
+  if (ENT.cd > 0) return;
+  /* Nur beim Hocken, und nur weit genug oben - unten auf der Strasse
+     sieht man ohnehin nichts. */
+  if ((player.hockeT || 0) < 1.2) return;
+  if (player.pos.y - SLAB_H < 14) return;
+  ENT.cd = ENT_PAUSE;
+
+  let best = null, bestD = 1e9;
+  for (const t of entZiele()) {
+    const d = Math.hypot(t.x - player.pos.x, t.z - player.pos.z);
+    if (d < ENT_NAH || d > ENT_FERN) continue;
+    /* Nicht zweimal hintereinander dasselbe. */
+    if (ENT.letzte && Math.hypot(t.x - ENT.letzte.x, t.z - ENT.letzte.z) < 6) continue;
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  if (!best) { ENT.statistik.ohneZiel++; return; }
+
+  ENT.letzte = { x: best.x, z: best.z };
+  ENT.statistik.hinweise++;
+  ENT.statistik.jeArt[best.art] = (ENT.statistik.jeArt[best.art] || 0) + 1;
+  const s = entSaeule();
+  s.position.set(best.x, best.y + 26, best.z);
+  s.visible = true;
+  ENT.saeuleT = ENT_SAEULE;
+  s.material.opacity = 0.30;
+  popupScreen('👁️ Im ' + entRichtung(best.x - player.pos.x, best.z - player.pos.z) +
+              ': ' + best.text);
 }
 
 const MISSION = { art: null, zeit: 0, daten: null, text: '' };
@@ -25968,6 +26068,11 @@ if (window.__WEBHERO_TEST__ === true) {
       art: b.art, mittel: b.mittel, haeuser: b.haeuser, hoch: b.hoch })); },
     bezirkAn,
     umg: UMG,
+    ent: ENT,
+    entStatistik() { return ENT.statistik; },
+    entZiele() { return entZiele().length; },
+    entStand() { return { cd: +ENT.cd.toFixed(1), saeuleT: +ENT.saeuleT.toFixed(1),
+      saeule: !!(ENT.saeule && ENT.saeule.visible), letzte: ENT.letzte }; },
     regen: REGEN,
     tag: TAG,
     umgStatistik() { return UMG.statistik; },
