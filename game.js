@@ -16480,6 +16480,159 @@ function baueDachaufbauten() {
 }
 baueDachaufbauten();
 
+/* ======================= Weltaktivitaeten =======================
+   Kleine zivile Situationen, ausdruecklich KEINE Verbrechen. Sie laufen
+   neben dem Ereignis-Regisseur her, ohne ihn anzufassen (Vorgabe 18):
+   der bleibt fuer Crime zustaendig, diese Schicht fuer alles andere.
+
+   Der wichtigste Entwurfspunkt ist die Taktung (Vorgabe 48). Phase 7
+   musste Crime bereits ausbremsen; wenn jetzt Aktivitaeten die Luecken
+   fuellen, hat der Spieler nie wieder Ruhe. Deshalb: hoechstens EINE
+   sichtbare zivile Aktivitaet (Vorgabe 19), und zwischen zwei
+   Aktivitaeten eine echte Pause. */
+const AKT = {
+  liste: [], naechsteId: 1, tickCd: 0, pause: 20,
+  statistik: { erzeugt: 0, begonnen: 0, erledigt: 0, abgelaufen: 0,
+               aufraeumFehler: 0, jeArt: {} },
+};
+const AKT_MAX = 1;
+const AKT_PAUSE = [50, 100];     // Sekunden Ruhe zwischen Aktivitaeten
+const AKT_DAUER = 150;           // danach loest sie sich von selbst auf
+const AKT_NAH = 5.5;             // so nah gilt sie als erledigt
+const AKT_SICHT = 70;            // ab hier faellt sie ueberhaupt auf
+
+/* Ein Dach, auf dem man stehen kann, in der Naehe des Spielers. */
+function aktDachsuche(minD, maxD) {
+  const kand = [];
+  for (const c of colliders) {
+    if (c.klein || (c.h || 0) < 20) continue;
+    if ((c.x1 - c.x0) < 8 || (c.z1 - c.z0) < 8) continue;
+    const x = (c.x0 + c.x1) / 2, z = (c.z0 + c.z1) / 2;
+    const d = Math.hypot(x - player.pos.x, z - player.pos.z);
+    if (d < minD || d > maxD) continue;
+    kand.push({ x, y: c.h, z, c });
+  }
+  return kand.length ? pick(kand) : null;
+}
+
+function aktNeu(art, x, y, z) {
+  const a = { id: AKT.naechsteId++, art, x, y, z, t: 0,
+              zustand: 'OFFEN', figur: null, prop: null };
+  AKT.liste.push(a);
+  AKT.statistik.erzeugt++;
+  AKT.statistik.jeArt[art] = (AKT.statistik.jeArt[art] || 0) + 1;
+  return a;
+}
+
+/* ---- Ein Fundstueck auf einem Dach ----
+   Etwas ist oben liegengeblieben. Kein Auftrag, kein Marker - man sieht
+   es beim Vorbeischwingen oder man sieht es nicht. */
+function aktFundstueck() {
+  const d = aktDachsuche(45, 150);
+  if (!d) return null;
+  const x = d.x + rand(-3, 3), z = d.z + rand(-3, 3);
+  const a = aktNeu('fundstueck', x, d.y, z);
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.7),
+    new THREE.MeshLambertMaterial({ color: 0xc8532f }));
+  box.position.y = 0.18;
+  g.add(box);
+  g.position.set(x, d.y, z);
+  scene.add(g);
+  a.prop = g;
+  return a;
+}
+
+/* ---- Jemand kommt nicht weiter ----
+   Eine Person auf einem Dach, die Hilfe braucht. Sie bleibt in der
+   sicheren Mitte und bekommt ausdruecklich KEINE Gehwegroute
+   (Vorgabe 15) - sonst liefe sie ueber die Kante. */
+function aktHilfe() {
+  const d = aktDachsuche(50, 140);
+  if (!d) return null;
+  const a = aktNeu('hilfe', d.x, d.y, d.z);
+  const v = makeCharacterVisual('civilian', {
+    shirt: pick(['#4a6f9c', '#8c5a3c', '#5d7a52']),
+    pants: pick(['#33384a', '#2e3038']),
+  });
+  if (v && v.root) {
+    v.root.position.set(d.x, d.y, d.z);
+    scene.add(v.root);
+    a.figur = { visual: v, pos: { x: d.x, y: d.y, z: d.z },
+                facing: rand(0, Math.PI * 2), phase: rand(0, 10) };
+  }
+  return a;
+}
+
+function aktWaehle() {
+  return Math.random() < 0.55 ? aktFundstueck() : aktHilfe();
+}
+
+function aktUpdate(dt) {
+  AKT.tickCd -= dt;
+  /* Neue Aktivitaet nur nach echter Ruhe und nur eine gleichzeitig. */
+  if (AKT.liste.length < AKT_MAX) {
+    AKT.pause -= dt;
+    if (AKT.pause <= 0) {
+      AKT.pause = rand(AKT_PAUSE[0], AKT_PAUSE[1]);
+      aktWaehle();
+    }
+  }
+  for (let i = AKT.liste.length - 1; i >= 0; i--) {
+    const a = AKT.liste[i];
+    a.t += dt;
+    /* Die Figur steht und wartet - kein Weg, keine Kante. */
+    if (a.figur && a.figur.visual) {
+      const f = a.figur;
+      f.visual.root.position.set(f.pos.x, f.pos.y, f.pos.z);
+      f.visual.root.rotation.y = f.facing;
+      const fern = Math.hypot(f.pos.x - player.pos.x, f.pos.z - player.pos.z) > AKT_SICHT;
+      /* Weit weg wird nur noch dagestanden, kein Mixer (Vorgabe 51). */
+      if (!fern) f.visual.play('warten', { t: elapsed + f.phase }, dt);
+    }
+    if (a.prop) a.prop.rotation.y += dt * 0.6;
+    const d = Math.hypot(player.pos.x - a.x, player.pos.z - a.z);
+    const dy = Math.abs(player.pos.y - a.y);
+    if (a.zustand === 'OFFEN' && d < AKT_NAH && dy < 4) {
+      a.zustand = 'ERLEDIGT';
+      AKT.statistik.begonnen++;
+      AKT.statistik.erledigt++;
+      /* Kleine Aktivitaet, kleine Belohnung (Vorgabe 42). */
+      if (a.art === 'fundstueck') {
+        popupScreen('\ud83e\uddf3 Fundstueck zurueckgebracht');
+        addScore(35, '', { x: a.x, y: a.y, z: a.z });
+      } else {
+        popupScreen('\ud83e\udd1d Jemandem geholfen');
+        addScore(45, '', { x: a.x, y: a.y, z: a.z });
+        setzeRuf(+2);
+      }
+      aktAufraeumen(a); AKT.liste.splice(i, 1); continue;
+    }
+    /* Ganz weit weg oder zu lange offen: still aufloesen (Vorgabe 52). */
+    if (a.t > AKT_DAUER ||
+        (a.t > 30 && Math.hypot(a.x - player.pos.x, a.z - player.pos.z) > 260)) {
+      AKT.statistik.abgelaufen++;
+      aktAufraeumen(a); AKT.liste.splice(i, 1); continue;
+    }
+  }
+}
+
+/* Vollstaendig abraeumen: Figur, Requisit, Verweise (Vorgabe 54). */
+function aktAufraeumen(a) {
+  if (a.figur && a.figur.visual && a.figur.visual.root) scene.remove(a.figur.visual.root);
+  if (a.prop) scene.remove(a.prop);
+  a.figur = null; a.prop = null;
+}
+
+/* Sicherheitsnetz: Requisiten ohne Aktivitaet. */
+function aktLeckPruefung() {
+  let leck = 0;
+  for (const a of AKT.liste) {
+    if (a.zustand === 'ERLEDIGT') { aktAufraeumen(a); leck++; }
+  }
+  return leck;
+}
+
 /* Besuch pruefen. Laeuft im Takt, nicht je Bild und nicht je POI:
    die Liste ist klein und wird nur alle 0,3 s durchgesehen. */
 function poiUpdate(dt) {
@@ -23278,6 +23431,7 @@ function updateResponders(dt) {
      nicht ewig bleiben. */
   vorfallUpdate(dt);
   poiUpdate(dt);
+  aktUpdate(dt);
   respAutojagd(dt);
   RESP.tickCd -= dt;
   if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
@@ -25160,6 +25314,13 @@ if (window.__WEBHERO_TEST__ === true) {
       x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1),
       name: p.name, besucht: p.besucht })); },
     poiStatistik() { return POI.statistik; },
+    aktListe() { return AKT.liste.map((a) => ({ id: a.id, art: a.art,
+      x: +a.x.toFixed(1), y: +a.y.toFixed(1), z: +a.z.toFixed(1),
+      zustand: a.zustand, t: +a.t.toFixed(1),
+      hatFigur: !!a.figur, hatProp: !!a.prop })); },
+    aktStatistik() { return AKT.statistik; },
+    aktLeck() { return aktLeckPruefung(); },
+    aktErzwinge(art) { return art === 'hilfe' ? !!aktHilfe() : !!aktFundstueck(); },
     dachTeile() { return DACH_TEILE.map((t) => ({ x: +t.x.toFixed(2), y: +t.y.toFixed(2),
       z: +t.z.toFixed(2), bx: +t.bx.toFixed(2), by: +t.by.toFixed(2), bz: +t.bz.toFixed(2) })); },
     vorfaelle() { return VORFALL.liste.map((v) => ({ x: +v.x.toFixed(1),
