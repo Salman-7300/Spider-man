@@ -25309,7 +25309,7 @@ if (window.__WEBHERO_TEST__ === true) {
     respLeck() { return respLeckPruefung(); },
     haltepunkt: respHaltepunkt,
     respTrace(an) { RESP.trace = !!an; },
-    poi: POI,
+    poi: POI, akt: AKT,
     poiListe() { return POI.liste.map((p) => ({ id: p.id, art: p.art,
       x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1),
       name: p.name, besucht: p.besucht })); },
