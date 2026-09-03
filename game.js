@@ -22702,22 +22702,39 @@ function respVerfolgung(ein, dt) {
      Entfernung, ohne Zufallsformel. Wer lange genug weglaeuft, ist weg;
      wer sich nicht weit genug abgesetzt hat, wird gefasst. */
   if (ein.jagd.t < RESP_VERFOLG_DAUER) return;
+  respJagdEnde(ein);
+}
+
+/* ---- Ausgang einer Verfolgung ----
+   Nach Zeit und Abstand, ohne Zufallsformel: ist der Streifenwagen nah
+   genug dran, wird gefasst, sonst ist der Taeter weg. Wird von zwei
+   Stellen gerufen - vom Zeitgeber in respVerfolgung und vom
+   Fern-Abschluss, siehe dort. */
+function respJagdEnde(ein) {
+  if (!ein || !ein.jagd) return false;
+  const e = EV.liste.find((x) => x.id === ein.evId);
+  if (!e || !e.fluechtige) { ein.jagd = null; return false; }
+  const g = e.fluechtige.find((x) => x && !x.dead && !x.policeCustody);
+  if (!g) { ein.jagd = null; return false; }
   const dWagen = ein.wagen
     ? Math.hypot(g.pos.x - ein.wagen.mesh.position.x,
                  g.pos.z - ein.wagen.mesh.position.z) : 999;
   const i = e.fluechtige.indexOf(g);
+  if (i >= 0) e.fluechtige.splice(i, 1);
+  g.eventFlucht = false; g.flieht = false;
   if (dWagen < 40) {
-    if (i >= 0) e.fluechtige.splice(i, 1);
-    g.eventRolle = 'gefasst'; g.eventFlucht = false; g.flieht = false;
+    g.eventRolle = 'gefasst';
     g.policeCustody = true;
+    g.wegGrund = 'verfolgungGefasst';
     if (ein.ziele.indexOf(g) < 0) ein.ziele.push(g);
     RESP.statistik.hintergrundGefasst++;
   } else {
-    if (i >= 0) e.fluechtige.splice(i, 1);
-    g.eventRolle = null; g.eventFlucht = false; g.flieht = false;
+    g.eventRolle = null;
+    g.wegGrund = 'verfolgungEntkommen';
     RESP.statistik.hintergrundEntkommen++;
   }
   ein.jagd = null;
+  return true;
 }
 
 /* ---- Verfolgung eines Fluchtautos ----
@@ -23060,6 +23077,16 @@ function updateResponders(dt) {
        erledigt. Sonst simulierte man kilometerweit ein Auto, das niemand
        sieht. */
     if (dSp > RESP_FERN_AUS && ein.gesamtZeit > 25) {
+      /* ---- Hier IST der Hintergrund ----
+         Dieser Zweig raeumt einen Einsatz ab, den niemand sieht. Genau
+         das ist der Moment, in dem die Welt eine laufende Verfolgung
+         entscheiden soll - vorher wurde sie einfach mit weggeworfen.
+         Gemessen: der Einsatz verschwand nach rund 27 s, der Zeitgeber
+         der Verfolgung braucht aber 45 s; "gefasst" war dadurch nie
+         erreichbar, der Taeter fiel danach still dem Aufraeumen des
+         Ereignisses zu (wegGrund 'ereignisAufgeraeumt' in 5 von 5
+         Laeufen). */
+      respJagdEnde(ein);
       RESP.statistik.fernAbschluss++;
       respErledige(ein);
       respAufraeumen(ein); RESP.liste.splice(i, 1); continue;
