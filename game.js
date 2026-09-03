@@ -272,6 +272,13 @@ const SFX = (() => {
     score() { tone(660, 0.09, 'sine', 0.12); setTimeout(() => tone(880, 0.12, 'sine', 0.12), 90); },
     zip() { tone(500, 0.22, 'sine', 0.08, 2.2); },
     splash() { noise(0.4, 0.2, 200); },
+    /* Auffliegender Schwarm: drei kurze Rauschstoesse, nicht einer -
+       ein einzelner klang nach Windboe, drei nach Fluegeln. */
+    fluegel() {
+      noise(0.10, 0.055, 1400);
+      setTimeout(() => noise(0.09, 0.045, 1200), 90);
+      setTimeout(() => noise(0.11, 0.035, 1000), 190);
+    },
     hupe() { tone(430, 0.28, 'square', 0.07); setTimeout(() => tone(360, 0.22, 'square', 0.06), 60); },
     /* U-Bahn: dumpfes Rollen, das mit der Naehe lauter wird. */
     zug(nah) {
@@ -16480,6 +16487,218 @@ function baueDachaufbauten() {
 }
 baueDachaufbauten();
 
+/* ======================= Bezirke =======================
+   Die Stadt sah bisher ueberall gleich aus, weil nichts sie unterschied.
+   Statt neue Bezirke zu ERFINDEN, werden sie aus dem gelesen, was schon
+   gebaut ist: mittlere Hausthoehe je Block, Park im Block, Naehe zum
+   Fluss. Damit bleibt die Einteilung richtig, wenn sich die Stadt aendert.
+
+   Die Bezirke sind kein Selbstzweck - sie steuern, WAS an einem Ort
+   passiert: welche Voegel auffliegen, wo Dachdampf steht, wie oft man
+   ueberhaupt jemanden trifft. */
+const BEZ_ARTEN = ['ZENTRUM', 'WOHN', 'PARK', 'UFER'];
+const BEZIRKE = [];           // BLOCKS x BLOCKS, Zeilenweise
+function bezirkeLesen() {
+  for (let bi = 0; bi < BLOCKS; bi++) {
+    for (let bj = 0; bj < BLOCKS; bj++) {
+      const cx = ORIGIN + bi * PITCH + PITCH / 2;
+      const cz = ORIGIN + bj * PITCH + PITCH / 2;
+      let summe = 0, zahl = 0, hoch = 0;
+      for (const c of colliders) {
+        if (c.klein) continue;
+        const mx = (c.x0 + c.x1) / 2, mz = (c.z0 + c.z1) / 2;
+        if (Math.abs(mx - cx) > PITCH / 2 || Math.abs(mz - cz) > PITCH / 2) continue;
+        summe += c.h || 0; zahl++;
+        if ((c.h || 0) > 40) hoch++;
+      }
+      const mittel = zahl ? summe / zahl : 0;
+      let park = false;
+      for (const p of parks) {
+        if (Math.abs(p.x - cx) < PITCH / 2 && Math.abs(p.z - cz) < PITCH / 2) park = true;
+      }
+      const art = park ? 'PARK'
+                : (bi === BLOCKS - 1) ? 'UFER'
+                : (hoch >= 2 || mittel > 32) ? 'ZENTRUM'
+                : 'WOHN';
+      BEZIRKE.push({ bi, bj, x: cx, z: cz, art, mittel: +mittel.toFixed(1),
+                     haeuser: zahl, hoch });
+    }
+  }
+}
+bezirkeLesen();
+
+/* ======================= Umgebungsmomente =======================
+   Kleine Dinge ohne Aufgabe, ohne Punkte, ohne Anzeige. Sie sollen nur
+   dafuer sorgen, dass die Stadt nicht auf den Spieler wartet.
+
+   Der wichtigste Moment ist der Vogelschwarm, der auffliegt, wenn man auf
+   einem Dach landet: Er beantwortet die Bewegung des Spielers, statt nur
+   in der Gegend herumzustehen - das ist der Unterschied zwischen Deko und
+   einer Stadt, die reagiert.
+
+   Alles laeuft in EINEM InstancedMesh (THREE.BufferGeometryUtils gibt es
+   in diesem Three-Build nicht): 72 Voegel, ein Zeichenaufruf, egal wie
+   viele Schwaerme gerade sitzen. */
+const UMG = {
+  schwaerme: [], dampf: [], tickCd: 0,
+  statistik: { schwaermeGesetzt: 0, aufgeflogen: 0, jeBezirk: {}, dampfStellen: 0 },
+};
+/* Es gibt bereits einen hohen Zierschwarm (VOEGEL_ANZ, 38-96 m), der
+   ueber der Stadt kreist und auf nichts reagiert. Diese Schicht ist das
+   Gegenstueck auf Dachhoehe und reagiert - deshalb bleibt das Budget hier
+   klein, sonst hat die Stadt mehr Voegel als Menschen. */
+const UMG_SCHWARM = 4;          // hoechstens so viele Schwaerme gleichzeitig
+const UMG_JE_SCHWARM = 10;
+const UMG_VOEGEL = UMG_SCHWARM * UMG_JE_SCHWARM;
+const UMG_SCHRECK = 13;         // so nah fliegen sie auf
+const UMG_SICHT = 150;          // weiter weg wird kein Schwarm gesetzt
+
+let umgVogelMesh = null;
+const umgM4 = new THREE.Matrix4();
+const umgQ = new THREE.Quaternion();
+const umgV = new THREE.Vector3();
+const umgS = new THREE.Vector3(1, 1, 1);
+
+function umgBaueVoegel() {
+  /* Ein Vogel ist bewusst simpel: aus der Entfernung, in der man ihn
+     sieht, traegt jede zusaetzliche Flaeche nur Kosten. */
+  const g = new THREE.ConeGeometry(0.09, 0.42, 4);
+  g.rotateX(Math.PI / 2);
+  const m = new THREE.MeshLambertMaterial({ color: 0x3a3a42 });
+  umgVogelMesh = new THREE.InstancedMesh(g, m, UMG_VOEGEL);
+  umgVogelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  umgVogelMesh.frustumCulled = false;
+  umgVogelMesh.castShadow = false;
+  /* Alle erst einmal wegschieben, sonst haengt ein Klumpen im Ursprung. */
+  for (let i = 0; i < UMG_VOEGEL; i++) {
+    umgM4.makeTranslation(0, -500, 0);
+    umgVogelMesh.setMatrixAt(i, umgM4);
+  }
+  umgVogelMesh.instanceMatrix.needsUpdate = true;
+  scene.add(umgVogelMesh);
+}
+
+/* Ein Dach in der Naehe des Spielers, auf das sich ein Schwarm setzt. */
+function umgDachNah() {
+  const kand = [];
+  for (const c of colliders) {
+    if (c.klein || (c.h || 0) < 12) continue;
+    if ((c.x1 - c.x0) < 6 || (c.z1 - c.z0) < 6) continue;
+    const mx = (c.x0 + c.x1) / 2, mz = (c.z0 + c.z1) / 2;
+    const d = Math.hypot(mx - player.pos.x, mz - player.pos.z);
+    if (d < 25 || d > UMG_SICHT) continue;
+    kand.push({ x: mx, y: c.h, z: mz, rx: (c.x1 - c.x0) / 2 - 1.5,
+                rz: (c.z1 - c.z0) / 2 - 1.5 });
+  }
+  return kand.length ? pick(kand) : null;
+}
+
+function umgSchwarmNeu() {
+  if (UMG.schwaerme.length >= UMG_SCHWARM) return null;
+  const d = umgDachNah();
+  if (!d) return null;
+  const bez = bezirkAn(d.x, d.z);
+  /* Am Wasser sind es Moewen: heller, groesser, weitere Kreise. */
+  const moewe = bez === 'UFER';
+  const s = { x: d.x, y: d.y + 0.35, z: d.z, rx: d.rx, rz: d.rz,
+              bez, moewe, zustand: 'SITZT', t: 0, hoehe: 0, w: Math.random() * 6.28,
+              voegel: [] };
+  const zahl = moewe ? 7 : UMG_JE_SCHWARM;
+  for (let i = 0; i < zahl; i++) {
+    s.voegel.push({ ox: rand(-d.rx, d.rx), oz: rand(-d.rz, d.rz),
+                    ph: Math.random() * 6.28, r: rand(6, 16), hy: rand(0, 5) });
+  }
+  UMG.schwaerme.push(s);
+  UMG.statistik.schwaermeGesetzt++;
+  UMG.statistik.jeBezirk[bez] = (UMG.statistik.jeBezirk[bez] || 0) + 1;
+  return s;
+}
+
+function umgSchwarmWeg(s) {
+  const i = UMG.schwaerme.indexOf(s);
+  if (i >= 0) UMG.schwaerme.splice(i, 1);
+}
+
+function umgUpdate(dt) {
+  if (!umgVogelMesh) umgBaueVoegel();
+  /* ---- Wetter und Tageszeit ----
+     Bei Regen sitzt kein Schwarm auf einem freien Dach, und nachts
+     fliegt nichts. Das ist der ganze Trick: nicht mehr Effekte bei
+     Regen, sondern weniger Leben - der Unterschied faellt auf. */
+  const nacht = TAG.zeit < 0.24 || TAG.zeit > 0.80;
+  const nass = REGEN.staerke > 0.35;
+  UMG.tickCd -= dt;
+  if (UMG.tickCd <= 0) {
+    UMG.tickCd = 1.2;
+    if (nacht || nass) {
+      /* Vorhandene Schwaerme fliegen ab, statt zu verschwinden. */
+      for (const s of UMG.schwaerme) if (s.zustand === 'SITZT') s.zustand = 'FLIEGT';
+    } else if (UMG.schwaerme.length < UMG_SCHWARM && Math.random() < 0.5) {
+      umgSchwarmNeu();
+    }
+    /* Zu weit weg: leise entfernen, niemand sieht es. */
+    for (let i = UMG.schwaerme.length - 1; i >= 0; i--) {
+      const s = UMG.schwaerme[i];
+      if (Math.hypot(s.x - player.pos.x, s.z - player.pos.z) > UMG_SICHT + 60) {
+        umgSchwarmWeg(s);
+      }
+    }
+  }
+
+  let idx = 0;
+  for (let i = UMG.schwaerme.length - 1; i >= 0; i--) {
+    const s = UMG.schwaerme[i];
+    s.t += dt;
+    if (s.zustand === 'SITZT') {
+      const d = Math.hypot(player.pos.x - s.x, player.pos.z - s.z);
+      if (d < UMG_SCHRECK && player.pos.y > s.y - 6 && player.pos.y < s.y + 14) {
+        s.zustand = 'FLIEGT'; s.hoehe = 0; s.t = 0;
+        UMG.statistik.aufgeflogen++;
+        if (SFX && SFX.fluegel) SFX.fluegel();
+      }
+    } else {
+      s.hoehe += dt * (s.moewe ? 4.5 : 7.0);
+      s.w += dt * (s.moewe ? 0.5 : 0.9);
+      if (s.t > 14) { umgSchwarmWeg(s); continue; }
+    }
+    for (const v of s.voegel) {
+      if (idx >= UMG_VOEGEL) break;
+      let x, y, z, ry;
+      if (s.zustand === 'SITZT') {
+        x = s.x + v.ox; y = s.y; z = s.z + v.oz;
+        ry = v.ph;
+      } else {
+        const w = s.w + v.ph;
+        const r = v.r * Math.min(1, s.t / 2.2);
+        x = s.x + Math.cos(w) * r;
+        z = s.z + Math.sin(w) * r;
+        y = s.y + s.hoehe + v.hy;
+        ry = -w + Math.PI / 2;
+      }
+      umgQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry);
+      umgV.set(x, y, z);
+      umgS.set(1, 1, s.moewe ? 1.5 : 1);
+      umgM4.compose(umgV, umgQ, umgS);
+      umgVogelMesh.setMatrixAt(idx++, umgM4);
+    }
+  }
+  /* Rest der Instanzen aus dem Bild schieben. */
+  for (; idx < UMG_VOEGEL; idx++) {
+    umgM4.makeTranslation(0, -500, 0);
+    umgVogelMesh.setMatrixAt(idx, umgM4);
+  }
+  umgVogelMesh.instanceMatrix.needsUpdate = true;
+}
+
+function bezirkAn(x, z) {
+  /* Die Uferpromenade und die Bruecke liegen ausserhalb des Rasters. */
+  if (x > RASTER_X1) return 'UFER';
+  const bi = clamp(Math.floor((x - ORIGIN) / PITCH), 0, BLOCKS - 1);
+  const bj = clamp(Math.floor((z - ORIGIN) / PITCH), 0, BLOCKS - 1);
+  const b = BEZIRKE[bi * BLOCKS + bj];
+  return b ? b.art : 'WOHN';
+}
+
 /* ======================= Sammelmarken =======================
    Belohnung fuers Suchen, nicht fuers Ablaufen einer Liste. Die Marken
    liegen dort, wo man nur mit Bewegung hinkommt - hinter Dachaufbauten,
@@ -23577,6 +23796,7 @@ function updateResponders(dt) {
      nicht ewig bleiben. */
   vorfallUpdate(dt);
   taktUpdate(dt);
+  umgUpdate(dt);
   poiUpdate(dt);
   samUpdate(dt);
   aktUpdate(dt);
@@ -25744,6 +25964,17 @@ if (window.__WEBHERO_TEST__ === true) {
       return n;
     },
     aktErzwinge(art) { return art === 'hilfe' ? !!aktHilfe() : !!aktFundstueck(); },
+    bezirke() { return BEZIRKE.map((b) => ({ bi: b.bi, bj: b.bj, x: b.x, z: b.z,
+      art: b.art, mittel: b.mittel, haeuser: b.haeuser, hoch: b.hoch })); },
+    bezirkAn,
+    umg: UMG,
+    regen: REGEN,
+    tag: TAG,
+    umgStatistik() { return UMG.statistik; },
+    umgSchwaerme() { return UMG.schwaerme.map((s) => ({ x: +s.x.toFixed(1),
+      y: +s.y.toFixed(1), z: +s.z.toFixed(1), bez: s.bez, moewe: s.moewe,
+      zustand: s.zustand, t: +s.t.toFixed(1), n: s.voegel.length })); },
+    umgErzwinge() { return !!umgSchwarmNeu(); },
     takt: TAKT,
     taktStand() { return { betrieb: taktBetrieb(), ruheSeit: +TAKT.ruheSeit.toFixed(1),
       anteil: +TAKT.anteil.toFixed(3),
