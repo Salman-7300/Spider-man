@@ -16538,6 +16538,7 @@ function aktFundstueck() {
   box.position.y = 0.18;
   g.add(box);
   g.position.set(x, d.y, z);
+  g.userData.aktivitaet = true;
   scene.add(g);
   a.prop = g;
   return a;
@@ -16557,6 +16558,10 @@ function aktHilfe() {
   });
   if (v && v.root) {
     v.root.position.set(d.x, d.y, d.z);
+    /* Markiert, damit die Pruefung Aktivitaetsobjekte von gewoehnlichem
+       Weltwachstum unterscheiden kann - makeCharacterVisual haengt die
+       Figur bereits selbst in die Szene. */
+    v.root.userData.aktivitaet = true;
     scene.add(v.root);
     a.figur = { visual: v, pos: { x: d.x, y: d.y, z: d.z },
                 facing: rand(0, Math.PI * 2), phase: rand(0, 10) };
@@ -25320,6 +25325,11 @@ if (window.__WEBHERO_TEST__ === true) {
       hatFigur: !!a.figur, hatProp: !!a.prop })); },
     aktStatistik() { return AKT.statistik; },
     aktLeck() { return aktLeckPruefung(); },
+    aktObjekte() {
+      let n = 0;
+      scene.traverse((o) => { if (o.userData && o.userData.aktivitaet) n++; });
+      return n;
+    },
     aktErzwinge(art) { return art === 'hilfe' ? !!aktHilfe() : !!aktFundstueck(); },
     dachTeile() { return DACH_TEILE.map((t) => ({ x: +t.x.toFixed(2), y: +t.y.toFixed(2),
       z: +t.z.toFixed(2), bx: +t.bx.toFixed(2), by: +t.by.toFixed(2), bz: +t.bz.toFixed(2) })); },
