@@ -21852,13 +21852,14 @@ function evPruefeFlucht(e, dt) {
 function evPruefeFluechtige(e) {
   for (let i = e.fluechtige.length - 1; i >= 0; i--) {
     const g = e.fluechtige[i];
-    if (g.dead) { e.fluechtige.splice(i, 1); EV.statistik.gefangen++; continue; }
+    if (g.dead) { g.wegGrund = 'tot'; e.fluechtige.splice(i, 1); EV.statistik.gefangen++; continue; }
     if (g.webStufe >= 3 || g.webT > 0.5) {
       /* Mit dem Netz gestoppt - kurz gesichert, dann raus aus der Liste. */
       /* Der Regisseur laeuft im Takt EV_TICK, nicht je Bild - mit 1/60
          haette das Sichern statt 1,2 s ganze 18 s gedauert. */
       g.gesichertT = (g.gesichertT || 0) + EV_TICK;
       if (g.gesichertT > 1.2) {
+        g.wegGrund = 'eingesponnen';
         e.fluechtige.splice(i, 1);
         g.eventRolle = 'gefasst'; g.eventFlucht = false;
         EV.statistik.gefangen++;
@@ -21882,6 +21883,7 @@ function evPruefeFluechtige(e) {
        und "gefasst" blieb unerreichbar. */
     const jagd = RESP.liste.some((r) => r.evId === e.id && r.art === 'polizei');
     if (d > 200 && !jagd) {
+      g.wegGrund = 'zuWeitVomSpieler';
       e.fluechtige.splice(i, 1);
       g.eventRolle = null; g.eventFlucht = false; g.flieht = false;
       EV.statistik.entkommen++;
@@ -22006,6 +22008,7 @@ function evAufraeumen(e) {
     if (e.auto.altTempo !== undefined) e.auto.speed = e.auto.altTempo;
   }
   if (e.gang) e.gang.ausEvent = null;
+  for (const g of e.fluechtige) if (g && !g.wegGrund) g.wegGrund = 'ereignisAufgeraeumt';
   e.fluechtige.length = 0;
   e.zustand = 'FERTIG';
 }
