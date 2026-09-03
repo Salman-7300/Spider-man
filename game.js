@@ -65,6 +65,25 @@ const BLOCKS = 7;           // 7x7 Häuserblöcke
 const PITCH = 50;           // Rasterabstand (Block + Straße)
 const ORIGIN = -175;        // Rasterursprung (Straßenlinien bei -175..175)
 const ROAD_HALF = 6;        // halbe Asphaltbreite
+/* ======================= Zaehler des Regression Gates =======================
+   Nicht "0 JS-Fehler", sondern was im BILD schiefgehen kann. Jeder Zaehler
+   gehoert zu genau einem gemeldeten Fehler und wird an der Stelle
+   hochgezaehlt, an der die Sache entschieden wird - nicht im Test. */
+const VALID = {
+  liegendGesetzt: 0,      // Verletzte, die auf eine Flaeche gelegt wurden
+  floatingDowned: 0,      // Verletzte ohne tragende Flaeche (Notbremse)
+  floatingSeat: 0,        // Sitzende ohne Sitzanker
+  sitzAbgelehnt: 0,       // Sitzwunsch ohne gueltigen Anker -> idle
+  invalidProp: 0,         // Requisit mit ungueltiger Bounding Box
+  bridgePropInvalid: 0,   // Requisit im Brueckenbereich
+  crosswalkHumpOverlap: 0,// Schwelle ueber einem Zebrastreifen
+  npcStaticPenetration: 0,// Zivilist in einem statischen Hindernis
+  enemyStaticPenetration: 0,
+  playerNpcOverlap: 0,    // Spieler steckt in einer Figur
+  climbSurfaceGap: 0,     // Klettern mit sichtbarem Abstand zur Wand
+  wallrunFailed: 0,       // Anlauf mit Tempo, aber ohne Wandlauf
+};
+
 const SLAB_H = 0.25;        // Gehweg-/Blocksockelhöhe
 const RIVER_X0 = 192, RIVER_X1 = 330;   // Fluss
 /* Aeusserste Rasterlinie der Stadt: die Uferstrasse. */
@@ -1320,6 +1339,54 @@ function collidersNear(x, z) {
   return colliderGrid.get(k) || [];
 }
 
+/* ======================= Zebrastreifen-Flaechen =======================
+   Gemerkt, damit nichts Erhoehtes darueber gebaut wird. Ein Bordstein
+   oder eine Schwelle quer ueber einem Fussgaengerueberweg ist genau der
+   Buckel aus Screenshot 4 - der Ueberweg selbst bleibt, nur das Erhoehte
+   faellt weg. */
+const ZEBRA = [];
+function merkeZebra(x0, x1, z0, z1) { ZEBRA.push({ x0, x1, z0, z1 }); }
+function aufZebra(x0, x1, z0, z1) {
+  for (const r of ZEBRA) {
+    if (x1 > r.x0 && x0 < r.x1 && z1 > r.z0 && z0 < r.z1) return r;
+  }
+  return null;
+}
+/* Dasselbe in x-Richtung. */
+function ohneZebraX(z0, z1, xa, xb) {
+  const sperren = ZEBRA.filter((r) => z1 > r.z0 && z0 < r.z1 && r.x1 > xa && r.x0 < xb)
+                       .sort((a, b) => a.x0 - b.x0);
+  const teile = [];
+  let x = xa;
+  for (const r of sperren) {
+    if (r.x0 > x) teile.push([x, Math.min(r.x0, xb)]);
+    x = Math.max(x, r.x1);
+    VALID.crosswalkHumpOverlap++;
+  }
+  if (x < xb) teile.push([x, xb]);
+  /* Reststuecke unter einem Meter fallen ganz weg: ein 30 cm langer
+     Bordsteinstummel neben dem Ueberweg sieht schlechter aus als gar
+     keiner. */
+  return teile.filter((t) => t[1] - t[0] > 1.0);
+}
+/* Ein langes Stueck in z so zerlegen, dass die Zebraflaechen frei bleiben. */
+function ohneZebraZ(x0, x1, za, zb) {
+  const sperren = ZEBRA.filter((r) => x1 > r.x0 && x0 < r.x1 && r.z1 > za && r.z0 < zb)
+                       .sort((a, b) => a.z0 - b.z0);
+  const teile = [];
+  let z = za;
+  for (const r of sperren) {
+    if (r.z0 > z) teile.push([z, Math.min(r.z0, zb)]);
+    z = Math.max(z, r.z1);
+    VALID.crosswalkHumpOverlap++;
+  }
+  if (z < zb) teile.push([z, zb]);
+  /* Reststuecke unter einem Meter fallen ganz weg: ein 30 cm langer
+     Bordsteinstummel neben dem Ueberweg sieht schlechter aus als gar
+     keiner. */
+  return teile.filter((t) => t[1] - t[0] > 1.0);
+}
+
 function onBridge(x, z) {
   return Math.abs(z - BRIDGE_Z) < BRIDGE_HW &&
          x > BR_X0 - BR_RAMPE && x < BR_X1 + BR_RAMPE;
@@ -2107,7 +2174,9 @@ function buildCity() {
   }
 
   /* Zebrastreifen an jeder Kreuzung – vorher hörten die Fahrbahnlinien
-     einfach auf und die Kreuzungen waren leere graue Flächen. */
+     einfach auf und die Kreuzungen waren leere graue Flächen.
+     Die Flaechen werden gemerkt: ueber einem Zebrastreifen darf spaeter
+     keine erhoehte Schwelle und kein Bordstein liegen (Vorgabe Bug 4). */
   for (let i = 0; i <= BLOCKS; i++) {
     for (let j = 0; j <= BLOCKS; j++) {
       const cx = ORIGIN + i * PITCH, cz = ORIGIN + j * PITCH;
@@ -2117,6 +2186,10 @@ function buildCity() {
           deko(0.55, 0.03, 4.2, cx + k * 1.05, 0.025, cz + seite * (ROAD_HALF + 2.4), 0xe8e8e0);
           deko(4.2, 0.03, 0.55, cx + seite * (ROAD_HALF + 2.4), 0.025, cz + k * 1.05, 0xe8e8e0);
         }
+        merkeZebra(cx - 5.8, cx + 5.8,
+                   cz + seite * (ROAD_HALF + 2.4) - 2.1, cz + seite * (ROAD_HALF + 2.4) + 2.1);
+        merkeZebra(cx + seite * (ROAD_HALF + 2.4) - 2.1, cx + seite * (ROAD_HALF + 2.4) + 2.1,
+                   cz - 5.8, cz + 5.8);
       }
     }
   }
@@ -3746,12 +3819,25 @@ function buildRiverAndBridge() {
      man auf die Bruecke, und ein 38 cm hoher Bordstein quer ueber der
      Auffahrt waere genau die Kante, die es zu vermeiden gilt. */
   for (const [a, b] of [[-200, BRIDGE_Z - BRIDGE_HW], [BRIDGE_Z + BRIDGE_HW, 200]]) {
-    deko(0.4, 0.34, b - a, PROM_X0, SLAB_H - 0.04, (a + b) / 2, 0x7c8288);
+    /* Der 34 cm hohe Bordstein wird an jedem Fussgaengerueberweg
+       unterbrochen - sonst liegt er als Buckel quer ueber dem
+       Zebrastreifen (Screenshot 4). Der Ueberweg selbst bleibt. */
+    for (const [za, zb] of ohneZebraZ(PROM_X0 - 0.2, PROM_X0 + 0.2, a, b)) {
+      deko(0.4, 0.34, zb - za, PROM_X0, SLAB_H - 0.04, (za + zb) / 2, 0x7c8288);
+    }
   }
 
   const kroneMatU = new THREE.MeshLambertMaterial({ color: 0x2f6b38 });
+  /* Abstand, den Promenadenmoebel von der Brueckenkonstruktion halten. */
+  const BRIDGE_CLEARANCE = BRIDGE_HW + 6;
   for (let z = -190; z < 190; z += 8) {
-    if (Math.abs(z - BRIDGE_Z) < BRIDGE_HW + 3) continue;
+    /* Geprueft wird die STELLE, an der wirklich gebaut wird (z + 3,5),
+       nicht die Schleifenvariable. Vorher stand deshalb eine Bank bei
+       z = -34,5 mitten im Brueckenuebergang, obwohl die Schleife bei
+       z = -38 die Pruefung bestanden hatte - genau die Bank aus
+       Screenshot 4. */
+    const stelleZ = z + 3.5;
+    if (Math.abs(stelleZ - BRIDGE_Z) < BRIDGE_CLEARANCE) { VALID.bridgePropInvalid++; continue; }
     /* Frueher stand hier ein durchgehender dunkler Riegel als "Gelaender".
        Massiv und mannshoch sah er nicht wie ein Gelaender aus, sondern wie
        eine Mauer quer ueber die Uferstrasse - und er verstellte den Blick
@@ -3805,8 +3891,14 @@ function buildRiverAndBridge() {
     platte.receiveShadow = true;
     cityGroup.add(platte);
     // Bordsteinkante zur Fahrbahn hin
-    deko(BR_X1 - BR_X0, BR_GEH_H + 0.04, 0.22,
-         (BR_X0 + BR_X1) / 2, BR_HOCH + BR_GEH_H / 2, BRIDGE_Z + s * BR_GEH_INNEN, 0x8a9096);
+    /* Der Bordstein des Brueckengehwegs wird am Fussgaengerueberweg an
+       der Uferstrasse unterbrochen - sonst laeuft eine 24 cm hohe Kante
+       quer ueber den Zebrastreifen. */
+    const zM = BRIDGE_Z + s * BR_GEH_INNEN;
+    for (const [xa, xb] of ohneZebraX(zM - 0.11, zM + 0.11, BR_X0, BR_X1)) {
+      deko(xb - xa, BR_GEH_H + 0.04, 0.22,
+           (xa + xb) / 2, BR_HOCH + BR_GEH_H / 2, zM, 0x8a9096);
+    }
   }
   /* Sanfte Auffahrt an beiden Enden. Sie liegt VOR der Bruecke, auf der
      Strasse - genau in dem Stueck, das bridgeY() ansteigen laesst.
@@ -19803,25 +19895,6 @@ function updateCivilians(dtBild) {
   if (ruf < 65) setzeRuf(Math.min(0.9, 65 - ruf) * dtBild * (liegen === 0 ? 0.25 : 0.06));
 }
 
-/* ======================= Zaehler des Regression Gates =======================
-   Nicht "0 JS-Fehler", sondern was im BILD schiefgehen kann. Jeder Zaehler
-   gehoert zu genau einem gemeldeten Fehler und wird an der Stelle
-   hochgezaehlt, an der die Sache entschieden wird - nicht im Test. */
-const VALID = {
-  liegendGesetzt: 0,      // Verletzte, die auf eine Flaeche gelegt wurden
-  floatingDowned: 0,      // Verletzte ohne tragende Flaeche (Notbremse)
-  floatingSeat: 0,        // Sitzende ohne Sitzanker
-  sitzAbgelehnt: 0,       // Sitzwunsch ohne gueltigen Anker -> idle
-  invalidProp: 0,         // Requisit mit ungueltiger Bounding Box
-  bridgePropInvalid: 0,   // Requisit im Brueckenbereich
-  crosswalkHumpOverlap: 0,// Schwelle ueber einem Zebrastreifen
-  npcStaticPenetration: 0,// Zivilist in einem statischen Hindernis
-  enemyStaticPenetration: 0,
-  playerNpcOverlap: 0,    // Spieler steckt in einer Figur
-  climbSurfaceGap: 0,     // Klettern mit sichtbarem Abstand zur Wand
-  wallrunFailed: 0,       // Anlauf mit Tempo, aber ohne Wandlauf
-};
-
 function hurtCivilian(c, attacker) {
   c.hp -= 10;
   popupWorld('Hilfe!', c.pos, '#ff9b9b');
@@ -26273,6 +26346,9 @@ if (window.__WEBHERO_TEST__ === true) {
     valid: VALID,
     validZaehler() { return Object.assign({}, VALID); },
     validReset() { for (const k in VALID) VALID[k] = 0; },
+    zebraFlaechen() { return ZEBRA.map((r) => ({ x0: +r.x0.toFixed(1),
+      x1: +r.x1.toFixed(1), z0: +r.z0.toFixed(1), z1: +r.z1.toFixed(1) })); },
+    aufZebra,
     tag: TAG,
     umgStatistik() { return UMG.statistik; },
     umgSchwaerme() { return UMG.schwaerme.map((s) => ({ x: +s.x.toFixed(1),
