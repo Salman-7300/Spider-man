@@ -9268,6 +9268,48 @@ function updateEffekte(dt) {
 /* ======================= Spieler ======================= */
 let heroVisual = null; // wird nach dem Laden der GLB-Assets erzeugt
 
+/* ---- Echte Fassade hinter einem niedrigen Hindernis ----
+   Gemessen (scratchpad/wlgate.js, 80 Anlaeufe): In allen vier Anflugarten
+   scheiterte je ein Anlauf an einem 1,2 m hohen Strassenmoebel direkt vor
+   dem Haus. player.wall zeigte dann auf die Bank statt auf die Fassade,
+   hochGenug war damit zu Recht falsch - und der Wandlauf kam nie zustande.
+   Der Spieler sieht davon nur: "ich renne gegen das Haus und es passiert
+   nichts."
+
+   Deshalb wird, und NUR wenn die gefundene Wand zu niedrig zum Wandlaufen
+   ist, ein kurzes Stueck in Laufrichtung nach der echten Fassade gesehen.
+   Kurz (1,8 m), damit der Anschluss an die Wand nicht als Sprung sichtbar
+   wird - bei Anlauftempo ist das weniger als eine Fuenftelsekunde Weg. */
+const WL_VORAUS = 1.8;
+function wandVoraus(vx, vz) {
+  const l = Math.hypot(vx, vz);
+  if (l < 0.5) return null;
+  const dx = vx / l, dz = vz / l;
+  for (let sT = 0.4; sT <= WL_VORAUS; sT += 0.3) {
+    const px = player.pos.x + dx * sT, pz = player.pos.z + dz * sT;
+    for (const c of collidersNear(px, pz)) {
+      if (c.klein || c.keinKlettern) continue;
+      if ((c.h || 0) - player.pos.y <= 6) continue;
+      if (px < c.x0 || px > c.x1 || pz < c.z0 || pz > c.z1) continue;
+      /* Die Normale kommt aus der LAUFRICHTUNG, nicht aus der naechsten
+         Kante des Sondenpunktes. Erster Versuch war die naechste Kante -
+         gemessen kam die Normale dabei verdreht heraus (einDot -1 statt
+         +1, tempoRein -11 statt +11), weil der Sondenpunkt bereits im
+         Koerper lag und die Kantenwahl dort nicht mehr eindeutig ist.
+         Wer nach +x laeuft, trifft die x0-Flaeche; deren Aussennormale
+         zeigt nach -x. Das ist dieselbe Vorzeichenregel wie in der
+         Kollisionsaufloesung. */
+      const nx = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? -1 : 1) : 0;
+      const nz = nx !== 0 ? 0 : (dz > 0 ? -1 : 1);
+      return { col: c, nx, nz };
+    }
+  }
+  return null;
+}
+
+/* Mitschrift der Wandlauf-Eintrittspruefung (nur Tests, kostet sonst nichts). */
+const WL_LOG = { an: false, ring: [], kopf: 0 };
+
 const player = {
   pos: V3(25, 0.05, 25),
   vel: V3(0, 0, 0),
@@ -13204,13 +13246,34 @@ function updatePlayer(dt) {
      normale Klettern über – so wie es aussehen soll. */
   if (player.wall && player.onGround && player.state !== 'swing' &&
       player.state !== 'zip' && player.rollT <= 0) {
-    const w = player.wall;
-    const tempoRein = -(player.altVelX * w.nx + player.altVelZ * w.nz);
-    const rein = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.35;
+    /* Zwei Bewerber: die Wand, an der die Kollision haengt, und - falls
+       die nicht taugt - die Fassade ein Stueck voraus (siehe wandVoraus).
+       Gemessen sind das zwei verschiedene Faelle: ein niedriges
+       Strassenmoebel direkt vor dem Haus, und eine Hausecke, an der die
+       Kollision die SEITENflaeche liefert, waehrend man auf die vordere
+       zulaeuft. Beide sahen im Spiel gleich aus - "nichts passiert". */
+    const pruefe = (k) => {
+      if (!k || !k.col) return null;
+      const tr = -(player.altVelX * k.nx + player.altVelZ * k.nz);
+      const ri = !!(dir && (dir.x * -k.nx + dir.z * -k.nz) > 0.35);
+      const hg = (k.col.h - player.pos.y) > 6 && !k.col.klein;
+      return { w: k, tempoRein: tr, rein: ri, hochGenug: hg,
+               ok: ri && hg && tr > 3.8 };
+    };
+    let p1 = pruefe(player.wall);
+    let ersatz = null;
+    if (!p1 || !p1.ok) {
+      ersatz = wandVoraus(player.altVelX, player.altVelZ);
+      const p2 = pruefe(ersatz);
+      if (p2 && p2.ok) p1 = p2; else ersatz = null;
+    }
+    const w = p1 ? p1.w : player.wall;
+    const tempoRein = p1 ? p1.tempoRein : 0;
+    const rein = p1 ? p1.rein : false;
     /* Nur an richtigen Hauswänden – nicht an Brüstungen, Bänken oder den
        Wänden der U-Bahn-Station. Sonst trägt der Anlauf die Figur an einer
        viereinhalb Meter hohen Mauer wieder aus der Station heraus. */
-    const hochGenug = w.col && (w.col.h - player.pos.y) > 6 && !w.col.klein;
+    const hochGenug = p1 ? p1.hochGenug : false;
     /* 5,5 war zu streng: wer leicht schraeg auf die Wand zulaeuft, kommt
        mit dem Anteil senkrecht zur Wand kaum darueber und blieb einfach
        stehen. Gehtempo (2,8) loest weiterhin nichts aus. */
@@ -13218,6 +13281,22 @@ function updatePlayer(dt) {
        man selten mehr als ein paar Meter Anlauf, und schon eine leichte
        Schraege liess den Anteil senkrecht zur Wand darunter fallen. Der
        normale Lauf (7 m/s) traegt jetzt auch leicht schraeg. */
+    /* ---- Warum wird ein Anlauf abgelehnt? ----
+       Reines Mitschreiben, ohne Wirkung auf das Spiel. Ohne diese Zeilen
+       laesst sich "Wandlauf geht nicht" nicht von "Anlauf war blockiert"
+       unterscheiden - genau das war der offene Punkt. */
+    if (WL_LOG.an) {
+      WL_LOG.ring[WL_LOG.kopf % 240] = { t: elapsed, rein: !!rein,
+        einDot: dir ? +(dir.x * -w.nx + dir.z * -w.nz).toFixed(3) : null,
+        tempoRein: +tempoRein.toFixed(2), hochGenug: !!hochGenug,
+        colH: w.col ? +(w.col.h || 0).toFixed(1) : null,
+        klein: !!(w.col && w.col.klein),
+        ersatz: !!ersatz,
+        altV: +Math.hypot(player.altVelX, player.altVelZ).toFixed(2),
+        ueber: w.col ? +((w.col.h || 0) - player.pos.y).toFixed(1) : null,
+        ok: !!(rein && hochGenug && tempoRein > 3.8) };
+      WL_LOG.kopf++;
+    }
     if (rein && hochGenug && tempoRein > 3.8) {
       player.state = 'climb';
       player.wallInfo = w;
@@ -25900,7 +25979,10 @@ if (window.__WEBHERO_TEST__ === true) {
     get heroVisual() { return heroVisual; },
     colliders,
     /* Phase 10 liest die Welt, statt Orte zu erfinden. */
-    parks, ubahnen: UBAHNEN, hausStellen: HAUS_STELLEN,
+    /* 'ubahnen' gibt es weiter unten schon als Funktion - der zweite
+       Eintrag hat sie ueberschrieben und Tests bekamen eine Funktion
+       statt der Liste. Deshalb hier nur die Namen, die es noch nicht gibt. */
+    parks, hausStellen: HAUS_STELLEN,
     kau: KAU,
     faden: swingStrand,
     kampf: KAMPF,
@@ -26383,6 +26465,8 @@ if (window.__WEBHERO_TEST__ === true) {
     dampfDa() { return dampfPunkte; },
     regenAn() { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; },
     tippeSprung() { tryJump(); },
+    wlLogAn(an) { WL_LOG.an = !!an; WL_LOG.ring.length = 0; WL_LOG.kopf = 0; },
+    wlLog() { return WL_LOG.ring.filter(Boolean); },
     kitKopien() { return KIT_KOPIEN; },
     kitInnen() { return KIT_INNEN; },
     dekoBei(x, y, z) {
