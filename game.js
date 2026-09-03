@@ -16334,6 +16334,110 @@ function spawnCars() {
 }
 spawnCars();
 spawnHelis();
+
+/* ======================= Besondere Orte (POI) =======================
+   Eine duenne Datenschicht ueber der fertigen Stadt. Kein Inhalt wird
+   erfunden: die Orte werden aus dem abgeleitet, was schon dasteht -
+   Gebaeudehoehen, Bruecke, Promenade, Park, U-Bahn. Deshalb laeuft der
+   Aufbau erst hier, nach buildCity.
+
+   Gemessen vor dem Bau (weltlesen): 693 grosse Koerper, davon 50 ueber
+   40 m, 7 ueber 60 m, hoechster 79 m. Genau daran haengen die Schwellen
+   unten - nicht an geratenen Zahlen. */
+const POI = {
+  liste: [], naechsteId: 1, tickCd: 0,
+  statistik: { erzeugt: 0, besucht: 0, jeArt: {} },
+};
+/* So nah muss Spider-Man wirklich gewesen sein. Vorbeischwingen in
+   grosser Hoehe zaehlt ausdruecklich nicht (Vorgabe 5). */
+const POI_NAH = 9;
+const POI_HOCH = 5;
+
+function poiNeu(art, x, y, z, name) {
+  const p = { id: POI.naechsteId++, art, x, y, z, name: name || null,
+              besucht: false, aktivMoeglich: art === 'ROOFTOP' || art === 'VIEWPOINT' };
+  POI.liste.push(p);
+  POI.statistik.erzeugt++;
+  POI.statistik.jeArt[art] = (POI.statistik.jeArt[art] || 0) + 1;
+  return p;
+}
+
+/* Liegt der Punkt frei genug, um dort zu stehen? */
+function poiPlatzFrei(x, z, y) {
+  if (Math.abs(x) > 195 || Math.abs(z) > 195) return false;
+  if (inWater(x, z) && !onBridge(x, z)) return false;
+  for (const c of POI.liste) {
+    if (Math.abs(c.y - y) < 8 && Math.hypot(c.x - x, c.z - z) < 26) return false;
+  }
+  return true;
+}
+
+function baueBesondereOrte() {
+  const gross = colliders.filter((c) => !c.klein && (c.h || 0) > 18 &&
+                                        (c.x1 - c.x0) > 5 && (c.z1 - c.z0) > 5);
+  gross.sort((a, b) => (b.h || 0) - (a.h || 0));
+  /* ---- Die hoechsten Haeuser: Landmarke, dann Aussicht, dann Dach ----
+     Namen bleiben kurz (Vorgabe 34), keine Lore. */
+  const namen = ['Stadtkrone', 'Nordturm', 'Bankhaus'];
+  let landmarken = 0, aussicht = 0, daecher = 0;
+  for (const c of gross) {
+    const x = (c.x0 + c.x1) / 2, z = (c.z0 + c.z1) / 2, y = c.h;
+    if (!poiPlatzFrei(x, z, y)) continue;
+    if (landmarken < 3) { poiNeu('LANDMARK', x, y, z, namen[landmarken]); landmarken++; }
+    else if (aussicht < 8 && c.h > 45) { poiNeu('VIEWPOINT', x, y, z); aussicht++; }
+    else if (daecher < 14 && c.h > 28) { poiNeu('ROOFTOP', x, y, z); daecher++; }
+  }
+  /* ---- Bruecke ---- */
+  poiNeu('BRIDGE', (BR_X0 + BR_X1) / 2, bridgeY((BR_X0 + BR_X1) / 2) + 1, BRIDGE_Z,
+         'Flussbruecke');
+  /* ---- Promenade ---- */
+  for (const z of [-90, 0, 90]) {
+    const x = (PROM_X0 + RIVER_X0) / 2;
+    if (poiPlatzFrei(x, z, SLAB_H)) poiNeu('PROMENADE', x, SLAB_H, z);
+  }
+  /* ---- Parks ---- */
+  for (const q of parks) if (poiPlatzFrei(q.x, q.z, SLAB_H)) poiNeu('PARK', q.x, SLAB_H, q.z, 'Stadtpark');
+  /* ---- U-Bahn, nur wenn wirklich gebaut ---- */
+  for (const u of UBAHNEN) {
+    if (poiPlatzFrei(u.x, u.dz || 0, SLAB_H)) poiNeu('TRANSIT', u.x, SLAB_H, u.dz || 0);
+  }
+}
+baueBesondereOrte();
+
+/* Besuch pruefen. Laeuft im Takt, nicht je Bild und nicht je POI:
+   die Liste ist klein und wird nur alle 0,3 s durchgesehen. */
+function poiUpdate(dt) {
+  POI.tickCd -= dt;
+  if (POI.tickCd > 0) return;
+  POI.tickCd = 0.3;
+  /* Nur wer wirklich steht, hockt oder klettert, hat den Ort besucht -
+     nicht wer in dreissig Metern Hoehe vorbeischwingt. */
+  const traegt = player.onGround || player.state === 'perch' ||
+                 player.state === 'climb' || player.state === 'ground';
+  if (!traegt) return;
+  for (const p of POI.liste) {
+    if (p.besucht) continue;
+    if (Math.abs(player.pos.y - p.y) > POI_HOCH) continue;
+    if (Math.hypot(player.pos.x - p.x, player.pos.z - p.z) > POI_NAH) continue;
+    p.besucht = true;
+    POI.statistik.besucht++;
+    poiBelohne(p);
+  }
+}
+
+/* Kleine Belohnung, kein Missionsbildschirm (Vorgaben 8, 42, 43). */
+function poiBelohne(p) {
+  const text = p.art === 'LANDMARK' ? '\u2b50 ' + (p.name || 'Ort entdeckt')
+             : p.art === 'VIEWPOINT' ? '\ud83d\udd2d Aussichtspunkt entdeckt'
+             : p.art === 'BRIDGE' ? '\ud83c\udf09 ' + (p.name || 'Bruecke')
+             : p.art === 'PARK' ? '\ud83c\udf33 ' + (p.name || 'Park')
+             : p.art === 'PROMENADE' ? '\ud83c\udf0a Uferpromenade'
+             : p.art === 'TRANSIT' ? '\ud83d\ude87 U-Bahn-Zugang'
+             : null;
+  if (text) popupScreen(text);
+  const punkte = p.art === 'LANDMARK' ? 60 : p.art === 'VIEWPOINT' ? 40 : 20;
+  addScore(punkte, '', { x: p.x, y: p.y, z: p.z });
+}
 /* Die losen Gegenstaende erst HIER aufstellen, nicht in buildCity: die
    Liste ZIEH wird weiter unten im Modul angelegt, und buildCity laeuft
    frueher - ein Aufruf von dort traf auf eine noch nicht angelegte
@@ -23097,6 +23201,7 @@ function updateResponders(dt) {
      Leuten auf der Fahrbahn - dafuer bremst er wie jeder andere), soll
      nicht ewig bleiben. */
   vorfallUpdate(dt);
+  poiUpdate(dt);
   respAutojagd(dt);
   RESP.tickCd -= dt;
   if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
@@ -24825,6 +24930,8 @@ if (window.__WEBHERO_TEST__ === true) {
     get actorsReady() { return actorsReady; },
     get heroVisual() { return heroVisual; },
     colliders,
+    /* Phase 10 liest die Welt, statt Orte zu erfinden. */
+    parks, ubahnen: UBAHNEN, hausStellen: HAUS_STELLEN,
     kau: KAU,
     faden: swingStrand,
     kampf: KAMPF,
@@ -24972,6 +25079,11 @@ if (window.__WEBHERO_TEST__ === true) {
     respLeck() { return respLeckPruefung(); },
     haltepunkt: respHaltepunkt,
     respTrace(an) { RESP.trace = !!an; },
+    poi: POI,
+    poiListe() { return POI.liste.map((p) => ({ id: p.id, art: p.art,
+      x: +p.x.toFixed(1), y: +p.y.toFixed(1), z: +p.z.toFixed(1),
+      name: p.name, besucht: p.besucht })); },
+    poiStatistik() { return POI.statistik; },
     vorfaelle() { return VORFALL.liste.map((v) => ({ x: +v.x.toFixed(1),
       z: +v.z.toFixed(1), schwere: v.schwere, t: +v.t.toFixed(1) })); },
     respAnzahl() {
