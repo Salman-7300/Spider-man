@@ -24380,14 +24380,26 @@ function herPunkte(art) {
       punkte.push(d); x = d.x; z = d.z;
     }
   } else if (art === 'schwungbahn') {
-    /* Punkte in der Luft, weit auseinander: eine Schwungroute. */
-    const w = Math.random() * Math.PI * 2;
-    for (let i = 1; i <= 5; i++) {
-      const r = 55 * i;
-      const x = clamp(px + Math.cos(w) * r, -170, 170);
-      const z = clamp(pz + Math.sin(w) * r, -170, 170);
-      if (inWater(x, z) && !onBridge(x, z)) break;
-      punkte.push({ x, y: herLuftHoehe(x, z), z });
+    /* Punkte in der Luft, weit auseinander: eine Schwungroute.
+       Mehrere Richtungen probieren, nicht nur eine: mit einer einzigen
+       zufaelligen Richtung scheiterten am Stadtrand gemessen 166 von 300
+       Versuchen, weil die Bahn sofort aus der Stadt lief - die
+       Schwungbahn waere dort nie angeboten worden. */
+    for (let versuch = 0; versuch < 6 && punkte.length < 3; versuch++) {
+      punkte.length = 0;
+      const w = Math.random() * Math.PI * 2;
+      for (let i = 1; i <= 5; i++) {
+        const r = 55 * i;
+        const x = px + Math.cos(w) * r;
+        const z = pz + Math.sin(w) * r;
+        /* NICHT auf den Rand klemmen, sondern abbrechen: geklemmt fielen
+           am Stadtrand zwei Punkte auf dieselbe Stelle - wer den
+           vorletzten Ring durchflog, hatte den letzten gleich mit, und die
+           Strecke war nur noch halb so lang wie die Zeit dafuer. */
+        if (Math.abs(x) > 170 || Math.abs(z) > 170) break;
+        if (inWater(x, z) && !onBridge(x, z)) break;
+        punkte.push({ x, y: herLuftHoehe(x, z), z });
+      }
     }
   } else {
     /* Zeittor: weit verteilte Daecher, Hoehenwechsel erzwungen. */
@@ -26332,7 +26344,12 @@ if (window.__WEBHERO_TEST__ === true) {
       const teile = { updatePlayer, updateWetter, updateTagNacht, updateCars, updateHelis,
                       updateCivilians, updateEnemies, updateCamera, updateEffekte,
                       updateKlatscher, updateSpinnenSinn, updateKlang, updateVoegel, updateMission,
-                      updateHeroVisual, updateWeltEreignisse, updateResponders };
+                      updateHeroVisual, updateWeltEreignisse, updateResponders,
+                      /* Phase-10-Schichten. Sie laufen im Spiel innerhalb von
+                         updateResponders; hier werden sie zusaetzlich einzeln
+                         gemessen, um zu sehen, was jede kostet. */
+                      taktUpdate, entUpdate, umgUpdate, poiUpdate, samUpdate,
+                      aktUpdate, herUpdate };
       const out = {};
       for (const name in teile) {
         const f = teile[name];
