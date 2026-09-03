@@ -16575,6 +16575,20 @@ function updateCars(dt) {
       if (car.hupCd <= 0) { SFX.hupe(); car.hupCd = rand(1.4, 3); }
     } else if (car.hupCd > 0) car.hupCd -= dt;
 
+    /* ---- Sicherheitsabstand bei der Verfolgung ----
+       Der Halteplatz wandert dem Fluchtauto nur alle 1,5 s nach; bei
+       22 m/s liegen dazwischen 33 m. Der Verfolger faehrt deshalb auf
+       einen Punkt zu, den der Fluechtende laengst verlassen hat -
+       gemessen 33 Bilder mit weniger als einem Meter Abstand zwischen
+       zwei verschiedenen Fahrzeugen (jagdEng 33, jagdSelbst 0). Hier,
+       zusammen mit allen anderen Bremsgruenden, haelt der Abstand. */
+    if (car.notfall && car.jagdZiel && !car.jagdZiel.aus) {
+      const jx = car.jagdZiel.mesh.position.x, jz = car.jagdZiel.mesh.position.z;
+      const dJ = Math.hypot(car.mesh.position.x - jx, car.mesh.position.z - jz);
+      if (dJ < RESP_AUTOJAGD_ABSTAND) {
+        ziel = Math.min(ziel, Math.max(0, (dJ - 8) * 0.9));
+      }
+    }
     /* ---- Einsatzfahrzeug ----
        Es faehrt ueber dieselbe Spur-, Ampel- und Abstandslogik wie jeder
        andere Wagen - deshalb kann es weder durch Haeuser noch ueber den
@@ -22753,7 +22767,10 @@ function respAutojagd(dt) {
   /* Laeuft schon eine Jagd? */
   const jagd = RESP.liste.find((e) => e.autojagd);
   if (!flucht) {
-    if (jagd) { jagd.autojagd = null; jagd.zustand = 'ABFAHRT'; jagd.t = 0; }
+    if (jagd) {
+      if (jagd.wagen) jagd.wagen.jagdZiel = null;
+      jagd.autojagd = null; jagd.zustand = 'ABFAHRT'; jagd.t = 0;
+    }
     return;
   }
   if (jagd) {
@@ -22777,6 +22794,11 @@ function respAutojagd(dt) {
       if (h) jagd.halt = h;
     }
     if (jagd.wagen) {
+      /* Das Ziel haengt am Wagen, damit updateCars den Abstand dort
+         halten kann, wo auch Vordermann, Ampel und Fussgaenger
+         ausgewertet werden. Ein Bremsbefehl von hier aus wird von
+         respUnterwegs in jedem Takt wieder ueberschrieben. */
+      jagd.wagen.jagdZiel = flucht;
       const d = Math.hypot(jagd.wagen.mesh.position.x - fx,
                            jagd.wagen.mesh.position.z - fz);
       if (d < 1) {
