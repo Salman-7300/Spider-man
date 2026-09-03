@@ -16634,8 +16634,11 @@ const AKT = {
                aufraeumFehler: 0, jeArt: {} },
 };
 const AKT_MAX = 1;
-const AKT_PAUSE = [50, 100];     // Sekunden Ruhe zwischen Aktivitaeten
-const AKT_DAUER = 150;           // danach loest sie sich von selbst auf
+/* Gemessen: mit Dauer 150 s und Pause 50-100 s lag allein diese Schicht
+   69 % der Zeit an - 150 / (150 + 75). Die Zahlen sind darum umgedreht:
+   die Situation ist kurz, die Ruhe dazwischen lang. */
+const AKT_PAUSE = [80, 150];     // Sekunden Ruhe zwischen Aktivitaeten
+const AKT_DAUER = 100;           // danach loest sie sich von selbst auf
 const AKT_NAH = 5.5;             // so nah gilt sie als erledigt
 const AKT_SICHT = 70;            // ab hier faellt sie ueberhaupt auf
 
@@ -16716,7 +16719,7 @@ function aktUpdate(dt) {
   /* Neue Aktivitaet nur nach echter Ruhe und nur eine gleichzeitig. */
   if (AKT.liste.length < AKT_MAX) {
     AKT.pause -= dt;
-    if (AKT.pause <= 0) {
+    if (AKT.pause <= 0 && taktErlaubt()) {
       AKT.pause = rand(AKT_PAUSE[0], AKT_PAUSE[1]);
       aktWaehle();
     }
@@ -23573,6 +23576,7 @@ function updateResponders(dt) {
      Leuten auf der Fahrbahn - dafuer bremst er wie jeder andere), soll
      nicht ewig bleiben. */
   vorfallUpdate(dt);
+  taktUpdate(dt);
   poiUpdate(dt);
   samUpdate(dt);
   aktUpdate(dt);
@@ -24100,7 +24104,7 @@ const HER = {
   statistik: { angeboten: 0, gestartet: 0, geschafft: 0, verpasst: 0,
                abgebrochen: 0, jeArt: {} },
 };
-const HER_PAUSE = [70, 140];
+const HER_PAUSE = [120, 220];
 const HER_RING = 7;          // so nah gilt ein Punkt als erreicht
 const HER_WEG = 190;         // so weit weg gilt die Herausforderung als verlassen
 
@@ -24274,14 +24278,71 @@ function herUpdate(dt) {
       herStarte(a); return;
     }
     /* Wird es nicht angenommen, verschwindet es wieder. */
-    if (a.t > 90 || Math.hypot(player.pos.x - a.start.x, player.pos.z - a.start.z) > 220) {
+    if (a.t > 60 || Math.hypot(player.pos.x - a.start.x, player.pos.z - a.start.z) > 220) {
       HER.angebot = null; herRingeAus();
     }
     return;
   }
   /* ---- Neues Angebot, aber nur nach Ruhe ---- */
   HER.pause -= dt;
-  if (HER.pause <= 0) { HER.pause = rand(HER_PAUSE[0], HER_PAUSE[1]); herAngebot(); }
+  if (HER.pause <= 0 && taktErlaubt()) {
+    HER.pause = rand(HER_PAUSE[0], HER_PAUSE[1]);
+    herAngebot();
+  }
+}
+
+/* ======================= Taktgeber =======================
+   Gemessen ueber 20 Minuten, bevor es diese Schicht gab: Krimi bekannt
+   21,4 % der Zeit, eine zivile Aktivitaet vorhanden 69 %, echte Ruhe nur
+   11,3 %. Jede Schicht fuer sich war brav getaktet - zusammen ergaben sie
+   eine Stadt, in der immer irgendetwas offen war.
+
+   Der Taktgeber ist deshalb bewusst KEIN zweiter Regisseur: er startet
+   nichts und beendet nichts. Er beantwortet nur eine Frage - "darf jetzt
+   etwas Neues dazukommen?" - und die neuen Phase-10-Schichten fragen ihn.
+   Der Ereignis-Regisseur wird nicht angefasst: Krimi behaelt seine eigene
+   Taktbremse, und die neuen Schichten weichen ihm aus, nicht umgekehrt.
+   So bleibt die Reihenfolge klar: Verbrechen zuerst, Freiwilliges danach. */
+const TAKT = {
+  ruheSeit: 999, gesamt: 0, betriebZeit: 0,
+  /* Gleitender Betriebsanteil ueber rund acht Minuten, wie beim
+     Ereignis-Regisseur - eine harte Gesamtquote wuerde in den ersten
+     Minuten alles blockieren. */
+  anteil: 0.30,
+  statistik: { abgelehntRuhe: 0, abgelehntQuote: 0, abgelehntBesetzt: 0, erlaubt: 0 },
+};
+const TAKT_RUHE_MIN = 45;      // so lange nach jedem Ende passiert nichts Neues
+const TAKT_ZIEL = 0.45;        // hoechstens so viel Betrieb insgesamt
+const TAKT_FENSTER = 480;
+
+/* Laeuft gerade etwas, das Aufmerksamkeit will? Ein Verbrechen zaehlt nur,
+   wenn der Spieler davon weiss - ein Ereignis, das leise im Hintergrund
+   anlaeuft, nimmt ihm keine Ruhe weg. */
+function taktBetrieb() {
+  for (const e of EV.liste) {
+    if (e.entdeckt && (e.zustand === 'AKTIV' || e.zustand === 'ESKALIERT')) return true;
+  }
+  if (AKT.liste.length) return true;
+  if (HER.aktiv || HER.angebot) return true;
+  return false;
+}
+
+function taktUpdate(dt) {
+  const b = taktBetrieb();
+  TAKT.gesamt += dt;
+  if (b) { TAKT.betriebZeit += dt; TAKT.ruheSeit = 0; }
+  else TAKT.ruheSeit += dt;
+  const k = Math.min(1, dt / TAKT_FENSTER);
+  TAKT.anteil += ((b ? 1 : 0) - TAKT.anteil) * k;
+}
+
+/* Darf eine freiwillige Schicht jetzt etwas anbieten? */
+function taktErlaubt() {
+  if (taktBetrieb()) { TAKT.statistik.abgelehntBesetzt++; return false; }
+  if (TAKT.ruheSeit < TAKT_RUHE_MIN) { TAKT.statistik.abgelehntRuhe++; return false; }
+  if (TAKT.anteil > TAKT_ZIEL) { TAKT.statistik.abgelehntQuote++; return false; }
+  TAKT.statistik.erlaubt++;
+  return true;
 }
 
 const MISSION = { art: null, zeit: 0, daten: null, text: '' };
@@ -25568,6 +25629,17 @@ if (window.__WEBHERO_TEST__ === true) {
       });
     },
     evVerlauf() { return EV.verlauf.slice(); },
+    /* Nur lesen, fuer die Rhythmus-Messung: was laeuft gerade, und weiss
+       der Spieler davon? */
+    evStand() {
+      let bekannt = 0, still = 0;
+      for (const e of EV.liste) {
+        if (e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN') continue;
+        if (e.entdeckt && (e.zustand === 'AKTIV' || e.zustand === 'ESKALIERT')) bekannt++;
+        else still++;
+      }
+      return { bekannt, still };
+    },
     evStarte,
     /* Fuer Tests: Ruhephase UND Taktbremse loesen. Ohne das zweite
        wartet ein Test, der schnell viele Ereignisse braucht, auf einen
@@ -25672,6 +25744,11 @@ if (window.__WEBHERO_TEST__ === true) {
       return n;
     },
     aktErzwinge(art) { return art === 'hilfe' ? !!aktHilfe() : !!aktFundstueck(); },
+    takt: TAKT,
+    taktStand() { return { betrieb: taktBetrieb(), ruheSeit: +TAKT.ruheSeit.toFixed(1),
+      anteil: +TAKT.anteil.toFixed(3),
+      gemessen: TAKT.gesamt > 0 ? +(TAKT.betriebZeit / TAKT.gesamt).toFixed(3) : 0,
+      statistik: TAKT.statistik }; },
     sam: SAM,
     samStatistik() { return SAM.statistik; },
     samListe() { return SAM.liste.map((x) => ({ id: x.id, art: x.art,
