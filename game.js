@@ -18529,7 +18529,7 @@ const AUF_FAHRBAHN = [];
 function sammleQuerer() {
   AUF_FAHRBAHN.length = 0;
   for (const c of civilians) {
-    if (c.gehZustand === 'queren' && c.state === 'walk' && c.eingestiegen <= 0) {
+    if (c.gehZustand === 'queren' && c.state === 'walk' && !(c.eingestiegen > 0)) {
       AUF_FAHRBAHN.push(c);
     }
   }
@@ -18943,6 +18943,13 @@ function spawnCivilian() {
     pos: V3(start.x + rand(-0.6, 0.6), 0, start.z + rand(-0.6, 0.6)),
     vel: V3(0, 0, 0),
     radius: 0.35,
+    /* ---- Muss gesetzt sein, nicht undefined ----
+       Mehrere Abfragen lauten "!(c.eingestiegen > 0)". Bei undefined ist das
+       FALSE, nicht true - dadurch war fuer die Passanten aus diesem
+       Erzeugungsweg der ganze Block "persoenlicher Abstand" stillgelegt,
+       und ebenso das Queren an der Ampel. Gemessen standen zwei Passanten
+       auf 35 cm voneinander und ruehrten sich nicht. */
+    eingestiegen: 0,
     facing: rand(0, TAU),
     phase: rand(0, TAU),
     speed: rand(1.6, 2.6),
@@ -19188,6 +19195,14 @@ const FERN = 60;
    dreitausend Vergleiche in JEDEM Bild. Ein grobes Raster von zwoelf
    Metern reduziert das auf die unmittelbare Nachbarschaft. */
 const ZIVI_ZELLE = 12, ZIVI_ABSTAND = 0.85;
+/* So nah kommt eine Figur dem Spieler, bevor sie zur Seite tritt.
+   0,75 m = Spielerradius 0,45 plus Figurradius 0,35, minus ein bisschen,
+   damit man sich noch aneinander vorbeischieben kann. Der Schub ist auf
+   1,6 m/s gedeckelt - ein Ausweichschritt, kein Stoss. */
+const SPIELER_ABSTAND = 0.75;
+const SPIELER_SCHUB_MAX = 1.6;
+/* Bei Gegnern enger: man soll nah genug herankommen, um zu schlagen. */
+const GEGNER_ABSTAND = 0.60;
 const ziviRaster = new Map();
 const _ziviNah = [];
 function ziviRasterBauen() {
@@ -19264,7 +19279,7 @@ function updateCivilians(dtBild) {
           }
         }
       }
-      if (c.eingestiegen <= 0) {
+      if (!(c.eingestiegen > 0)) {
         /* Aussteigen an der Bahnsteigkante, nicht irgendwo im Nichts. */
         if (c.zugFahrt && c.zugFahrt.besetzt) c.zugFahrt.besetzt.delete(c.sitzIdx);
         c.zugFahrt = null; c.sitzIdx = -1;
@@ -19711,7 +19726,7 @@ function updateCivilians(dtBild) {
        untereinander gar nicht wahrgenommen haben (nur Ganoven taten das).
        Die Korrektur ist bewusst weich: ein leichtes Auseinandergehen,
        kein Wegstossen. */
-    if (!c.geisel && c.eingestiegen <= 0) {
+    if (!c.geisel && !(c.eingestiegen > 0)) {
       /* ---- Abstand haengt vom Gedraenge ab ----
          Fester Abstand von 85 cm ist auf freiem Gehweg richtig, in einer
          Traube blockieren sich damit aber alle gegenseitig. Ab drei
@@ -19732,6 +19747,28 @@ function updateCivilians(dtBild) {
         if (Math.abs(c.pos.y - o.pos.y) > 1.5) continue;
         const schub = (abstand - ad) * Math.min(1, dt * 6) * 0.5;
         c.pos.x += (ax / ad) * schub; c.pos.z += (az / ad) * schub;
+      }
+      /* ---- Abstand zum Spieler ----
+         Gemessen (scratchpad/jagdgelaender.js): der Spieler lief mitten
+         durch Passanten hindurch - 95 von 388 Nahproben unter 0,55 m,
+         kleinster Abstand 1 cm. Das ist Screenshot 1.
+
+         Korrigiert wird die FIGUR, nie der Spieler. Damit bleibt die
+         Steuerung unangetastet, Kampf und Griff werden nicht blockiert,
+         und es kann niemanden wegkatapultieren: der Passant tritt einen
+         halben Schritt zur Seite, mehr nicht. Der Schub ist zusaetzlich
+         nach oben gedeckelt, sonst zittert eine Figur, die zwischen
+         Spieler und Wand steht. */
+      if (c.state !== 'hurt' && !player.attack) {
+        const px = c.pos.x - player.pos.x, pz = c.pos.z - player.pos.z;
+        const pd = Math.hypot(px, pz);
+        if (pd < SPIELER_ABSTAND && pd > 0.001 &&
+            Math.abs(c.pos.y - player.pos.y) < 1.6) {
+          const schub = Math.min((SPIELER_ABSTAND - pd) * Math.min(1, dt * 8) * 0.6,
+                                 dt * SPIELER_SCHUB_MAX);
+          c.pos.x += (px / pd) * schub; c.pos.z += (pz / pd) * schub;
+          if (pd < 0.45) VALID.playerNpcOverlap++;
+        }
       }
     }
     /* Die eigene Hoehe zaehlt mit: sonst zieht es die Wartenden auf dem
@@ -22265,6 +22302,23 @@ function updateEnemies(dtBild) {
     const vorX = e.pos.x, vorZ = e.pos.z;
     e.pos.x += e.vel.x * dt; e.pos.z += e.vel.z * dt;
     collideBody(e);
+    /* ---- Abstand zum Spieler ----
+       Dasselbe wie bei den Zivilisten, aber enger und nur ausserhalb des
+       Kampfes: waehrend Schlag, Griff, Parade oder Taumeln wird NICHTS
+       verschoben, sonst rutscht der Gegner aus dem Treffer heraus. Es
+       bewegt sich immer nur der Gegner, nie der Spieler. */
+    if (!player.attack && !e.attack && (e.staggerT || 0) <= 0 &&
+        !e.gepackt && !e.anWand && (e.inDerLuft || 0) <= 0) {
+      const px = e.pos.x - player.pos.x, pz = e.pos.z - player.pos.z;
+      const pd = Math.hypot(px, pz);
+      if (pd < GEGNER_ABSTAND && pd > 0.001 &&
+          Math.abs(e.pos.y - player.pos.y) < 1.6) {
+        const schub = Math.min((GEGNER_ABSTAND - pd) * Math.min(1, dt * 8) * 0.6,
+                               dt * SPIELER_SCHUB_MAX);
+        e.pos.x += (px / pd) * schub; e.pos.z += (pz / pd) * schub;
+        if (pd < 0.45) VALID.playerNpcOverlap++;
+      }
+    }
     if (speed > 0.5 && e.umwegT <= 0) {
       const gewollt = speed * dt;
       const echt = Math.hypot(e.pos.x - vorX, e.pos.z - vorZ);
