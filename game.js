@@ -7226,11 +7226,22 @@ function makeGlbVisual(m) {
         const ober = knochen[p + 'upleg'], unter = knochen[p + 'leg'];
         const fuss = knochen[p + 'foot'];
         if (ober && unter) {
-          /* Knie zur Seite und ein Stueck von der Wand weg - so entsteht
-             die angehockte Spinnenhaltung, ohne dass die Beine abspreizen. */
-          zieleKnochen(ober, unter, ziel(-0.10, vz * 0.42, 0.26), w);
+          /* ---- Knie angehockt, aber nicht abgespreizt ----
+             Die alten Masse (Knie 0,42 m, Fuss 0,30 m quer) ergaben
+             gemessen 0,94 m Knie- und 0,68 m Fussabstand - einen fast
+             waagerechten Spagat. Jetzt kompakter, und die beiden Seiten
+             sind bewusst NICHT gleich: ein Knie steht hoeher und etwas
+             weiter, das andere tiefer und enger. Eine exakt gespiegelte
+             Haltung sieht aus wie ein Frosch, eine leicht versetzte wie
+             jemand, der sich an der Wand haelt. */
+          const versatz = vz > 0 ? 1 : 0;               // nur die linke Seite hoeher
+          zieleKnochen(ober, unter,
+            ziel(-0.10 + versatz * 0.13,
+                 vz * (WANDHALT_KNIE_QUER + versatz * 0.05), 0.26), w);
           if (fuss) {
-            zieleKnochen(unter, fuss, ziel(-0.62, vz * 0.30, 0.05), w);
+            zieleKnochen(unter, fuss,
+              ziel(-0.62 + versatz * 0.16,
+                   vz * (WANDHALT_FUSS_QUER + versatz * 0.03), 0.05), w);
             drehZuRuhe(fuss, 0.35, 0, 0, w * 0.7);
           }
         }
@@ -13810,6 +13821,13 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
 /* Wie weit der Setzpunkt der Figur beim Wandkriechen von der Wand weg
    liegt. Wird unten nachgemessen. */
 let KRIECH_TIEFE = 0.30;
+/* ---- Seitliches Mass der Kletterhaltung im Stand ----
+   Vorher standen die Knie 0,42 m und die Fuesse 0,30 m seitlich neben der
+   Huefte - gemessen 0,94 m Knieabstand und 0,68 m Fussabstand. Das ist
+   der nahezu waagerechte Spagat aus dem Screenshot.
+   Die Werte kommen aus der Messreihe scratchpad/beineng.js. */
+let WANDHALT_KNIE_QUER = 0.16;
+let WANDHALT_FUSS_QUER = 0.12;
 /* Dauer des kontrollierten Wandabgangs. Sie ist bewusst etwas laenger als
    die Ausblende des Wandclips (0,22 s) - sonst waere die Haltung schon
    weg, waehrend der Clip noch sichtbar ist. */
@@ -26219,6 +26237,11 @@ if (window.__WEBHERO_TEST__ === true) {
       return respStarte(e, art || 'polizei', []) ? true : false;
     },
     setzeKletterRef(v) { for (const k in KLETTER_REFS) KLETTER_REFS[k] = v; },
+    setzeBeinEng(quer, fuss) {
+      if (quer !== undefined) WANDHALT_KNIE_QUER = quer;
+      if (fuss !== undefined) WANDHALT_FUSS_QUER = fuss;
+      return { quer: WANDHALT_KNIE_QUER, fuss: WANDHALT_FUSS_QUER };
+    },
     setzeKletterMax(v) { KLETTER_MAX = v; },
     setzeGriffPhase(tief, hoch, schwung) {
       GRIFF_TEMPO_TIEF = tief; GRIFF_TEMPO_HOCH = hoch; GRIFF_SCHWUNG = schwung;
