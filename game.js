@@ -12610,30 +12610,30 @@ function progAusAltenSchluesseln() {
 const SKILLS = {
   /* --- Zweig 1: Bewegung --- */
   schwungweite: { zweig: 'bewegung', name: 'Weiter Schwung', stufen: 1, wert: [1, 1.15],
-    text: 'Der Anker fuer den Schwung darf 15 % weiter entfernt liegen.',
+    text: 'Der Anker für den Schwung darf 15 % weiter entfernt liegen.',
     stelle: 'Ankersuche beim Schwingen (60 m / 95 m)' },
   zipweite: { zweig: 'bewegung', name: 'Langer Netz-Zug', stufen: 1, wert: [1, 1.20],
-    text: 'Der Netz-Zug findet Halt auf 20 % groesserer Entfernung.',
+    text: 'Der Netz-Zug findet Halt auf 20 % größerer Entfernung.',
     stelle: 'Tastweite von zipHaltepunkt (60 m)' },
   schwungkunst: { zweig: 'bewegung', name: 'Schwungkunst', stufen: 1, wert: [1, 1.5],
-    text: 'Perfekte Abspruenge, Katapultstarts und Strecken geben halb so viel mehr Punkte.',
+    text: 'Perfekte Absprünge, Katapultstarts und Strecken geben halb so viel mehr Punkte.',
     stelle: 'Punkte fuer Absprung, Katapult und Herausforderung' },
   /* --- Zweig 2: Kampf --- */
   deckungsbrecher: { zweig: 'kampf', name: 'Deckungsbrecher', stufen: 1, wert: [1, 1.25],
-    text: 'Schlaege nehmen die Deckung eines Gegners 25 % schneller herunter.',
+    text: 'Schläge nehmen die Deckung eines Gegners 25 % schneller herunter.',
     stelle: 'Deckungsabzug in resolveAttackHit' },
   abschluss: { zweig: 'kampf', name: 'Sauberer Abschluss', stufen: 1, wert: [1, 1.15],
-    text: 'Abschlussschlaege treffen 15 % haerter.',
+    text: 'Abschlussschläge treffen 15 % härter.',
     stelle: 'Finisher-Faktor 1,5 im Schadensweg' },
-  kombogespuer: { zweig: 'kampf', name: 'Kombogespuer', stufen: 1, wert: [1, 1.4],
+  kombogespuer: { zweig: 'kampf', name: 'Kombogespür', stufen: 1, wert: [1, 1.4],
     text: 'Lange Ketten geben deutlich mehr Punkte.',
     stelle: 'Punkte des Schmetterers (40 + Kombo x 10)' },
   /* --- Zweig 3: Held --- */
   helferhand: { zweig: 'held', name: 'Helferhand', stufen: 1, wert: [1, 1.6],
-    text: 'Erste Hilfe wirkt aus groesserer Entfernung.',
+    text: 'Erste Hilfe wirkt aus größerer Entfernung.',
     stelle: 'Reichweite 3,2 m in ersteHilfe' },
   entdeckerblick: { zweig: 'held', name: 'Entdeckerblick', stufen: 1, wert: [1, 1.35],
-    text: 'Vom Hocken aus faellt dir Entfernteres auf.',
+    text: 'Vom Hocken aus fällt dir Entfernteres auf.',
     stelle: 'ENT_FERN im Entdeckungssystem' },
   dankbarkeit: { zweig: 'held', name: 'Dankbarkeit', stufen: 1, wert: [1, 1.5],
     text: 'Gerettete Passanten bringen dir mehr Ansehen.',
@@ -12719,7 +12719,7 @@ const MEILEN = [
   { id: 'boss1',    gruppe: 'Held', name: 'Der Erste',
     text: 'Einen ENFORCER besiegt',   zahl: 'bosse', ziel: 1, punkte: 200, ruf: 6 },
   { id: 'boss5',    gruppe: 'Held', name: 'Kein Zufall',
-    text: 'Fuenf ENFORCER besiegt',   zahl: 'bosse', ziel: 5, punkte: 750, ruf: 10 },
+    text: 'Fünf ENFORCER besiegt',   zahl: 'bosse', ziel: 5, punkte: 750, ruf: 10 },
 ];
 
 function meilenErfuellt(m) {
@@ -26076,7 +26076,7 @@ function entZiele() {
     if (!s.weg) z.push({ art: 'marke', x: s.x, y: s.y, z: s.z, text: 'eine Marke' });
   }
   for (const a of AKT.liste) {
-    z.push({ art: 'aktivitaet', x: a.x, y: a.y, z: a.z, text: 'jemand, der dich brauchen koennte' });
+    z.push({ art: 'aktivitaet', x: a.x, y: a.y, z: a.z, text: 'jemand, der dich brauchen könnte' });
   }
   if (HER.angebot) {
     const s = HER.angebot.start;
