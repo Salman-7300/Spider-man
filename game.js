@@ -22999,21 +22999,27 @@ function bossNachEreignis(e) {
 /* Kampf hat Vorrang - und zwar breiter gefasst als bei normalen Gegnern.
    Es wird ausschliesslich die vorhandene Kampferkennung gelesen, kein
    zweites Combat-System. */
-function bossImKampf(e) {
-  if (gegnerImKampf(e)) return true;             // jagt den Spieler, oder Spieler schlaegt daneben
-  if (e.attack || (e.warnT || 0) > 0) return true;
-  if ((e.staggerT || 0) > 0 || (e.poiseSchutzT || 0) > 0) return true;
-  if ((e.bossUmbauT || 0) > 0) return true;      // Phasenwechsel laeuft
-  if (KAMPF_RECHT.has(e)) return true;           // der Combat-Regisseur hat ihm das Wort gegeben
-  if (player.ziel === e) return true;
-  if ((e.webT || 0) > 0 || e.gepackt || e.anWand) return true;
-  if (e.hp < e.hpMax) {
-    /* Angeschlagen und der Spieler ist in Reichweite: das ist ein
-       laufender Kampf, auch wenn der Boss gerade nicht zuschlaegt. */
-    if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 25) return true;
-  }
-  return false;
+function bossKampfGrund(e) {
+  if (e.state === 'chase' && e.target === 'player') return 'jagt';
+  if (player.attack && Math.hypot(e.pos.x - player.pos.x,
+                                  e.pos.z - player.pos.z) < 6) return 'spielerSchlaegt';
+  if (e.attack) return 'angriff';
+  if ((e.warnT || 0) > 0) return 'vorwarnung';
+  if ((e.staggerT || 0) > 0) return 'taumelt';
+  if ((e.poiseSchutzT || 0) > 0) return 'standfestSchutz';
+  if ((e.bossUmbauT || 0) > 0) return 'phasenwechsel';
+  if (KAMPF_RECHT.has(e)) return 'angriffsrecht';
+  if (player.ziel === e) return 'spielerZiel';
+  if ((e.webT || 0) > 0) return 'netz';
+  if (e.gepackt) return 'gepackt';
+  if (e.anWand) return 'anWand';
+  /* Angeschlagen und der Spieler ist in Reichweite: das ist ein laufender
+     Kampf, auch wenn der Boss gerade nicht zuschlaegt. */
+  if (e.hp < e.hpMax &&
+      Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 25) return 'angeschlagenNah';
+  return null;
 }
+function bossImKampf(e) { return bossKampfGrund(e) !== null; }
 
 /* Besitzt eine andere Schicht ihn? Polizei, Gewahrsam, Auftrag, Netz,
    Griff, Flucht. Responder hat immer Vorrang vor dem Lebenszyklus. */
@@ -23060,7 +23066,8 @@ function bossLebenszyklus(dt) {
       bossNachEreignis(e);
       BOSSLZ.statistik.eingesammelt++;
     }
-    if (bossImKampf(e)) e.bossKampfT = elapsed;
+    const grund = bossKampfGrund(e);
+    if (grund !== null) { e.bossKampfT = elapsed; e.bossKampfGrund = grund; }
   }
 
   BOSSLZ.tickCd -= dt;
@@ -26889,6 +26896,7 @@ if (window.__WEBHERO_TEST__ === true) {
                  abbauT: +(e.bossAbbauT || 0).toFixed(1),
                  kampfHer: e.bossKampfT === undefined ? null
                            : +(elapsed - e.bossKampfT).toFixed(1),
+                 kampfGrund: bossKampfGrund(e), letzterGrund: e.bossKampfGrund || null,
                  d: +Math.hypot(e.pos.x - player.pos.x,
                                 e.pos.z - player.pos.z).toFixed(1),
                  imBlick: evImBlick(e.pos.x, e.pos.z) });
