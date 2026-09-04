@@ -26794,9 +26794,12 @@ const STORY_DEF = [
                       stFunk('Zwei am Eingang. Sie haben dich gesehen.'); },
         pruef: () => stAlleGangsTot() ? 'weiter' : null },
       { ziel: 'Den Innenhof räumen',
+        /* Punkt 14 erlaubt hoechstens zwei Zwischenmeldungen je Mission.
+           Diese hier war die dritte und sagte nichts, was der Auftragstext
+           "Den Innenhof raeumen" nicht schon sagt - die beiden anderen
+           (Eingang, Funkgeraet) tragen dagegen Information. */
         auf: (m) => { stGang(m.ort.x - 8, m.ort.z + 4, 4, 'story');
-                      stGang(m.ort.x + 4, m.ort.z - 8, 3, 'story');
-                      stFunk('Mehr als gedacht. Deutlich mehr.'); },
+                      stGang(m.ort.x + 4, m.ort.z - 8, 3, 'story'); },
         pruef: () => stAlleGangsTot() ? 'weiter' : null },
       { ziel: 'Den Anführer stellen',
         auf: (m) => {
