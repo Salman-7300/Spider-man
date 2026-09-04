@@ -27713,7 +27713,7 @@ if (window.__WEBHERO_TEST__ === true) {
                bezirkeGemeistert: bezirkeGemeistert(),
                statistik: Object.assign({}, PROG.statistik) };
     },
-    progSpeichern, progLaden, progZuruecksetzen,
+    progSpeichern, progLaden, progZuruecksetzen, progTakt,
     progRoh() { try { return localStorage.getItem(SAVE_KEY); } catch (e) { return null; } },
     progSchreib(text) { try { localStorage.setItem(SAVE_KEY, text); return true; }
                         catch (e) { return false; } },
