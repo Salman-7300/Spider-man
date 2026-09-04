@@ -22213,6 +22213,13 @@ function updateEnemies(dtBild) {
       e.visual.play('air', { t: elapsed }, dt);
       // Pose erst nach der Animation setzen, sonst überschreibt der Mixer sie
       if (e.visual.poseTreffer) e.visual.poseTreffer(1 - e.staggerT / 0.9);
+      /* Die Bossphase muss auch im Taumeln nachgefuehrt werden. Sonst
+         friert sie ein, solange man den Boss unter Dauerbeschuss haelt -
+         gemessen: bei 7,5 Schlaegen pro Sekunde blieb er bis 5 % Leben in
+         Phase 1, und die Bossleiste stand still. updateBoss setzt keinen
+         Angriff, es fuehrt nur Phase, Uhren und Leiste nach; der
+         Phasenwechsel raeumt den Stagger absichtlich selbst weg. */
+      if (e.boss) updateBoss(e, dt);
       continue;
     }
 
