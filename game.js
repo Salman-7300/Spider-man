@@ -12354,13 +12354,42 @@ function respawn() {
    Lebensenergie und Schlagkraft, und die Spezialbewegungen werden nach
    und nach freigeschaltet – vorher konnte man von Anfang an alles und
    hatte keinen Grund weiterzuspielen. */
+/* ---- Die Schwellen sind gemessen, nicht geraten ----
+   Ein Pruefbot, der kaempft, Verletzten hilft und nebenbei einsammelt,
+   erreichte mit den alten Schwellen (600/1600/3200/5600/9000) in
+   14 Minuten Stufe 5 von 6 und hatte danach nichts mehr vor sich:
+
+     Minute      1     4    10    14    20    41    59
+     Bestwert 2843  3233  5122 10571 12072 14338 14525
+
+   Zwei Dinge stehen in diesen Zahlen. Erstens war der Aufstieg viel zu
+   schnell. Zweitens knickt die Kurve nach etwa 20 Minuten scharf ab:
+   danach sind die einmaligen Sachen der Stadt eingesammelt, und es
+   bleiben rund 60 Punkte je Minute aus Verbrechen und Kampf. Eine Kurve,
+   die auf den ersten 20 Minuten beruht, waere deshalb falsch.
+
+   Zehn Stufen, weil jede genau einen Fertigkeitspunkt gibt und es genau
+   neun Fertigkeiten gibt: wer alles hat, hat wirklich alles.
+
+   Ueber Stufe 6 steigen Lebensenergie und Schlagkraft NICHT weiter. Die
+   alten sechs Stufen waren als Kampfkurve ausbalanciert; sie einfach
+   fortzuschreiben wuerde den spaeten Kampf entwerten. Die neuen Stufen
+   geben einen Fertigkeitspunkt und einen Titel - das ist ihre Aufgabe.
+
+   Ein Hinweis zur Einordnung: der Pruefbot springt ohne Suche von Gegner
+   zu Gegner und trifft immer. Ein Mensch ist deutlich langsamer. Die
+   Zahlen unten sind also eine OBERGRENZE des Tempos, keine Erwartung. */
 const STUFEN = [
-  { punkte: 0,    text: 'Neuling',      hp: 100, wucht: 1.00, frei: null },
-  { punkte: 600,  text: 'Straßenheld',  hp: 115, wucht: 1.10, frei: 'Aufwärtshaken (R)' },
-  { punkte: 1600, text: 'Netzschwinger', hp: 130, wucht: 1.20, frei: 'Packen & Werfen (G)' },
-  { punkte: 3200, text: 'Beschützer',   hp: 145, wucht: 1.32, frei: 'Wandlauf (Shift an der Wand)' },
-  { punkte: 5600, text: 'Stadtlegende', hp: 165, wucht: 1.45, frei: 'Netz-Zip trifft doppelt' },
-  { punkte: 9000, text: 'Ikone',        hp: 190, wucht: 1.6,  frei: 'Kombo ohne Ende' },
+  { punkte: 0,     text: 'Neuling',       hp: 100, wucht: 1.00, frei: null },
+  { punkte: 1200,  text: 'Straßenheld',   hp: 115, wucht: 1.10, frei: 'Aufwärtshaken (R)' },
+  { punkte: 3000,  text: 'Netzschwinger', hp: 130, wucht: 1.20, frei: 'Packen & Werfen (G)' },
+  { punkte: 5400,  text: 'Beschützer',    hp: 145, wucht: 1.32, frei: 'Wandlauf (Shift an der Wand)' },
+  { punkte: 8600,  text: 'Stadtlegende',  hp: 165, wucht: 1.45, frei: 'Netz-Zip trifft doppelt' },
+  { punkte: 13500, text: 'Ikone',         hp: 190, wucht: 1.60, frei: 'Kombo ohne Ende' },
+  { punkte: 20000, text: 'Schutzpatron',  hp: 190, wucht: 1.60, frei: null },
+  { punkte: 28000, text: 'Stadtgewissen', hp: 190, wucht: 1.60, frei: null },
+  { punkte: 38000, text: 'Stimme der Stadt', hp: 190, wucht: 1.60, frei: null },
+  { punkte: 52000, text: 'Symbol',        hp: 190, wucht: 1.60, frei: null },
 ];
 let stufe = 0;
 function stufeFuer(p) {
@@ -12432,6 +12461,16 @@ function progLeer() {
     meilensteine: [],          // abgeschlossene Meilensteine
     bezirke: {},               // Bezirkskennung -> { poi, marken, her, crime }
     einmalig: [],              // schon einmal belohnte Kennungen (Anti-Farm)
+    /* ---- Kosmetik: vorbereitet, nicht gebaut ----
+       Das Asset-Audit hat genau EIN Heldenmodell ergeben (hero.glb plus
+       Bewegungsdateien) und keine Anzugvarianten. Es gibt zwar einen
+       sauberen Umschaltweg - der Symbiontenanzug tauscht nur eine Reihe
+       Eckpunktfarben aus -, aber ohne vorhandene Varianten waere jede
+       Freischaltung eine erfundene. Fremde Anzuege aus kommerziellen
+       Spielen kommen nicht in Frage.
+       Das Feld bleibt deshalb leer und wandert mit durch jede Migration;
+       sobald es Varianten gibt, haengt die Freischaltung hier. */
+    kosmetik: [],
     statistik: {
       spielzeit: 0, crimes: 0, gerettet: 0, bosse: 0,
       herausforderungen: 0, poi: 0, marken: 0, besteKombo: 0, stufenAufstiege: 0,
@@ -12473,6 +12512,7 @@ function progPruefen(roh) {
   g.marken      = listeVonText(roh.marken, 200);
   g.meilensteine = listeVonText(roh.meilensteine, 200);
   g.einmalig    = listeVonText(roh.einmalig, 400);
+  g.kosmetik    = listeVonText(roh.kosmetik, 64);
   if (roh.skills && typeof roh.skills === 'object') {
     for (const id in roh.skills) {
       const def = SKILLS[id];
@@ -12644,42 +12684,42 @@ const HER_ARTEN_IDS = ['zeittor', 'schwungbahn', 'dachlauf'];
 const MEILEN = [
   /* --- Held --- */
   { id: 'crime10',  gruppe: 'Held', name: 'Bekanntes Gesicht',
-    text: '10 Verbrechen gestoppt',   zahl: 'crimes', ziel: 10,  punkte: 250, ruf: 4 },
+    text: '10 Verbrechen gestoppt',   zahl: 'crimes', ziel: 10,  punkte: 120, ruf: 4 },
   { id: 'crime25',  gruppe: 'Held', name: 'Die Stadt ruft dich',
-    text: '25 Verbrechen gestoppt',   zahl: 'crimes', ziel: 25,  punkte: 600, ruf: 6 },
+    text: '25 Verbrechen gestoppt',   zahl: 'crimes', ziel: 25,  punkte: 300, ruf: 6 },
   { id: 'crime50',  gruppe: 'Held', name: 'Ein Name in der Zeitung',
-    text: '50 Verbrechen gestoppt',   zahl: 'crimes', ziel: 50,  punkte: 1400, ruf: 8 },
+    text: '50 Verbrechen gestoppt',   zahl: 'crimes', ziel: 50,  punkte: 700, ruf: 8 },
   /* --- Rettung --- */
   { id: 'rett5',    gruppe: 'Rettung', name: 'Erste Hilfe',
-    text: '5 Menschen gerettet',      zahl: 'gerettet', ziel: 5,  punkte: 200, ruf: 5 },
+    text: '5 Menschen gerettet',      zahl: 'gerettet', ziel: 5,  punkte: 100, ruf: 5 },
   { id: 'rett20',   gruppe: 'Rettung', name: 'Man vertraut dir',
-    text: '20 Menschen gerettet',     zahl: 'gerettet', ziel: 20, punkte: 700, ruf: 9 },
+    text: '20 Menschen gerettet',     zahl: 'gerettet', ziel: 20, punkte: 350, ruf: 9 },
   /* --- Erkunden --- */
   { id: 'poi10',    gruppe: 'Erkunden', name: 'Ortskenntnis',
-    text: '10 Orte entdeckt',         zahl: 'poi', ziel: 10, punkte: 250, ruf: 3 },
+    text: '10 Orte entdeckt',         zahl: 'poi', ziel: 10, punkte: 120, ruf: 3 },
   { id: 'poi25',    gruppe: 'Erkunden', name: 'Du kennst dich aus',
-    text: '25 Orte entdeckt',         zahl: 'poi', ziel: 25, punkte: 700, ruf: 5 },
+    text: '25 Orte entdeckt',         zahl: 'poi', ziel: 25, punkte: 350, ruf: 5 },
   { id: 'bezirk1',  gruppe: 'Erkunden', name: 'Dein Viertel',
-    text: 'Einen Bezirk gemeistert',  bezirke: 1, punkte: 500, ruf: 6 },
+    text: 'Einen Bezirk gemeistert',  bezirke: 1, punkte: 250, ruf: 6 },
   { id: 'bezirk3',  gruppe: 'Erkunden', name: 'Drei Viertel kennen dich',
-    text: 'Drei Bezirke gemeistert',  bezirke: 3, punkte: 1200, ruf: 10 },
+    text: 'Drei Bezirke gemeistert',  bezirke: 3, punkte: 600, ruf: 10 },
   /* --- Bewegung --- */
   { id: 'her5',     gruppe: 'Bewegung', name: 'Sicherer Schwung',
-    text: '5 Strecken geschafft',     zahl: 'herausforderungen', ziel: 5, punkte: 300, ruf: 3 },
+    text: '5 Strecken geschafft',     zahl: 'herausforderungen', ziel: 5, punkte: 150, ruf: 3 },
   { id: 'herAlle',  gruppe: 'Bewegung', name: 'Alle drei Arten',
-    text: 'Jede Streckenart einmal geschafft', alleHer: true, punkte: 600, ruf: 5 },
+    text: 'Jede Streckenart einmal geschafft', alleHer: true, punkte: 300, ruf: 5 },
   /* --- Sammlung --- */
   { id: 'sam5',     gruppe: 'Sammlung', name: 'Aufmerksam',
-    text: '5 Marken gefunden',        zahl: 'marken', ziel: 5,  punkte: 200, ruf: 2 },
+    text: '5 Marken gefunden',        zahl: 'marken', ziel: 5,  punkte: 100, ruf: 2 },
   { id: 'sam12',    gruppe: 'Sammlung', name: 'Die halbe Stadt',
-    text: '12 Marken gefunden',       zahl: 'marken', ziel: 12, punkte: 600, ruf: 4 },
+    text: '12 Marken gefunden',       zahl: 'marken', ziel: 12, punkte: 300, ruf: 4 },
   { id: 'sam24',    gruppe: 'Sammlung', name: 'Alles gefunden',
-    text: '24 Marken gefunden',       zahl: 'marken', ziel: 24, punkte: 1500, ruf: 8 },
+    text: '24 Marken gefunden',       zahl: 'marken', ziel: 24, punkte: 750, ruf: 8 },
   /* --- Boss --- */
   { id: 'boss1',    gruppe: 'Held', name: 'Der Erste',
-    text: 'Einen ENFORCER besiegt',   zahl: 'bosse', ziel: 1, punkte: 400, ruf: 6 },
+    text: 'Einen ENFORCER besiegt',   zahl: 'bosse', ziel: 1, punkte: 200, ruf: 6 },
   { id: 'boss5',    gruppe: 'Held', name: 'Kein Zufall',
-    text: 'Fuenf ENFORCER besiegt',   zahl: 'bosse', ziel: 5, punkte: 1500, ruf: 10 },
+    text: 'Fuenf ENFORCER besiegt',   zahl: 'bosse', ziel: 5, punkte: 750, ruf: 10 },
 ];
 
 function meilenErfuellt(m) {
