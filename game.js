@@ -22979,7 +22979,7 @@ const BOSS_KAMPF_NACHLAUF = 8;
 
 const BOSSLZ = {
   tickCd: 0,
-  statistik: { nachEvent: 0, eingesammelt: 0, entfernt: 0,
+  statistik: { nachEvent: 0, eingesammelt: 0, entfernt: 0, verweisGeloest: 0,
                blockiertSchonzeit: 0, blockiertKampf: 0,
                blockiertBelegt: 0, blockiertSicht: 0 },
 };
@@ -23069,6 +23069,19 @@ function bossEntfernen(e, i) {
    Treffer zwischen zwei Takten darf nicht durchrutschen. Die Entscheidung
    selbst faellt nur alle halbe Sekunde, und es geht hoechstens einer. */
 function bossLebenszyklus(dt) {
+  /* ---- Sicherheitsnetz fuer den Verweis ----
+     Nicht nur evAufraeumen konnte bossAktiv haengen lassen: nimmt eine
+     andere Schicht den Boss aus der Welt - der Abtransport durch die
+     Polizei etwa loescht ihn direkt aus enemies -, bliebe der Verweis
+     ebenfalls stehen. Folge waere dieselbe wie beim urspruenglichen
+     Fehler: Bossleiste auf eine Figur, die es nicht mehr gibt, und eine
+     dauerhaft geschlossene Spawnsperre fuer neue Gang-Bosse. Statt in
+     eine gesperrte Schicht einzugreifen, wird der Verweis hier geprueft. */
+  if (bossAktiv && enemies.indexOf(bossAktiv) < 0) {
+    bossAktiv = null;
+    zeigeBossLeiste(null);
+    BOSSLZ.statistik.verweisGeloest++;
+  }
   for (const e of enemies) {
     if (!e.boss || e.dead) continue;
     /* Sicherheitsnetz: ein lebender Boss, den weder ein Ereignis noch der
