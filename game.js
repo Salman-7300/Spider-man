@@ -26980,7 +26980,14 @@ function storyAufraeumen() {
 function storyEnde(art) {
   const d = STORY.aktiv;
   if (!d) return;
-  const weich = art === 'weich';
+  /* ---- Ein weicher Ausgang MITTEN in der Mission zaehlt auch ----
+     m.weich wurde bisher gesetzt und nie gelesen. Folge: entkam der
+     Konvoi in Mission 5, lief die Mission mit der naechsten Phase
+     weiter, und weil die gelang, gab es am Ende die volle Belohnung -
+     der verpasste Wagen kostete nichts. Jetzt faerbt jede weiche Phase
+     die ganze Mission ein. */
+  const weich = art === 'weich' ||
+                (art === 'erfolg' && !!(MISSION.daten && MISSION.daten.weich));
   const abbruch = art === 'abbruch';
   /* Die letzte Phase darf noch aufraeumen (Fluchtauto zuruecksetzen). */
   const ph = d.phasen[STORY.phase];
