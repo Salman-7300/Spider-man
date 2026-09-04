@@ -26562,17 +26562,28 @@ const STORY_DEF = [
         },
         pruef: (m) => stNah(m.zielPos, 30) ? 'weiter' : null },
       { ziel: 'Drei Stellen ansehen (0/3)',
-        auf: (m) => stFunk('Sieh dich um. Irgendwo hier haben sie gearbeitet.'),
+        auf: (m) => stFunk('Sieh dich um. Drei Stellen sind markiert.'),
         pruef: (m) => {
-          let n = 0;
+          let n = 0, naechster = null, nd = 1e9;
           for (const q of m.punkte) {
             if (!q.gesehen && stNah({ x: q.x, z: q.z }, 9)) {
               q.gesehen = true;
               addScore(40, 'Spur', player.pos);
               popupWorld('Spur gefunden', player.pos, '#8fd4ff');
             }
-            if (q.gesehen) n++;
+            if (q.gesehen) { n++; continue; }
+            const dd = Math.hypot(q.x - player.pos.x, q.z - player.pos.z);
+            if (dd < nd) { nd = dd; naechster = q; }
           }
+          /* ---- Die naechste offene Stelle wird gezeigt ----
+             Ohne das nennt die Mission drei Stellen und zeigt keine: der
+             Leuchtturm bleibt aus, weil in dieser Phase kein Ziel gesetzt
+             ist, und der Spieler sucht eine Stadt von 350 Metern ab. Der
+             Auftrag verlangt ausdruecklich KEIN Detektivsystem - also
+             fuehrt der Leuchtturm hin, und das Ansehen ist der Inhalt. */
+          m.zielPos = naechster
+            ? { x: naechster.x, y: groundY(naechster.x, naechster.z, 2) + 1, z: naechster.z }
+            : null;
           STORY.zielText = 'Drei Stellen ansehen (' + n + '/3)';
           return n >= 3 ? 'weiter' : null;
         } },
