@@ -26508,7 +26508,10 @@ const STORY_DEF = [
         },
         pruef: (m) => {
           if (m.opfer && m.opfer.state === 'hurt' && !m.opferVerletzt) {
-            m.opferVerletzt = true;              // weiche Niederlage, kein Abbruch
+            /* Kein Abbruch - aber es bleibt haengen. Die Belohnung faellt
+               am Ende kleiner aus, und der Funkspruch sagt es auch. */
+            m.opferVerletzt = true;
+            stFunk('Der Passant ist verletzt. Er hätte nicht getroffen werden müssen.');
           }
           return stAlleGangsTot() ? 'weiter' : null;
         } },
@@ -26957,9 +26960,15 @@ function storyEnde(art) {
   if (!abbruch) {
     if (STORY.fertig.indexOf(d.id) < 0) STORY.fertig.push(d.id);
     const b = (weich && d.weichBelohnung) ? d.weichBelohnung : d.belohnung;
+    /* ---- Wer die Leute nicht schuetzt, bekommt weniger ----
+       Die Mission scheitert daran NICHT. Aber ein verletzter Passant
+       kostet die Haelfte des Ansehens und ein Viertel der Punkte - das
+       ist der Unterschied zwischen "erledigt" und "gut erledigt". */
+    const geschont = !(MISSION.daten && MISSION.daten.opferVerletzt);
     if (b) {
-      if (b.punkte) addScore(b.punkte, 'Auftrag erfüllt', player.pos);
-      if (b.ruf) setzeRuf(+b.ruf);
+      if (b.punkte) addScore(Math.round(b.punkte * (geschont ? 1 : 0.75)),
+                             'Auftrag erfüllt', player.pos);
+      if (b.ruf) setzeRuf(+b.ruf * (geschont ? 1 : 0.5));
       if (b.fertigkeitspunkt) {
         PROG.fertigkeitspunkte++;
         popupScreen('✦ Ein zusätzlicher Fertigkeitspunkt');
@@ -28514,6 +28523,7 @@ if (window.__WEBHERO_TEST__ === true) {
     storyStarte, storyEnde, storyAufraeumen, storyTaste, storyTakt, setzeRuf,
     storyKampfPhase, storyOffen, storyZustand,
     storyZielPos() { const m = MISSION.daten; return (m && m.zielPos) || null; },
+    missionDaten() { return MISSION.daten; },
     /* Eine Mission bis zum Ende durchspielen, ohne den Kampf wirklich zu
        fuehren: fuer die Ablauftests. Der Weg bleibt der echte - es wird
        nur beschleunigt, was der Spieler sonst mit den Fäusten macht. */
