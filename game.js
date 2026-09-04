@@ -25855,6 +25855,9 @@ function herStarte(a) {
             : '\u23f1\ufe0f Zeittor - los!');
 }
 
+/* So viel schneller muss eine neue Bestzeit sein, damit sie als Leistung
+   zaehlt und nicht als Salamitaktik. */
+const HER_BESTZEIT_MIN = 0.5;
 function herEnde(grund) {
   const h = HER.aktiv;
   if (!h) return;
@@ -25877,15 +25880,23 @@ function herEnde(grund) {
        sich bloss nicht mehr. */
     const ersteKennung = 'her:' + h.art;
     const erstes = PROG.einmalig.indexOf(ersteKennung) < 0;
+    /* ---- Der Bonus verlangt eine ECHTE Verbesserung ----
+       Der Anti-Farm-Test hat gezeigt, dass eine um 0,5 s bessere Zeit
+       jedes Mal wieder den vollen Bestzeit-Bonus brachte - zehn Laeufe,
+       zehnmal 188 Punkte. Wer seine Zeit in Zehntelschritten drueckt,
+       haette damit eine Dauerquelle. Unter dieser Schwelle zaehlt der
+       Lauf als normale Wiederholung. */
+    const spuerbar = neu && (!alt || alt - h.t >= HER_BESTZEIT_MIN);
     let punkte;
+    /* Jeder geschaffte Lauf ist ein geschaffter Lauf - die Statistik
+       zaehlt Abschluesse, nicht Belohnungen. */
+    PROG.statistik.herausforderungen++;
     if (erstes) {
       PROG.einmalig.push(ersteKennung);
       punkte = 400;
-      PROG.statistik.herausforderungen++;
       bezirkZaehle(player.pos.x, player.pos.z, 'her');
-    } else if (neu) {
+    } else if (spuerbar) {
       punkte = 150;
-      PROG.statistik.herausforderungen++;
     } else {
       punkte = 30;
     }
@@ -27764,6 +27775,8 @@ if (window.__WEBHERO_TEST__ === true) {
       sichtbar: !!(x.mesh && x.mesh.visible) })); },
     samSichtbar() { let n = 0; for (const x of SAM.liste) if (!x.weg && x.mesh.visible) n++; return n; },
     her: HER,
+    /* Fuer den Anti-Farm-Test: eine Strecke ueber den echten Weg beenden. */
+    herEnde,
     herStatistik() { return HER.statistik; },
     herBest() { return HER.bestzeit; },
     herStand() { return HER.aktiv ? { art: HER.aktiv.art, i: HER.aktiv.i,
