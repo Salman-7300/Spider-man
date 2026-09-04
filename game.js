@@ -22999,24 +22999,37 @@ function bossNachEreignis(e) {
 /* Kampf hat Vorrang - und zwar breiter gefasst als bei normalen Gegnern.
    Es wird ausschliesslich die vorhandene Kampferkennung gelesen, kein
    zweites Combat-System. */
+/* ---- Zwei Arten von Kampfsignal ----
+   Die einen beschreiben den Boss selbst (er holt aus, er taumelt, er
+   haengt im Netz) - die gelten in jeder Entfernung. Die anderen
+   beschreiben eine Beziehung zum Spieler; sie sind nur in dessen Naehe
+   ueberhaupt sinnvoll.
+
+   Gemessen: player.ziel zeigte auf einen Boss in 324 m Entfernung und
+   markierte ihn dauerhaft als "im Kampf". player.ziel ist eine
+   Kombo-Referenz und wird nur im Block "if (player.comboTimer > 0)"
+   geloescht - laeuft gerade kein Kombozaehler, bleibt sie stehen. Ohne
+   Entfernungsschranke pendelte die Schonzeit deshalb endlos zwischen 0
+   und 20 s, und dieser Boss waere nie abgebaut worden. */
+const BOSS_KAMPF_NAH = 25;
 function bossKampfGrund(e) {
-  if (e.state === 'chase' && e.target === 'player') return 'jagt';
-  if (player.attack && Math.hypot(e.pos.x - player.pos.x,
-                                  e.pos.z - player.pos.z) < 6) return 'spielerSchlaegt';
+  const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+  /* Eigener Zustand - entfernungsunabhaengig gueltig. */
   if (e.attack) return 'angriff';
   if ((e.warnT || 0) > 0) return 'vorwarnung';
   if ((e.staggerT || 0) > 0) return 'taumelt';
   if ((e.poiseSchutzT || 0) > 0) return 'standfestSchutz';
   if ((e.bossUmbauT || 0) > 0) return 'phasenwechsel';
-  if (KAMPF_RECHT.has(e)) return 'angriffsrecht';
-  if (player.ziel === e) return 'spielerZiel';
   if ((e.webT || 0) > 0) return 'netz';
   if (e.gepackt) return 'gepackt';
   if (e.anWand) return 'anWand';
-  /* Angeschlagen und der Spieler ist in Reichweite: das ist ein laufender
-     Kampf, auch wenn der Boss gerade nicht zuschlaegt. */
-  if (e.hp < e.hpMax &&
-      Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 25) return 'angeschlagenNah';
+  /* Beziehung zum Spieler - nur in seiner Naehe ein Kampf. */
+  if (d >= BOSS_KAMPF_NAH) return null;
+  if (e.state === 'chase' && e.target === 'player') return 'jagt';
+  if (player.attack && d < 6) return 'spielerSchlaegt';
+  if (KAMPF_RECHT.has(e)) return 'angriffsrecht';
+  if (player.ziel === e) return 'spielerZiel';
+  if (e.hp < e.hpMax) return 'angeschlagenNah';
   return null;
 }
 function bossImKampf(e) { return bossKampfGrund(e) !== null; }
