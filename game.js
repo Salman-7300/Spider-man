@@ -22496,6 +22496,7 @@ function updateEnemies(dtBild) {
     }
   }
   gegnerHygiene(dtBild);
+  bossLebenszyklus(dtBild);
 
   /* ---- Nachschub ----
      Gezaehlt wird die DAUERHAFTE Bevoelkerung, nicht enemies.length:
@@ -22804,9 +22805,14 @@ function gegnerInMission(e) {
 }
 
 /* Wird er gerade von einer anderen Schicht gebraucht? Polizei, Netz,
-   Griff, Wurf, Flucht - jede davon besitzt ihn, solange sie laeuft. */
+   Griff, Wurf, Flucht - jede davon besitzt ihn, solange sie laeuft.
+   Getrennt in zwei Teile, weil der Boss dieselben Besitzfragen stellen
+   muss - nur ohne den Kurzschluss, der ihn fuer die Hygiene tabu macht. */
 function gegnerBelegt(e) {
-  if (e.boss) return true;
+  if (e.boss) return true;      // Hygiene fasst Bosse nie an, siehe bossLebenszyklus
+  return figurBelegt(e);
+}
+function figurBelegt(e) {
   if (e.policeCustody || e.gesichertT > 0) return true;
   if (e.gepackt || e.anWand) return true;
   if (e.webT > 0) return true;
@@ -22833,6 +22839,7 @@ function gegnerImKampf(e) {
    passiert. */
 function gegnerPopulation() {
   const p = { ambient: 0, aktivesEvent: 0, mission: 0, boss: 0,
+              bossAktiv: 0, bossNachEvent: 0, bossAbbau: 0, bossVerwaist: 0,
               gewahrsam: 0, abbau: 0, tot: 0, gesamt: 0, szenenKnoten: 0 };
   for (const e of enemies) {
     p.gesamt++;
@@ -22840,7 +22847,19 @@ function gegnerPopulation() {
     if (e.visual && e.visual.root) {
       e.visual.root.traverse(() => { p.szenenKnoten++; });
     }
-    if (e.boss) { p.boss++; continue; }
+    /* Bosse werden aufgeschluesselt, nicht in einer Zahl versteckt: genau
+       so ist die Ansammlung aus dem Stresslauf unsichtbar geblieben. */
+    if (e.boss) {
+      p.boss++;
+      if (e.bossNachEvent) {
+        if (e.bossAbbau) p.bossAbbau++; else p.bossNachEvent++;
+      } else if (e.eventId || bossAktiv === e) {
+        p.bossAktiv++;
+      } else {
+        p.bossVerwaist++;
+      }
+      continue;
+    }
     if (e.policeCustody) { p.gewahrsam++; continue; }
     if (e.abbau) { p.abbau++; continue; }
     if (e.eventId) { p.aktivesEvent++; continue; }
@@ -22927,6 +22946,158 @@ function gegnerHygiene(dt) {
       if (gj >= 0) e.gang.enemies.splice(gj, 1);
     }
     HYG.statistik.abgebaut++;
+    break;                       // hoechstens einer je Takt
+  }
+}
+
+/* ================= Boss-Lebenszyklus =================
+   Der Boss haengt bewusst NICHT an gegnerHygiene. Die Hygiene regelt eine
+   Bevoelkerung; der Boss ist keine Bevoelkerung, sondern eine einzelne
+   Eventfigur. Deshalb ein eigener, kleiner Zyklus - und ausdruecklich kein
+   Zugriff des Ambient-Caps auf ihn: CFG.maxEnemies darf einen Boss niemals
+   entfernen.
+
+   Gemessen im 60-Minuten-Stresslauf mit 199 Ereignissen: 7 ENFORCER hatten
+   sich angesammelt. Der Grund waren zwei Wege in evAufraeumen, die beide
+   falsch endeten. Nah am Spieler ging der Boss in gegnerNachEreignis, das
+   ihn in der ersten Zeile wieder abwies - er behielt keinen Zustand und
+   wurde nie wieder betrachtet. Weit weg wurde er sofort hart aus enemies
+   geloescht, ohne Sichtpruefung und ohne bossAktiv zu loesen - die Anzeige
+   und die Spawnsperre zeigten danach auf eine Figur, die es nicht mehr
+   gab, und ein neuer Gang-Boss konnte nie wieder entstehen.
+
+   Jetzt gibt es genau einen Weg: bossNachEreignis(). */
+
+/* Deutlich konservativer als bei normalen Gegnern (6 s / 42 m). Ein Boss
+   ist ein Ereignis fuer sich; er soll nicht in dem Moment gehen, in dem
+   der Spieler ihn gerade aus den Augen verliert. */
+const BOSS_SCHONZEIT = 20;
+const BOSS_ABBAU_UNSICHTBAR = 80;
+/* Nach dem letzten Kampfkontakt vergeht so viel Zeit, bevor er ueberhaupt
+   wieder als Abbaukandidat gilt - sonst reicht ein kurzer Blickwechsel. */
+const BOSS_KAMPF_NACHLAUF = 8;
+
+const BOSSLZ = {
+  tickCd: 0,
+  statistik: { nachEvent: 0, eingesammelt: 0, entfernt: 0,
+               blockiertSchonzeit: 0, blockiertKampf: 0,
+               blockiertBelegt: 0, blockiertSicht: 0 },
+};
+
+/* Ein Boss hat sein Ereignis ueberlebt. Er wird NICHT zum Ambient-Ganoven -
+   ein ENFORCER patrouilliert nicht als Strassenganove weiter. Er bekommt
+   nur einen Nachlaufzustand. */
+function bossNachEreignis(e) {
+  if (!e || e.dead || !e.boss) return;
+  if (e.bossNachEvent) return;
+  e.bossNachEvent = true;
+  e.bossAbbau = false;
+  e.bossAbbauT = 0;
+  BOSSLZ.statistik.nachEvent++;
+}
+
+/* Kampf hat Vorrang - und zwar breiter gefasst als bei normalen Gegnern.
+   Es wird ausschliesslich die vorhandene Kampferkennung gelesen, kein
+   zweites Combat-System. */
+function bossImKampf(e) {
+  if (gegnerImKampf(e)) return true;             // jagt den Spieler, oder Spieler schlaegt daneben
+  if (e.attack || (e.warnT || 0) > 0) return true;
+  if ((e.staggerT || 0) > 0 || (e.poiseSchutzT || 0) > 0) return true;
+  if ((e.bossUmbauT || 0) > 0) return true;      // Phasenwechsel laeuft
+  if (KAMPF_RECHT.has(e)) return true;           // der Combat-Regisseur hat ihm das Wort gegeben
+  if (player.ziel === e) return true;
+  if ((e.webT || 0) > 0 || e.gepackt || e.anWand) return true;
+  if (e.hp < e.hpMax) {
+    /* Angeschlagen und der Spieler ist in Reichweite: das ist ein
+       laufender Kampf, auch wenn der Boss gerade nicht zuschlaegt. */
+    if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 25) return true;
+  }
+  return false;
+}
+
+/* Besitzt eine andere Schicht ihn? Polizei, Gewahrsam, Auftrag, Netz,
+   Griff, Flucht. Responder hat immer Vorrang vor dem Lebenszyklus. */
+function bossBelegt(e) {
+  if (e.eventId) return true;                    // gehoert noch einem laufenden Ereignis
+  return figurBelegt(e);
+}
+
+/* Vollstaendig aus der Welt nehmen - inklusive aller Verweise, die sonst
+   ins Leere zeigen wuerden. */
+function bossEntfernen(e, i) {
+  enemies.splice(i, 1);
+  if (e.visual && e.visual.root) scene.remove(e.visual.root);
+  if (e.cocoon) e.cocoon.visible = false;
+  if (e.hpBar && e.hpBar.g) e.hpBar.g.visible = false;
+  if (e.gang) {
+    const gj = e.gang.enemies.indexOf(e);
+    if (gj >= 0) e.gang.enemies.splice(gj, 1);
+    if (e.gang.chef === e) e.gang.chef = null;
+    if (!e.gang.enemies.length) {
+      const gi = gangs.indexOf(e.gang);
+      if (gi >= 0) gangs.splice(gi, 1);
+    }
+  }
+  deckungLoesen(e);
+  KAMPF_RECHT.delete(e);
+  if (player.ziel === e) player.ziel = null;
+  if (bossAktiv === e) { bossAktiv = null; zeigeBossLeiste(null); }
+  e.bossNachEvent = false; e.bossAbbau = false;
+  BOSSLZ.statistik.entfernt++;
+}
+
+/* Laeuft jedes Bild. Die Kampfbeobachtung braucht jedes Bild - ein
+   Treffer zwischen zwei Takten darf nicht durchrutschen. Die Entscheidung
+   selbst faellt nur alle halbe Sekunde, und es geht hoechstens einer. */
+function bossLebenszyklus(dt) {
+  for (const e of enemies) {
+    if (!e.boss || e.dead) continue;
+    /* Sicherheitsnetz: ein lebender Boss, den weder ein Ereignis noch der
+       Lebenszyklus noch die Bossanzeige besitzt, ist verwaist. Statt ihn
+       zu vergessen, wird er eingesammelt. Genau diese Figur war der
+       Fehler aus dem Stresslauf. */
+    if (!e.eventId && !e.bossNachEvent && bossAktiv !== e) {
+      bossNachEreignis(e);
+      BOSSLZ.statistik.eingesammelt++;
+    }
+    if (bossImKampf(e)) e.bossKampfT = elapsed;
+  }
+
+  BOSSLZ.tickCd -= dt;
+  if (BOSSLZ.tickCd > 0) return;
+  BOSSLZ.tickCd = 0.5;
+
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    if (!e.boss || e.dead || !e.bossNachEvent) continue;
+    e.bossAbbauT = (e.bossAbbauT || 0) + 0.5;
+    if (e.bossAbbauT < BOSS_SCHONZEIT) {
+      BOSSLZ.statistik.blockiertSchonzeit++;
+      e.bossAbbau = false;
+      continue;
+    }
+    if (elapsed - (e.bossKampfT === undefined ? -1e9 : e.bossKampfT) < BOSS_KAMPF_NACHLAUF) {
+      /* Der Kampf zaehlt nach: die Schonzeit beginnt danach von vorn. */
+      BOSSLZ.statistik.blockiertKampf++;
+      e.bossAbbau = false;
+      e.bossAbbauT = 0;
+      continue;
+    }
+    if (bossBelegt(e)) {
+      BOSSLZ.statistik.blockiertBelegt++;
+      e.bossAbbau = false;
+      continue;
+    }
+    /* Ab hier wartet er nur noch auf einen Moment, in dem ihn niemand
+       sieht. Im Blickfeld verschwindet er nie - evImBlick prueft Kegel
+       UND freie Sicht und gilt ohnehin nur bis 130 m. */
+    e.bossAbbau = true;
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    if (d < BOSS_ABBAU_UNSICHTBAR || evImBlick(e.pos.x, e.pos.z)) {
+      BOSSLZ.statistik.blockiertSicht++;
+      continue;
+    }
+    bossEntfernen(e, i);
     break;                       // hoechstens einer je Takt
   }
 }
@@ -23278,6 +23449,13 @@ function evAufraeumen(e) {
     g.eventFlucht = false;
     g.gesichertT = 0;
     if (g.dead) continue;
+    /* ---- Der Boss geht einen eigenen Weg ----
+       Vorher landete er nah am Spieler in gegnerNachEreignis, das ihn
+       sofort wieder abwies, und weit weg wurde er hart geloescht, ohne
+       Sichtpruefung und ohne bossAktiv zu loesen. Beides falsch. Ein
+       ENFORCER wird nie Ambient-Ganove und verschwindet nie vor der Nase
+       des Spielers - er bekommt einen Nachlaufzustand. */
+    if (g.boss) { bossNachEreignis(g); continue; }
     const dw = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
     if (dw < 70) {
       /* ---- Hier wuchs die Bevoelkerung ----
@@ -26695,6 +26873,28 @@ if (window.__WEBHERO_TEST__ === true) {
     gegnerPopulation,
     hygStatistik() { return Object.assign({}, HYG.statistik); },
     hygZuruecksetzen() { for (const k in HYG.statistik) HYG.statistik[k] = 0; },
+    bossStatistik() { return Object.assign({}, BOSSLZ.statistik); },
+    bossZuruecksetzen() { for (const k in BOSSLZ.statistik) BOSSLZ.statistik[k] = 0; },
+    /* Alle lebenden Bosse mit ihrem Lebenszyklus-Zustand - fuer die
+       Pruefskripte, damit ein Boss nie nur als Zahl auftaucht. */
+    bossListe() {
+      const a = [];
+      for (const e of enemies) {
+        if (!e.boss || e.dead) continue;
+        a.push({ name: e.bossName, hp: Math.round(e.hp),
+                 eventId: e.eventId || null,
+                 aktiv: bossAktiv === e,
+                 nachEvent: !!e.bossNachEvent,
+                 abbau: !!e.bossAbbau,
+                 abbauT: +(e.bossAbbauT || 0).toFixed(1),
+                 kampfHer: e.bossKampfT === undefined ? null
+                           : +(elapsed - e.bossKampfT).toFixed(1),
+                 d: +Math.hypot(e.pos.x - player.pos.x,
+                                e.pos.z - player.pos.z).toFixed(1),
+                 imBlick: evImBlick(e.pos.x, e.pos.z) });
+      }
+      return a;
+    },
     validZaehler() { return Object.assign({}, VALID); },
     validReset() { for (const k in VALID) VALID[k] = 0; },
     diagAn(an) { VALID._diag = !!an; VALID._nachAufloesung = 0; VALID._bildEnde = 0; VALID._endeUpdate = 0; },
