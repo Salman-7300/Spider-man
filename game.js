@@ -20484,8 +20484,9 @@ function freierPunkt(cx, cz, r) {
   return null;
 }
 
-function spawnGang(cx, cz, n) {
-  const gang = { enemies: [], home: V3(cx, 0, cz), cleared: false };
+function spawnGang(cx, cz, n, quelle) {
+  const gang = { enemies: [], home: V3(cx, 0, cz), cleared: false,
+                 quelle: quelle || 'ambient' };
   for (let i = 0; i < n; i++) {
     const visual = makeCharacterVisual('thug', {
       thug: true,
@@ -20524,6 +20525,12 @@ function spawnGang(cx, cz, n) {
          den ganzen Zweig verschluckt. */
       paradeT: 0, paradeCd: 0, paradeFehlT: 0, paradeAnzeigeT: 0, paradePlan: null,
       poiseSchutzT: 0, kippT: 0,
+      /* ---- Herkunft und Abbau ----
+         quelle sagt, WOHER dieser Ganove kommt, und entscheidet damit, ob
+         er zur Dauerbevoelkerung zaehlt. 'abbau' heisst: er soll aus der
+         Welt, aber erst, wenn es niemand sieht. Siehe gegnerHygiene(). */
+      quelle: quelle || 'ambient',
+      abbau: false, abbauT: 0,
       state: 'patrol',
       target: null,        // 'player' | Zivilist
       waypoint: null, waitT: rand(0, 2),
@@ -20801,10 +20808,10 @@ function spawnGangAwayFromPlayer() {
   for (let tries = 0; tries < 20; tries++) {
     const [x, z] = pick(SPOTS);
     const d = Math.hypot(x - player.pos.x, z - player.pos.z);
-    if (d > 55 && d < 220) return spawnGang(x, z, randi(3, 5));
+    if (d > 55 && d < 220) return spawnGang(x, z, randi(3, 5), 'ambient');
   }
   const [x, z] = pick(SPOTS);
-  return spawnGang(x, z, randi(3, 4));
+  return spawnGang(x, z, randi(3, 4), 'ambient');
 }
 
 
@@ -22488,8 +22495,14 @@ function updateEnemies(dtBild) {
       }
     }
   }
-  /* Nachschub */
-  const alive = enemies.filter((e) => !e.dead).length;
+  gegnerHygiene(dtBild);
+
+  /* ---- Nachschub ----
+     Gezaehlt wird die DAUERHAFTE Bevoelkerung, nicht enemies.length:
+     Ereignis- und Bossgegner sind Gaeste und duerfen den Nachschub nicht
+     blockieren, Abbau-Kandidaten dagegen stehen noch da und zaehlen mit.
+     Genau diese Unterscheidung hat in Phase 10 gefehlt. */
+  const alive = gegnerDauerhaft();
   gangRespawnT -= dtBild;
   if (alive < CFG.maxEnemies - 3 && gangRespawnT <= 0) {
     spawnGangAwayFromPlayer();
@@ -22754,6 +22767,170 @@ const EV_ROLLEN = {
   4: ['schlaeger', 'brecher', 'werfer'],
 };
 
+/* ======================= Bevoelkerungshygiene =======================
+   Gemessen in Phase 10: CFG.maxEnemies ist 14, nach acht Minuten aktivem
+   Spiel liefen 17 Ganoven herum. Die Ursache steckt in evAufraeumen: wer
+   beim Ende eines Ereignisses naeher als 70 m am Spieler stand, blieb
+   stehen und wurde damit DAUERHAFT Teil der Stadt - eine zweite Chance
+   gab es nie. Da Ereignisse in Spielernaehe entstehen, trifft das fast
+   jeden Ueberlebenden. Ueber eine lange Sitzung waechst die Bevoelkerung
+   damit ohne Grenze.
+
+   Der Deckel bedeutet ausdruecklich NICHT "nie mehr als 14 Gegner". Ein
+   grosses Ereignis darf die Welt voruebergehend darueber bringen - das
+   ist der Sinn eines grossen Ereignisses. Er bedeutet: nach dem Ereignis
+   kehrt die Welt kontrolliert dorthin zurueck.
+
+   Deshalb hat jeder Ganove eine Herkunft (quelle) und einen Abbau-Zustand.
+   Ueberlebende werden nicht sofort geloescht, sondern zum Abbau
+   vorgemerkt - und erst entfernt, wenn es wirklich niemand sieht. */
+
+/* So weit muss ein Abbau-Kandidat weg sein, wenn der Spieler in seine
+   Richtung schaut, und so weit, wenn nicht. */
+const ABBAU_FERN = 95;
+const ABBAU_UNSICHTBAR = 42;
+/* Vor dem ersten Pruefen vergeht etwas Zeit - so verschwindet niemand in
+   derselben Sekunde, in der sein Ereignis endet. */
+const ABBAU_SCHONZEIT = 6;
+
+/* Gehoert dieser Ganove gerade zu einem Auftrag? */
+function gegnerInMission(e) {
+  const d = MISSION.daten;
+  if (!d) return false;
+  if (d.gang && d.gang.enemies && d.gang.enemies.indexOf(e) >= 0) return true;
+  if (d.wachen && d.wachen.indexOf(e) >= 0) return true;
+  if (d.dieb === e) return true;
+  return false;
+}
+
+/* Wird er gerade von einer anderen Schicht gebraucht? Polizei, Netz,
+   Griff, Wurf, Flucht - jede davon besitzt ihn, solange sie laeuft. */
+function gegnerBelegt(e) {
+  if (e.boss) return true;
+  if (e.policeCustody || e.gesichertT > 0) return true;
+  if (e.gepackt || e.anWand) return true;
+  if (e.webT > 0) return true;
+  if ((e.inDerLuft || 0) > 0 || (e.geworfen || 0) > 0) return true;
+  if ((e.staggerT || 0) > 0) return true;
+  if (e.attack) return true;
+  if (e.eventId) return true;
+  if (e.eventFlucht || e.fluchtAktiv) return true;
+  if (e.dieb || e.bewacht) return true;
+  if (gegnerInMission(e)) return true;
+  return false;
+}
+
+/* Kaempft der Spieler gerade mit ihm? Kampf hat immer Vorrang. */
+function gegnerImKampf(e) {
+  if (e.state === 'chase' && e.target === 'player') return true;
+  if (player.attack && Math.hypot(e.pos.x - player.pos.x,
+                                  e.pos.z - player.pos.z) < 6) return true;
+  return false;
+}
+
+/* Die Bevoelkerung nach Herkunft getrennt. Ohne diese Trennung wird
+   enemies.length wieder falsch gelesen - genau das ist in Phase 10
+   passiert. */
+function gegnerPopulation() {
+  const p = { ambient: 0, aktivesEvent: 0, mission: 0, boss: 0,
+              gewahrsam: 0, abbau: 0, tot: 0, gesamt: 0, szenenKnoten: 0 };
+  for (const e of enemies) {
+    p.gesamt++;
+    if (e.dead) { p.tot++; continue; }
+    if (e.visual && e.visual.root) {
+      e.visual.root.traverse(() => { p.szenenKnoten++; });
+    }
+    if (e.boss) { p.boss++; continue; }
+    if (e.policeCustody) { p.gewahrsam++; continue; }
+    if (e.abbau) { p.abbau++; continue; }
+    if (e.eventId) { p.aktivesEvent++; continue; }
+    if (gegnerInMission(e)) { p.mission++; continue; }
+    p.ambient++;
+  }
+  return p;
+}
+
+/* Wie viele Figuren belegen gerade den Dauerplatz in der Stadt? Abbau
+   zaehlt mit: sie stehen ja noch da. Ereignis- und Bossgegner nicht -
+   sie sind Gaeste. */
+function gegnerDauerhaft() {
+  let n = 0;
+  for (const e of enemies) {
+    if (e.dead || e.boss || e.eventId || e.policeCustody) continue;
+    n++;
+  }
+  return n;
+}
+
+/* Einen Ueberlebenden nach dem Ereignis einordnen: bleibt er als
+   Stadtbewohner, oder wird er abgebaut? */
+function gegnerNachEreignis(e) {
+  if (e.dead || e.boss) return;
+  if (gegnerDauerhaft() < CFG.maxEnemies) {
+    /* Platz da - er bleibt und gehoert von jetzt an zur Stadt. Genau das
+       macht die Welt persistent: der Ueberfall von eben hinterlaesst
+       Spuren. */
+    e.quelle = 'ambient';
+    e.abbau = false; e.abbauT = 0;
+  } else {
+    /* Voll. Er verschwindet nicht sofort - er ist ab jetzt nur zum Abbau
+       vorgemerkt und geht, sobald niemand hinsieht. */
+    e.abbau = true; e.abbauT = 0;
+    HYG.statistik.vorgemerkt++;
+  }
+}
+
+const HYG = {
+  tickCd: 0,
+  statistik: { vorgemerkt: 0, abgebaut: 0, zurueckgeholt: 0,
+               blockiertKampf: 0, blockiertBelegt: 0, blockiertSicht: 0 },
+};
+
+/* Laeuft am Ende von updateEnemies. Entfernt hoechstens EINEN Ganoven je
+   Takt - so entsteht kein Ruck, wenn nach einem grossen Ereignis mehrere
+   gleichzeitig faellig sind. */
+function gegnerHygiene(dt) {
+  HYG.tickCd -= dt;
+  if (HYG.tickCd > 0) return;
+  HYG.tickCd = 0.5;
+
+  /* Ist wieder Platz frei geworden, darf ein Vorgemerkter zurueck in die
+     Stadt - sonst schwingt die Bevoelkerung zwischen Abbau und Nachschub
+     hin und her. */
+  const dauerhaft = gegnerDauerhaft();
+  if (dauerhaft < CFG.maxEnemies - 3) {
+    for (const e of enemies) {
+      if (e.dead || !e.abbau) continue;
+      e.abbau = false; e.abbauT = 0; e.quelle = 'ambient';
+      HYG.statistik.zurueckgeholt++;
+      break;
+    }
+  }
+
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    if (e.dead || !e.abbau) continue;
+    e.abbauT += 0.5;
+    if (e.abbauT < ABBAU_SCHONZEIT) continue;
+    if (gegnerImKampf(e)) { HYG.statistik.blockiertKampf++; continue; }
+    if (gegnerBelegt(e)) { HYG.statistik.blockiertBelegt++; continue; }
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    const imBlick = evImBlick(e.pos.x, e.pos.z);
+    if (d < (imBlick ? ABBAU_FERN : ABBAU_UNSICHTBAR)) {
+      HYG.statistik.blockiertSicht++;
+      continue;
+    }
+    enemies.splice(i, 1);
+    if (e.visual && e.visual.root) scene.remove(e.visual.root);
+    if (e.gang) {
+      const gj = e.gang.enemies.indexOf(e);
+      if (gj >= 0) e.gang.enemies.splice(gj, 1);
+    }
+    HYG.statistik.abgebaut++;
+    break;                       // hoechstens einer je Takt
+  }
+}
+
 /* Die Gegner eines Ereignisses auf die gewuenschten Rollen umstellen.
    spawnGang wuerfelt die Typen selbst; hier werden sie danach passend
    gesetzt, damit die Zusammenstellung zur Schwere passt. */
@@ -22777,7 +22954,7 @@ function evSetzeRollen(gang, schwere) {
 function evBaue(e) {
   if (e.art === 'unfall') return evBaueUnfall(e);
   const n = e.art === 'enforcer' ? evGangGroesse(4) : evGangGroesse(e.schwere);
-  const gang = spawnGang(e.ort.x, e.ort.z, n);
+  const gang = spawnGang(e.ort.x, e.ort.z, n, 'event');
   e.gang = gang;
   gang.ausEvent = e.id;
   evSetzeRollen(gang, e.art === 'enforcer' ? 4 : e.schwere);
@@ -23102,7 +23279,17 @@ function evAufraeumen(e) {
     g.gesichertT = 0;
     if (g.dead) continue;
     const dw = Math.hypot(g.pos.x - player.pos.x, g.pos.z - player.pos.z);
-    if (dw < 70) continue;
+    if (dw < 70) {
+      /* ---- Hier wuchs die Bevoelkerung ----
+         Frueher stand hier ein blankes "continue": wer nahe genug stand,
+         blieb - und zwar fuer immer, ohne dass je wieder geprueft wurde.
+         Da Ereignisse in Spielernaehe entstehen, betraf das fast jeden
+         Ueberlebenden. Jetzt entscheidet gegnerNachEreignis(), ob noch
+         Platz in der Stadt ist: wenn ja, bleibt er wirklich; wenn nein,
+         wird er zum Abbau vorgemerkt und geht spaeter unbeobachtet. */
+      gegnerNachEreignis(g);
+      continue;
+    }
     const gi = enemies.indexOf(g);
     if (gi >= 0) enemies.splice(gi, 1);
     if (g.visual && g.visual.root) scene.remove(g.visual.root);
@@ -26505,6 +26692,9 @@ if (window.__WEBHERO_TEST__ === true) {
       saeule: !!(ENT.saeule && ENT.saeule.visible), letzte: ENT.letzte }; },
     regen: REGEN,
     valid: VALID,
+    gegnerPopulation,
+    hygStatistik() { return Object.assign({}, HYG.statistik); },
+    hygZuruecksetzen() { for (const k in HYG.statistik) HYG.statistik[k] = 0; },
     validZaehler() { return Object.assign({}, VALID); },
     validReset() { for (const k in VALID) VALID[k] = 0; },
     diagAn(an) { VALID._diag = !!an; VALID._nachAufloesung = 0; VALID._bildEnde = 0; VALID._endeUpdate = 0; },
