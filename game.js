@@ -26186,7 +26186,17 @@ function missionZiel() {
     case 'geisel': return d.civ ? d.civ.pos : null;
     case 'dieb': return d.dieb && !d.dieb.dead ? d.dieb.pos : null;
     case 'rennen': return d.rest.length ? d.rest[0].pos : null;
-    case 'story': return d.zielPos || null;
+    case 'story': {
+      /* Minikarte und Leuchtturm muessen dasselbe zeigen. Der Leuchtturm
+         faellt auf den naechsten lebenden Storygegner zurueck (z. B. den
+         Kurier in Mission 3, der keinen festen Zielpunkt hat) - die
+         Minikarte tat das nicht und blieb dort leer. */
+      if (d.zielPos) return d.zielPos;
+      for (const g of (d.gangs || [])) {
+        for (const e of g.enemies) if (!e.dead) return e.pos;
+      }
+      return null;
+    }
     default: return null;
   }
 }
@@ -26864,13 +26874,32 @@ const STORY_DEF = [
              ruhig. Also zaehlt eine halbe Minute ohne einen einzigen
              Verletzten als erfuellt - und die Uhr bleibt nur fuer den
              Fall, dass jemand liegt und man ihn nicht erreicht. */
-          let liegt = false;
-          for (const c of civilians) if (c.state === 'hurt' && c.hilfeBar) liegt = true;
+          /* ---- Diese Phase hatte als einzige gar kein Ziel ----
+             Weder ein fester Punkt noch eine Storygang: setzeBeacon bekam
+             null, der Spieler las "Nach den Verletzten sehen" und hatte
+             keinen einzigen Hinweis, wohin. Die Telemetrie hat das als
+             bisZielVerstanden = -1 gemeldet. Wie in Mission 2 fuehrt der
+             Leuchtturm jetzt zum naechsten Verletzten - das Helfen bleibt
+             der Inhalt, das Suchen war nie einer. */
+          let liegt = null, ld = 1e9;
+          for (const c of civilians) {
+            if (c.state !== 'hurt' || !c.hilfeBar) continue;
+            const dd = Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z);
+            if (dd < ld) { ld = dd; liegt = c; }
+          }
+          m.zielPos = liegt
+            ? { x: liegt.pos.x, y: liegt.pos.y + 1, z: liegt.pos.z }
+            : null;
           if (!liegt) {
             m.warteT += dt;
+            /* Auch das Warten braucht eine Ansage, sonst sieht Ruhe aus
+               wie ein haengender Auftrag. */
+            STORY.zielText = 'Die Stadt ist ruhig (' +
+              Math.max(0, Math.ceil(30 - m.warteT)) + 's)';
             if (m.warteT > 30) return 'weiter';
           } else {
             m.warteT = 0;
+            STORY.zielText = 'Nach den Verletzten sehen';
           }
           if (m.t <= 0) return 'weich';
           return null;
@@ -28737,7 +28766,19 @@ if (window.__WEBHERO_TEST__ === true) {
     storyPlaytestReport: ptBericht,
     get storyPlaytestAn() { return STORY_PLAYTEST; },
     storyKampfPhase, storyOffen, storyZustand,
-    storyZielPos() { const m = MISSION.daten; return (m && m.zielPos) || null; },
+    storyZielPos() {
+      /* Muss zeigen, was der Spieler sieht - sonst misst ein Testbot die
+         Blindheit des Bots statt die des Spielers. Ein erster Akt-1-Lauf
+         meldete deshalb 95 s Ratlosigkeit in Mission 3, obwohl der
+         Leuchtturm die ganze Zeit auf dem Kurier stand. */
+      const m = MISSION.daten;
+      if (!m) return null;
+      if (m.zielPos) return m.zielPos;
+      for (const g of (m.gangs || [])) {
+        for (const e of g.enemies) if (!e.dead) return { x: e.pos.x, y: e.pos.y, z: e.pos.z };
+      }
+      return null;
+    },
     missionDaten() { return MISSION.daten; },
     /* Eine Mission bis zum Ende durchspielen, ohne den Kampf wirklich zu
        fuehren: fuer die Ablauftests. Der Weg bleibt der echte - es wird
