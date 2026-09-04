@@ -4243,6 +4243,11 @@ const GANG_REF = {
   symgang: 1.2,
 };
 const GANG_CLIPS = Object.keys(GANG_REF);
+/* Beim Bremsen zaehlt die Restbewegung. Die kleinere Ausschaltschwelle
+   verhindert einen Wechsel zur Standpose mitten im letzten Schritt. */
+function hatBodenbewegung(tempo, vorigeAnimation) {
+  return tempo > (vorigeAnimation === 'run' ? 0.12 : 0.4);
+}
 /* Umschaltpunkte zwischen den Laufdateien, siehe play(). Sie liegen dort,
    wo die naechste Datei mit einem angenehmeren Zeitfaktor laeuft als die
    vorige mit einem zu hohen. */
@@ -4324,7 +4329,7 @@ const HELD_ANIM_PARTS = RICHT_8.map((r) => 'ausw_' + r)
      deshalb hierher und nicht in die Liste fuer alle Figuren, sonst
      suchten Zivilisten und Gegner eine Datei, die es fuer sie nicht
      gibt. */
-  .concat(['spin_l', 'spin_r', 'sprint_lang']);
+  .concat(['spin_l', 'spin_r', 'sprint_lang', 'gleiten']);
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -4956,7 +4961,7 @@ const WAND_GRIFF_BAND = 0.20;
    Gemessen sprangen Knie und Schultern um ueber 100 Grad, die Hand um
    87 Zentimeter. Hier wird der Startwert der Blende auf das aktuelle
    Gewicht gesetzt, dann bleibt der Uebergang stetig. */
-/* Das aktuelle Gewicht einer Bewegung - null, wenn sie gar nicht laeuft.
+/* Das aktuelle Gewicht einer Bewegung - null, wenn sie nicht aktiv ist.
    getEffectiveWeight() allein reicht nicht: der Wert stammt aus dem
    letzten Mischerdurchlauf. Wurde die Blende erst in DIESEM Bild
    eingerichtet - etwa weil Doppelsprung und Netzwurf im selben Bild
@@ -4964,7 +4969,12 @@ const WAND_GRIFF_BAND = 0.20;
    angelegten Bewegung sogar die volle Eins. Deshalb wird die Blendenkurve
    direkt an der aktuellen Mischerzeit ausgewertet. */
 function gewichtVon(a) {
-  if (!a || !a.isRunning || !a.isRunning()) return 0;
+  /* timeScale=0, paused und clampWhenFinished halten nur die ZEIT an.
+     Ihre Pose wirkt weiter auf den Mischer und muss von ihrem sichtbaren
+     Gewicht ausblenden. isRunning() meldet fuer diese Posen false. */
+  if (!a || !a.enabled || !a.isScheduled || !a.isScheduled()) return 0;
+  if (a._startTime !== null && a._startTime !== undefined &&
+      a._mixer && a._startTime > a._mixer.time) return 0;
   const iv = a._weightInterpolant;
   const mx = a._mixer;
   if (iv && mx && iv.parameterPositions && iv.sampleValues) {
@@ -5119,6 +5129,7 @@ const GLB_CLIP_PATTERNS = {
   gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
+  gleiten: [/^gleiten$/],
   sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
   wandsprung: [/^wandsprung$/], netzwurf: [/^netzwurf$/],
   zip_dreh: [/^zip_dreh$/],
@@ -5181,11 +5192,8 @@ const GLB_FALLBACK = {
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
-  /* Fuer den Gleitflug gibt es keine eigene Datei. Ersatz war bisher die
-     RUHEHALTUNG - deshalb stand die Figur im Gleitflug kerzengerade in der
-     Luft und nur die Arme waren zur Seite gelegt. Der Sturzflug ("Straight
-     Dive") liegt dagegen flach auf dem Bauch, Kopf voran: genau die
-     Grundhaltung, die ein Gleitflug braucht. */
+  /* Falls der eigene Gleitclip nicht geladen werden konnte, bleibt die
+     flache StraightDive-Pose als Ersatz verfuegbar. */
   gleiten: ['sturzflug', 'sturzflug2', 'air'],
   sturzflug: ['sturzflug2', 'air'], sturzflug2: ['sturzflug', 'air'],
   wandsprung: ['jump', 'air'], netzwurf: ['schwung2', 'swing'],
@@ -7216,12 +7224,17 @@ function makeGlbVisual(m) {
     /* Gleitpose: Arme seitlich weit ausgebreitet, Beine gespreizt und
        leicht angewinkelt. Zwischen Armen und Rumpf spannt sich später die
        Netzhaut – dafür müssen die Arme wirklich weg vom Körper stehen. */
-    poseGleiten(nase, kurve, t, k) {
-      const w = k === undefined ? 0.9 : k;
-      const flattern = Math.sin((t || 0) * 2.4) * 0.03;
+    poseGleiten(nase, kurve, t, k, tempo) {
+      const w = clamp(k === undefined ? 0.9 : k, 0, 1);
+      if (w <= 0) return;
+      /* Kleine, versetzte Ausgleichsbewegungen; bei hohem Tempo liegt
+         der Koerper ruhiger im Luftstrom. Kein Fluegelschlag. */
+      const fahrt = clamp(((tempo === undefined ? 15 : tempo) - 6) / 20, 0, 1);
+      const atem = Math.sin((t || 0) * 1.8);
+      const flattern = Math.sin((t || 0) * 2.4) * lerp(0.035, 0.016, fahrt);
       /* Arme: fast waagerecht zur Seite, minimal nach vorn. Die Kurve
          senkt den inneren und hebt den äußeren Arm. */
-      const roll = (kurve || 0) * 0.3;
+      const roll = clamp(kurve || 0, -1, 1) * 0.24;
       /* Die Arme werden im WELTRAUM ausgerichtet, nicht über Eulerwinkel.
          Beim Mixamo-Skelett liegt die Ruhedrehung der Oberarme so, dass
          eine Drehung um die lokale Z-Achse den Arm nach vorn statt zur
@@ -7229,8 +7242,8 @@ function makeGlbVisual(m) {
          zusammengefaltet. Mit einem Zielpunkt weit seitlich stimmt es
          unabhängig von der Ruhelage. */
       root.updateMatrixWorld(true);
-      _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();  // rechts
-      _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();  // vorn
+      _vw1.setFromMatrixColumn(root.matrixWorld, 0).normalize();  // Koerper-rechts
+      _vw2.setFromMatrixColumn(root.matrixWorld, 2).normalize();  // Koerper-vorn
       for (const seite of ['left', 'right']) {
         /* Achtung: Das Skelett ist gespiegelt benannt – der Knochen
            "leftarm" liegt auf der rechten Körperseite (+X, während die
@@ -7243,10 +7256,10 @@ function makeGlbVisual(m) {
         arm.getWorldPosition(_vw3);
         /* Ziel: weit zur Seite, ein Stück nach hinten und leicht nach
            unten – die typische Haltung mit gespannter Netzhaut. */
-        const hoch = -0.16 + roll * vz * 0.8 + flattern * vz * 2;
+        const hoch = -0.13 + roll * vz * 0.65 + flattern * vz;
         _vw4.copy(_vw3)
           .addScaledVector(_vw1, vz * 3.0)
-          .addScaledVector(_vw2, -0.55)
+          .addScaledVector(_vw2, -0.45 - fahrt * 0.20)
           .addScaledVector(_fh.set(0, 1, 0), hoch * 3);
         zieleKnochen(arm, unter, _vw4, w);
         if (hand) {
@@ -7255,7 +7268,7 @@ function makeGlbVisual(m) {
           unter.getWorldPosition(_vw3);
           _vw4.copy(_vw3)
             .addScaledVector(_vw1, vz * 3.0)
-            .addScaledVector(_vw2, -0.4)
+            .addScaledVector(_vw2, -0.48 - fahrt * 0.16)
             .addScaledVector(_fh.set(0, 1, 0), hoch * 2.4);
           zieleKnochen(unter, hand, _vw4, w * 0.95);
         }
@@ -7265,20 +7278,22 @@ function makeGlbVisual(m) {
          Silhouette wurde dadurch zum Seestern, und die Netzhaut zwischen
          Arm und Rumpf ging in der Luecke unter. Enge Beine geben die
          Deltaform, die den Gleitflug lesbar macht. */
-      const beinAn = 0.16 - (nase || 0) * 0.14;
-      drehZuRuhe(knochen.leftupleg,  beinAn, 0,  0.13 + roll * 0.4, w);
-      drehZuRuhe(knochen.rightupleg, beinAn, 0, -0.13 + roll * 0.4, w);
-      drehZuRuhe(knochen.leftleg,  0.22 + flattern * 2, 0, 0, w);
-      drehZuRuhe(knochen.rightleg, 0.22 - flattern * 2, 0, 0, w);
+      const beinAn = 0.16 - (nase || 0) * 0.14 + atem * 0.018;
+      const spreiz = lerp(0.12, 0.07, fahrt);
+      drehZuRuhe(knochen.leftupleg,  beinAn + roll * 0.12, 0,  spreiz + roll * 0.3, w);
+      drehZuRuhe(knochen.rightupleg, beinAn - roll * 0.12, 0, -spreiz + roll * 0.3, w);
+      const knie = lerp(0.24, 0.15, fahrt);
+      drehZuRuhe(knochen.leftleg,  knie + flattern * 2 + Math.max(0, roll) * 0.3, 0, 0, w);
+      drehZuRuhe(knochen.rightleg, knie - flattern * 2 + Math.max(0, -roll) * 0.3, 0, 0, w);
       /* Fussspitzen gestreckt nach hinten - wie beim Springen vom Brett. */
       if (knochen.leftfoot)  drehZuRuhe(knochen.leftfoot,  -0.30, 0, 0, w * 0.8);
       if (knochen.rightfoot) drehZuRuhe(knochen.rightfoot, -0.30, 0, 0, w * 0.8);
       /* Rumpf: bei gedrückter Nase mehr Vorlage, dazu Kurvenlage. */
-      drehe(knochen.spine1, -0.1 + (nase || 0) * 0.1, (kurve || 0) * 0.16, 0, 0.5);
-      drehe(knochen.spine,  -0.06, (kurve || 0) * 0.1, 0, 0.4);
+      drehe(knochen.spine1, -0.1 + (nase || 0) * 0.1, (kurve || 0) * 0.16, 0, 0.5 * w);
+      drehe(knochen.spine,  -0.06, (kurve || 0) * 0.1, 0, 0.4 * w);
       /* Der Blick geht nach vorn, nicht auf den Asphalt. */
-      drehZuRuhe(knochen.head, -0.30, (kurve || 0) * 0.2, 0, 0.8);
-      drehZuRuhe(knochen.neck, -0.18, 0, 0, 0.75);
+      drehZuRuhe(knochen.head, -0.30, (kurve || 0) * 0.2, 0, 0.8 * w);
+      drehZuRuhe(knochen.neck, -0.18, 0, 0, 0.75 * w);
     },
     /* Den freien Arm hängen lassen. Beim Schirmhalten stand der zweite Arm
        mit offener Hand ebenfalls in der Luft – das sah aus, als würde die
@@ -8185,7 +8200,7 @@ function makeGlbVisual(m) {
       /* Das Tempo wird geglättet. Roh schwankt es von Bild zu Bild (Stöße,
          Kollisionen, Richtungswechsel) und die Schrittfrequenz zappelte
          entsprechend mit. */
-      vGlatt += (vRoh - vGlatt) * Math.min(1, dt * 9);
+      vGlatt += (vRoh - vGlatt) * (1 - Math.exp(-dt * (vRoh < vGlatt ? 18 : 9)));
       const vBoden = vGlatt;
       /* Hysterese am Übergang Gehen/Laufen: mit einer einzigen Schwelle
          sprang die Figur bei knapp drei Metern je Sekunde ständig zwischen
@@ -8286,7 +8301,7 @@ function makeGlbVisual(m) {
            ihr erstes Bild zurueckgesetzt. Gemessen sprang die Fussspitze
            dabei um 79 Zentimeter, obwohl der Mischer nur 15 hergab.
            Eine laufende Schleife behaelt deshalb ihre Stelle. */
-        if (!einmal && a.isRunning()) { a.enabled = true; a.paused = false; }
+        if (!einmal && wAlt > 0) { a.enabled = true; a.paused = false; }
         else {
           a.reset();
           /* Die Zughaltung wird nicht von vorn angefangen: gemessen liegt
@@ -8307,7 +8322,7 @@ function makeGlbVisual(m) {
          waagerechten Tempo, und das ist beim Klettern null - der Clip lief
          dadurch mit 0,45 statt mit dem gesetzten Klettertempo. Genau das
          war "die Animation ist langsam, aber er ist schon halb oben". */
-      if (current && GANG_REF[want] !== undefined && !p.wandKriechen) {
+      if (current && GANG_REF[want] !== undefined && !p.wandKriechen && key !== 'duckstand') {
         const ref = GANG_REF[want];
         /* Unten weiter aufgemacht (0,45 statt 0,7): wer langsam schleicht,
            bewegte die Beine sonst schneller als er vorankam – genau das
@@ -10137,6 +10152,68 @@ let flugGlatt = 0;   // geglättete Flugrichtung für die mitziehende Kamera
 let vorausGlatt = 0; // wie weit der Blickpunkt vorauswandert
 let kamFrei = 6;     // geglaettete freie Sichtweite hinter der Figur
 let kamZwang = 0;    // nur für Tests: feste Kameraentfernung
+const KAMERA_RADIUS = 0.30;
+const _kameraAnker = new THREE.Vector3();
+const _kameraKandidaten = new Set();
+
+/* Exakter Eintritt einer Strecke in einen um den Kameraradius erweiterten
+   Kasten. Auch ein duennes Gesims zwischen zwei Abtastpunkten wird erfasst.
+   1 = frei, 0 = Startpunkt liegt bereits im Hindernis. */
+function kameraKastenTreffer(von, nach, c, radius) {
+  let ein = 0, aus = 1;
+  const bereiche = [[von.x, nach.x - von.x, c.x0 - radius, c.x1 + radius],
+                    [von.y, nach.y - von.y, c.y0 === undefined ? -Infinity : c.y0 - radius, c.h + radius],
+                    [von.z, nach.z - von.z, c.z0 - radius, c.z1 + radius]];
+  for (const [start, richtung, min, max] of bereiche) {
+    if (Math.abs(richtung) < 1e-9) {
+      if (start < min || start > max) return 1;
+    } else {
+      let a = (min - start) / richtung, b = (max - start) / richtung;
+      if (a > b) { const tausch = a; a = b; b = tausch; }
+      ein = Math.max(ein, a); aus = Math.min(aus, b);
+      if (ein > aus) return 1;
+    }
+  }
+  return aus < 0 || ein > 1 ? 1 : Math.max(0, ein);
+}
+
+/* Alle beruehrten Rasterzellen statt einzelner Punkte abfragen. Die
+   Set-Liste vermeidet mehrfache Tests grosser Gebaeude. */
+function kameraFreierAnteil(von, nach) {
+  const laenge = von.distanceTo(nach);
+  if (laenge < 1e-8) return 1;
+  const r = KAMERA_RADIUS;
+  const i0 = Math.floor((Math.min(von.x, nach.x) - r - ORIGIN) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + r - ORIGIN) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - r - ORIGIN) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + r - ORIGIN) / PITCH);
+  _kameraKandidaten.clear();
+  let frei = 1;
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    for (const c of colliderGrid.get(i + ',' + j) || []) {
+      if (_kameraKandidaten.has(c)) continue;
+      _kameraKandidaten.add(c);
+      const treffer = kameraKastenTreffer(von, nach, c, r);
+      if (treffer < 1) frei = Math.min(frei, Math.max(0, treffer - 0.04 / laenge));
+    }
+  }
+  /* Strasse, Gehweg und die bisherige Dach-Untergrenze beibehalten. */
+  const schritte = Math.max(1, Math.ceil(laenge * frei / 0.25));
+  for (let i = 1; i <= schritte; i++) {
+    const t = frei * i / schritte;
+    const x = lerp(von.x, nach.x, t), y = lerp(von.y, nach.y, t), z = lerp(von.z, nach.z, t);
+    const unten = Math.max(groundY(x, z, y) + r, player.onGround ? player.pos.y + 0.35 : -Infinity);
+    if (y < unten) return frei * (i - 1) / schritte;
+  }
+  return frei;
+}
+
+function begrenzeKamera(von, nach) {
+  const anteil = kameraFreierAnteil(von, nach);
+  if (anteil < 1) nach.sub(von).multiplyScalar(anteil).add(von);
+  return anteil;
+}
+
 function updateCamera(dt) {
   const emp = 0.0023 * (EINST.maus / 100);
   const mausAktiv = Math.abs(mouseDX) > 0.5 || Math.abs(mouseDY) > 0.5;
@@ -10195,17 +10272,17 @@ function updateCamera(dt) {
   let schwungWeit = 0;
   if (player.state === 'swing' && player.swing) {
     const tief = clamp((player.swing.anchor.y - player.pos.y) / Math.max(4, player.swing.len), 0, 1);
-    schwungWeit = tief * 2.6;
+    schwungWeit = tief * 1.0;
   }
   const targetDist = kamZwang > 0 ? kamZwang
-                   : (player.state === 'swing' ? 8.0 + schwungWeit
-                                              : lerp(6.3, 7.8, clamp(speed / 25, 0, 1)));
-  camDist = lerp(camDist, targetDist, dt * 3);
-  const targetFov = lerp(70, 84, clamp(speed / 30, 0, 1));
+                   : (player.state === 'swing' ? 6.8 + schwungWeit
+                                              : lerp(5.6, 6.6, clamp(speed / 25, 0, 1)));
+  camDist = lerp(camDist, targetDist, 1 - Math.exp(-dt * 3));
+  const targetFov = lerp(70, 78, clamp(speed / 30, 0, 1));
   /* Gemessen aenderte sich das Sichtfeld mit bis zu 45 Grad je Sekunde -
      das ist der Zoom, den man beim Anschwingen als Ruck sieht. Mit 2,5
      statt 4 bleibt es unter 30 Grad je Sekunde und faellt nicht mehr auf. */
-  camera.fov = lerp(camera.fov, targetFov, dt * 2.5);
+  camera.fov = lerp(camera.fov, targetFov, 1 - Math.exp(-dt * 2.5));
   camera.updateProjectionMatrix();
 
   /* ---- Vorausschau ----
@@ -10221,65 +10298,29 @@ function updateCamera(dt) {
     target.x += Math.sin(flugGlatt) * vorausGlatt;
     target.z += Math.cos(flugGlatt) * vorausGlatt;
   }
+  /* Vorausschau darf den Blickpunkt nicht durch eine Fassade schieben.
+     Sonst beginnt auch eine genaue Kamerapruefung bereits IM Haus. */
+  _kameraAnker.copy(player.pos); _kameraAnker.y += 1.7;
+  begrenzeKamera(_kameraAnker, target);
   const dir = _v2.set(
     Math.sin(camYaw) * Math.cos(camPitch),
     Math.sin(camPitch),
     Math.cos(camYaw) * Math.cos(camPitch)
   );
-  // Kamerakollision mit Gebäuden (abtasten)
-  /* Zehn Schritte auf bis zu 10,6 m sind Schritte von ueber einem Meter -
-     eine Hausecke passt bequem dazwischen. Sechzehn sind rund 65 cm. */
-  let d = camDist;
-  for (let i = 1; i <= 16; i++) {
-    const t = (camDist * i) / 16;
-    const px = target.x + dir.x * t, py = target.y + dir.y * t, pz = target.z + dir.z * t;
-    let blocked = py < groundY(px, pz, py) + 0.3;
-    /* Steht die Figur auf einem Dach und man schaut nach unten, rutschte
-       die Kamera an der Dachkante vorbei unter das Dach – man sah dann von
-       unten in das Gesims hinein. Solange man festen Boden unter den Füßen
-       hat, darf die Kamera nicht nennenswert darunter. */
-    if (!blocked && player.onGround && py < player.pos.y + 0.35) blocked = true;
-    if (!blocked) {
-      const cols = collidersNear(px, pz);
-      for (const c of cols) {
-        /* Auch Vorsprünge (Gesimse, Feuerleitern) blockieren – aber nur in
-           ihrer eigenen Höhe. */
-        if (c.y0 !== undefined && py < c.y0 - 0.3) continue;
-        if (px > c.x0 - 0.3 && px < c.x1 + 0.3 && pz > c.z0 - 0.3 && pz < c.z1 + 0.3 && py < c.h + 0.2) { blocked = true; break; }
-      }
-    }
-    /* Hier stand Math.max(1.2, t - 0.5). Blockte etwas schon bei 1,0 m,
-       kam 1,2 heraus - die Kamera wurde also HINTER das Hindernis gesetzt
-       und stand mitten in der Fassade. Beim Schwingen dicht an Haeusern
-       vorbei fuellte dann eine dunkle Wand das ganze Bild.
-       Jetzt wird nie weiter gerueckt als bis kurz vor den Treffer. */
-    if (blocked) { d = Math.max(0.55, t - 0.55); break; }
-  }
-  /* ---- Heran sofort, zurueck langsam ----
-     Die Sichtpruefung liefert einen SPRUNG: eine Hausecke schiebt sich vor
-     die Kamera, und die Zielentfernung faellt in einem Bild von acht
-     Metern auf einen halben. Gemessen ergab das ueber 75 Sekunden Flug
-     106 Kamerarucke - fast alle beim Zurueckfahren, wenn die Ecke wieder
-     frei wird. Heranholen muss schnell gehen (sonst steht die Kamera in
-     der Wand), zurueck darf es dauern. */
-  /* Auch das Heranholen wird gefuehrt, nur viel schneller: mit dt*22
-     sitzt die Kamera nach rund fuenf Bildern an der neuen Stelle, statt
-     in einem einzigen Bild siebeneinhalb Meter zu springen. Die halbe
-     Sekunde Vorhalt (0,55 m) im Sichttest deckt die paar Bilder ab. */
-  if (d < kamFrei) {
-    /* Begrenzt statt geblendet: eine feste Geschwindigkeit laesst sich an
-       das Tempo der Figur haengen. Langsamer als die Figur darf die Kamera
-       nicht heran, sonst haengt sie zurueck; viel schneller braucht sie
-       nicht, sonst ist genau das der Ruck. */
-    kamFrei = Math.max(d, kamFrei - Math.max(20, speed * 1.2) * dt);
-  } else kamFrei = lerp(kamFrei, d, Math.min(1, dt * 2.2));
-  const desired = _v3.copy(target).addScaledVector(dir, kamFrei);
-  camPos.lerp(desired, Math.min(1, dt * 12));
+  const desired = _v3.copy(target).addScaledVector(dir, camDist);
+  const d = camDist * kameraFreierAnteil(target, desired);
+  /* Bei einem Hindernis sofort davor bleiben, bei freier Sicht sanft
+     herausfahren. Die endgueltige Lage wird NACH dem Glaetten geprueft. */
+  kamFrei = d < kamFrei ? d : lerp(kamFrei, d, 1 - Math.exp(-dt * 2.2));
+  desired.copy(target).addScaledVector(dir, kamFrei);
+  camPos.lerp(desired, 1 - Math.exp(-dt * 12));
+  begrenzeKamera(target, camPos);
   camera.position.copy(camPos);
   if (camShake > 0) {
     camera.position.x += rand(-1, 1) * camShake;
     camera.position.y += rand(-1, 1) * camShake;
     camShake = Math.max(0, camShake - dt * 1.6);
+    begrenzeKamera(target, camera.position);
   }
   camera.lookAt(target);
 
@@ -10291,15 +10332,15 @@ function updateCamera(dt) {
     /* Seitliche Beschleunigung: Geschwindigkeit quer zur Blickrichtung. */
     const f = _v1.set(Math.sin(camYaw), 0, Math.cos(camYaw));
     const quer = player.vel.x * f.z - player.vel.z * f.x;
-    rollZiel = clamp(-quer / 26, -0.42, 0.42);
+    rollZiel = clamp(-quer / 50, -0.14, 0.14);
     /* Zusätzlich in die Richtung des Netzarms kippen. */
-    rollZiel += (player.swing.hand === 'L' ? 0.07 : -0.07);
+    rollZiel += (player.swing.hand === 'L' ? 0.018 : -0.018);
   } else if (!player.onGround) {
     rollZiel = clamp(-player.vel.y / 160, -0.09, 0.09);
   }
   /* 3,5 ergab gemessen bis zu 2,37 rad/s Neigungsaenderung - beim
      Handwechsel im Bogen kippt das Bild dann sichtbar um. */
-  camRoll = lerp(camRoll, rollZiel, Math.min(1, dt * 2.2));
+  camRoll = lerp(camRoll, rollZiel, 1 - Math.exp(-dt * 2.2));
   if (Math.abs(camRoll) > 0.001) camera.rotateZ(camRoll);
 
   kamTelemetrie(dt);
@@ -14449,9 +14490,9 @@ function updatePlayer(dt) {
        die ruhige Stehbewegung. */
     player.anim = 'idle';
   }
-  else if (dir && hSpeed > 0.4) {
-    /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
-       sonst „läuft" die Figur beim Ausrollen weiter, obwohl man steht. */
+  else if (hatBodenbewegung(hSpeed, player.anim)) {
+    /* Auch ohne gedrueckte Taste bewegt sich die Figur beim Bremsen noch.
+       Erst im Stillstand darf die Standpose die Schritte ersetzen. */
     player.anim = 'run';
     player.phase += dt * (5 + hSpeed * 1.15);
     /* Schritte im Takt der BEWEGUNGSDATEI. Die laeuft mit
@@ -14673,7 +14714,7 @@ function mischeHaltungen(dt) {
       heroVisual.poseSchwung(a[0], a[1], a[2], a[3], a[4], a[5], g);
     } else if (n === 'gleiten' && MISCH.gleitArg && heroVisual.poseGleiten) {
       const a = MISCH.gleitArg;
-      heroVisual.poseGleiten(a[0], a[1], a[2], a[3] * g);
+      heroVisual.poseGleiten(a[0], a[1], a[2], a[3] * g, a[4]);
     } else if (n === 'wand' && MISCH.wandArg && heroVisual.poseWandkriechen) {
       const a = MISCH.wandArg;
       heroVisual.poseWandkriechen(a[0], a[1], a[2], a[3] * g);
@@ -15027,7 +15068,7 @@ function updateHeroVisual(dt) {
          wuerde ihr die Arme wieder zur Seite reissen. */
       MISCH.wunsch = 'gleiten';
       MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
-                        0.9 * clamp(player.gleitMisch || 0, 0, 1)];
+                        0.9 * clamp(player.gleitMisch || 0, 0, 1), hSpeed];
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
