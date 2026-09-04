@@ -47,13 +47,41 @@ const CFG = {
    Schlag wirklich. */
 const NAHKAMPF = 1.05;
 
-/* ---- Fester Zufallskeim fuer Messungen ----
-   Die Stadt wird bei jedem Laden neu gewuerfelt. Fuer Vergleichsmessungen
-   ist das Gift: zwei Laeufe messen zwei verschiedene Staedte. Setzt ein
-   Testskript window.__WEBHERO_SEED, laeuft Math.random ab hier
-   deterministisch. Im normalen Spiel passiert nichts. */
-if (typeof window !== 'undefined' && window.__WEBHERO_SEED !== undefined) {
-  let _seed = (window.__WEBHERO_SEED >>> 0) || 1;
+/* ---- Der Keim der Stadt ----
+   Bis Phase 10.2 stand hier: "Die Stadt wird bei jedem Laden neu
+   gewuerfelt." Fuer Messungen konnte ein Testskript window.__WEBHERO_SEED
+   setzen, im normalen Spiel passierte nichts.
+
+   Phase 11 musste das aendern, und der Grund ist kein Geschmack, sondern
+   eine Unmoeglichkeit: Fortschritt an Orten - besuchte Aussichtspunkte,
+   eingesammelte Marken, gemeisterte Bezirke - laesst sich nicht
+   speichern, wenn die Orte beim naechsten Start woanders liegen. Eine
+   gespeicherte "Marke 17" waere morgen eine voellig andere Marke, und
+   das Spiel wuerde einem Spieler etwas als gefunden anzeigen, wo er nie
+   war. Entweder die Stadt bleibt, oder Ortsfortschritt ist wertlos.
+
+   Deshalb gehoert der Keim jetzt zum Spielstand. Er wird beim allerersten
+   Start einmal gewuerfelt und danach behalten. Wer den Fortschritt
+   zuruecksetzt, bekommt auch eine neue Stadt. Ein Testkeim gewinnt
+   weiterhin ueber alles. */
+let WELT_KEIM = 0;
+function weltKeimHolen() {
+  try {
+    const t = localStorage.getItem('WEB_HERO_SAVE');
+    if (t) {
+      const o = JSON.parse(t);
+      const k = o && o.weltKeim;
+      if (typeof k === 'number' && isFinite(k) && k > 0) return k >>> 0;
+    }
+  } catch (e) {}
+  /* Noch kein Stand: eine neue Stadt, die ab jetzt diesem Spieler gehoert. */
+  return (Math.floor(Math.random() * 4294967294) + 1) >>> 0;
+}
+if (typeof window !== 'undefined') {
+  WELT_KEIM = (window.__WEBHERO_SEED !== undefined)
+    ? ((window.__WEBHERO_SEED >>> 0) || 1)
+    : weltKeimHolen();
+  let _seed = WELT_KEIM;
   Math.random = function () {
     _seed ^= _seed << 13; _seed >>>= 0;
     _seed ^= _seed >> 17;
@@ -10487,8 +10515,11 @@ function findAnchor() {
     }
     return best;
   }
-  return suche(0.3, 6, 60, 7, true)     // schöner Bogen nach vorn
-      || suche(-0.15, 3, 95, 3, false)   // notfalls auch schräg und weiter weg
+  /* Die Fertigkeit "Weiter Schwung" liegt als Faktor auf beiden Weiten -
+     die Suche selbst bleibt, wie sie ist. */
+  const sw = skillWert('schwungweite');
+  return suche(0.3, 6, 60 * sw, 7, true)     // schöner Bogen nach vorn
+      || suche(-0.15, 3, 95 * sw, 3, false)  // notfalls auch schräg und weiter weg
       || null;
 }
 
@@ -10756,7 +10787,8 @@ function zipHaltepunkt() {
      liegt genau geradeaus oft gar kein Haus, die Fassaden links und rechts
      aber schon. Ohne die Seitenproben ließ sich der Netz-Zip auf der
      Straße praktisch nie auslösen. */
-  for (let s = 4; s <= 60; s += 1.5) {
+  const zipMax = 60 * skillWert('zipweite');
+  for (let s = 4; s <= zipMax; s += 1.5) {
     const y = player.pos.y + 1.4 + s * steig;
     for (const seit of [0, s * 0.14, -s * 0.14, s * 0.27, -s * 0.27, s * 0.38, -s * 0.38]) {
       const x = player.pos.x + f.x * s + rx * seit;
@@ -11028,7 +11060,7 @@ function tryJump() {
       if (typeof schwungKunst === 'function') schwungKunst(16);
       camShake = Math.max(camShake, 0.24);
       popupScreen('Perfekter Absprung!');
-      addScore(30, '', player.pos);
+      addScore(Math.round(30 * skillWert('schwungkunst')), '', player.pos);
       SFX.zip();
     }
     SFX.swoosh();
@@ -11469,7 +11501,7 @@ function schmetterEnde() {
   camShake = Math.max(camShake, 0.3);
   staubWolke(_v1.set(e.pos.x, boden, e.pos.z), 1.4);
   treffEffekt(_v1.set(e.pos.x, e.pos.y + 0.8, e.pos.z), 1.6, 0xbfe8ff);
-  addScore(40 + (player.komboZahl || 1) * 10,
+  addScore(Math.round((40 + (player.komboZahl || 1) * 10) * skillWert('kombogespuer')),
            'Schmetterer x' + (player.komboZahl || 1), e.pos);
   popupWorld('Runter!', e.pos, '#bfe8ff');
   SFX.kick();
@@ -12065,7 +12097,8 @@ function resolveAttackHit() {
   }
   const konter = player.konterT > 0 && player.konterZiel === e;
   const wucht = konter ? 2.4 : (a.finisher ? 1.9 : (a.type === 'kick' ? 1.5 : 1));
-  let dmg = (a.type === 'kick' ? 16 : 11) * (a.finisher ? 1.5 : 1) * STUFEN[stufe].wucht;
+  let dmg = (a.type === 'kick' ? 16 : 11)
+            * (a.finisher ? 1.5 * skillWert('abschluss') : 1) * STUFEN[stufe].wucht;
   if (konter) {
     dmg *= 2.2;
     player.konterT = 0; player.konterZiel = null;
@@ -12093,7 +12126,8 @@ function resolveAttackHit() {
          durch - zwei Tritte brechen sie also, vier Faustschlaege auch,
          aber der Tritt bleibt deutlich die bessere Antwort. */
       const maxG = e.typ.guard || 50;
-      e.guard = (e.guard === undefined ? maxG : e.guard) - maxG * 0.55 - dmg * 0.8;
+      const db = skillWert('deckungsbrecher');
+      e.guard = (e.guard === undefined ? maxG : e.guard) - (maxG * 0.55 + dmg * 0.8) * db;
       dmg *= 0.55; geblockt = true;
       if (e.guard <= 0) {
         e.guard = 0;
@@ -12112,7 +12146,8 @@ function resolveAttackHit() {
          Fuenftel ab, egal wie viele. Jetzt kostet jeder geblockte Treffer
          Deckung; ist sie leer, bricht sie auf und der Gegner steht einen
          Moment offen. Ein Tritt bricht sie weiter sofort. */
-      e.guard = (e.guard === undefined ? (e.typ.guard || 50) : e.guard) - dmg * 2.2;
+      e.guard = (e.guard === undefined ? (e.typ.guard || 50) : e.guard)
+                - dmg * 2.2 * skillWert('deckungsbrecher');
       dmg *= 0.2; geblockt = true;
       player.combo = Math.max(0, player.combo - 1);
       if (e.guard <= 0) {
@@ -12349,6 +12384,316 @@ function stufeFrei(name) {
      er klettert nur schnell" an. Jetzt von Anfang an frei. */
   if (name === 'wandlauf') return true;
   return true;
+}
+
+/* ======================= Speicherstand =======================
+   Bis hierher lagen drei einzelne Schluessel im Browser: webhero_stand
+   (Punkte und Stufe), webhero_best (Bestwert) und webhero_ruf. Jeder
+   wurde an einer anderen Stelle geschrieben, keiner hatte eine Version,
+   und webhero_stand wurde bei JEDEM addScore serialisiert - also
+   mehrmals pro Sekunde mitten im Kampf.
+
+   Phase 11 legt alles in EIN Objekt mit Version, uebernimmt die alten
+   Schluessel beim ersten Start und schreibt nur noch dann, wenn sich
+   wirklich etwas Dauerhaftes geaendert hat.
+
+   Ausdruecklich NICHT gespeichert wird der Weltzustand: laufende
+   Ereignisse, Gegner, Bosse, Polizei, Rettungswagen, Netze, Wuerfe,
+   laufende Herausforderungen. Nach dem Neuladen startet die Stadt
+   sauber - nur der Fortschritt des Spielers bleibt. */
+const SAVE_KEY = 'WEB_HERO_SAVE';
+const SAVE_VERSION = 2;
+/* Die alten Einzelschluessel. Sie werden gelesen und danach entfernt. */
+const ALT_KEYS = ['webhero_stand', 'webhero_best', 'webhero_ruf'];
+
+function progLeer() {
+  return {
+    version: SAVE_VERSION,
+    /* Der Keim der Stadt. Ohne ihn waere jeder gespeicherte Ort morgen
+       ein anderer - siehe die Erklaerung oben bei weltKeimHolen(). */
+    weltKeim: WELT_KEIM,
+    punkte: 0,
+    bestPunkte: 0,
+    ruf: 100,
+    fertigkeitspunkte: 0,      // noch nicht ausgegeben
+    skills: {},                // id -> Stufe (0..n)
+    poi: [],                   // besuchte POI-Kennungen
+    marken: [],                // eingesammelte Marken-Kennungen
+    bestzeiten: {},            // Herausforderungsart -> Sekunden
+    meilensteine: [],          // abgeschlossene Meilensteine
+    bezirke: {},               // Bezirkskennung -> { poi, marken, her, crime }
+    einmalig: [],              // schon einmal belohnte Kennungen (Anti-Farm)
+    statistik: {
+      spielzeit: 0, crimes: 0, gerettet: 0, bosse: 0,
+      herausforderungen: 0, poi: 0, marken: 0, besteKombo: 0, stufenAufstiege: 0,
+    },
+  };
+}
+
+/* Eine Zahl, die aus dem Speicher kommt, ist erst dann eine Zahl, wenn
+   sie eine ist. localStorage laesst sich von Hand aendern - das ist in
+   Ordnung, es darf das Spiel nur nicht zerstoeren. */
+function zahl(v, min, max, ersatz) {
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  if (!isFinite(n)) return ersatz;
+  return clamp(n, min, max);
+}
+function listeVonText(v, max) {
+  if (!Array.isArray(v)) return [];
+  const raus = [];
+  for (const x of v) {
+    if (typeof x !== 'string' || !x.length || x.length > 64) continue;
+    if (raus.indexOf(x) < 0) raus.push(x);
+    if (raus.length >= (max || 400)) break;
+  }
+  return raus;
+}
+
+/* Aus beliebigem Inhalt einen gueltigen Spielstand machen. Alles, was
+   nicht passt, wird durch den Standardwert ersetzt - nie geworfen. */
+function progPruefen(roh) {
+  const g = progLeer();
+  if (!roh || typeof roh !== 'object') return g;
+  const wk = zahl(roh.weltKeim, 1, 4294967295, 0);
+  g.weltKeim    = wk > 0 ? Math.floor(wk) : WELT_KEIM;
+  g.punkte      = Math.round(zahl(roh.punkte, 0, 1e9, 0));
+  g.bestPunkte  = Math.round(zahl(roh.bestPunkte, 0, 1e9, 0));
+  g.ruf         = zahl(roh.ruf, 0, 100, 100);
+  g.fertigkeitspunkte = Math.round(zahl(roh.fertigkeitspunkte, 0, 99, 0));
+  g.poi         = listeVonText(roh.poi, 200);
+  g.marken      = listeVonText(roh.marken, 200);
+  g.meilensteine = listeVonText(roh.meilensteine, 200);
+  g.einmalig    = listeVonText(roh.einmalig, 400);
+  if (roh.skills && typeof roh.skills === 'object') {
+    for (const id in roh.skills) {
+      const def = SKILLS[id];
+      if (!def) continue;                     // unbekannte Kennung faellt weg
+      const st = Math.round(zahl(roh.skills[id], 0, def.stufen, 0));
+      if (st > 0) g.skills[id] = st;
+    }
+  }
+  if (roh.bestzeiten && typeof roh.bestzeiten === 'object') {
+    for (const k in roh.bestzeiten) {
+      if (typeof k !== 'string' || k.length > 32) continue;
+      const t = zahl(roh.bestzeiten[k], 0.1, 3600, NaN);
+      if (isFinite(t)) g.bestzeiten[k] = +t.toFixed(1);
+    }
+  }
+  if (roh.bezirke && typeof roh.bezirke === 'object') {
+    for (const k in roh.bezirke) {
+      if (typeof k !== 'string' || k.length > 32) continue;
+      const b = roh.bezirke[k] || {};
+      g.bezirke[k] = {
+        poi:    Math.round(zahl(b.poi, 0, 999, 0)),
+        marken: Math.round(zahl(b.marken, 0, 999, 0)),
+        her:    Math.round(zahl(b.her, 0, 999, 0)),
+        crime:  Math.round(zahl(b.crime, 0, 9999, 0)),
+      };
+    }
+  }
+  if (roh.statistik && typeof roh.statistik === 'object') {
+    for (const k in g.statistik) {
+      g.statistik[k] = Math.round(zahl(roh.statistik[k], 0, 1e9, 0));
+    }
+    /* Spielzeit in Sekunden, nicht runden - sonst verliert jede Sitzung
+       unter einer Sekunde alles. */
+    g.statistik.spielzeit = zahl(roh.statistik.spielzeit, 0, 1e9, 0);
+  }
+  return g;
+}
+
+/* Aeltere Staende auf die aktuelle Fassung heben. Version 1 gab es nie
+   als eigenes Objekt - das sind die drei alten Einzelschluessel. */
+function progMigrieren(roh) {
+  if (!roh || typeof roh !== 'object') return null;
+  const v = zahl(roh.version, 0, 999, 0);
+  if (v >= SAVE_VERSION) return roh;
+  /* Von 1 auf 2: das Feld hiess "best" und die Statistik fehlte ganz.
+     Beides wird hier ergaenzt, der Rest bleibt, wie er ist. */
+  const kopie = Object.assign({}, roh);
+  if (kopie.bestPunkte === undefined && kopie.best !== undefined) {
+    kopie.bestPunkte = kopie.best;
+  }
+  kopie.version = SAVE_VERSION;
+  PROG_INFO.migriertVon = v;
+  return kopie;
+}
+
+/* Die drei alten Einzelschluessel uebernehmen, falls es noch keinen
+   neuen Stand gibt. Ein Spieler, der bisher gespielt hat, verliert
+   dadurch nichts. */
+function progAusAltenSchluesseln() {
+  let etwas = false;
+  const g = progLeer();
+  try {
+    const st = JSON.parse(localStorage.getItem('webhero_stand') || 'null');
+    if (st && typeof st.punkte === 'number' && isFinite(st.punkte)) {
+      g.punkte = Math.max(0, Math.round(st.punkte)); etwas = true;
+    }
+  } catch (e) {}
+  try {
+    const b = parseInt(localStorage.getItem('webhero_best') || '', 10);
+    if (isFinite(b) && b > 0) { g.bestPunkte = b; etwas = true; }
+  } catch (e) {}
+  try {
+    const r = parseFloat(localStorage.getItem('webhero_ruf'));
+    if (isFinite(r)) { g.ruf = clamp(r, 0, 100); etwas = true; }
+  } catch (e) {}
+  if (!etwas) return null;
+  PROG_INFO.ausAltenSchluesseln = true;
+  return g;
+}
+
+/* ======================= Fertigkeiten =======================
+   Drei Zweige, je drei Verbesserungen. Jede liegt als kleiner Faktor
+   UEBER einem Wert, den es im Spiel schon gibt - keine Funktion wurde
+   dafuer kopiert und keine Mechanik neu erfunden.
+
+   Vor jeder Fertigkeit stand die Frage: gibt es den Parameter wirklich?
+   Deshalb fehlen hier zwei Ideen, die gut klingen: eine Netz-Regeneration
+   gibt es nicht, weil das Spiel keinen Netzvorrat fuehrt, und "Erste
+   Hilfe schneller" gibt es nicht, weil Erste Hilfe augenblicklich wirkt
+   und gar keine Dauer hat. Statt etwas dafuer zu bauen, sind sie
+   weggelassen.
+
+   Die Faktoren sind absichtlich klein. Der Charakter soll sich nach neun
+   Punkten noch wie derselbe anfuehlen - nur etwas geschmeidiger. */
+const SKILLS = {
+  /* --- Zweig 1: Bewegung --- */
+  schwungweite: { zweig: 'bewegung', name: 'Weiter Schwung', stufen: 1, wert: [1, 1.15],
+    text: 'Der Anker fuer den Schwung darf 15 % weiter entfernt liegen.',
+    stelle: 'Ankersuche beim Schwingen (60 m / 95 m)' },
+  zipweite: { zweig: 'bewegung', name: 'Langer Netz-Zug', stufen: 1, wert: [1, 1.20],
+    text: 'Der Netz-Zug findet Halt auf 20 % groesserer Entfernung.',
+    stelle: 'Tastweite von zipHaltepunkt (60 m)' },
+  schwungkunst: { zweig: 'bewegung', name: 'Schwungkunst', stufen: 1, wert: [1, 1.5],
+    text: 'Perfekte Abspruenge, Katapultstarts und Strecken geben halb so viel mehr Punkte.',
+    stelle: 'Punkte fuer Absprung, Katapult und Herausforderung' },
+  /* --- Zweig 2: Kampf --- */
+  deckungsbrecher: { zweig: 'kampf', name: 'Deckungsbrecher', stufen: 1, wert: [1, 1.25],
+    text: 'Schlaege nehmen die Deckung eines Gegners 25 % schneller herunter.',
+    stelle: 'Deckungsabzug in resolveAttackHit' },
+  abschluss: { zweig: 'kampf', name: 'Sauberer Abschluss', stufen: 1, wert: [1, 1.15],
+    text: 'Abschlussschlaege treffen 15 % haerter.',
+    stelle: 'Finisher-Faktor 1,5 im Schadensweg' },
+  kombogespuer: { zweig: 'kampf', name: 'Kombogespuer', stufen: 1, wert: [1, 1.4],
+    text: 'Lange Ketten geben deutlich mehr Punkte.',
+    stelle: 'Punkte des Schmetterers (40 + Kombo x 10)' },
+  /* --- Zweig 3: Held --- */
+  helferhand: { zweig: 'held', name: 'Helferhand', stufen: 1, wert: [1, 1.6],
+    text: 'Erste Hilfe wirkt aus groesserer Entfernung.',
+    stelle: 'Reichweite 3,2 m in ersteHilfe' },
+  entdeckerblick: { zweig: 'held', name: 'Entdeckerblick', stufen: 1, wert: [1, 1.35],
+    text: 'Vom Hocken aus faellt dir Entfernteres auf.',
+    stelle: 'ENT_FERN im Entdeckungssystem' },
+  dankbarkeit: { zweig: 'held', name: 'Dankbarkeit', stufen: 1, wert: [1, 1.5],
+    text: 'Gerettete Passanten bringen dir mehr Ansehen.',
+    stelle: 'Rufgewinn bei Erster Hilfe und Rettung' },
+};
+const SKILL_ZWEIGE = [
+  { id: 'bewegung', name: 'Bewegung' },
+  { id: 'kampf',    name: 'Kampf' },
+  { id: 'held',     name: 'Held' },
+];
+
+/* Der Faktor einer Fertigkeit. Ist sie nicht gekauft, ist er 1 - die
+   Aufrufstellen rechnen also immer gleich, ob gekauft oder nicht. */
+function skillWert(id) {
+  const d = SKILLS[id];
+  if (!d) return 1;
+  const st = (PROG.skills && PROG.skills[id]) || 0;
+  return d.wert[Math.min(st, d.wert.length - 1)];
+}
+function skillHat(id) { return !!(PROG.skills && PROG.skills[id]); }
+
+/* Kaufen. Gibt zurueck, ob es geklappt hat - die Oberflaeche zeigt sonst
+   nichts an. */
+function skillKaufen(id) {
+  const d = SKILLS[id];
+  if (!d) return false;
+  const st = (PROG.skills && PROG.skills[id]) || 0;
+  if (st >= d.stufen) return false;
+  if (PROG.fertigkeitspunkte <= 0) return false;
+  PROG.fertigkeitspunkte--;
+  PROG.skills[id] = st + 1;
+  progSofort();                       // gekaufte Fertigkeit ueberlebt einen Absturz
+  if (typeof popupScreen === 'function') popupScreen('✦ ' + d.name + ' freigeschaltet');
+  return true;
+}
+
+const PROG_INFO = { geladen: false, kaputt: false, neu: false,
+                    ausAltenSchluesseln: false, migriertVon: -1,
+                    schreibVorgaenge: 0, letzteSchreibzeit: 0,
+                    ladezeit: 0 };
+let PROG = progLeer();
+let progSchmutzig = false;
+let progSchreibCd = 0;
+
+function progLaden() {
+  const t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+  let roh = null;
+  try {
+    const text = localStorage.getItem(SAVE_KEY);
+    if (text) roh = JSON.parse(text);
+  } catch (e) {
+    /* Kaputtes JSON ist kein weisser Bildschirm: es wird protokolliert
+       und durch einen frischen Stand ersetzt. */
+    PROG_INFO.kaputt = true;
+    console.warn('WEB HERO: Spielstand unlesbar, starte neu.', e && e.message);
+    roh = null;
+  }
+  if (roh) {
+    roh = progMigrieren(roh);
+  } else {
+    roh = progAusAltenSchluesseln();
+    if (!roh) PROG_INFO.neu = true;
+  }
+  PROG = progPruefen(roh);
+  PROG_INFO.geladen = true;
+  PROG_INFO.ladezeit = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0;
+  return PROG;
+}
+
+/* Schreiben. Nur wenn wirklich etwas anliegt - und nie mitten im Bild
+   ohne Grund. */
+function progSpeichern(sofort) {
+  if (!sofort && !progSchmutzig) return false;
+  const t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(PROG));
+    /* Die alten Schluessel sind ab jetzt ueberfluessig. */
+    for (const k of ALT_KEYS) { try { localStorage.removeItem(k); } catch (e) {} }
+  } catch (e) {
+    /* Voller oder gesperrter Speicher darf das Spiel nicht anhalten. */
+    return false;
+  }
+  progSchmutzig = false;
+  PROG_INFO.schreibVorgaenge++;
+  PROG_INFO.letzteSchreibzeit =
+    ((typeof performance !== 'undefined') ? performance.now() : 0) - t0;
+  return true;
+}
+/* Nach einer dauerhaften Aenderung aufrufen. Das eigentliche Schreiben
+   uebernimmt der Takt unten - so wird aus zehn Aenderungen in einer
+   Sekunde ein einziger Schreibvorgang. */
+function progMerken() { progSchmutzig = true; }
+/* Wichtige Ereignisse schreiben sofort: eine Marke, ein Stufenaufstieg
+   oder ein gekaufter Skill soll einen Absturz ueberleben. */
+function progSofort() { progSchmutzig = true; progSpeichern(true); }
+
+function progTakt(dt) {
+  PROG.statistik.spielzeit += dt;
+  progSchreibCd -= dt;
+  if (progSchreibCd > 0) return;
+  progSchreibCd = 30;                 // hoechstens alle 30 s
+  if (progSchmutzig) progSpeichern(false);
+}
+
+function progZuruecksetzen() {
+  PROG = progLeer();
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  for (const k of ALT_KEYS) { try { localStorage.removeItem(k); } catch (e) {} }
+  progSchmutzig = false;
 }
 
 /* ======================= Ruf der Stadt =======================
@@ -15175,7 +15520,7 @@ function katapultLos() {
   staubWolke(player.pos, 1.2 + t);
   SFX.zip(); SFX.swoosh();
   popupWorld('Katapult!', player.pos, '#bfe8ff');
-  addScore(Math.round(20 * t), '', player.pos);
+  addScore(Math.round(20 * t * skillWert('schwungkunst')), '', player.pos);
 }
 
 function updateKatapult(dt) {
@@ -20020,7 +20365,7 @@ function makeHilfeKreuz() {
 
 /* Erste Hilfe: nahe an einem Verletzten die Taste C drücken. */
 function ersteHilfe() {
-  let ziel = null, best = 3.2;
+  let ziel = null, best = 3.2 * skillWert('helferhand');
   for (const c of civilians) {
     if (c.state !== 'hurt' || !c.hilfeBar) continue;
     const d = Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z);
@@ -20031,7 +20376,8 @@ function ersteHilfe() {
   ziel.hilfeBar = false; ziel.savedCd = 12;
   if (ziel.kreuz) ziel.kreuz.visible = false;
   ziel.ruhePose = 'jubel'; ziel.poseT = 2.5;
-  setzeRuf(+9, 'Ruf +9', ziel.pos);
+  const rufHilfe = Math.round(9 * skillWert('dankbarkeit'));
+  setzeRuf(+rufHilfe, 'Ruf +' + rufHilfe, ziel.pos);
   addScore(120, 'Erste Hilfe geleistet!', ziel.pos);
   return true;
 }
@@ -21063,7 +21409,7 @@ function checkCivilianSaved(deadEnemy) {
     if (d < 12 && (c.state === 'flee' || c.state === 'hurt')) {
       if (!nearestThreatTo(c.pos, 12)) {
         c.savedCd = 20;
-        setzeRuf(+3, null, c.pos);
+        setzeRuf(+3 * skillWert('dankbarkeit'), null, c.pos);
         addScore(100, 'Zivilist gerettet!', c.pos);
       }
     }
@@ -25456,7 +25802,7 @@ function entUpdate(dt) {
   let best = null, bestD = 1e9;
   for (const t of entZiele()) {
     const d = Math.hypot(t.x - player.pos.x, t.z - player.pos.z);
-    if (d < ENT_NAH || d > ENT_FERN) continue;
+    if (d < ENT_NAH || d > ENT_FERN * skillWert('entdeckerblick')) continue;
     /* Nicht zweimal hintereinander dasselbe. */
     if (ENT.letzte && Math.hypot(t.x - ENT.letzte.x, t.z - ENT.letzte.z) < 6) continue;
     if (d < bestD) { bestD = d; best = t; }
