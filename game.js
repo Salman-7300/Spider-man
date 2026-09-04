@@ -9687,6 +9687,10 @@ document.addEventListener('keydown', (e) => {
     case 'ControlLeft': case 'ControlRight': dodge(); e.preventDefault(); break;
     case 'KeyH': helpBox.style.display = helpBox.style.display === 'block' ? 'none' : 'block'; break;
     case 'KeyM': { const m = SFX.toggleMute(); popupScreen(m ? '🔇 Ton aus' : '🔊 Ton an'); break; }
+    /* J nimmt den angebotenen Auftrag an - oder bricht den laufenden ab.
+       Nichts startet von selbst: der Spieler entscheidet, ob er gerade
+       Geschichte will oder weiter durch die Stadt zieht. */
+    case 'KeyJ': storyTaste(); break;
     case 'Escape': zeigeEinstellungen(settingsEl.style.display !== 'flex'); break;
     case 'KeyP': {
       const el = document.getElementById('fortschritt');
@@ -12440,7 +12444,7 @@ function stufeFrei(name) {
    laufende Herausforderungen. Nach dem Neuladen startet die Stadt
    sauber - nur der Fortschritt des Spielers bleibt. */
 const SAVE_KEY = 'WEB_HERO_SAVE';
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 /* Die alten Einzelschluessel. Sie werden gelesen und danach entfernt. */
 const ALT_KEYS = ['webhero_stand', 'webhero_best', 'webhero_ruf'];
 
@@ -12471,6 +12475,13 @@ function progLeer() {
        Das Feld bleibt deshalb leer und wandert mit durch jede Migration;
        sobald es Varianten gibt, haengt die Freischaltung hier. */
     kosmetik: [],
+    /* ---- Die Geschichte ----
+       Gespeichert wird der Fortschritt, NICHT die laufende Welt: keine
+       Gegner, keine Fahrzeuge, keine Marker. Bei einem Neuladen mitten
+       in einer Mission wird sie am letzten Kontrollpunkt neu aufgebaut,
+       nicht wiederhergestellt. */
+    story: { akt: 1, fertig: [], gescheitert: [], flags: {},
+             checkpointId: null, checkpointPhase: 0 },
     statistik: {
       spielzeit: 0, crimes: 0, gerettet: 0, bosse: 0,
       herausforderungen: 0, poi: 0, marken: 0, besteKombo: 0, stufenAufstiege: 0,
@@ -12513,6 +12524,23 @@ function progPruefen(roh) {
   g.meilensteine = listeVonText(roh.meilensteine, 200);
   g.einmalig    = listeVonText(roh.einmalig, 400);
   g.kosmetik    = listeVonText(roh.kosmetik, 64);
+  if (roh.story && typeof roh.story === 'object') {
+    const st = roh.story;
+    g.story.akt = Math.round(zahl(st.akt, 1, 9, 1));
+    /* Nur Kennungen, die es wirklich gibt - eine erfundene Mission darf
+       die Geschichte nicht blockieren. */
+    g.story.fertig = listeVonText(st.fertig, 64).filter((id) => !!storyDef(id));
+    g.story.gescheitert = listeVonText(st.gescheitert, 64).filter((id) => !!storyDef(id));
+    if (st.flags && typeof st.flags === 'object') {
+      for (const k in st.flags) {
+        if (typeof k !== 'string' || k.length > 32) continue;
+        g.story.flags[k] = !!st.flags[k];
+      }
+    }
+    const ck = typeof st.checkpointId === 'string' ? st.checkpointId : null;
+    g.story.checkpointId = (ck && storyDef(ck)) ? ck : null;
+    g.story.checkpointPhase = Math.round(zahl(st.checkpointPhase, 0, 20, 0));
+  }
   if (roh.skills && typeof roh.skills === 'object') {
     for (const id in roh.skills) {
       const def = SKILLS[id];
@@ -12562,6 +12590,12 @@ function progMigrieren(roh) {
   const kopie = Object.assign({}, roh);
   if (kopie.bestPunkte === undefined && kopie.best !== undefined) {
     kopie.bestPunkte = kopie.best;
+  }
+  /* Von 2 auf 3: die Geschichte kam dazu. Ein alter Stand hat sie noch
+     nicht - er faengt bei Mission 1 an und verliert nichts. */
+  if (!kopie.story || typeof kopie.story !== 'object') {
+    kopie.story = { akt: 1, fertig: [], gescheitert: [], flags: {},
+                    checkpointId: null, checkpointPhase: 0 };
   }
   kopie.version = SAVE_VERSION;
   PROG_INFO.migriertVon = v;
@@ -23113,6 +23147,7 @@ function updateEnemies(dtBild) {
   }
 
   updateMission(dtBild);
+  storyTakt(dtBild);
 }
 
 let gangRespawnT = 8;
@@ -23403,6 +23438,10 @@ function gegnerInMission(e) {
   if (d.gang && d.gang.enemies && d.gang.enemies.indexOf(e) >= 0) return true;
   if (d.wachen && d.wachen.indexOf(e) >= 0) return true;
   if (d.dieb === e) return true;
+  /* Storygegner. Sie stehen zusaetzlich in wachen, aber die Fahne ist
+     der ehrlichere Weg: sie ueberlebt auch, wenn eine Gruppe
+     zwischendurch umgehaengt wird. */
+  if (e.storyGegner) return true;
   return false;
 }
 
@@ -24247,8 +24286,13 @@ function updateWeltEreignisse(dt) {
   const gesamt = EV.liste.filter((e) => e.zustand !== 'FERTIG' &&
                                         e.zustand !== 'AUFRAEUMEN').length;
   const lebendeGegner = enemies.reduce((n, g) => n + (g.dead ? 0 : 1), 0);
+  /* ---- Die Geschichte hat Vorrang, aber nur im Kampf ----
+     Waehrend einer Storyphase, in der wirklich gekaempft wird, kommen
+     keine neuen Verbrechen dazu - sonst ueberlagern sich zwei Sachen,
+     die beide Aufmerksamkeit wollen. Reist der Spieler dagegen nur durch
+     die Stadt, lebt die Welt normal weiter. */
   if (EV.ruheCd <= 0 && gesamt < EV_MAX_GESAMT && !player.dead &&
-      EV.taktAnteil < EV_ZIEL_AKTIV) {
+      !storyKampfPhase() && EV.taktAnteil < EV_ZIEL_AKTIV) {
     const wahl = evWaehleArt(lebendeGegner >= EV_GEGNER_MAX);
     if (wahl) {
       const ort = evSucheOrt(EV_NAH, EV_FERN, wahl.art !== 'unfall');
@@ -26135,6 +26179,7 @@ function missionZiel() {
     case 'geisel': return d.civ ? d.civ.pos : null;
     case 'dieb': return d.dieb && !d.dieb.dead ? d.dieb.pos : null;
     case 'rennen': return d.rest.length ? d.rest[0].pos : null;
+    case 'story': return d.zielPos || null;
     default: return null;
   }
 }
@@ -26257,6 +26302,9 @@ function starteMission() {
 }
 
 function updateMission(dt) {
+  /* Die Geschichte belegt denselben Slot, hat aber ihren eigenen Takt
+     (storyTakt). Hier wird sie nur in Ruhe gelassen. */
+  if (MISSION.art === 'story') return;
   if (!MISSION.art) {
     missionCd -= dt;
     if (missionCd <= 0) starteMission();
@@ -26335,6 +26383,694 @@ function updateMission(dt) {
     objectiveEl.textContent = `${MISSION.text}${MISSION.art === 'flucht' && d.treffer !== undefined
       ? `  (${d.treffer}/${d.noetig})` : ''}   ⏱ ${Math.ceil(MISSION.zeit)}s`;
   }
+}
+
+/* ======================= Die Geschichte =======================
+   AUDIT ZUERST. Was es schon gab:
+
+     MISSION = { art, zeit, daten, text }   ein einziger Auftragsslot
+     starteMission()                        wuerfelt zufaellig einen aus
+     missionEnde(erfolg, text, punkte)      raeumt Fahnen auf, gibt Ruf
+     missionZiel()                          Weltposition fuer den Leuchtturm
+     updateMission(dt)                      je Art eine Abschlusspruefung
+
+   Fuenf Arten: gang, flucht (Fluchtauto), geisel, dieb (Fussjagd),
+   rennen (Ringe). Dazu showObjective/hideObjective, setzeBeacon und -
+   entscheidend - gegnerInMission(), das die Welt-Hygiene bereits daran
+   hindert, Auftragsgegner abzuraeumen.
+
+   Deshalb KEIN zweites Missionsframework. Die Geschichte belegt denselben
+   Slot als eigene Art:
+
+     MISSION.art = 'story'
+
+   Damit gilt ohne eine Zeile Parallelcode: zufaellige Auftraege starten
+   nicht dazwischen (starteMission laeuft nur bei freiem Slot), die
+   Welt-Hygiene fasst Storygegner nicht an (sie stehen in MISSION.daten),
+   und Leuchtturm und Zielanzeige funktionieren wie gehabt.
+
+   Die Missionen selbst sind Daten, keine Funktionen: eine Liste von
+   Phasen mit Aufbau, Pruefung und Abschluss. Speziallogik steht nur
+   dort, wo eine Phase sie wirklich braucht. */
+
+const STORY_VERSION = 1;          /* Aufbau der Geschichte, nicht des Spielstands */
+
+/* Kurze Funkmeldungen statt Textwaenden. Der Kontakt ist die
+   Polizeifunk-Leitstelle - eine Figur, die es in der Welt schon gibt
+   (Streifen, Notrufe, Rettungswagen) und die kein Modell und keine
+   Stimme braucht. */
+function stFunk(text, farbe) {
+  if (!text) return;
+  popupScreen('📻 ' + text);
+  STORY.letzteMeldung = text;
+}
+
+/* ---- Hilfsmittel, aus denen die Phasen zusammengesetzt sind ---- */
+
+/* Eine Gruppe fuer die Geschichte aufstellen. Nutzt spawnGang, also
+   dieselben Archetypen, dieselbe KI, dieselbe Darstellung. */
+function stGang(x, z, n, art) {
+  const g = spawnGang(x, z, n, art || 'story');
+  const m = MISSION.daten;
+  if (m) {
+    if (!m.gangs) m.gangs = [];
+    m.gangs.push(g);
+    /* gegnerInMission() liest MISSION.daten.gang - deshalb zeigt gang
+       immer auf die zuletzt aufgestellte Gruppe, und alle weiteren
+       stehen zusaetzlich in wachen. So sind ALLE Storygegner vor der
+       Welt-Hygiene geschuetzt, nicht nur die erste Gruppe. */
+    m.gang = g;
+    if (!m.wachen) m.wachen = [];
+    for (const e of g.enemies) { e.storyGegner = true; m.wachen.push(e); }
+  }
+  return g;
+}
+function stLebend(g) { return g && g.enemies.filter((e) => !e.dead).length; }
+function stAlleGangsTot() {
+  const m = MISSION.daten;
+  if (!m || !m.gangs) return true;
+  for (const g of m.gangs) if (stLebend(g)) return false;
+  return true;
+}
+function stNah(pos, r) {
+  if (!pos) return false;
+  return Math.hypot(player.pos.x - pos.x, player.pos.z - pos.z) < (r || 12);
+}
+/* Einen Ort in der Stadt suchen, der zur Geschichte passt: ein Bezirk,
+   in dem der Spieler noch nicht alles kennt, sonst ein tauglicher Platz. */
+function stOrt(minAbstand) {
+  const min = minAbstand || 60;
+  let best = null, bestD = -1;
+  for (let i = 0; i < 40; i++) {
+    const x = rand(-165, 165), z = rand(-165, 165);
+    if (!evOrtTauglich(x, z)) continue;
+    const d = Math.hypot(x - player.pos.x, z - player.pos.z);
+    if (d < min) continue;
+    if (d > bestD) { bestD = d; best = { x, z }; }
+  }
+  return best || { x: 0, z: 0 };
+}
+/* Einen POI als Storyort verwenden - Phase 10 hat vierzig davon. */
+function stPoi(arten, minAbstand) {
+  const kand = POI.liste.filter((p) => arten.indexOf(p.art) >= 0 &&
+    Math.hypot(p.x - player.pos.x, p.z - player.pos.z) > (minAbstand || 70));
+  if (!kand.length) return null;
+  return kand[randi(0, kand.length - 1)];
+}
+
+/* ======================= Akt 1 =======================
+   Die Gangs der Stadt werden organisierter. Der Spieler merkt das
+   Stueck fuer Stueck - erst an einer Kleinigkeit, dann an einem Muster,
+   am Ende an einer Person. Der ENFORCER kommt in Mission 1 nicht vor
+   und wird auch nicht angekuendigt.
+
+   Jede Mission benutzt ein anderes System. Das ist Absicht: die
+   Geschichte soll die vorhandenen Teile verbinden, nicht siebenmal
+   dieselbe Pruegelei sein. */
+const STORY_DEF = [
+  /* ---------------------------------------------------------------- */
+  { id: 'm1', nr: 1, titel: 'Unruhige Nacht',
+    kurz: 'Ein Überfall, der zu geordnet abläuft.',
+    system: 'Kampf · Rettung · Fussjagd',
+    frei: () => true,
+    start: 'Leitstelle: Überfall gemeldet. Du bist näher dran als jede Streife.',
+    phasen: [
+      { ziel: 'Zum gemeldeten Überfall',
+        auf: (m) => { m.ort = stOrt(45); m.zielPos = { x: m.ort.x, y: 1, z: m.ort.z }; },
+        pruef: (m) => stNah(m.zielPos, 26) ? 'weiter' : null },
+      { ziel: 'Die Täter stoppen',
+        auf: (m) => {
+          stGang(m.ort.x, m.ort.z, 3, 'story');
+          /* Ein Opfer aus der Nachbarschaft, ueber den vorhandenen Weg. */
+          const o = evSucheOpfer(m.ort.x, m.ort.z, 1);
+          if (o && o.length) { m.opfer = o[0]; m.opfer.eventRolle = 'opfer'; }
+          stFunk('Drei Männer. Sie arbeiten sich ab wie nach Plan.');
+        },
+        pruef: (m) => {
+          if (m.opfer && m.opfer.state === 'hurt' && !m.opferVerletzt) {
+            m.opferVerletzt = true;              // weiche Niederlage, kein Abbruch
+          }
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
+      { ziel: 'Den Flüchtenden einholen',
+        auf: (m) => {
+          /* Der letzte laeuft weg - ueber die vorhandene Flucht-KI. */
+          const g = stGang(player.pos.x + rand(-14, 14), player.pos.z + rand(-14, 14), 1, 'story');
+          m.laeufer = g.enemies[0];
+          if (m.laeufer) {
+            m.laeufer.flieht = true; m.laeufer.state = 'flee';
+            m.laeufer.eventFlucht = true;
+          }
+          m.fluchtT = 42;
+          stFunk('Einer läuft. Er hat etwas dabei.');
+        },
+        pruef: (m, dt) => {
+          m.fluchtT -= dt;
+          if (!m.laeufer || m.laeufer.dead || (m.laeufer.webT || 0) > 0) return 'weiter';
+          if (m.fluchtT <= 0) return 'weich';    // entkommen: Geschichte geht weiter
+          return null;
+        } },
+    ],
+    erfolgText: 'Das war kein gewöhnlicher Überfall.',
+    weichText: 'Er ist weg. Aber das war kein gewöhnlicher Überfall.',
+    belohnung: { punkte: 300, ruf: 6 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 'm2', nr: 2, titel: 'Die Spur',
+    kurz: 'Ein Hinweis führt in einen anderen Stadtteil.',
+    system: 'Erkundung · Kampf',
+    frei: () => STORY.fertig.indexOf('m1') >= 0,
+    start: 'Leitstelle: Das Diebesgut taucht in einem anderen Viertel auf. Sieh dich dort um.',
+    phasen: [
+      { ziel: 'Den Stadtteil erreichen',
+        auf: (m) => {
+          const p = stPoi(['LANDMARK', 'VIEWPOINT', 'TRANSIT'], 70) ||
+                    { x: stOrt(80).x, y: 1, z: stOrt(80).z, art: 'ORT' };
+          m.poi = p;
+          m.zielPos = { x: p.x, y: p.y || 1, z: p.z };
+          m.punkte = [];
+          /* Drei Stellen zum Ansehen, im Umkreis. Keine Detektivmechanik -
+             hingehen genuegt. */
+          for (let i = 0; i < 3; i++) {
+            const a = (i / 3) * Math.PI * 2 + rand(0, 1);
+            const r = rand(12, 26);
+            m.punkte.push({ x: p.x + Math.cos(a) * r, z: p.z + Math.sin(a) * r, gesehen: false });
+          }
+        },
+        pruef: (m) => stNah(m.zielPos, 30) ? 'weiter' : null },
+      { ziel: 'Drei Stellen ansehen (0/3)',
+        auf: (m) => stFunk('Sieh dich um. Irgendwo hier haben sie gearbeitet.'),
+        pruef: (m) => {
+          let n = 0;
+          for (const q of m.punkte) {
+            if (!q.gesehen && stNah({ x: q.x, z: q.z }, 9)) {
+              q.gesehen = true;
+              addScore(40, 'Spur', player.pos);
+              popupWorld('Spur gefunden', player.pos, '#8fd4ff');
+            }
+            if (q.gesehen) n++;
+          }
+          STORY.zielText = 'Drei Stellen ansehen (' + n + '/3)';
+          return n >= 3 ? 'weiter' : null;
+        } },
+      { ziel: 'Die Gruppe stellen',
+        auf: (m) => {
+          stGang(m.poi.x + rand(-10, 10), m.poi.z + rand(-10, 10), 4, 'story');
+          stFunk('Sie sind noch hier. Und sie sind mehr geworden.');
+          STORY.flags.mehrere = true;
+        },
+        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+    ],
+    erfolgText: 'Dieselben Handschuhe, dieselben Funkgeräte. Zwei Gangs, ein Ausrüster.',
+    belohnung: { punkte: 350, ruf: 6 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 'm3', nr: 3, titel: 'Durch die Stadt',
+    kurz: 'Ein Kurier bringt etwas weg.',
+    system: 'Traversal · Fussjagd',
+    frei: () => STORY.fertig.indexOf('m2') >= 0 && stufe >= 1,
+    start: 'Leitstelle: Ein Kurier ist unterwegs. Wenn er ankommt, ist die Spur kalt.',
+    phasen: [
+      { ziel: 'Den Kurier einholen',
+        auf: (m) => {
+          const o = stOrt(55);
+          const g = stGang(o.x, o.z, 1, 'story');
+          m.kurier = g.enemies[0];
+          if (m.kurier) {
+            m.kurier.flieht = true; m.kurier.state = 'flee'; m.kurier.eventFlucht = true;
+            m.kurier.hpMax = Math.round(m.kurier.hpMax * 1.2);
+            m.kurier.hp = m.kurier.hpMax;
+          }
+          m.jagdT = 95;
+          m.startWeg = m.kurier ? Math.hypot(m.kurier.pos.x - player.pos.x,
+                                             m.kurier.pos.z - player.pos.z) : 0;
+        },
+        pruef: (m, dt) => {
+          m.jagdT -= dt;
+          if (!m.kurier || m.kurier.dead || (m.kurier.webT || 0) > 0) return 'weiter';
+          if (m.jagdT <= 0) return 'weich';
+          return null;
+        } },
+    ],
+    erfolgText: 'Eine Liste mit Uhrzeiten. Alle in derselben Nacht.',
+    weichText: 'Er ist entkommen. Aber die Leitstelle hat den Funkverkehr mitgeschnitten.',
+    belohnung: { punkte: 400, ruf: 7 },
+    weichBelohnung: { punkte: 150, ruf: 2 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 'm4', nr: 4, titel: 'Druck auf der Straße',
+    kurz: 'Drei Vorfälle in einem Viertel, zur selben Zeit.',
+    system: 'Ereignisregisseur · Rettung · Polizei',
+    frei: () => STORY.fertig.indexOf('m3') >= 0,
+    start: 'Leitstelle: Drei Meldungen aus einem Viertel. Gleichzeitig. Das ist kein Zufall.',
+    phasen: [
+      { ziel: 'Den ersten Vorfall stoppen',
+        auf: (m) => {
+          /* Der Ereignisregisseur baut die Vorfaelle - kein eigener Spawner. */
+          EV.ruheCd = 0; EV.taktAnteil = 0;
+          m.ev1 = evStarte('ueberfall');
+          m.zielPos = m.ev1 ? { x: m.ev1.ort.x, y: 1, z: m.ev1.ort.z } : null;
+        },
+        pruef: (m) => (!m.ev1 || m.ev1.zustand === 'FERTIG') ? 'weiter' : null },
+      { ziel: 'Den Verletzten helfen',
+        auf: (m) => {
+          stFunk('Ein Verletzter am Boden. Der Rettungswagen ist unterwegs.');
+          m.hilfeT = 60;
+          m.hilfeStart = PROG.statistik.gerettet;
+        },
+        pruef: (m, dt) => {
+          m.hilfeT -= dt;
+          /* Entweder der Spieler hilft selbst, oder der Rettungsdienst
+             kommt - beides zaehlt. Es wird nichts gescriptet, was das
+             Respondersystem ohnehin tut. */
+          if (PROG.statistik.gerettet > m.hilfeStart) return 'weiter';
+          let liegt = false;
+          for (const c of civilians) if (c.state === 'hurt' && c.hilfeBar) liegt = true;
+          if (!liegt) return 'weiter';
+          if (m.hilfeT <= 0) return 'weich';
+          return null;
+        } },
+      { ziel: 'Die Gang vertreiben',
+        auf: (m) => {
+          const o = stOrt(35);
+          stGang(o.x, o.z, 5, 'story');
+          m.zielPos = { x: o.x, y: 1, z: o.z };
+          stFunk('Sie ziehen sich nicht zurück. Sie halten die Straße.');
+        },
+        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+    ],
+    erfolgText: 'Drei Gruppen, ein Zeitplan. Jemand koordiniert das.',
+    belohnung: { punkte: 450, ruf: 8 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 'm5', nr: 5, titel: 'Der Konvoi',
+    kurz: 'Ein Wagen bringt die Ware aus der Stadt.',
+    system: 'Fahrzeugjagd · Polizei',
+    frei: () => STORY.fertig.indexOf('m4') >= 0 && stufe >= 2,
+    start: 'Leitstelle: Ein Wagen fährt Richtung Brücke. Die Streifen kommen nicht ran.',
+    phasen: [
+      { ziel: 'Den Wagen stoppen (0/4)',
+        auf: (m) => {
+          /* Dasselbe Fluchtauto-System wie im Zufallsauftrag. */
+          const kand = cars.filter((c) => !c.flucht && !c.notfallEinsatz && c.mesh);
+          if (kand.length) {
+            m.car = kand[randi(0, kand.length - 1)];
+            m.car.altSpeed = m.car.speed;
+            m.car.flucht = true;
+            m.car.speed = Math.max(m.car.speed, 16);
+          }
+          m.treffer = 0; m.noetig = 4; m.cd = 0; m.jagdT = 120;
+        },
+        pruef: (m, dt) => {
+          m.jagdT -= dt;
+          if (!m.car || !m.car.mesh) return 'weich';
+          const p = m.car.mesh.position;
+          m.zielPos = { x: p.x, y: p.y, z: p.z };
+          if (m.cd > 0) m.cd -= dt;
+          const dist = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+          const trifft = dist < 3.4 && Math.abs(player.pos.y - p.y) < 3.2 &&
+                         ((player.attack && !player.attack.hitDone) || player.platform === m.car);
+          if (trifft && m.cd <= 0) {
+            m.treffer++; m.cd = 1.0;
+            treffEffekt(_v1.set(p.x, p.y + 1.2, p.z), 1.6, 0xffd23c);
+            hitstop(0.07); camShake = Math.max(camShake, 0.14);
+            m.car.speed = Math.max(6, m.car.speed - 5);
+            popupWorld('Treffer ' + m.treffer + '/' + m.noetig, p, '#ffd23c');
+          }
+          STORY.zielText = 'Den Wagen stoppen (' + m.treffer + '/' + m.noetig + ')';
+          if (m.treffer >= m.noetig) return 'weiter';
+          if (m.jagdT <= 0) return 'weich';
+          return null;
+        },
+        ende: (m) => {
+          if (m.car) { m.car.flucht = false;
+            if (m.car.altSpeed !== undefined) m.car.speed = m.car.altSpeed; }
+        } },
+      { ziel: 'Die Begleiter ausschalten',
+        auf: (m) => {
+          const p = m.car && m.car.mesh ? m.car.mesh.position : player.pos;
+          stGang(p.x + rand(-8, 8), p.z + rand(-8, 8), 3, 'story');
+          stFunk('Sie steigen aus. Sie geben die Ladung nicht her.');
+        },
+        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+    ],
+    erfolgText: 'Kisten voller Funkgeräte. Und ein Name auf dem Lieferschein.',
+    weichText: 'Der Wagen ist durch. Aber die Streifen haben das Kennzeichen.',
+    belohnung: { punkte: 500, ruf: 8 },
+    weichBelohnung: { punkte: 200, ruf: 2 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 'm6', nr: 6, titel: 'Das Versteck',
+    kurz: 'Der Ort, an dem alles zusammenläuft.',
+    system: 'Kampf in Wellen · Archetypen · Rettung',
+    frei: () => STORY.fertig.indexOf('m5') >= 0,
+    start: 'Leitstelle: Wir haben die Adresse. Geh vorsichtig rein.',
+    phasen: [
+      { ziel: 'Das Versteck erreichen',
+        auf: (m) => {
+          const p = stPoi(['LANDMARK', 'ROOFTOP', 'TRANSIT'], 60) || stOrt(80);
+          m.ort = { x: p.x, z: p.z };
+          m.zielPos = { x: p.x, y: p.y || 1, z: p.z };
+        },
+        pruef: (m) => stNah(m.zielPos, 24) ? 'weiter' : null },
+      { ziel: 'Die Wache ausschalten',
+        auf: (m) => { stGang(m.ort.x + 6, m.ort.z + 6, 3, 'story');
+                      stFunk('Zwei am Eingang. Sie haben dich gesehen.'); },
+        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+      { ziel: 'Den Innenhof räumen',
+        auf: (m) => { stGang(m.ort.x - 8, m.ort.z + 4, 4, 'story');
+                      stGang(m.ort.x + 4, m.ort.z - 8, 3, 'story');
+                      stFunk('Mehr als gedacht. Deutlich mehr.'); },
+        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+      { ziel: 'Den Anführer stellen',
+        auf: (m) => {
+          const g = stGang(m.ort.x, m.ort.z, 4, 'story');
+          const chef = g.enemies[0];
+          if (chef) { machElite(chef); chef.anfuehrer = true;
+                      chef.hpMax = Math.round(chef.hpMax * 1.5); chef.hp = chef.hpMax;
+                      g.chef = chef; }
+          stFunk('Der mit dem Funkgerät. Der redet mit jemandem.');
+        },
+        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+    ],
+    erfolgText: 'Er hat nur einen Satz gesagt: „Der Enforcer wird nicht erfreut sein."',
+    belohnung: { punkte: 600, ruf: 9 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 'm7', nr: 7, titel: 'ENFORCER',
+    kurz: 'Er kommt selbst.',
+    system: 'Boss · Adds',
+    frei: () => STORY.fertig.indexOf('m6') >= 0,
+    start: 'Leitstelle: Alle Streifen ziehen sich zurück. Da kommt etwas Größeres.',
+    phasen: [
+      { ziel: 'Zum Treffpunkt',
+        auf: (m) => {
+          const o = stOrt(50);
+          m.ort = o; m.zielPos = { x: o.x, y: 1, z: o.z };
+          stFunk('Er wartet. Er will, dass du kommst.');
+        },
+        pruef: (m) => stNah(m.zielPos, 22) ? 'weiter' : null },
+      { ziel: 'ENFORCER besiegen',
+        auf: (m) => {
+          /* Bestehende Bossmechanik, bestehende Adds. Nichts neu
+             ausbalanciert - die drei Phasen bleiben, wie sie sind. */
+          const g = stGang(m.ort.x, m.ort.z, 4, 'story');
+          const chef = g.enemies[0];
+          if (chef) { machBoss(chef, 'ENFORCER'); m.boss = chef;
+                      chef.state = 'chase'; chef.target = 'player'; }
+          m.kampfBegonnen = true;
+        },
+        pruef: (m) => {
+          if (m.boss && m.boss.dead) return 'weiter';
+          if (m.boss && enemies.indexOf(m.boss) < 0) return 'weiter';
+          return null;
+        } },
+    ],
+    erfolgText: 'Er war wichtig. Aber er hat Befehle bekommen, nicht gegeben.',
+    belohnung: { punkte: 900, ruf: 12, fertigkeitspunkt: true },
+    aktEnde: true },
+
+  /* ---------------------------------------------------------------- */
+  { id: 'm8', nr: 8, titel: 'Danach',
+    kurz: 'Die Stadt atmet durch.',
+    system: 'Weltzustand · Rettung',
+    frei: () => STORY.fertig.indexOf('m7') >= 0,
+    start: 'Leitstelle: Es ist ruhig. Zu ruhig für einen Zufall. Sieh nach den Leuten.',
+    phasen: [
+      { ziel: 'Nach den Verletzten sehen',
+        auf: (m) => { m.start = PROG.statistik.gerettet; m.t = 120; },
+        pruef: (m, dt) => {
+          m.t -= dt;
+          if (PROG.statistik.gerettet >= m.start + 1) return 'weiter';
+          if (m.t <= 0) return 'weich';
+          return null;
+        } },
+    ],
+    erfolgText: 'Die Stadt ist ruhig. Die Organisation ist es nicht.',
+    weichText: 'Die Stadt ist ruhig. Die Organisation ist es nicht.',
+    belohnung: { punkte: 250, ruf: 5 } },
+];
+
+/* ---- Zustand der Geschichte ---- */
+const STORY = {
+  aktiv: null,          /* laufende Definition */
+  phase: 0,
+  fertig: [],           /* Kennungen abgeschlossener Missionen */
+  gescheitert: [],
+  flags: {},
+  zielText: '',
+  letzteMeldung: '',
+  abbruchFrage: 0,
+  akt: 1,
+  angebot: null,        /* verfuegbare, noch nicht angenommene Mission */
+  angebotCd: 0,
+  statistik: { gestartet: 0, geschafft: 0, weich: 0, abgebrochen: 0,
+               neustarts: 0, checkpoints: 0 },
+};
+
+/* ---- Die Bindung an den Spielstand ----
+   STORY.fertig und PROG.story.fertig sind DASSELBE Feld, nicht zwei
+   Kopien. Damit gibt es keinen Abgleich, der auseinanderlaufen kann -
+   ein push landet unmittelbar im Spielstand. */
+function storyAnbinden() {
+  if (!PROG.story) {
+    PROG.story = { akt: 1, fertig: [], gescheitert: [], flags: {},
+                   checkpointId: null, checkpointPhase: 0 };
+  }
+  STORY.fertig = PROG.story.fertig;
+  STORY.gescheitert = PROG.story.gescheitert;
+  STORY.flags = PROG.story.flags;
+  STORY.akt = PROG.story.akt || 1;
+}
+function storyCheckpointSetzen(id, phase) {
+  PROG.story.checkpointId = id;
+  PROG.story.checkpointPhase = phase;
+  progMerken();
+}
+function storyDef(id) { for (const d of STORY_DEF) if (d.id === id) return d; return null; }
+function storyOffen() {
+  for (const d of STORY_DEF) {
+    if (STORY.fertig.indexOf(d.id) >= 0) continue;
+    if (!d.frei()) continue;
+    return d;
+  }
+  return null;
+}
+function storyZustand(id) {
+  if (STORY.aktiv && STORY.aktiv.id === id) return 'AKTIV';
+  if (STORY.fertig.indexOf(id) >= 0) return 'ERLEDIGT';
+  const d = storyDef(id);
+  if (!d) return 'UNBEKANNT';
+  if (STORY.gescheitert.indexOf(id) >= 0) return d.frei() ? 'VERFUEGBAR' : 'GESPERRT';
+  return d.frei() ? 'VERFUEGBAR' : 'GESPERRT';
+}
+
+/* Starten. Die Mission belegt den vorhandenen Auftragsslot. */
+function storyStarte(id, abPhase) {
+  const d = storyDef(id);
+  if (!d || STORY.aktiv) return false;
+  if (!d.frei()) return false;
+  /* Ein laufender Zufallsauftrag wird sauber beendet, nicht ueberschrieben. */
+  if (MISSION.art) missionEnde(false, '');
+  MISSION.art = 'story';
+  MISSION.zeit = 0;
+  MISSION.text = d.titel;
+  MISSION.daten = { story: true, gangs: [], wachen: [] };
+  STORY.aktiv = d;
+  STORY.phase = 0;
+  STORY.statistik.gestartet++;
+  STORY.angebot = null;
+  stFunk(d.start);
+  if (abPhase) {
+    /* Wiedereinstieg am Kontrollpunkt: die Phasen davor gelten als
+       geschafft, aufgebaut wird nur die aktuelle. */
+    STORY.phase = clamp(abPhase, 0, d.phasen.length - 1);
+    STORY.statistik.neustarts++;
+  }
+  storyPhaseAuf();
+  progMerken();
+  return true;
+}
+
+function storyPhaseAuf() {
+  const d = STORY.aktiv;
+  if (!d) return;
+  const ph = d.phasen[STORY.phase];
+  if (!ph) return;
+  STORY.zielText = ph.ziel;
+  MISSION.daten.zielPos = null;
+  if (ph.auf) ph.auf(MISSION.daten);
+  showObjective(d.titel + ' · ' + STORY.zielText);
+  STORY.statistik.checkpoints++;
+  /* Jede Phase ist ein Kontrollpunkt. Gespeichert wird nur, WELCHE - die
+     Welt drumherum wird beim Wiedereinstieg neu aufgebaut. */
+  storyCheckpointSetzen(d.id, STORY.phase);
+}
+
+/* Alles wieder wegraeumen, was die Mission aufgestellt hat. */
+function storyAufraeumen() {
+  const m = MISSION.daten;
+  if (m) {
+    if (m.gangs) {
+      for (const g of m.gangs) {
+        for (let i = g.enemies.length - 1; i >= 0; i--) {
+          const e = g.enemies[i];
+          e.storyGegner = false;
+          if (e.dead) continue;
+          const ei = enemies.indexOf(e);
+          if (ei >= 0) enemies.splice(ei, 1);
+          if (e.visual && e.visual.root) scene.remove(e.visual.root);
+          if (e.cocoon) e.cocoon.visible = false;
+          deckungLoesen(e);
+          KAMPF_RECHT.delete(e);
+          if (player.ziel === e) player.ziel = null;
+          if (bossAktiv === e) { bossAktiv = null; zeigeBossLeiste(null); }
+        }
+        g.enemies.length = 0;
+        const gi = gangs.indexOf(g);
+        if (gi >= 0) gangs.splice(gi, 1);
+      }
+      m.gangs.length = 0;
+    }
+    if (m.car) { m.car.flucht = false;
+      if (m.car.altSpeed !== undefined) m.car.speed = m.car.altSpeed; }
+    if (m.opfer) { m.opfer.eventRolle = null; }
+    if (m.wachen) m.wachen.length = 0;
+  }
+  MISSION.art = null; MISSION.daten = null; MISSION.zeit = 0;
+  setzeBeacon(null);
+  hideObjective();
+  STORY.aktiv = null;
+  STORY.phase = 0;
+  STORY.zielText = '';
+  missionCd = 20;                  // die Welt macht danach normal weiter
+}
+
+function storyEnde(art) {
+  const d = STORY.aktiv;
+  if (!d) return;
+  const weich = art === 'weich';
+  const abbruch = art === 'abbruch';
+  /* Die letzte Phase darf noch aufraeumen (Fluchtauto zuruecksetzen). */
+  const ph = d.phasen[STORY.phase];
+  if (ph && ph.ende) ph.ende(MISSION.daten);
+  if (!abbruch) {
+    if (STORY.fertig.indexOf(d.id) < 0) STORY.fertig.push(d.id);
+    const b = (weich && d.weichBelohnung) ? d.weichBelohnung : d.belohnung;
+    if (b) {
+      if (b.punkte) addScore(b.punkte, 'Auftrag erfüllt', player.pos);
+      if (b.ruf) setzeRuf(+b.ruf);
+      if (b.fertigkeitspunkt) {
+        PROG.fertigkeitspunkte++;
+        popupScreen('✦ Ein zusätzlicher Fertigkeitspunkt');
+      }
+    }
+    if (weich) STORY.statistik.weich++; else STORY.statistik.geschafft++;
+    const t = weich ? (d.weichText || d.erfolgText) : d.erfolgText;
+    storyAufraeumen();
+    if (t) stFunk(t);
+    if (d.aktEnde) popupScreen('★ Akt 1 abgeschlossen');
+  } else {
+    STORY.statistik.abgebrochen++;
+    storyAufraeumen();
+    stFunk('Auftrag abgebrochen.');
+  }
+  STORY.angebotCd = 25;
+  PROG.story.checkpointId = null;
+  PROG.story.checkpointPhase = 0;
+  progSofort();
+}
+
+/* Laeuft gerade eine Storyphase, in der gekaempft wird? Nur dann
+   pausieren die Verbrechen - eine reine Anfahrt bremst die Welt nicht. */
+function storyKampfPhase() {
+  if (!STORY.aktiv) return false;
+  const m = MISSION.daten;
+  if (!m || !m.gangs) return false;
+  for (const g of m.gangs) if (stLebend(g)) return true;
+  return false;
+}
+
+/* Was die Taste J tut: annehmen, wieder einsteigen oder abbrechen. */
+function storyTaste() {
+  if (STORY.aktiv) {
+    if (STORY.abbruchFrage > 0) {
+      STORY.abbruchFrage = 0;
+      storyEnde('abbruch');
+    } else {
+      STORY.abbruchFrage = 4;
+      popupScreen('Auftrag abbrechen? Noch einmal J drücken.');
+    }
+    return;
+  }
+  /* Wiedereinstieg nach einem Neuladen mitten in der Mission. */
+  const ck = PROG.story && PROG.story.checkpointId;
+  if (ck && storyDef(ck) && STORY.fertig.indexOf(ck) < 0) {
+    storyStarte(ck, PROG.story.checkpointPhase);
+    return;
+  }
+  const d = STORY.angebot || storyOffen();
+  if (d) { storyStarte(d.id); return; }
+  popupScreen('Gerade kein Auftrag offen.');
+}
+
+/* Der Takt. Laeuft nur, wenn eine Storymission aktiv ist - sonst prueft
+   er hoechstens alle paar Sekunden, ob es etwas anzubieten gibt. */
+function storyTakt(dt) {
+  if (STORY.abbruchFrage > 0) STORY.abbruchFrage -= dt;
+  if (!STORY.aktiv) {
+    STORY.angebotCd -= dt;
+    if (STORY.angebotCd <= 0) {
+      STORY.angebotCd = 6;
+      const d = storyOffen();
+      if (d && STORY.angebot !== d) {
+        STORY.angebot = d;
+        /* Kein Zwang: ein Hinweis, kein Start. */
+        popupScreen('📻 Neuer Auftrag: ' + d.titel + '  —  J zum Annehmen');
+      }
+    }
+    return;
+  }
+  const d = STORY.aktiv;
+  const m = MISSION.daten;
+  if (!m) { STORY.aktiv = null; return; }
+
+  /* Spieler ausgeknockt: harte Niederlage, Wiedereinstieg am Kontrollpunkt. */
+  if (player.dead && !m.todGemeldet) {
+    m.todGemeldet = true;
+    storyCheckpointSetzen(d.id, STORY.phase);
+  }
+
+  const ph = d.phasen[STORY.phase];
+  if (!ph) { storyEnde('erfolg'); return; }
+  const r = ph.pruef ? ph.pruef(m, dt) : null;
+  if (r === 'weiter') {
+    if (ph.ende) ph.ende(m);
+    STORY.phase++;
+    if (STORY.phase >= d.phasen.length) { storyEnde('erfolg'); return; }
+    storyPhaseAuf();
+  } else if (r === 'weich') {
+    if (ph.ende) ph.ende(m);
+    STORY.phase++;
+    if (STORY.phase >= d.phasen.length) { storyEnde('weich'); return; }
+    m.weich = true;
+    storyPhaseAuf();
+  } else if (r === 'hart') {
+    storyEnde('abbruch');
+    return;
+  }
+
+  /* Zielanzeige und Leuchtturm */
+  let zp = m.zielPos;
+  if (!zp) {
+    /* Kein fester Punkt: der naechste lebende Storygegner. */
+    for (const g of (m.gangs || [])) {
+      for (const e of g.enemies) if (!e.dead) { zp = e.pos; break; }
+      if (zp) break;
+    }
+  }
+  setzeBeacon(zp || null, 0xffb03c);
+  showObjective(d.titel + ' · ' + STORY.zielText);
 }
 
 /* ======================= Einstellungen =======================
@@ -26809,6 +27545,7 @@ ruf = PROG.ruf;
 wendeStufeAn(stufeFuer(PROG.bestPunkte), false);
 player.hp = CFG.playerHP;
 progAufWeltAnwenden();
+storyAnbinden();
 /* Beim allerersten Start den Keim sichern - und ebenso, wenn gerade aus
    alten Schluesseln oder einer aelteren Fassung uebernommen wurde: sonst
    bleiben die alten Schluessel liegen, bis zufaellig etwas anderes
@@ -27721,6 +28458,55 @@ if (window.__WEBHERO_TEST__ === true) {
     skillListe() { return Object.keys(SKILLS); },
     punkteGeben(n) { PROG.fertigkeitspunkte += (n || 1); },
     meilenTakt, meilenAnteil,
+    /* ---- Die Geschichte, fuer die Pruefskripte ---- */
+    story: STORY,
+    storyDefs() { return STORY_DEF.map((d) => ({ id: d.id, nr: d.nr, titel: d.titel,
+      kurz: d.kurz, system: d.system, phasen: d.phasen.length,
+      zustand: storyZustand(d.id), aktEnde: !!d.aktEnde,
+      belohnung: d.belohnung, weichBelohnung: d.weichBelohnung || null })); },
+    storyStand() {
+      return { aktiv: STORY.aktiv ? STORY.aktiv.id : null,
+               titel: STORY.aktiv ? STORY.aktiv.titel : null,
+               phase: STORY.phase,
+               phasen: STORY.aktiv ? STORY.aktiv.phasen.length : 0,
+               ziel: STORY.zielText,
+               fertig: STORY.fertig.slice(),
+               gescheitert: STORY.gescheitert.slice(),
+               flags: Object.assign({}, STORY.flags),
+               angebot: STORY.angebot ? STORY.angebot.id : null,
+               checkpointId: PROG.story ? PROG.story.checkpointId : null,
+               checkpointPhase: PROG.story ? PROG.story.checkpointPhase : 0,
+               kampfPhase: storyKampfPhase(),
+               statistik: Object.assign({}, STORY.statistik),
+               missionArt: MISSION.art,
+               storyGegner: enemies.filter((e) => e.storyGegner && !e.dead).length,
+               gangsOffen: MISSION.daten && MISSION.daten.gangs
+                 ? MISSION.daten.gangs.length : 0 }; },
+    storyStarte, storyEnde, storyAufraeumen, storyTaste, storyTakt,
+    storyKampfPhase, storyOffen, storyZustand,
+    /* Eine Mission bis zum Ende durchspielen, ohne den Kampf wirklich zu
+       fuehren: fuer die Ablauftests. Der Weg bleibt der echte - es wird
+       nur beschleunigt, was der Spieler sonst mit den Fäusten macht. */
+    storyPhaseErzwingen() {
+      const m = MISSION.daten;
+      if (!m) return false;
+      if (m.gangs) for (const g of m.gangs) for (const e of g.enemies) {
+        if (!e.dead) damageEnemy(e, 9999, 'punch');
+      }
+      if (m.laeufer && !m.laeufer.dead) damageEnemy(m.laeufer, 9999, 'punch');
+      if (m.kurier && !m.kurier.dead) damageEnemy(m.kurier, 9999, 'punch');
+      if (m.boss && !m.boss.dead) damageEnemy(m.boss, 9999, 'punch');
+      if (m.treffer !== undefined) m.treffer = m.noetig;
+      if (m.zielPos) { player.pos.x = m.zielPos.x; player.pos.z = m.zielPos.z;
+                       player.pos.y = groundY(m.zielPos.x, m.zielPos.z, 2) + 0.5; }
+      if (m.punkte) for (const q of m.punkte) q.gesehen = true;
+      if (m.start !== undefined) PROG.statistik.gerettet = m.start + 1;
+      if (m.hilfeStart !== undefined) PROG.statistik.gerettet = m.hilfeStart + 1;
+      if (m.ev1 && m.ev1.zustand !== 'FERTIG') {
+        evEnde(m.ev1, true, null); m.ev1.nachphase = 0; evAufraeumen(m.ev1);
+      }
+      return true;
+    },
     meilenListe() { return MEILEN.map((m) => ({ id: m.id, name: m.name,
       gruppe: m.gruppe, anteil: +meilenAnteil(m).toFixed(3),
       fertig: PROG.meilensteine.indexOf(m.id) >= 0 })); },
