@@ -9688,6 +9688,11 @@ document.addEventListener('keydown', (e) => {
     case 'KeyH': helpBox.style.display = helpBox.style.display === 'block' ? 'none' : 'block'; break;
     case 'KeyM': { const m = SFX.toggleMute(); popupScreen(m ? '🔇 Ton aus' : '🔊 Ton an'); break; }
     case 'Escape': zeigeEinstellungen(settingsEl.style.display !== 'flex'); break;
+    case 'KeyP': {
+      const el = document.getElementById('fortschritt');
+      zeigeFortschritt(!el || el.style.display !== 'flex');
+      break;
+    }
     case 'KeyR': uppercut(); break;
     case 'KeyG': packenUndWerfen(); break;
     case 'KeyV': katapultStart(); break;
@@ -11501,6 +11506,10 @@ function schmetterEnde() {
   camShake = Math.max(camShake, 0.3);
   staubWolke(_v1.set(e.pos.x, boden, e.pos.z), 1.4);
   treffEffekt(_v1.set(e.pos.x, e.pos.y + 0.8, e.pos.z), 1.6, 0xbfe8ff);
+  if ((player.komboZahl || 0) > PROG.statistik.besteKombo) {
+    PROG.statistik.besteKombo = player.komboZahl;
+    progMerken();
+  }
   addScore(Math.round((40 + (player.komboZahl || 1) * 10) * skillWert('kombogespuer')),
            'Schmetterer x' + (player.komboZahl || 1), e.pos);
   popupWorld('Runter!', e.pos, '#bfe8ff');
@@ -12621,6 +12630,166 @@ function skillKaufen(id) {
   return true;
 }
 
+/* Die drei Streckenarten aus Phase 10. Hier als Liste, damit der
+   Meilenstein "jede Art einmal" nicht raten muss. */
+const HER_ARTEN_IDS = ['zeittor', 'schwungbahn', 'dachlauf'];
+
+/* ======================= Meilensteine =======================
+   Langfristige Ziele, keine Tagesaufgaben. Bewusst wenige und
+   ungleichmaessig verteilt: nicht "Verbrechen 1, 2, 3", sondern die
+   Schritte, an denen man merkt, dass sich etwas geaendert hat.
+
+   Jeder Meilenstein wird genau einmal belohnt - die Kennung landet in
+   PROG.meilensteine und wird davor geprueft. */
+const MEILEN = [
+  /* --- Held --- */
+  { id: 'crime10',  gruppe: 'Held', name: 'Bekanntes Gesicht',
+    text: '10 Verbrechen gestoppt',   zahl: 'crimes', ziel: 10,  punkte: 250, ruf: 4 },
+  { id: 'crime25',  gruppe: 'Held', name: 'Die Stadt ruft dich',
+    text: '25 Verbrechen gestoppt',   zahl: 'crimes', ziel: 25,  punkte: 600, ruf: 6 },
+  { id: 'crime50',  gruppe: 'Held', name: 'Ein Name in der Zeitung',
+    text: '50 Verbrechen gestoppt',   zahl: 'crimes', ziel: 50,  punkte: 1400, ruf: 8 },
+  /* --- Rettung --- */
+  { id: 'rett5',    gruppe: 'Rettung', name: 'Erste Hilfe',
+    text: '5 Menschen gerettet',      zahl: 'gerettet', ziel: 5,  punkte: 200, ruf: 5 },
+  { id: 'rett20',   gruppe: 'Rettung', name: 'Man vertraut dir',
+    text: '20 Menschen gerettet',     zahl: 'gerettet', ziel: 20, punkte: 700, ruf: 9 },
+  /* --- Erkunden --- */
+  { id: 'poi10',    gruppe: 'Erkunden', name: 'Ortskenntnis',
+    text: '10 Orte entdeckt',         zahl: 'poi', ziel: 10, punkte: 250, ruf: 3 },
+  { id: 'poi25',    gruppe: 'Erkunden', name: 'Du kennst dich aus',
+    text: '25 Orte entdeckt',         zahl: 'poi', ziel: 25, punkte: 700, ruf: 5 },
+  { id: 'bezirk1',  gruppe: 'Erkunden', name: 'Dein Viertel',
+    text: 'Einen Bezirk gemeistert',  bezirke: 1, punkte: 500, ruf: 6 },
+  { id: 'bezirk3',  gruppe: 'Erkunden', name: 'Drei Viertel kennen dich',
+    text: 'Drei Bezirke gemeistert',  bezirke: 3, punkte: 1200, ruf: 10 },
+  /* --- Bewegung --- */
+  { id: 'her5',     gruppe: 'Bewegung', name: 'Sicherer Schwung',
+    text: '5 Strecken geschafft',     zahl: 'herausforderungen', ziel: 5, punkte: 300, ruf: 3 },
+  { id: 'herAlle',  gruppe: 'Bewegung', name: 'Alle drei Arten',
+    text: 'Jede Streckenart einmal geschafft', alleHer: true, punkte: 600, ruf: 5 },
+  /* --- Sammlung --- */
+  { id: 'sam5',     gruppe: 'Sammlung', name: 'Aufmerksam',
+    text: '5 Marken gefunden',        zahl: 'marken', ziel: 5,  punkte: 200, ruf: 2 },
+  { id: 'sam12',    gruppe: 'Sammlung', name: 'Die halbe Stadt',
+    text: '12 Marken gefunden',       zahl: 'marken', ziel: 12, punkte: 600, ruf: 4 },
+  { id: 'sam24',    gruppe: 'Sammlung', name: 'Alles gefunden',
+    text: '24 Marken gefunden',       zahl: 'marken', ziel: 24, punkte: 1500, ruf: 8 },
+  /* --- Boss --- */
+  { id: 'boss1',    gruppe: 'Held', name: 'Der Erste',
+    text: 'Einen ENFORCER besiegt',   zahl: 'bosse', ziel: 1, punkte: 400, ruf: 6 },
+  { id: 'boss5',    gruppe: 'Held', name: 'Kein Zufall',
+    text: 'Fuenf ENFORCER besiegt',   zahl: 'bosse', ziel: 5, punkte: 1500, ruf: 10 },
+];
+
+function meilenErfuellt(m) {
+  if (m.zahl) return (PROG.statistik[m.zahl] || 0) >= m.ziel;
+  if (m.bezirke) return bezirkeGemeistert() >= m.bezirke;
+  if (m.alleHer) {
+    const arten = HER_ARTEN_IDS;
+    for (const a of arten) if (!(PROG.bestzeiten && PROG.bestzeiten[a] !== undefined)) return false;
+    return arten.length > 0;
+  }
+  return false;
+}
+/* Fortschritt eines Meilensteins als 0..1 - fuer die Anzeige. */
+function meilenAnteil(m) {
+  if (m.zahl) return clamp((PROG.statistik[m.zahl] || 0) / m.ziel, 0, 1);
+  if (m.bezirke) return clamp(bezirkeGemeistert() / m.bezirke, 0, 1);
+  if (m.alleHer) {
+    let n = 0;
+    for (const a of HER_ARTEN_IDS) if (PROG.bestzeiten[a] !== undefined) n++;
+    return HER_ARTEN_IDS.length ? n / HER_ARTEN_IDS.length : 0;
+  }
+  return 0;
+}
+
+let meilenCd = 0;
+/* Wird selten geprueft - alle zwei Sekunden reicht fuer ein Ziel, das
+   Stunden dauert, und kostet dann praktisch nichts. */
+function meilenTakt(dt) {
+  meilenCd -= dt;
+  if (meilenCd > 0) return;
+  meilenCd = 2;
+  for (const m of MEILEN) {
+    if (PROG.meilensteine.indexOf(m.id) >= 0) continue;   // genau einmal
+    if (!meilenErfuellt(m)) continue;
+    PROG.meilensteine.push(m.id);
+    if (m.punkte) addScore(m.punkte, null, null);
+    if (m.ruf) setzeRuf(+m.ruf);
+    popupScreen('🏅 ' + m.name + ' — ' + m.text);
+    progSofort();
+    break;                     // hoechstens einer je Takt, sonst rauscht es
+  }
+}
+
+/* ======================= Bezirksfortschritt =======================
+   Baut auf den Bezirken aus Phase 10 auf. Gezaehlt wird, was in dem
+   Bezirk wirklich passiert ist - nicht, was dort alles liegt. Es gibt
+   keinen Zwang zu 100 Prozent und keine Haekchenliste auf der Karte:
+   das Entdeckungsprinzip aus Phase 10 bleibt. */
+function bezirkSchluessel(x, z) {
+  if (x > RASTER_X1) return 'UFER';
+  const bi = clamp(Math.floor((x - ORIGIN) / PITCH), 0, BLOCKS - 1);
+  const bj = clamp(Math.floor((z - ORIGIN) / PITCH), 0, BLOCKS - 1);
+  return bi + ',' + bj;
+}
+function bezirkZaehle(x, z, feld) {
+  const k = bezirkSchluessel(x, z);
+  let b = PROG.bezirke[k];
+  if (!b) b = PROG.bezirke[k] = { poi: 0, marken: 0, her: 0, crime: 0 };
+  b[feld] = (b[feld] || 0) + 1;
+  progMerken();
+}
+/* Wann gilt ein Bezirk als gemeistert? Bewusst nicht "alles": drei
+   entdeckte Orte, zwei Marken und drei gestoppte Verbrechen sind ein
+   Viertel, in dem man wirklich etwas getan hat. */
+const BEZIRK_ZIEL = { poi: 3, marken: 2, crime: 3 };
+function bezirkFertig(b) {
+  if (!b) return false;
+  return (b.poi || 0) >= BEZIRK_ZIEL.poi
+      && (b.marken || 0) >= BEZIRK_ZIEL.marken
+      && (b.crime || 0) >= BEZIRK_ZIEL.crime;
+}
+function bezirkeGemeistert() {
+  let n = 0;
+  for (const k in PROG.bezirke) if (bezirkFertig(PROG.bezirke[k])) n++;
+  return n;
+}
+/* Einmalige Belohnung, wenn ein Bezirk fertig wird. */
+function bezirkPruefen(x, z) {
+  const k = bezirkSchluessel(x, z);
+  if (!bezirkFertig(PROG.bezirke[k])) return;
+  const kennung = 'bezirk:' + k;
+  if (PROG.einmalig.indexOf(kennung) >= 0) return;
+  PROG.einmalig.push(kennung);
+  addScore(400, null, null);
+  setzeRuf(+5);
+  popupScreen('🗺️ Bezirk gemeistert');
+  progSofort();
+}
+
+/* Den gespeicherten Fortschritt auf die gerade gebaute Stadt legen.
+   Das geht nur, weil der Weltkeim mitgespeichert wird - sonst zeigten
+   die Kennungen auf andere Orte. */
+function progAufWeltAnwenden() {
+  let poiAn = 0, samAn = 0;
+  for (const p of POI.liste) {
+    if (PROG.poi.indexOf('p' + p.id) >= 0) { p.besucht = true; poiAn++; }
+  }
+  POI.statistik.besucht = poiAn;
+  for (const m of SAM.liste) {
+    if (PROG.marken.indexOf('m' + m.id) >= 0) {
+      m.weg = true; samAn++;
+      if (m.mesh) { m.mesh.visible = false; scene.remove(m.mesh); }
+    }
+  }
+  SAM.gefunden = samAn;
+  SAM.statistik.gefunden = samAn;
+  for (const a in PROG.bestzeiten) HER.bestzeit[a] = PROG.bestzeiten[a];
+  PROG_INFO.angewendet = { poi: poiAn, marken: samAn };
+}
+
 const PROG_INFO = { geladen: false, kaputt: false, neu: false,
                     ausAltenSchluesseln: false, migriertVon: -1,
                     schreibVorgaenge: 0, letzteSchreibzeit: 0,
@@ -12658,6 +12827,10 @@ function progLaden() {
    ohne Grund. */
 function progSpeichern(sofort) {
   if (!sofort && !progSchmutzig) return false;
+  /* Den aktuellen Stand erst hier abholen - so muss nicht jede Stelle,
+     die Punkte vergibt, an das Speicherobjekt denken. */
+  if (typeof player !== 'undefined' && player) PROG.punkte = player.score;
+  PROG.weltKeim = WELT_KEIM;
   const t0 = (typeof performance !== 'undefined') ? performance.now() : 0;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(PROG));
@@ -12716,29 +12889,53 @@ function setzeRuf(delta, text, pos, boden) {
     popupWorld(text, pos || player.pos, delta > 0 ? '#8ef0a0' : '#ff9b9b');
     rufMeldungCd = 0.8;
   }
-  try { localStorage.setItem('webhero_ruf', String(Math.round(ruf))); } catch (e) {}
+  PROG.ruf = ruf;
+  progMerken();
   updateHUD();
 }
 
 /* Punktezuschlag: bei bestem Ruf 1,25×, bei ruiniertem Ruf 0,6×. */
 function rufFaktor() { return 0.6 + (ruf / 100) * 0.65; }
 
+/* ---- Warum die Stufe am Bestwert haengt und nicht am Punktestand ----
+   Gemessen ueber eine Stunde normalen Spiels: der Punktestand stieg in
+   der ersten Minute auf 965 und war in Minute 7 bei NULL - und blieb
+   dort. Grund ist der Abzug von 40 Punkten fuer jeden verletzten
+   Zivilisten: eine Stadt, in der Verbrechen laufen, zieht schneller ab,
+   als Erkunden einbringt.
+
+   Solange die Stufe aus dem aktuellen Punktestand kam, fiel sie mit.
+   Damit sanken Lebensenergie und Schlagkraft wieder, und ueber
+   stufeFrei() verlor der Spieler bereits freigeschaltete Bewegungen -
+   den Aufwaertshaken zum Beispiel. Fortschritt, den man beim Nichtstun
+   wieder verliert, ist kein Fortschritt.
+
+   Deshalb sind die beiden Rollen jetzt getrennt, ohne eine neue Waehrung
+   einzufuehren: der PUNKTESTAND bleibt die kurzfristige Leistungszahl
+   und darf fallen, die STUFE haengt am hoechsten je erreichten Stand.
+   Der Bestwert wurde ohnehin schon gefuehrt und gespeichert - er bekommt
+   nur eine Aufgabe dazu. */
 function addScore(n, label, worldPos) {
   if (n > 0) n = Math.round(n * rufFaktor());
   /* Der Punktestand kann durch Abzüge sinken, aber nicht ins Minus. */
   player.score = Math.max(0, player.score + n);
-  const neu = stufeFuer(player.score);
-  if (neu !== stufe) wendeStufeAn(neu, true);
+  if (player.score > PROG.bestPunkte) {
+    PROG.bestPunkte = player.score;
+    progMerken();
+  }
+  const neu = stufeFuer(PROG.bestPunkte);
+  if (neu > stufe) {
+    /* Ein Aufstieg gibt genau einen Fertigkeitspunkt. Fertigkeitspunkte
+       entstehen ausschliesslich hier - kein Gegner laesst welche fallen. */
+    for (let k = stufe; k < neu; k++) {
+      PROG.fertigkeitspunkte++;
+      PROG.statistik.stufenAufstiege++;
+    }
+    wendeStufeAn(neu, true);
+    progSofort();               // ein Aufstieg ueberlebt einen Absturz
+  }
   if (label) popupWorld(`${label} ${n >= 0 ? '+' : ''}${n}`, worldPos || player.pos,
     n >= 0 ? '#ffd23c' : '#ff9b9b');
-  if (player.score > bestScore) {
-    bestScore = player.score;
-    try { localStorage.setItem('webhero_best', String(bestScore)); } catch (e) {}
-  }
-  try {
-    localStorage.setItem('webhero_stand', JSON.stringify({ punkte: player.score, stufe }));
-  } catch (e) {
-  }
   SFX.score();
   updateHUD();
 }
@@ -17444,6 +17641,12 @@ function samNimm(s) {
   scene.remove(s.mesh);
   SAM.gefunden++;
   SAM.statistik.gefunden++;
+  /* Eine Marke ist endgueltig weg - auch nach dem Neuladen. */
+  PROG.marken.push('m' + s.id);
+  PROG.statistik.marken++;
+  bezirkZaehle(s.x, s.z, 'marken');
+  bezirkPruefen(s.x, s.z);
+  progSofort();
   treffEffekt({ x: s.x, y: s.y, z: s.z }, 1.6, 0xff4d5a);
   if (SFX && SFX.score) SFX.score();
   popupScreen('🕷️ Marke ' + SAM.gefunden + '/' + SAM.liste.length);
@@ -17628,6 +17831,13 @@ function poiUpdate(dt) {
     if (Math.hypot(player.pos.x - p.x, player.pos.z - p.z) > POI_NAH) continue;
     p.besucht = true;
     POI.statistik.besucht++;
+    /* Erster Besuch, einmalig - Punkte gibt es beim zweiten Mal gar
+       nicht mehr, weil p.besucht dauerhaft bleibt. */
+    PROG.poi.push('p' + p.id);
+    PROG.statistik.poi++;
+    bezirkZaehle(p.x, p.z, 'poi');
+    bezirkPruefen(p.x, p.z);
+    progSofort();
     poiBelohne(p);
   }
 }
@@ -20379,6 +20589,8 @@ function ersteHilfe() {
   const rufHilfe = Math.round(9 * skillWert('dankbarkeit'));
   setzeRuf(+rufHilfe, 'Ruf +' + rufHilfe, ziel.pos);
   addScore(120, 'Erste Hilfe geleistet!', ziel.pos);
+  PROG.statistik.gerettet++;
+  progMerken();
   return true;
 }
 
@@ -21301,6 +21513,8 @@ function damageEnemy(e, dmg, kind) {
       zeigeBossLeiste(null);
       popupScreen('★ ' + e.bossName + ' ausgeschaltet!');
       addScore(400, '', e.pos);
+      PROG.statistik.bosse++;
+      progSofort();
       SFX.boss(2);
       /* Faellt der Boss, ist der Rest der Gruppe fertig. */
       mutSenken(e.pos, 0.7, 30);
@@ -21411,6 +21625,8 @@ function checkCivilianSaved(deadEnemy) {
         c.savedCd = 20;
         setzeRuf(+3 * skillWert('dankbarkeit'), null, c.pos);
         addScore(100, 'Zivilist gerettet!', c.pos);
+        PROG.statistik.gerettet++;
+        progMerken();
       }
     }
   }
@@ -23775,6 +23991,12 @@ function evEnde(e, erfolg, text) {
       e.zustand === 'AUFRAEUMEN' || e.zustand === 'FERTIG') return;
   e.zustand = erfolg ? 'GELOEST' : 'GESCHEITERT';
   if (erfolg) EV.statistik.geloest++; else EV.statistik.gescheitert++;
+  if (erfolg) {
+    PROG.statistik.crimes++;
+    bezirkZaehle(e.ort.x, e.ort.z, 'crime');
+    bezirkPruefen(e.ort.x, e.ort.z);
+    progSofort();
+  }
   if (!e.entdeckt) EV.statistik.ignoriert++;
   if (e.entdeckt && text) popupScreen(text);
   if (e.entdeckt && erfolg) {
@@ -24946,6 +25168,8 @@ function updateResponders(dt) {
   samUpdate(dt);
   aktUpdate(dt);
   herUpdate(dt);
+  meilenTakt(dt);
+  progTakt(dt);
   respAutojagd(dt);
   RESP.tickCd -= dt;
   if (RESP.tickCd <= 0) { RESP.tickCd = 1.0; respLeckPruefung(); }
@@ -25598,10 +25822,37 @@ function herEnde(grund) {
     HER.statistik.geschafft++;
     const alt = HER.bestzeit[h.art];
     const neu = !alt || h.t < alt;
-    if (neu) HER.bestzeit[h.art] = +h.t.toFixed(1);
-    popupScreen('\u2705 Geschafft: ' + h.t.toFixed(1) + ' s' +
+    if (neu) {
+      HER.bestzeit[h.art] = +h.t.toFixed(1);
+      PROG.bestzeiten[h.art] = +h.t.toFixed(1);
+    }
+    /* ---- Wiederholungen duerfen nicht zur Punktequelle werden ----
+       Die Strecken lassen sich beliebig oft laufen. Ohne Abstufung waere
+       das die schnellste Art, jede Stufe zu erreichen - und die offene
+       Welt waere nur noch Kulisse fuer eine Schleife.
+
+       Deshalb: das ERSTE Mal einer Art bringt den vollen Wert, eine neue
+       persoenliche Bestzeit einen kleinen Bonus, jedes weitere normale
+       Beenden nur noch einen Bruchteil. Es gibt keinen Riegel, es lohnt
+       sich bloss nicht mehr. */
+    const ersteKennung = 'her:' + h.art;
+    const erstes = PROG.einmalig.indexOf(ersteKennung) < 0;
+    let punkte;
+    if (erstes) {
+      PROG.einmalig.push(ersteKennung);
+      punkte = 400;
+      PROG.statistik.herausforderungen++;
+      bezirkZaehle(player.pos.x, player.pos.z, 'her');
+    } else if (neu) {
+      punkte = 150;
+      PROG.statistik.herausforderungen++;
+    } else {
+      punkte = 30;
+    }
+    popupScreen('✅ Geschafft: ' + h.t.toFixed(1) + ' s' +
                 (neu ? ' (Bestzeit)' : ' (best ' + alt.toFixed(1) + ' s)'));
-    addScore(120, '', player.pos);
+    addScore(Math.round(punkte * skillWert('schwungkunst')), '', player.pos);
+    progSofort();
   } else if (grund === 'verpasst') {
     HER.statistik.verpasst++;
     popupScreen('\u23f1\ufe0f Zeit vorbei');
@@ -26088,6 +26339,140 @@ function zeigeEinstellungen(an) {
   settingsEl.style.display = an ? 'flex' : 'none';
   if (an && document.pointerLockElement) document.exitPointerLock();
 }
+
+/* ======================= Fortschrittsansicht =======================
+   Im laufenden Spiel steht nichts davon im Bild - kein Balken mit
+   "4821/5000", keine Punktezaehler. Waehrend des Spiels gibt es nur die
+   kurzen Einblendungen, die es ohnehin gab. Wer es genau wissen will,
+   oeffnet mit P diese Ansicht.
+
+   Sie benutzt dieselben Bausteine wie die Einstellungen - kein zweites
+   Oberflaechensystem. */
+let fortschrittEl = null;
+function zeigeFortschritt(an) {
+  if (!fortschrittEl) fortschrittEl = document.getElementById('fortschritt');
+  if (!fortschrittEl) return;
+  fortschrittEl.style.display = an ? 'flex' : 'none';
+  if (an) {
+    if (document.pointerLockElement) document.exitPointerLock();
+    baueFortschrittAnsicht();
+  }
+}
+
+function fsEntkomme(t) {
+  return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function baueFortschrittAnsicht() {
+  const ziel = document.getElementById('fsInhalt');
+  if (!ziel) return;
+  const st = STUFEN[stufe], naechste = STUFEN[stufe + 1];
+  const von = st.punkte, bis = naechste ? naechste.punkte : st.punkte;
+  const anteil = naechste ? clamp((PROG.bestPunkte - von) / Math.max(1, bis - von), 0, 1) : 1;
+  let h = '';
+
+  /* --- Stufe --- */
+  h += '<div class="kopf"><b>Stufe ' + (stufe + 1) + ' · ' + fsEntkomme(st.text) + '</b>';
+  if (naechste) h += '<span class="klein">noch ' +
+      Math.max(0, bis - PROG.bestPunkte) + ' bis Stufe ' + (stufe + 2) + '</span>';
+  else h += '<span class="klein">hoechste Stufe erreicht</span>';
+  h += '</div>';
+  h += '<div class="balken"><i style="width:' + (anteil * 100).toFixed(1) + '%"></i></div>';
+  h += '<div class="klein">Punkte jetzt ' + player.score +
+       ' · Bestwert ' + PROG.bestPunkte +
+       ' · Fertigkeitspunkte <b>' + PROG.fertigkeitspunkte + '</b></div>';
+
+  /* --- Fertigkeiten --- */
+  h += '<h3>Fertigkeiten</h3>';
+  for (const z of SKILL_ZWEIGE) {
+    h += '<div class="klein" style="margin-top:10px;color:#8fd4ff">' + z.name + '</div>';
+    for (const id in SKILLS) {
+      const d = SKILLS[id];
+      if (d.zweig !== z.id) continue;
+      const hat = skillHat(id);
+      const kann = !hat && PROG.fertigkeitspunkte > 0;
+      h += '<div class="zeile' + (hat ? ' fertig' : '') + '"><span>' +
+           (hat ? '✔ ' : '') + fsEntkomme(d.name) +
+           '<br><span class="klein">' + fsEntkomme(d.text) + '</span></span>' +
+           (hat ? '<span class="klein">aktiv</span>'
+                : '<button class="kauf" data-skill="' + id + '"' +
+                  (kann ? '' : ' disabled') + '>1 Punkt</button>') +
+           '</div>';
+    }
+  }
+
+  /* --- Meilensteine --- */
+  h += '<h3>Meilensteine</h3>';
+  let gruppe = null;
+  for (const m of MEILEN) {
+    if (m.gruppe !== gruppe) {
+      gruppe = m.gruppe;
+      h += '<div class="klein" style="margin-top:10px;color:#8fd4ff">' + gruppe + '</div>';
+    }
+    const fertig = PROG.meilensteine.indexOf(m.id) >= 0;
+    const a = Math.round(meilenAnteil(m) * 100);
+    h += '<div class="zeile' + (fertig ? ' fertig' : ' offen') + '"><span>' +
+         (fertig ? '✔ ' : '') + fsEntkomme(m.name) +
+         '<br><span class="klein">' + fsEntkomme(m.text) + '</span></span>' +
+         '<span class="klein">' + (fertig ? 'erledigt' : a + ' %') + '</span></div>';
+  }
+
+  /* --- Bezirke --- */
+  h += '<h3>Bezirke</h3>';
+  const bs = Object.keys(PROG.bezirke).sort();
+  if (!bs.length) {
+    h += '<div class="klein">Noch nichts erkundet.</div>';
+  } else {
+    h += '<div class="gitter">';
+    for (const k of bs) {
+      const b = PROG.bezirke[k];
+      const fertig = bezirkFertig(b);
+      h += '<div class="kachel' + (fertig ? ' fertig' : '') + '">' +
+           (fertig ? '✔ ' : '') + 'Bezirk ' + fsEntkomme(k) +
+           '<br><span class="klein">' +
+           'Orte ' + (b.poi || 0) + '/' + BEZIRK_ZIEL.poi +
+           ' · Marken ' + (b.marken || 0) + '/' + BEZIRK_ZIEL.marken +
+           ' · Verbrechen ' + (b.crime || 0) + '/' + BEZIRK_ZIEL.crime +
+           '</span></div>';
+    }
+    h += '</div>';
+  }
+
+  /* --- Bestzeiten --- */
+  h += '<h3>Bestzeiten</h3>';
+  let bz = '';
+  for (const a of HER_ARTEN_IDS) {
+    const t = PROG.bestzeiten[a];
+    bz += '<div class="zeile"><span>' + fsEntkomme(a) + '</span><span class="klein">' +
+          (t !== undefined ? t.toFixed(1) + ' s' : 'noch nicht geschafft') + '</span></div>';
+  }
+  h += bz;
+
+  /* --- Statistik --- */
+  const S = PROG.statistik;
+  const std = Math.floor(S.spielzeit / 3600), min = Math.floor((S.spielzeit % 3600) / 60);
+  h += '<h3>Statistik</h3><div class="gitter">' +
+    '<div class="kachel">Spielzeit<br><b>' + std + ' h ' + min + ' min</b></div>' +
+    '<div class="kachel">Verbrechen gestoppt<br><b>' + S.crimes + '</b></div>' +
+    '<div class="kachel">Menschen gerettet<br><b>' + S.gerettet + '</b></div>' +
+    '<div class="kachel">ENFORCER besiegt<br><b>' + S.bosse + '</b></div>' +
+    '<div class="kachel">Strecken geschafft<br><b>' + S.herausforderungen + '</b></div>' +
+    '<div class="kachel">Orte entdeckt<br><b>' + S.poi + '/' + POI.liste.length + '</b></div>' +
+    '<div class="kachel">Marken<br><b>' + S.marken + '/' + SAM.liste.length + '</b></div>' +
+    '<div class="kachel">Beste Kombo<br><b>' + S.besteKombo + '</b></div>' +
+    '</div>';
+
+  ziel.innerHTML = h;
+  for (const b of ziel.querySelectorAll('button.kauf')) {
+    b.addEventListener('click', () => {
+      if (skillKaufen(b.getAttribute('data-skill'))) baueFortschrittAnsicht();
+    });
+  }
+}
+(function baueFortschrittKnopf() {
+  const zu = document.getElementById('fsZu');
+  if (zu) zu.addEventListener('click', () => zeigeFortschritt(false));
+})();
 (function baueEinstellungen() {
   const maus = document.getElementById('setMaus');
   const ton = document.getElementById('setTon');
@@ -26115,10 +26500,14 @@ function zeigeEinstellungen(an) {
   if (akam) akam.addEventListener('change', () => { EINST.autokam = akam.value; einstSpeichern(); });
   document.getElementById('setZu').addEventListener('click', () => zeigeEinstellungen(false));
   document.getElementById('setReset').addEventListener('click', () => {
-    try { localStorage.removeItem('webhero_stand'); localStorage.removeItem('webhero_best'); } catch (e) {}
-    try { localStorage.removeItem('webhero_ruf'); } catch (e) {}
-    player.score = 0; bestScore = 0; ruf = 100; wendeStufeAn(0, false);
-    popupScreen('Fortschritt zurückgesetzt');
+    /* Kein versehentlicher Reset: einmal fragen, und der Knopf sagt
+       ausdruecklich, dass auch die Stadt neu gewuerfelt wird. */
+    if (!window.confirm('Fortschritt wirklich löschen?\n\n' +
+        'Stufe, Fertigkeiten, gefundene Marken, besuchte Orte und Bestzeiten ' +
+        'gehen verloren. Auch die Stadt wird neu erzeugt.')) return;
+    progZuruecksetzen();
+    player.score = 0; ruf = 100; wendeStufeAn(0, false);
+    popupScreen('Fortschritt zurückgesetzt – die Stadt ist beim nächsten Laden neu');
     updateHUD();
   });
 })();
@@ -26357,30 +26746,30 @@ karteEl = document.getElementById('minimapC');
 if (karteEl) karteCtx = karteEl.getContext('2d');
 const vignetteEl = document.getElementById('vignette');
 
-let bestScore = 0;
-try { bestScore = parseInt(localStorage.getItem('webhero_best') || '0', 10) || 0; } catch (e) {}
-/* Fortschritt aus der letzten Sitzung übernehmen. */
-try {
-  const st = JSON.parse(localStorage.getItem('webhero_stand') || 'null');
-  if (st && typeof st.punkte === 'number') {
-    player.score = st.punkte;
-    wendeStufeAn(stufeFuer(player.score), false);
-    player.hp = CFG.playerHP;
-  }
-} catch (e) {}
-try {
-  const r = parseFloat(localStorage.getItem('webhero_ruf'));
-  if (isFinite(r)) ruf = clamp(r, 0, 100);
-} catch (e) {}
+/* ---- Der Fortschritt der letzten Sitzung ----
+   Ein einziger Aufruf statt dreier Einzelschluessel. Der Weltkeim wurde
+   schon ganz oben gelesen (die Stadt musste ja damit gebaut werden);
+   hier kommt alles andere dazu. */
+progLaden();
+PROG.weltKeim = WELT_KEIM;              // Keim der gerade gebauten Stadt festhalten
+player.score = PROG.punkte;
+ruf = PROG.ruf;
+/* Die Stufe folgt dem Bestwert, nie dem aktuellen Stand. */
+wendeStufeAn(stufeFuer(PROG.bestPunkte), false);
+player.hp = CFG.playerHP;
+progAufWeltAnwenden();
+if (PROG_INFO.neu) progSpeichern(true);  // beim allerersten Start den Keim sichern
 
 function updateHUD() {
   hpbarEl.style.width = `${clamp(player.hp / CFG.playerHP * 100, 0, 100)}%`;
   const s = STUFEN[stufe];
   const naechste = STUFEN[stufe + 1];
   scoreEl.textContent = `Punkte: ${player.score}`;
+  /* Die Anzeige zaehlt bis zur naechsten Stufe vom BESTWERT aus - sonst
+     stuende dort eine Zahl, die beim naechsten Abzug wieder waechst. */
   bestEl.innerHTML = `Stufe ${stufe + 1} · ${s.text}` +
-    (naechste ? ` <small style="opacity:.7">(${naechste.punkte - player.score} bis Stufe ${stufe + 2})</small>` : '') +
-    (bestScore > 0 ? `<br>Rekord: ${bestScore}` : '');
+    (naechste ? ` <small style="opacity:.7">(${Math.max(0, naechste.punkte - PROG.bestPunkte)} bis Stufe ${stufe + 2})</small>` : '') +
+    (PROG.bestPunkte > 0 ? `<br>Rekord: ${PROG.bestPunkte}` : '');
   const rr = Math.round(ruf);
   const rufFarbe = rr >= 70 ? '#8ef0a0' : (rr >= 40 ? '#ffd23c' : '#ff7b7b');
   rufEl.innerHTML = `Ruf der Stadt <b style="color:${rufFarbe}">${rr}%</b>` +
@@ -27250,6 +27639,36 @@ if (window.__WEBHERO_TEST__ === true) {
     regen: REGEN,
     valid: VALID,
     gegnerPopulation,
+    /* ---- Fortschritt und Speicherstand (Phase 11) ---- */
+    get prog() { return PROG; },
+    progInfo() { return Object.assign({}, PROG_INFO); },
+    progStand() {
+      return { punkte: player.score, best: PROG.bestPunkte, stufe,
+               stufeText: STUFEN[stufe].text,
+               naechste: STUFEN[stufe + 1] ? STUFEN[stufe + 1].punkte : null,
+               fertigkeitspunkte: PROG.fertigkeitspunkte,
+               skills: Object.assign({}, PROG.skills),
+               ruf: Math.round(ruf), weltKeim: PROG.weltKeim,
+               poi: PROG.poi.length, marken: PROG.marken.length,
+               meilensteine: PROG.meilensteine.slice(),
+               bestzeiten: Object.assign({}, PROG.bestzeiten),
+               bezirke: JSON.parse(JSON.stringify(PROG.bezirke)),
+               bezirkeGemeistert: bezirkeGemeistert(),
+               statistik: Object.assign({}, PROG.statistik) };
+    },
+    progSpeichern, progLaden, progZuruecksetzen,
+    progRoh() { try { return localStorage.getItem(SAVE_KEY); } catch (e) { return null; } },
+    progSchreib(text) { try { localStorage.setItem(SAVE_KEY, text); return true; }
+                        catch (e) { return false; } },
+    skillKaufen, skillWert, skillHat,
+    skillListe() { return Object.keys(SKILLS); },
+    punkteGeben(n) { PROG.fertigkeitspunkte += (n || 1); },
+    meilenTakt, meilenAnteil,
+    meilenListe() { return MEILEN.map((m) => ({ id: m.id, name: m.name,
+      gruppe: m.gruppe, anteil: +meilenAnteil(m).toFixed(3),
+      fertig: PROG.meilensteine.indexOf(m.id) >= 0 })); },
+    bezirkFertig, bezirkeGemeistert,
+    zeigeFortschritt, baueFortschrittAnsicht,
     hygStatistik() { return Object.assign({}, HYG.statistik); },
     hygZuruecksetzen() { for (const k in HYG.statistik) HYG.statistik[k] = 0; },
     bossStatistik() { return Object.assign({}, BOSSLZ.statistik); },
