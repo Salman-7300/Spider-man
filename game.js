@@ -26640,12 +26640,37 @@ const STORY_DEF = [
     phasen: [
       { ziel: 'Den ersten Vorfall stoppen',
         auf: (m) => {
-          /* Der Ereignisregisseur baut die Vorfaelle - kein eigener Spawner. */
+          /* Der Ereignisregisseur baut die Vorfaelle - kein eigener Spawner
+             und kein zweites Ereignissystem. Das Ereignis bekommt aber eine
+             Marke, damit man von aussen sieht, dass es zur Geschichte
+             gehoert, und damit die Pruefung unten sich nicht auf
+             "irgendein Verbrechen wurde geloest" verlassen muss. */
           EV.ruheCd = 0; EV.taktAnteil = 0;
           m.ev1 = evStarte('ueberfall');
+          if (m.ev1) { m.ev1.storyMissionId = 'm4'; m.ev1Id = m.ev1.id; }
+          m.ev1Ergebnis = null;
           m.zielPos = m.ev1 ? { x: m.ev1.ort.x, y: 1, z: m.ev1.ort.z } : null;
         },
-        pruef: (m) => (!m.ev1 || m.ev1.zustand === 'FERTIG') ? 'weiter' : null },
+        pruef: (m) => {
+          if (!m.ev1) return 'weiter';
+          /* ---- Geloest ist nicht dasselbe wie vorbei ----
+             evEnde setzt GELOEST oder GESCHEITERT, evAufraeumen macht
+             daraus FERTIG. Wer nur auf FERTIG wartet, zaehlt ein
+             gescheitertes Ereignis als Erfolg. Der Zustand wird deshalb
+             im Vorbeigehen mitgeschrieben - die Pruefung laeuft jedes
+             Bild und sieht ihn, bevor er ueberschrieben wird. */
+          const z = m.ev1.zustand;
+          if (z === 'GELOEST') m.ev1Ergebnis = 'geloest';
+          else if (z === 'GESCHEITERT') m.ev1Ergebnis = 'gescheitert';
+          if (m.ev1Ergebnis) {
+            return m.ev1Ergebnis === 'gescheitert' ? 'weich' : 'weiter';
+          }
+          /* Notausgang: das Ereignis ist weg, ohne dass ein Ausgang
+             gesehen wurde - dann gilt es als nicht geschafft. */
+          if (z === 'FERTIG') { m.ev1Ergebnis = 'unklar'; return 'weich'; }
+          return null;
+        },
+        ende: (m) => { if (m.ev1) m.ev1.storyMissionId = null; } },
       { ziel: 'Den Verletzten helfen',
         auf: (m) => {
           stFunk('Ein Verletzter am Boden. Der Rettungswagen ist unterwegs.');
@@ -26801,7 +26826,14 @@ const STORY_DEF = [
         } },
     ],
     erfolgText: 'Er war wichtig. Aber er hat Befehle bekommen, nicht gegeben.',
-    belohnung: { punkte: 900, ruf: 12, fertigkeitspunkt: true },
+    /* ---- Kein Fertigkeitspunkt aus der Geschichte ----
+       Phase 11 hat eine klare Regel: ein Punkt je Stufenaufstieg, neun
+       Stufen ueber Stufe 1, neun Fertigkeiten. Ein zusaetzlicher Punkt
+       aus Mission 7 haette zehn Punkte fuer neun Fertigkeiten ergeben -
+       der zehnte waere ueberzaehlig, und die Regel waere aufgeweicht.
+       Die Mission gibt stattdessen mehr Punkte und mehr Ansehen; ueber
+       den Punktestand fuehrt das ohnehin zur naechsten Stufe. */
+    belohnung: { punkte: 1200, ruf: 12 },
     aktEnde: true },
 
   /* ---------------------------------------------------------------- */
@@ -26911,12 +26943,14 @@ function storyStarte(id, abPhase) {
   STORY.phase = 0;
   STORY.statistik.gestartet++;
   STORY.angebot = null;
+  ptMissionAuf(d);
   stFunk(d.start);
   if (abPhase) {
     /* Wiedereinstieg am Kontrollpunkt: die Phasen davor gelten als
        geschafft, aufgebaut wird nur die aktuelle. */
     STORY.phase = clamp(abPhase, 0, d.phasen.length - 1);
     STORY.statistik.neustarts++;
+    if (PT.laufend) PT.laufend.neustarts++;
   }
   storyPhaseAuf();
   progMerken();
@@ -26933,6 +26967,7 @@ function storyPhaseAuf() {
   if (ph.auf) ph.auf(MISSION.daten);
   showObjective(d.titel + ' · ' + STORY.zielText);
   STORY.statistik.checkpoints++;
+  ptPhase(STORY.phase, STORY.zielText);
   /* Jede Phase ist ein Kontrollpunkt. Gespeichert wird nur, WELCHE - die
      Welt drumherum wird beim Wiedereinstieg neu aufgebaut. */
   storyCheckpointSetzen(d.id, STORY.phase);
@@ -26965,6 +27000,10 @@ function storyAufraeumen() {
     }
     if (m.car) { m.car.flucht = false;
       if (m.car.altSpeed !== undefined) m.car.speed = m.car.altSpeed; }
+    /* Die Storybindung eines Weltereignisses wird immer geloest - auch
+       beim Abbruch. Danach gehoert das Ereignis wieder allein dem
+       Regisseur, und Polizei und Rettungsdienst uebernehmen wie sonst. */
+    if (m.ev1) { m.ev1.storyMissionId = null; m.ev1 = null; }
     if (m.opfer) { m.opfer.eventRolle = null; }
     if (m.wachen) m.wachen.length = 0;
   }
@@ -27004,18 +27043,16 @@ function storyEnde(art) {
       if (b.punkte) addScore(Math.round(b.punkte * (geschont ? 1 : 0.75)),
                              'Auftrag erfüllt', player.pos);
       if (b.ruf) setzeRuf(+b.ruf * (geschont ? 1 : 0.5));
-      if (b.fertigkeitspunkt) {
-        PROG.fertigkeitspunkte++;
-        popupScreen('✦ Ein zusätzlicher Fertigkeitspunkt');
-      }
     }
     if (weich) STORY.statistik.weich++; else STORY.statistik.geschafft++;
+    ptMissionZu(weich ? 'weich' : 'erfolg');
     const t = weich ? (d.weichText || d.erfolgText) : d.erfolgText;
     storyAufraeumen();
     if (t) stFunk(t);
     if (d.aktEnde) popupScreen('★ Akt 1 abgeschlossen');
   } else {
     STORY.statistik.abgebrochen++;
+    ptMissionZu('abbruch');
     storyAufraeumen();
     stFunk('Auftrag abgebrochen.');
   }
@@ -27023,6 +27060,134 @@ function storyEnde(art) {
   PROG.story.checkpointId = null;
   PROG.story.checkpointPhase = 0;
   progSofort();
+}
+
+/* ======================= Spieltest-Messung =======================
+   Standardmaessig AUS. Wird sie eingeschaltet, schreibt sie je Mission
+   mit, was der Spieler tatsaechlich getan hat - und zwar ausschliesslich
+   aus Zustaenden, die das Spiel ohnehin fuehrt. Keine Mausbewegungen,
+   keine Eingaben, nichts ueber den Spieler selbst.
+
+   Der Zweck ist eine einzige Frage, die ein Bot nicht beantworten kann:
+   wie lange braucht ein Mensch, und wo steht er ratlos herum? */
+let STORY_PLAYTEST = false;
+const PT = {
+  laufend: null,          /* aktuelle Missionsmessung */
+  missionen: [],
+  startZeit: 0,
+};
+
+function ptStart() {
+  STORY_PLAYTEST = true;
+  PT.missionen.length = 0;
+  PT.laufend = null;
+  PT.startZeit = elapsed;
+  return true;
+}
+function ptStop() { STORY_PLAYTEST = false; return PT.missionen.length; }
+
+function ptMissionAuf(d) {
+  if (!STORY_PLAYTEST) return;
+  PT.laufend = {
+    id: d.id, titel: d.titel, start: elapsed, ende: 0, gesamt: 0,
+    kampf: 0, traversal: 0, erkundung: 0, jagd: 0, warten: 0,
+    ohneFortschritt: 0, laengsteRatlosigkeit: 0,
+    bisZielVerstanden: -1, phasen: [], tode: 0, neustarts: 0, weich: 0,
+    _letzterFortschritt: elapsed, _letztePhase: -1, _startPos: null,
+  };
+}
+function ptPhase(nr, ziel) {
+  if (!STORY_PLAYTEST || !PT.laufend) return;
+  const l = PT.laufend;
+  l.phasen.push({ nr, ziel, ab: +(elapsed - l.start).toFixed(1) });
+  l._letzterFortschritt = elapsed;
+  l._letztePhase = nr;
+  l._startPos = { x: player.pos.x, z: player.pos.z };
+}
+/* Jedes Bild: was tut der Spieler gerade? Abgeleitet aus vorhandenen
+   Zustaenden, nicht aus Eingaben. */
+function ptTakt(dt) {
+  if (!STORY_PLAYTEST || !PT.laufend || !STORY.aktiv) return;
+  const l = PT.laufend;
+  l.gesamt += dt;
+  const m = MISSION.daten;
+  let imKampf = false, jagd = false;
+  if (m && m.gangs) {
+    for (const g of m.gangs) {
+      for (const e of g.enemies) {
+        if (e.dead) continue;
+        const dd = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+        if (dd < 12) { imKampf = true; break; }
+      }
+      if (imKampf) break;
+    }
+  }
+  if ((m && (m.laeufer || m.kurier)) || (m && m.car && m.car.flucht)) jagd = true;
+  const bewegt = player.vel && (Math.abs(player.vel.x) + Math.abs(player.vel.z)) > 1.5;
+  if (imKampf) l.kampf += dt;
+  else if (jagd) l.jagd += dt;
+  else if (STORY.zielText && STORY.zielText.indexOf('Stellen ansehen') >= 0) l.erkundung += dt;
+  else if (bewegt) l.traversal += dt;
+  else l.warten += dt;
+
+  /* Ratlosigkeit: die Phase hat sich nicht geaendert UND der Spieler ist
+     dem Ziel nicht naeher gekommen. Das ist die Zahl, die zeigt, wo eine
+     Mission nicht verstanden wird. */
+  const zp = m && m.zielPos;
+  if (zp && l._startPos) {
+    const jetzt = Math.hypot(zp.x - player.pos.x, zp.z - player.pos.z);
+    const vorher = Math.hypot(zp.x - l._startPos.x, zp.z - l._startPos.z);
+    if (jetzt < vorher - 4) {
+      l._startPos = { x: player.pos.x, z: player.pos.z };
+      l._letzterFortschritt = elapsed;
+      if (l.bisZielVerstanden < 0) l.bisZielVerstanden = +(elapsed - l.start).toFixed(1);
+    }
+  }
+  if (imKampf) l._letzterFortschritt = elapsed;
+  const still = elapsed - l._letzterFortschritt;
+  if (still > 6) {
+    l.ohneFortschritt += dt;
+    if (still > l.laengsteRatlosigkeit) l.laengsteRatlosigkeit = +still.toFixed(1);
+  }
+}
+function ptMissionZu(art) {
+  if (!STORY_PLAYTEST || !PT.laufend) return;
+  const l = PT.laufend;
+  l.ende = elapsed;
+  l.gesamt = +l.gesamt.toFixed(1);
+  for (const k of ['kampf', 'traversal', 'erkundung', 'jagd', 'warten', 'ohneFortschritt']) {
+    l[k] = +l[k].toFixed(1);
+  }
+  l.ausgang = art;
+  PT.missionen.push(l);
+  PT.laufend = null;
+}
+function ptBericht() {
+  const ges = PT.missionen.reduce((a, m) => a + m.gesamt, 0) || 1;
+  const summe = (k) => PT.missionen.reduce((a, m) => a + m[k], 0);
+  return {
+    aktiv: STORY_PLAYTEST,
+    missionen: PT.missionen.map((m) => ({
+      id: m.id, titel: m.titel, gesamt: m.gesamt, ausgang: m.ausgang,
+      kampf: m.kampf, traversal: m.traversal, erkundung: m.erkundung,
+      jagd: m.jagd, warten: m.warten,
+      ohneFortschritt: m.ohneFortschritt,
+      laengsteRatlosigkeit: m.laengsteRatlosigkeit,
+      bisZielVerstanden: m.bisZielVerstanden,
+      tode: m.tode, neustarts: m.neustarts, phasen: m.phasen,
+    })),
+    gesamt: {
+      minuten: +(ges / 60).toFixed(1),
+      kampfAnteil: +(summe('kampf') / ges).toFixed(3),
+      traversalAnteil: +(summe('traversal') / ges).toFixed(3),
+      jagdAnteil: +(summe('jagd') / ges).toFixed(3),
+      erkundungAnteil: +(summe('erkundung') / ges).toFixed(3),
+      wartenAnteil: +(summe('warten') / ges).toFixed(3),
+      ohneFortschritt: +summe('ohneFortschritt').toFixed(1),
+      tode: summe('tode'), neustarts: summe('neustarts'),
+      weicheAusgaenge: PT.missionen.filter((m) => m.ausgang === 'weich').length,
+    },
+  };
 }
 
 /* Laeuft gerade eine Storyphase, in der gekaempft wird? Nur dann
@@ -27082,8 +27247,10 @@ function storyTakt(dt) {
   /* Spieler ausgeknockt: harte Niederlage, Wiedereinstieg am Kontrollpunkt. */
   if (player.dead && !m.todGemeldet) {
     m.todGemeldet = true;
+    if (PT.laufend) PT.laufend.tode++;
     storyCheckpointSetzen(d.id, STORY.phase);
   }
+  ptTakt(dt);
 
   const ph = d.phasen[STORY.phase];
   if (!ph) { storyEnde('erfolg'); return; }
@@ -28556,6 +28723,12 @@ if (window.__WEBHERO_TEST__ === true) {
                gangsOffen: MISSION.daten && MISSION.daten.gangs
                  ? MISSION.daten.gangs.length : 0 }; },
     storyStarte, storyEnde, storyAufraeumen, storyTaste, storyTakt, setzeRuf,
+    /* Spieltest-Messung: standardmaessig aus, nur fuer einen echten
+       Durchlauf eines Menschen. */
+    storyPlaytestStart: ptStart,
+    storyPlaytestStop: ptStop,
+    storyPlaytestReport: ptBericht,
+    get storyPlaytestAn() { return STORY_PLAYTEST; },
     storyKampfPhase, storyOffen, storyZustand,
     storyZielPos() { const m = MISSION.daten; return (m && m.zielPos) || null; },
     missionDaten() { return MISSION.daten; },
