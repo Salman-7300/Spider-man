@@ -28482,7 +28482,7 @@ if (window.__WEBHERO_TEST__ === true) {
                storyGegner: enemies.filter((e) => e.storyGegner && !e.dead).length,
                gangsOffen: MISSION.daten && MISSION.daten.gangs
                  ? MISSION.daten.gangs.length : 0 }; },
-    storyStarte, storyEnde, storyAufraeumen, storyTaste, storyTakt,
+    storyStarte, storyEnde, storyAufraeumen, storyTaste, storyTakt, setzeRuf,
     storyKampfPhase, storyOffen, storyZustand,
     /* Eine Mission bis zum Ende durchspielen, ohne den Kampf wirklich zu
        fuehren: fuer die Ablauftests. Der Weg bleibt der echte - es wird
