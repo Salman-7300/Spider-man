@@ -28513,6 +28513,7 @@ if (window.__WEBHERO_TEST__ === true) {
                  ? MISSION.daten.gangs.length : 0 }; },
     storyStarte, storyEnde, storyAufraeumen, storyTaste, storyTakt, setzeRuf,
     storyKampfPhase, storyOffen, storyZustand,
+    storyZielPos() { const m = MISSION.daten; return (m && m.zielPos) || null; },
     /* Eine Mission bis zum Ende durchspielen, ohne den Kampf wirklich zu
        fuehren: fuer die Ablauftests. Der Weg bleibt der echte - es wird
        nur beschleunigt, was der Spieler sonst mit den Fäusten macht. */
