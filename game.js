@@ -26812,10 +26812,27 @@ const STORY_DEF = [
     start: 'Leitstelle: Es ist ruhig. Zu ruhig für einen Zufall. Sieh nach den Leuten.',
     phasen: [
       { ziel: 'Nach den Verletzten sehen',
-        auf: (m) => { m.start = PROG.statistik.gerettet; m.t = 120; },
+        auf: (m) => { m.start = PROG.statistik.gerettet; m.t = 120; m.warteT = 0; },
         pruef: (m, dt) => {
           m.t -= dt;
           if (PROG.statistik.gerettet >= m.start + 1) return 'weiter';
+          /* ---- Wenn niemand verletzt ist, ist die Mission erfuellt ----
+             Im Ablauftest lief diese Phase zweimal die vollen zwei Minuten
+             leer durch, weil kein Verletzter da war und der einzige
+             Ausgang eine Rettung oder die Uhr war. Ein Spieler haette
+             zwei Minuten lang nichts zu tun gehabt.
+             Genau das ist aber die Aussage der Mission: die Stadt ist
+             ruhig. Also zaehlt eine halbe Minute ohne einen einzigen
+             Verletzten als erfuellt - und die Uhr bleibt nur fuer den
+             Fall, dass jemand liegt und man ihn nicht erreicht. */
+          let liegt = false;
+          for (const c of civilians) if (c.state === 'hurt' && c.hilfeBar) liegt = true;
+          if (!liegt) {
+            m.warteT += dt;
+            if (m.warteT > 30) return 'weiter';
+          } else {
+            m.warteT = 0;
+          }
           if (m.t <= 0) return 'weich';
           return null;
         } },
