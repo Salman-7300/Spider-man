@@ -27169,6 +27169,35 @@ function baueFortschrittAnsicht() {
        ' · Bestwert ' + PROG.bestPunkte +
        ' · Fertigkeitspunkte <b>' + PROG.fertigkeitspunkte + '</b></div>';
 
+  /* --- Die Geschichte --- */
+  h += '<h3>GESCHICHTE · AKT ' + (PROG.story ? PROG.story.akt : 1) + '</h3>';
+  if (STORY.aktiv) {
+    h += '<div class="zeile"><span><b>' + fsEntkomme(STORY.aktiv.titel) + '</b><br>' +
+         '<span class="klein">' + fsEntkomme(STORY.zielText) + '</span></span>' +
+         '<span class="fertig">Schritt ' + (STORY.phase + 1) + ' von ' +
+         STORY.aktiv.phasen.length + '</span></div>';
+  } else {
+    const offen = storyOffen();
+    if (offen) {
+      h += '<div class="zeile"><span><b>' + fsEntkomme(offen.titel) + '</b><br>' +
+           '<span class="klein">' + fsEntkomme(offen.kurz) + '</span></span>' +
+           '<span class="klein">J zum Annehmen</span></div>';
+    } else {
+      h += '<div class="klein">Akt 1 ist abgeschlossen. Die Organisation steht noch.</div>';
+    }
+  }
+  for (const dd of STORY_DEF) {
+    const z = storyZustand(dd.id);
+    const fertig = z === 'ERLEDIGT';
+    h += '<div class="zeile ' + (fertig ? '' : 'offen') + '"><span>' +
+         (fertig ? '<span class="fertig">✔ </span>' : '') +
+         dd.nr + '. ' + fsEntkomme(dd.titel) +
+         '<br><span class="klein">' + fsEntkomme(dd.system) + '</span></span>' +
+         '<span class="klein">' +
+         (fertig ? 'erledigt' : z === 'AKTIV' ? 'läuft' :
+          z === 'VERFUEGBAR' ? 'offen' : 'gesperrt') + '</span></div>';
+  }
+
   /* --- Fertigkeiten --- */
   h += '<h3>Fertigkeiten</h3>';
   for (const z of SKILL_ZWEIGE) {
