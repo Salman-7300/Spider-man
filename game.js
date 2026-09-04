@@ -26798,7 +26798,13 @@ ruf = PROG.ruf;
 wendeStufeAn(stufeFuer(PROG.bestPunkte), false);
 player.hp = CFG.playerHP;
 progAufWeltAnwenden();
-if (PROG_INFO.neu) progSpeichern(true);  // beim allerersten Start den Keim sichern
+/* Beim allerersten Start den Keim sichern - und ebenso, wenn gerade aus
+   alten Schluesseln oder einer aelteren Fassung uebernommen wurde: sonst
+   bleiben die alten Schluessel liegen, bis zufaellig etwas anderes
+   gespeichert wird. */
+if (PROG_INFO.neu || PROG_INFO.ausAltenSchluesseln || PROG_INFO.migriertVon >= 0) {
+  progSpeichern(true);
+}
 
 function updateHUD() {
   hpbarEl.style.width = `${clamp(player.hp / CFG.playerHP * 100, 0, 100)}%`;
