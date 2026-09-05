@@ -7,8 +7,9 @@ const { spawnSync } = require('node:child_process');
 const { cityRuntime, THREE, root } = require('./city-test-runtime.cjs');
 const runtime = cityRuntime();
 const windows = process.argv.includes('--windows');
+const life = process.argv.includes('--life');
 const outputArg = process.argv.slice(2).find(arg => !arg.startsWith('--'));
-const out = path.resolve(outputArg || path.join(root, windows ? 'docs/window-interior-preview.png' : 'docs/city-model-preview.png'));
+const out = path.resolve(outputArg || path.join(root, life ? 'docs/city-life-preview.png' : windows ? 'docs/window-interior-preview.png' : 'docs/city-model-preview.png'));
 const panels = [];
 
 function panel(model, label, rect, direction = [1, 0.6, 1.25], focus) {
@@ -49,10 +50,10 @@ function panel(model, label, rect, direction = [1, 0.6, 1.25], focus) {
     }
   });
   const center = focus && new THREE.Vector3(...focus.center);
-  const minX = focus ? center.dot(right) - focus.width / 2 : Math.min(...points.map(p => p[0]));
-  const maxX = focus ? center.dot(right) + focus.width / 2 : Math.max(...points.map(p => p[0]));
-  const minY = focus ? -center.dot(up) - focus.height / 2 : Math.min(...points.map(p => p[1]));
-  const maxY = focus ? -center.dot(up) + focus.height / 2 : Math.max(...points.map(p => p[1]));
+  const minX = focus ? center.dot(right) - focus.width / 2 : points.reduce((v, p) => Math.min(v, p[0]), Infinity);
+  const maxX = focus ? center.dot(right) + focus.width / 2 : points.reduce((v, p) => Math.max(v, p[0]), -Infinity);
+  const minY = focus ? -center.dot(up) - focus.height / 2 : points.reduce((v, p) => Math.min(v, p[1]), Infinity);
+  const maxY = focus ? -center.dot(up) + focus.height / 2 : points.reduce((v, p) => Math.max(v, p[1]), -Infinity);
   const [x, y, w, h] = rect, scale = Math.min((w - 46) / (maxX - minX), (h - 64) / (maxY - minY));
   const cx = x + w / 2, cy = y + (h - 32) / 2;
   for (const t of triangles) t.xy = t.xy.map(p => [cx + (p[0] - (minX + maxX) / 2) * scale,
@@ -61,7 +62,17 @@ function panel(model, label, rect, direction = [1, 0.6, 1.25], focus) {
   panels.push({ label, rect, triangles });
 }
 
-if (windows) {
+if (life) {
+  panel(runtime.look.createAmbulance(), 'Rettungswagen · Kabine und Aufbau', [24, 118, 768, 360], [1, 0.45, 1.2]);
+  panel(runtime.look.createAmbulance(), 'Rettungswagen · Hecktüren und Leuchten', [816, 118, 768, 360], [-1, 0.45, -1.2]);
+  const bus = runtime.look.createBus({ art: 'bus', laenge: 9.5, breite: 2.4 }, 0x3b7a3f);
+  panel(bus, 'Stadtbus · offene Fenster und flacher Boden', [24, 494, 768, 355], [1, 0.5, 1.1]);
+  bus.getObjectByName('BusShell').userData.previewSkip = true;
+  bus.getObjectByName('BusGlass').userData.previewSkip = true;
+  panel(bus, 'Innenraum · Schnittansicht ohne Außenhaut', [816, 494, 768, 355], [0.9, 0.85, 1.1]);
+  panel(runtime.look.createPark(38), 'Park · Wege, Pflanzflächen und Brunnenplatz', [24, 865, 1050, 470], [1, 1.1, 1.2]);
+  panel(runtime.look.createTree(0), 'Baum · Stamm, Äste und Laubgruppen', [1090, 865, 494, 470], [1, 0.3, 1.2]);
+} else if (windows) {
   for (let i = 0; i < 4; i++) panel(runtime.look.createTower(18, 90, 22, i),
     runtime.look.towerStyles[i] + ' · Glas vor einem echten Innenraum',
     [24 + (i % 2) * 792, 118 + Math.floor(i / 2) * 476, 768, 460], [0.16, 0.12, 1],
@@ -125,7 +136,7 @@ text(24,data['height']-37,'Modelle aus city-visuals.js und game.js · Maßstab j
 im.resize((1608,data['height']),Image.Resampling.LANCZOS).save(data['out'])
 `;
 const result = spawnSync('python3', ['-c', python], { input: JSON.stringify({ panels, out,
-  height: windows ? 1110 : 1512, title: windows ? 'WEB HERO  /  FENSTER & INNENRÄUME' : 'WEB HERO  /  STADT & FAHRZEUGE' }),
+  height: life ? 1395 : windows ? 1110 : 1512, title: life ? 'WEB HERO  /  RETTUNG, BUS & PARK' : windows ? 'WEB HERO  /  FENSTER & INNENRÄUME' : 'WEB HERO  /  STADT & FAHRZEUGE' }),
   encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
 if (result.status !== 0) throw new Error(result.stderr || 'CPU preview failed');
 console.log(out);

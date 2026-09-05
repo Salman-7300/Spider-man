@@ -299,7 +299,7 @@
     if (!utilityWheelGeometry) utilityWheelGeometry = wheel().clone().scale(1.25, 0.46 / 0.35, 0.46 / 0.35);
     const retiredWheelGeometry = new Set();
     for (const axle of wheels) {
-      retiredWheelGeometry.add(axle.roll.geometry);
+      if (!axle.roll.userData.sharedFleetWheel) retiredWheelGeometry.add(axle.roll.geometry);
       axle.roll.geometry = utilityWheelGeometry; axle.roll.material = materials.trim;
       axle.roll.rotation.set(0, 0, 0);
     }
@@ -333,6 +333,253 @@
     g.userData.cityMotion = { wheels, brake, speed: 0, yaw: null, steering: 0, radius: 0.46 };
     g.userData.visualKind = cargo ? 'modern-truck' : 'modern-bus';
     g.userData.collisionHull = { halfWidth: B / 2 + 0.09, halfLength: L / 2 + 0.1, roof: cargo ? 2.75 : 2.7 };
+  }
+
+  const fleetWheelCache = new Map();
+  function fleetWheels(g, width, front, rear, radius) {
+    if (!fleetWheelCache.has(radius)) fleetWheelCache.set(radius,
+      wheel().clone().scale(1.15, radius / 0.35, radius / 0.35));
+    const wheels = [];
+    for (const z of [front, rear]) for (const side of [-1, 1]) {
+      const steer = new THREE.Group(), roll = new THREE.Mesh(fleetWheelCache.get(radius), materials.trim);
+      roll.userData.sharedFleetWheel = true;
+      steer.position.set(side * (width / 2 - 0.12), radius, z);
+      steer.add(roll); g.add(steer); wheels.push({ steer, roll, front: z === front });
+    }
+    return wheels;
+  }
+  const signCache = new Map();
+  function fleetSign(g, text, w, h, x, y, z, ry = 0) {
+    if (typeof document === 'undefined') return;
+    if (!signCache.has(text)) {
+      const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 96;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#172832'; ctx.fillRect(0, 0, 512, 96);
+      ctx.fillStyle = '#e8f1e8'; ctx.font = 'bold 47px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(text, 256, 65, 495);
+      const texture = new THREE.CanvasTexture(canvas);
+      signCache.set(text, new THREE.MeshBasicMaterial({ map: texture }));
+    }
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), signCache.get(text));
+    m.name = 'FleetSign'; m.position.set(x, y, z); m.rotation.y = ry; g.add(m);
+  }
+  function createAmbulance() {
+    const g = new THREE.Group(), body = new Batch(), glass = new Batch(), trim = new Batch(), leds = new Batch(), tail = new Batch();
+    const white = 0xdce2df, red = 0xc04b37, dark = 0x27333a;
+    // A separate hollow cab and chamfered patient module, with a real sill.
+    body.softBox(2.06, 1.87, 3.24, 0, 1.365, -0.85, white);
+    loft(body, [[1.98, 0.94, 0.44, 1.17], [2.62, 0.88, 0.49, 1.02]], white);
+    body.softBox(1.91, 0.12, 1.13, 0, 2.05, 1.30, white);
+    body.box(1.9, 0.1, 1.85, 0, 0.58, 1.54, dark);
+    for (const sx of [-1, 1]) {
+      body.box(0.08, 0.59, 1.27, sx * 0.94, 0.915, 1.345, white);
+      body.box(0.075, 0.91, 0.10, sx * 0.915, 1.6, 0.78, white);
+      body.beam([sx * 0.91, 1.99, 1.86], [sx * 0.91, 1.17, 2.25], 0.075, 0.075, white);
+      glass.quad([sx * 0.918, 1.22, 0.83], [sx * 0.918, 1.98, 0.83],
+        [sx * 0.918, 1.98, 1.81], [sx * 0.918, 1.22, 2.16], 0xb7d6db);
+      body.box(0.026, 0.26, 3.05, sx * 1.039, 1.14, -0.86, red);
+      trim.box(0.027, 0.07, 4.72, sx * 1.04, 0.60, -0.02, 0xe6d187);
+      trim.box(0.065, 0.29, 0.20, sx * 1.07, 1.71, 1.95, dark);
+      trim.box(0.03, 0.08, 0.20, sx * 0.963, 1.17, 1.04, dark);
+      leds.box(0.39, 0.11, 0.035, sx * 0.65, 0.97, 2.625, 0xe0edf2);
+      tail.box(0.13, 0.30, 0.026, sx * 0.85, 0.93, -2.483, 0xffffff);
+      // Six-arm emergency-service symbol, no third-party logo texture.
+      for (const angle of [0, Math.PI / 3, -Math.PI / 3]) {
+        const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), angle);
+        trim.geometry(box, 0x2f6883, new THREE.Matrix4().compose(new THREE.Vector3(sx * 1.042, 1.72, -0.68), q,
+          new THREE.Vector3(0.012, 0.53, 0.15)));
+      }
+      // Patient module rear doors and handles.
+      trim.box(0.83, 0.55, 0.026, sx * 0.50, 1.88, -2.483, 0x526b73);
+      trim.box(0.035, 0.25, 0.035, sx * 0.08, 1.31, -2.497, 0x92a5aa);
+      fleetSign(g, 'RETTUNG 112', 1.35, 0.24, sx * 1.051, 2.11, -0.72, sx * Math.PI / 2);
+    }
+    glass.quad([-0.87, 1.23, 2.24], [0.87, 1.23, 2.24], [0.87, 1.99, 1.90], [-0.87, 1.99, 1.90], 0xa7c6cc);
+    trim.box(0.035, 1.69, 0.025, 0, 1.34, -2.498, dark);
+    trim.box(1.66, 0.18, 0.10, 0, 0.46, 2.64, dark);
+    trim.box(0.86, 0.25, 0.03, 0, 0.90, 2.638, dark);
+    for (let i = 0; i < 4; i++) trim.box(0.78, 0.014, 0.015, 0, 0.82 + i * 0.055, 2.659, 0x869a9f);
+    for (const sx of [-1, 1]) {
+      trim.softBox(0.55, 0.12, 0.48, sx * 0.44, 1.12, 1.18, dark);
+      trim.softBox(0.53, 0.64, 0.10, sx * 0.44, 1.46, 0.94, dark);
+    }
+    trim.box(1.65, 0.16, 0.30, 0, 1.44, 1.83, dark);
+    const wheelRing = new THREE.TorusGeometry(0.18, 0.026, 6, 18).toNonIndexed();
+    trim.geometry(wheelRing, dark, new THREE.Matrix4().makeRotationX(1.18).setPosition(-0.44, 1.52, 1.61)); wheelRing.dispose();
+    g.add(body.mesh(materials.trim, 'AmbulanceBody'), trim.mesh(materials.trim, 'AmbulanceEquipment'),
+      glass.mesh(materials.glass, 'AmbulanceCabGlass'), leds.mesh(materials.light, 'AmbulanceLED'));
+    const beacons = new THREE.Group();
+    for (const sx of [-1, 1]) {
+      const b = new Batch();
+      b.box(0.49, 0.13, 0.26, sx * 0.32, 2.39, 0.52, 0x458df2);
+      b.box(0.10, 0.11, 0.21, sx * 0.98, 2.17, -2.10, 0x458df2);
+      beacons.add(b.mesh(materials.light, 'BlueBeacon'));
+    }
+    g.add(beacons); g.userData.blaulicht = beacons;
+    g.userData.fahrerSitz = { x: -0.44, y: 1.24, z: 1.18, scale: 0.85 };
+    const brake = new THREE.MeshBasicMaterial({ color: 0x8d292b });
+    g.add(tail.mesh(brake, 'BrakeLights'));
+    g.userData.cityMotion = { wheels: fleetWheels(g, 2.1, 1.76, -1.64, 0.41), brake, speed: 0, yaw: null, steering: 0, radius: 0.41 };
+    g.userData.collisionHull = { halfWidth: 1.12, halfLength: 2.72, roof: 2.46 };
+    g.userData.visualKind = 'modern-ambulance';
+    return g;
+  }
+  function createBus(type, color) {
+    const g = new THREE.Group(), body = new Batch(), interior = new Batch(), glass = new Batch(), light = new Batch();
+    const L = type.laenge, B = type.breite, front = L / 2;
+    const paint = new THREE.Color(color).lerp(new THREE.Color(0x34474b), 0.42).getHex();
+    const floor = 0.57, seatY = 1.12, windowBottom = 1.16, windowTop = 2.43;
+    // The aisle is hollow. No full body box through passengers' legs.
+    body.softBox(B, 0.20, L, 0, 0.44, 0, 0x394750);
+    body.softBox(B, 0.22, L, 0, 2.59, 0, 0xd3d9d5);
+    interior.box(B - 0.17, 0.06, L - 0.20, 0, floor - 0.03, 0, 0x454e51);
+    interior.box(0.68, 0.008, L - 1.7, 0, floor + 0.004, -0.45, 0x6b7370);
+    body.box(B, 0.58, 0.08, 0, 0.86, -front + 0.04, paint);
+    body.box(B - 0.08, 0.58, 0.10, 0, 0.86, front - 0.05, paint);
+    body.box(B - 0.06, 1.32, 0.08, 0, 1.81, -front + 0.04, 0xd3d9d5);
+    for (const sx of [-1, 1]) {
+      body.box(0.08, 0.59, L - 0.15, sx * (B / 2 - 0.04), 0.865, 0, paint);
+      body.box(0.022, 0.09, L - 0.3, sx * (B / 2 + 0.011), 1.105, 0, 0x9aaeb0);
+      glass.panel(L - 0.25, windowTop - windowBottom, sx * (B / 2 - 0.026),
+        (windowTop + windowBottom) / 2, 0, 0xb7d1d6, sx * Math.PI / 2);
+      for (let i = 0; i <= 6; i++) body.box(0.09, 1.29, 0.075,
+        sx * (B / 2 - 0.044), 1.805, -front + 0.13 + i * (L - 0.26) / 6, 0x283b42);
+      interior.box(0.036, 0.036, L - 1.25, sx * 0.43, 2.29, -0.12, 0xd6b650);
+      light.box(0.065, 0.016, L - 1.1, sx * 0.69, 2.468, 0, 0xe4ebdb);
+      for (const z of [-2.6, -0.1, 2.4]) interior.box(0.035, 1.72, 0.035, sx * 0.42, 1.43, z, 0xd6b650);
+    }
+    glass.panel(B - 0.17, 1.29, 0, 1.805, front - 0.018, 0xadc7d1);
+    const seats = [];
+    const addSeat = (x, z, driver = false) => {
+      const shade = driver ? 0x29363e : 0x3a6672;
+      interior.softBox(0.53, 0.10, 0.48, x, seatY - 0.06, z + 0.035, shade);
+      interior.softBox(0.52, 0.56, 0.09, x, seatY + 0.23, z - 0.22, shade);
+      interior.box(0.18, seatY - floor - 0.10, 0.17, x, (floor + seatY - 0.10) / 2, z, 0x9ba8a8);
+      interior.box(0.42, 0.045, 0.10, x, seatY + 0.525, z - 0.22, 0xc4cccc);
+      seats.push({ x, y: seatY + 0.06, z, ry: 0, fahrer: driver, scale: 0.94, floor });
+    };
+    addSeat(-0.65, front - 1.25, true);
+    // Interleave both sides so a bounded real-person pool fills the cabin evenly.
+    for (const z of [-2.8, -1.55, -0.3, 0.95]) for (const sx of [-1, 1]) addSeat(sx * 0.75, z);
+    interior.box(B - 0.26, 0.16, 0.45, 0, 1.43, front - 0.56, 0x27343c);
+    interior.box(0.61, 0.74, 0.055, -0.65, 0.97, front - 1.57, 0xb7c3c0);
+    interior.box(0.13, 0.20, 0.11, 0.55, 1.43, front - 1.28, 0x384c5b);
+    const wheelRing = new THREE.TorusGeometry(0.2, 0.026, 6, 18).toNonIndexed();
+    interior.geometry(wheelRing, 0x1e2b32, new THREE.Matrix4().makeRotationX(1.18).setPosition(-0.65, 1.45, front - 0.846)); wheelRing.dispose();
+    // Front and centre folding-door seams and contrasting step edges.
+    for (const z of [front - 0.73, -0.35]) {
+      for (const dz of [-0.48, 0, 0.48]) body.box(0.013, 1.78, 0.028, B / 2 + 0.004, 1.42, z + dz, 0x28383f);
+      interior.box(0.25, 0.012, 0.91, B / 2 - 0.20, floor + 0.006, z, 0xd8bd62);
+    }
+    g.add(body.mesh(materials.trim, 'BusShell'), interior.mesh(materials.stone, 'BusInterior'),
+      glass.mesh(materials.glass, 'BusGlass'), light.mesh(materials.light, 'BusCeilingLights'));
+    const wheels = fleetWheels(g, B, front - 1.3, -front + 1.6, 0.46);
+    // Reuse the existing vehicle motion and conservative collision envelope.
+    finishUtilityVehicle(g, type, paint, wheels);
+    g.userData.sitzplaetze = seats; g.userData.floorHeight = floor;
+    fleetSign(g, 'M4  CENTRAL', 1.55, 0.19, 0, 2.573, front + 0.008);
+    fleetSign(g, 'NÄCHSTER HALT · CENTRAL', 1.33, 0.17, 0, 2.30, front - 0.36, Math.PI);
+    return g;
+  }
+
+  const treeCache = new Map();
+  function createTree(variant = 0) {
+    const kind = ((variant % 4) + 4) % 4;
+    if (!treeCache.has(kind)) {
+      const wood = new Batch(), leaves = new Batch();
+      let seed = 171 + kind * 83;
+      const random = () => { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 4294967296; };
+      const branch = (a, b, r0, r1) => {
+        const p = new THREE.Vector3(...a), end = new THREE.Vector3(...b), delta = end.clone().sub(p);
+        const geo = new THREE.CylinderGeometry(r1, r0, delta.length(), 8).toNonIndexed();
+        wood.geometry(geo, 0x685743, new THREE.Matrix4().compose(p.add(end).multiplyScalar(0.5),
+          new THREE.Quaternion().setFromUnitVectors(up, delta.normalize()), new THREE.Vector3(1, 1, 1))); geo.dispose();
+      };
+      const h = [6.4, 7.3, 5.8, 6.9][kind], spread = [2.25, 1.65, 2.45, 1.95][kind];
+      branch([0, 0, 0], [0.09, h * 0.7, -0.07], 0.29, 0.085);
+      for (let i = 0; i < 11; i++) {
+        const angle = i * 2.39996 + kind, reach = spread * (0.48 + random() * 0.45);
+        const y = h * (0.48 + random() * 0.27), x = Math.cos(angle) * reach, z = Math.sin(angle) * reach;
+        branch([0.04, y - 0.85, 0], [x, y + 0.43, z], 0.105, 0.025);
+        for (let j = 0; j < 3; j++) {
+          const geo = new THREE.IcosahedronGeometry(1, 1), p = geo.attributes.position;
+          // Uneven clusters and a porous silhouette instead of one smooth ball.
+          for (let n = 0; n < p.count; n++) {
+            const wobble = 0.92 + 0.14 * Math.sin(p.getX(n) * 17 + p.getY(n) * 9 + kind);
+            p.setXYZ(n, p.getX(n) * wobble, p.getY(n) * wobble, p.getZ(n) * wobble);
+          }
+          geo.computeVertexNormals();
+          const scale = 0.60 + random() * 0.28;
+          leaves.geometry(geo, [0x416943, 0x587948, 0x365b40, 0x6c844e][(i + j + kind) % 4],
+            new THREE.Matrix4().compose(new THREE.Vector3(x + (random() - 0.5) * 0.8,
+              y + 0.50 + j * 0.34, z + (random() - 0.5) * 0.8),
+              new THREE.Quaternion().setFromAxisAngle(up, random() * 6.28), new THREE.Vector3(scale * 1.2, scale, scale)));
+          geo.dispose();
+        }
+      }
+      treeCache.set(kind, { wood: wood.finish(), leaves: leaves.finish(), height: h });
+    }
+    const data = treeCache.get(kind), g = new THREE.Group();
+    for (const [geo, name] of [[data.wood, 'TreeBranches'], [data.leaves, 'TreeFoliage']]) {
+      const m = new THREE.Mesh(geo, materials.stone); m.name = name; m.castShadow = true; m.receiveShadow = true; g.add(m);
+    }
+    g.userData.trunk = { halfWidth: 0.34, height: data.height * 0.7 + 0.03 };
+    return g;
+  }
+  function createPark(size, grassTexture) {
+    const g = new THREE.Group(), ground = new Batch(), detail = new Batch(), water = new Batch(), solids = [];
+    const half = size / 2;
+    ground.box(size, 0.012, size, 0, 0.002, 0, 0x547245);
+    if (grassTexture) {
+      const grass = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
+        new THREE.MeshLambertMaterial({ map: grassTexture }));
+      grass.rotation.x = -Math.PI / 2; grass.position.y = 0.010;
+      grass.name = 'ParkGrass'; grass.receiveShadow = true; g.add(grass);
+    }
+    // The existing cross routes remain level and open, with a paved fountain plaza.
+    for (const [w, d] of [[size, 3.2], [3.2, size]]) ground.box(w, 0.012, d, 0, 0.012, 0, 0xb6ac95);
+    const plaza = new THREE.CylinderGeometry(5.25, 5.25, 0.014, 48).toNonIndexed();
+    ground.geometry(plaza, 0xc5bba8, new THREE.Matrix4().makeTranslation(0, 0.014, 0)); plaza.dispose();
+    for (const sx of [-1, 1]) {
+      ground.box(size, 0.012, 0.12, 0, 0.021, sx * 1.6, 0x827e70);
+      ground.box(0.12, 0.012, size, sx * 1.6, 0.021, 0, 0x827e70);
+    }
+    for (let v = -half + 0.7; v < half; v += 1.3) {
+      ground.box(3.15, 0.004, 0.025, 0, 0.022, v, 0xa29882);
+      ground.box(0.025, 0.004, 3.15, v, 0.022, 0, 0xa29882);
+    }
+    const ring = new THREE.TorusGeometry(3.03, 0.20, 8, 48).toNonIndexed();
+    detail.geometry(ring, 0x999d91, new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0.50, 0)); ring.dispose();
+    const basin = new THREE.CylinderGeometry(3.0, 3.2, 0.38, 48).toNonIndexed();
+    detail.geometry(basin, 0x828f88, new THREE.Matrix4().makeTranslation(0, 0.22, 0)); basin.dispose();
+    const surface = new THREE.CircleGeometry(2.87, 48).toNonIndexed();
+    water.geometry(surface, 0x64959a, new THREE.Matrix4().makeRotationX(-Math.PI / 2).setPosition(0, 0.423, 0)); surface.dispose();
+    for (const r of [1.3, 2.1, 2.65]) {
+      const ripple = new THREE.TorusGeometry(r, 0.009, 3, 48).toNonIndexed();
+      water.geometry(ripple, 0xa2c5c4, new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0.431, 0)); ripple.dispose();
+    }
+    solids.push({ x0: -3.25, x1: 3.25, z0: -3.25, z1: 3.25, h: 0.71 });
+    for (let i = 0; i < 12; i++) {
+      const angle = (i + 0.5) * Math.PI / 6, radius = Math.min(half - 4.1, half * 0.8);
+      const x = Math.cos(angle) * radius, z = Math.sin(angle) * radius;
+      if (Math.abs(x) < 3.2 || Math.abs(z) < 3.2) continue;
+      const tree = createTree(i % 4); tree.position.set(x, 0, z); tree.rotation.y = i * 1.7; g.add(tree);
+      solids.push({ x0: x - 0.34, x1: x + 0.34, z0: z - 0.34, z1: z + 0.34, h: tree.userData.trunk.height });
+      const bed = new THREE.CylinderGeometry(0.94, 0.94, 0.012, 20).toNonIndexed();
+      ground.geometry(bed, 0x675b44, new THREE.Matrix4().makeTranslation(x, 0.018, z)); bed.dispose();
+    }
+    // Low planting sits away from paths; no decorative object blocks an entrance.
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (let i = 0; i < 14; i++) {
+      const x = sx * (5.8 + (i % 7) * 0.55), z = sz * (half - 2.5 - Math.floor(i / 7) * 0.45);
+      if (Math.abs(x) > half - 2) continue;
+      const bush = new THREE.IcosahedronGeometry(0.27, 0);
+      detail.geometry(bush, i % 3 ? 0x4c6650 : 0x988397,
+        new THREE.Matrix4().makeScale(1.3, 0.68, 1).setPosition(x, 0.18, z)); bush.dispose();
+    }
+    g.add(ground.mesh(materials.stone, 'ParkGround'), detail.mesh(materials.stone, 'ParkPlantingAndBasin'),
+      water.mesh(materials.trim, 'ParkWater'));
+    g.userData.solids = solids; g.userData.pathHalfWidth = 1.6;
+    return g;
   }
 
   function createHelicopterShell() {
@@ -506,7 +753,7 @@
     else v.cityGear.geometry = accessory(key); // shared immutable geometry; no nodes accumulate on role changes
     v.root.userData.cityRole = key;
   }
-  return { enabled, createTower, createCar, updateCar, finishUtilityVehicle, createHelicopterShell,
+  return { enabled, createTower, createCar, updateCar, finishUtilityVehicle, createAmbulance, createBus, createTree, createPark, createHelicopterShell,
     trainDetails, updateTrain, dressCivilian, dressEnemy,
     towerStyles: TOWERS.map(t => t.name), carStyles: ['Fastback', 'Crossover', 'Sportkombi'],
     civilianStyles: OUTFITS.map(o => o.name), enemyStyles: Object.keys(ENEMIES) };

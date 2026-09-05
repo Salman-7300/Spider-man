@@ -51,14 +51,27 @@ function model(clips, slot = 'hero') {
     return o;
   });
   json.nodes.forEach((n, i) => (n.children || []).forEach(k => nodes[i].add(nodes[k])));
+  // Include each real mesh's accessor bounds, so messeModell uses exactly
+  // the same mesh/fallback choice, size and centre as the live loader.
+  json.nodes.forEach((n, i) => {
+    if (n.mesh === undefined) return;
+    const bounds = new THREE.Box3();
+    for (const primitive of json.meshes[n.mesh].primitives) {
+      const a = json.accessors[primitive.attributes.POSITION];
+      bounds.expandByPoint(new THREE.Vector3(...a.min)); bounds.expandByPoint(new THREE.Vector3(...a.max));
+    }
+    const geo = new THREE.BoxGeometry(...bounds.getSize(new THREE.Vector3()).toArray());
+    geo.translate(...bounds.getCenter(new THREE.Vector3()).toArray());
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+    mesh.userData.previewSkip = true; nodes[i].add(mesh);
+  });
   const scene = new THREE.Group();
   json.scenes[json.scene || 0].nodes.forEach(i => scene.add(nodes[i]));
   scene.updateMatrixWorld(true);
-  const box = new THREE.Box3();
-  const p = new THREE.Vector3();
-  scene.traverse(o => { if (o.isBone) { o.getWorldPosition(p); box.expandByPoint(p); } });
-  const scale = 1.76 / (box.max.y - box.min.y), center = box.getCenter(new THREE.Vector3());
-  return { scene, clips, scale, yOffset: -box.min.y, xOffset: -center.x, zOffset: -center.z, yaw: 0 };
+  const source = fs.readFileSync(path.join(root, 'game.js'), 'utf8');
+  const measure = vm.runInNewContext('(' + source.slice(source.indexOf('function messeModell('), source.indexOf('/* Ladefortschritt')) + ')', { THREE });
+  const mass = measure(scene), scale = 1.76 / (mass.maxY - mass.minY);
+  return { scene, clips, scale, yOffset: -mass.minY, xOffset: -mass.mitteX, zOffset: -mass.mitteZ, yaw: 0 };
 }
 
 function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {

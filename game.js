@@ -2422,6 +2422,18 @@ const parks = [];
 function bauePark(cx, cz, size) {
   const halb = size / 2;
   parks.push({ x: cx, z: cz, s: size });
+  if (CITY_LOOK && CITY_LOOK.createPark) {
+    const park = CITY_LOOK.createPark(size, rasenTex);
+    park.position.set(cx, SLAB_H, cz); cityGroup.add(park);
+    for (const c of park.userData.solids) addCollider({
+      x0: cx + c.x0, x1: cx + c.x1, z0: cz + c.z0, z1: cz + c.z1,
+      h: SLAB_H + c.h, klein: true,
+    });
+    for (const [x, z, along] of [[-7, 2.4, false], [7, 2.4, false], [2.4, -7, true], [2.4, 7, true]]) {
+      baueBank(cx + x, SLAB_H, cz + z, along, 0x80634b);
+    }
+    return;
+  }
   /* Rasen und Wege liegen BÜNDIG mit dem Gehweg. Vorher standen sie 6 cm
      darüber und die Füße steckten sichtbar im Gras. */
   const rasen = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
@@ -4013,6 +4025,12 @@ function buildRiverAndBridge() {
     const takt = Math.round((z + 190) / 8) % 3;
     if (takt === 0) {
       const bx = PROM_X0 + 4.5, bz = z + 3.5;
+      if (CITY_LOOK && CITY_LOOK.createTree) {
+        const tree = CITY_LOOK.createTree(Math.round(z / 24));
+        tree.position.set(bx, SLAB_H, bz); cityGroup.add(tree);
+        addCollider({ x0: bx - 0.34, x1: bx + 0.34, z0: bz - 0.34, z1: bz + 0.34,
+          h: SLAB_H + tree.userData.trunk.height, klein: true });
+      } else {
       deko(0.5, 3.2, 0.5, bx, SLAB_H + 1.6, bz, 0x5a4028);
       const krone = new THREE.Mesh(new THREE.SphereGeometry(rand(1.7, 2.3), 7, 6), kroneMatU);
       krone.position.set(bx, SLAB_H + rand(3.8, 4.4), bz);
@@ -4020,6 +4038,7 @@ function buildRiverAndBridge() {
       cityGroup.add(krone);
       addCollider({ x0: bx - 0.4, x1: bx + 0.4, z0: bz - 0.4, z1: bz + 0.4,
                     h: SLAB_H + 3.2, klein: true });
+      }
     } else if (takt === 1) {
       baueBank(PROM_X1 - 3.2, SLAB_H, z + 3.5, true);      // Blick aufs Wasser
     } else {
@@ -4213,6 +4232,12 @@ function buildFarShore() {
         for (let i = 0; i < 5; i++) {
           const bx = cx + rand(-innen / 2 + 2, innen / 2 - 2);
           const bz = cz + rand(-innen / 2 + 2, innen / 2 - 2);
+          if (CITY_LOOK && CITY_LOOK.createTree) {
+            const tree = CITY_LOOK.createTree(i);
+            tree.position.set(bx, SLAB_H, bz); cityGroup.add(tree);
+            addCollider({ x0: bx - 0.34, x1: bx + 0.34, z0: bz - 0.34, z1: bz + 0.34,
+              h: SLAB_H + tree.userData.trunk.height, klein: true });
+          } else {
           const stamm = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.6, 6),
             new THREE.MeshLambertMaterial({ color: 0x5a4530 }));
           stamm.position.set(bx, SLAB_H + 1.3, bz);
@@ -4222,6 +4247,7 @@ function buildFarShore() {
           krone.position.set(bx, SLAB_H + rand(3.4, 4.2), bz);
           krone.castShadow = true;
           cityGroup.add(krone);
+          }
         }
       } else if (stil < 0.55) {
         // Ein Turm auf dem ganzen Block
@@ -4364,7 +4390,7 @@ function hatBodenbewegung(tempo, vorigeAnimation) {
    vorige mit einem zu hohen. */
 let GANG_UM_LAUF = 2.5;
 let GANG_UM_SPRINT = 4.0;
-let GANG_UM_VOLL = 8.0;
+let GANG_UM_VOLL = 5.4;
 let GANG_UM_BAND = 0.35;
 /* Stelle im Duck-Clip, an der die Figur im Stand angehalten wird.
    Abgetastet: dort ist der Hoehenunterschied zwischen den Fuessen am
@@ -6443,6 +6469,8 @@ function makeGlbVisual(m) {
   const limbOrigin = new THREE.Vector3(), limbMid = new THREE.Vector3();
   const limbEnd = new THREE.Vector3(), limbAxis = new THREE.Vector3();
   const limbPole = new THREE.Vector3(), limbTarget = new THREE.Vector3();
+  const climbMotion = { phase: 0, speed: 0, along: new THREE.Vector3(0, 1, 0) };
+  const groundContacts = { left: {}, right: {} };
   function gliedZiel(a, b, c, target, pole, weight) {
     if (!a || !b || !c || weight <= 0) return;
     root.updateMatrixWorld(true);
@@ -7112,15 +7140,16 @@ function makeGlbVisual(m) {
        Beine stiegen also nach oben, waehrend die Figur zur Seite glitt.
        Gedreht wird ueber den kuerzesten Weg, sonst nimmt die Figur beim
        Wechsel von links nach rechts den ganzen Kreis. */
-    wandKriechen(k, tiefe, roll, lauf) {
+    wandKriechen(k, tiefe, roll, lauf, kontakt, dt = 1 / 60) {
       const kk = clamp(k === undefined ? 1 : k, 0, 1);
-      innerKipp = lerp(innerKipp, (lauf ? 0.18 : -Math.PI / 2) * kk, 0.28);
+      const rate = 1 - Math.exp(-19.7 * dt);
+      innerKipp = lerp(innerKipp, (lauf ? 0.18 : kontakt ? 0 : -Math.PI / 2) * kk, rate);
       inner.rotation.x = innerKipp;
-      const zZ = (roll || 0) * kk;
+      const zZ = (kontakt && !lauf ? 0 : (roll || 0)) * kk;
       let dz = zZ - inner.rotation.z;
       while (dz > Math.PI) dz -= Math.PI * 2;
       while (dz < -Math.PI) dz += Math.PI * 2;
-      inner.rotation.z += dz * 0.14;
+      inner.rotation.z += dz * (1 - Math.exp(-9 * dt));
       /* Solange gekippt wird, liegt "unter der Figur" die Wand. Die
          Bodenkorrektur (inner.position.y) wuerde sie an der Wand
          entlangschieben - sie wird deshalb ausgeblendet. */
@@ -7144,7 +7173,7 @@ function makeGlbVisual(m) {
         const stride = Math.sin((phase || 0) + (sign < 0 ? Math.PI : 0));
         const target = hip.clone().addScaledVector(right, sign * 0.15)
           .addScaledVector(along, -0.38 + stride * 0.24);
-        target.addScaledVector(normal, plane + 0.075 + Math.max(0, stride) * 0.14 - target.dot(normal));
+        target.addScaledVector(normal, plane * (nx || nz) + 0.075 + Math.max(0, stride) * 0.14 - target.dot(normal));
         const pole = hip.clone().addScaledVector(along, 0.15).addScaledVector(right, sign * 0.21).addScaledVector(normal, 0.2);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'], target, pole, w);
         setzeFuss(side, along, normal.clone().negate(), w);
@@ -7156,7 +7185,7 @@ function makeGlbVisual(m) {
                    WAND_HUEFT_FLACH * clamp(k === undefined ? 1 : k, 0, 1));
     },
     /* Ist die Figur gerade an die Wand gekippt? */
-    get wandGekippt() { return innerKipp < -0.02; },
+    get wandGekippt() { return Math.abs(innerKipp) > 0.02 || Math.abs(inner.rotation.z) > 0.02; },
     /* Rohwerte der Wandkippung - nur fuer die Fehlersuche. */
     get kippWerte() {
       return { kipp: +innerKipp.toFixed(4),
@@ -7560,6 +7589,56 @@ function makeGlbVisual(m) {
        Zielpunkt haette also je nach Koerpergroesse danebengelegen.
          hoch = die Wand hinauf, quer = an der Wand entlang,
          raus = von der Wand weg.                                        */
+    // One contact pose owns the moving climb. It replaces the prone clip,
+    // hip flattening and iterative limb pulling on this path.
+    poseWandKontakt(nx, nz, flaeche, velocity, dt, k = 1) {
+      const w = clamp(k, 0, 1);
+      if (w <= 0 || !knochen.hips) return;
+      const normal = new THREE.Vector3(nx, 0, nz), right = new THREE.Vector3(-nz, 0, nx);
+      const vel = velocity.clone().addScaledVector(normal, -velocity.dot(normal));
+      const speed = vel.length(), step = Math.min(0.05, Math.max(0, dt));
+      climbMotion.speed += (speed - climbMotion.speed) * (1 - Math.exp(-14 * step));
+      if (speed > 0.05) climbMotion.along.lerp(vel.normalize(), 1 - Math.exp(-12 * step)).normalize();
+      climbMotion.phase = (climbMotion.phase + speed * step / 1.10) % 1;
+      const moving = clamp(climbMotion.speed / 0.7, 0, 1), along = climbMotion.along;
+      // Upright torso faces the wall. Elbows and knees bend away from it.
+      drehZuRuhe(knochen.hips, 0, 0, 0, w);
+      const bodyUp = new THREE.Vector3(0, 1, 0).addScaledVector(normal, -0.13).normalize();
+      for (const [a, b] of [['hips', 'spine'], ['spine', 'spine1'], ['spine1', 'spine2'], ['spine2', 'neck']]) {
+        if (knochen[a] && knochen[b]) zieleKnochen(knochen[a], knochen[b],
+          knochen[a].getWorldPosition(new THREE.Vector3()).add(bodyUp), w);
+      }
+      for (const side of ['left', 'right']) drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
+      root.updateMatrixWorld(true);
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3()), plane = flaeche * (nx || nz);
+      const point = (x, y, depth) => hip.clone().addScaledVector(right, x)
+        .add(new THREE.Vector3(0, y, 0)).addScaledVector(normal, plane + depth - hip.dot(normal));
+      const contact = (phase, base, reach, depth) => {
+        const p = ((phase % 1) + 1) % 1, stance = 0.58;
+        const u = Math.max(0, (p - stance) / (1 - stance));
+        const travel = p < stance ? 0.5 - p / stance : -0.5 + u * u * (3 - 2 * u);
+        const lift = Math.sin(Math.PI * u) ** 2;
+        return base.addScaledVector(along, travel * 1.10 * stance * moving * reach)
+          .addScaledVector(normal, lift * depth * moving);
+      };
+      for (const side of ['left', 'right']) {
+        const upper = knochen[side + 'upleg']; if (!upper) continue;
+        const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        const phase = climbMotion.phase + (sign > 0 ? 0.5 : 0);
+        const hand = contact(phase, point(sign * 0.28, sign > 0 ? 0.74 : 0.66, 0.068), 1, 0.14);
+        const foot = contact(phase + 0.5, point(sign * 0.23, sign > 0 ? -0.52 : -0.60, 0.085), 0.86, 0.16);
+        gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
+          hand, point(sign * 0.45, 0.32, 0.34), w);
+        gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
+          foot, point(sign * 0.43, -0.16, 0.50), w);
+        const fingers = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
+        setzeHand(side, fingers, normal.clone().negate(), w);
+        setzeFuss(side, fingers, normal.clone().negate(), w);
+        krallen(side, 0.12 * w);
+      }
+      if (knochen.neck && knochen.head) zieleKnochen(knochen.neck, knochen.head,
+        knochen.neck.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 1, 0)), w);
+    },
     poseWandhalt(nx, nz, k, flaeche) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
       if (w <= 0 || !knochen.hips) return;
@@ -7721,29 +7800,29 @@ function makeGlbVisual(m) {
     poseKauern(k, eng) {
       const w = clamp(k === undefined ? 1 : k, 0, 1), narrow = clamp(eng || 0, 0, 1);
       if (w <= 0 || !knochen.hips) return;
-      drehZuRuhe(knochen.spine, 0.68, 0.03 * (1 - narrow), 0, w);
-      drehZuRuhe(knochen.spine1, 0.64, 0.08 * (1 - narrow), 0, w);
-      drehZuRuhe(knochen.spine2, 0.32, 0, 0, w);
+      drehZuRuhe(knochen.spine, 0.64, 0.06 * (1 - narrow), 0, w);
+      drehZuRuhe(knochen.spine1, 0.64, 0.12 * (1 - narrow), 0, w);
+      drehZuRuhe(knochen.spine2, 0.28, 0, 0, w);
       root.updateMatrixWorld(true);
       const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();
       const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();
       const hip = knochen.hips.getWorldPosition(new THREE.Vector3());
       const point = (x, y, z) => hip.clone().addScaledVector(right, x)
         .addScaledVector(forward, z).add(new THREE.Vector3(0, y, 0));
-      const floor = hip.y - lerp(0.36, 0.42, narrow), span = lerp(0.21, 0.13, narrow);
+      const floor = hip.y - 0.32, span = lerp(0.29, 0.13, narrow);
       for (const side of ['left', 'right']) {
         const upper = knochen[side + 'upleg'];
         if (!upper) continue;
         const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
-        const foot = point(sign * span, floor - hip.y + 0.1, lerp(sign > 0 ? 0.16 : 0.07, 0.12, narrow));
+        const foot = point(sign * span, floor - hip.y + 0.1, lerp(sign > 0 ? 0.28 : 0.04, 0.12, narrow));
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'], foot,
-          point(sign * lerp(0.25, 0.12, narrow), 0.65, 0.65), w);
+          point(sign * lerp(0.43, 0.12, narrow), sign > 0 ? 0.65 : 0.50, sign > 0 ? 0.63 : 0.90), w);
         setzeFuss(side, forward.clone().addScaledVector(right, sign * 0.25), new THREE.Vector3(0, -1, 0), w);
         const support = sign < 0 || narrow > 0.5;
-        const hand = support ? point(sign * lerp(0.1, 0.12, narrow), floor - hip.y + 0.08, 0.42)
-          : knochen[side + 'leg'].getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.08, 0));
+        const hand = support ? point(sign * lerp(0.12, 0.12, narrow), floor - hip.y + 0.08, 0.42)
+          : knochen[side + 'leg'].getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.06, 0)).addScaledVector(right, -sign * 0.09);
         gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
-          hand, point(sign * 0.42, 0.2, 0.26), w);
+          hand, point(sign * 0.44, 0.28, 0.30), w);
         setzeHand(side, forward, new THREE.Vector3(0, -1, 0), w);
         krallen(side, 0.05 * w);
       }
@@ -8024,26 +8103,54 @@ function makeGlbVisual(m) {
        Hier wird jedes Bein einzeln nachgeführt: Zweigelenk-IK aus Hüfte,
        Knie und Knöchel, Ziel ist der Boden unter genau diesem Fuß.
        hoeheFn(x, z) liefert die Bodenhöhe, k die Stärke. */
-    /* ---- Schrittbremse: gebaut, vermessen und wieder ENTFERNT ----
-       Der Laufclip traegt weniger Weg, als die Figur zuruecklegt (1,56 m/s
-       gegen 6,91 m/s). Der naheliegende Ausweg ist, den Standfuss waehrend
-       seines Bodenkontakts auf seinem Weltpunkt festzuhalten - ueber
-       dieselbe Zweigelenk-Nachfuehrung, die hier schon die Bodenhoehe
-       macht, also ohne die Knochen zu strecken.
-       Gebaut, mit weichem Auf- und Abbau des Griffs, einer Reichweiten-
-       grenze und einem Temposchwellwert, damit das saubere Gehen
-       unberuehrt bleibt. Ueber je 600 Bilder gemessen (Anteil des
-       Rutschens am Weg der Figur, und groesster Schlupf je Bild):
-         ohne Bremse   gehen 11 % / 0,010   laufen 76 % / 0,203   sprint 45 % / 0,162
-         Staerke 0,3   gehen 33 % / 0,158   laufen 55 % / 0,142   sprint 38 %
-         Staerke 0,6   gehen 22 % / 0,054   laufen 47 % / 0,323   sprint 32 % / 0,196
-         Staerke 0,85  gehen 19 % / 0,081   laufen 74 % / 0,600   sprint 32 % / 0,356
-       Der Mittelwert sinkt also, der GROESSTE Schlupf steigt aber auf das
-       Dreifache: aus gleichmaessigem Rutschen wird ein Ruck, sobald der
-       Griff loslaesst. Und das Gehen, das mit 11 Prozent sauber war, wird
-       messbar schlechter. Ein Ruck faellt mehr auf als ein Schleifen,
-       deshalb ist die Bremse wieder draussen. Das Rutschen bleibt als
-       offener Punkt im Bericht stehen. */
+    /* Standkontakte fuer den laengeren Laufclip: nach der Boden-IK den
+       Weltpunkt weich halten und vor der Reichweitengrenze freigeben.
+       Der Clip liefert weiterhin Schwungphase und Kniebeugung. Sprung,
+       Klettern, Kampf und bewegte Plattformen loesen diese Kontakte. */
+    loeseFusskontakte() {
+      for (const side of ['left', 'right']) {
+        groundContacts[side].anchor = null; groundContacts[side].weight = 0;
+        groundContacts[side].previous = null;
+      }
+    },
+    // Keep the stance foot in world space, release before the swing, and
+    // fade corrections rather than snapping back to the animation pose.
+    gangKontakt(velocity, dt, hoeheFn) {
+      if (!current || !knochen.hips) return;
+      const speed = Math.hypot(velocity.x, velocity.z);
+      if (speed < 0.15) { this.loeseFusskontakte(); return; }
+      root.updateMatrixWorld(true);
+      const forward = velocity.clone().setY(0).normalize();
+      for (const side of ['left', 'right']) {
+        const upper = knochen[side + 'upleg'], knee = knochen[side + 'leg'], foot = knochen[side + 'foot'];
+        if (!upper || !knee || !foot) continue;
+        const state = groundContacts[side], ankle = foot.getWorldPosition(new THREE.Vector3());
+        if (state.anchor && state.anchor.distanceTo(ankle) > 0.65) {
+          state.anchor = null; state.weight = 0;
+        }
+        const hip = upper.getWorldPosition(new THREE.Vector3()), pole = knee.getWorldPosition(new THREE.Vector3());
+        const ground = hoeheFn(ankle.x, ankle.z), clearance = ankle.y - ground;
+        const rel = ankle.clone().sub(root.position);
+        const backward = !state.previous || rel.clone().sub(state.previous).dot(forward) < 0;
+        state.previous = rel;
+        const reach = hip.distanceTo(pole) + pole.distanceTo(ankle);
+        const stance = backward && clearance < 0.14 && clearance > -0.08;
+        if (stance && !state.anchor) state.anchor = ankle.clone();
+        const near = state.anchor && hip.distanceTo(state.anchor) < reach * 0.94;
+        const desired = stance && near ? 1 : 0;
+        state.weight = (state.weight || 0) + (desired - (state.weight || 0)) * (1 - Math.exp(-dt * (desired ? 32 : 24)));
+        if (state.anchor && state.weight > 0.015) {
+          const target = ankle.clone().lerp(state.anchor, state.weight);
+          target.y = Math.max(ground + 0.06, ankle.y);
+          const orientation = foot.getWorldQuaternion(new THREE.Quaternion());
+          // The clip's knee sets the bend plane; only its planted endpoint moves.
+          gliedZiel(upper, knee, foot, target, pole, 1);
+          foot.quaternion.copy(foot.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(orientation));
+          foot.updateMatrixWorld(true);
+        }
+        if (!desired && state.weight < 0.04) state.anchor = null;
+      }
+    },
     fussIK(hoeheFn, k, blickX, blickZ) {
       if (k <= 0.001) return;
       root.updateMatrixWorld(true);
@@ -8217,7 +8324,9 @@ function makeGlbVisual(m) {
          Versuch, dafuer die Wandbewegung aus hero-3 zu nehmen, war ein
          Rueckschritt: das ist ein flaches Kriechen, und aus dem Rennen die
          Wand hoch wurde damit ein Wuehlen. */
-      if (p.wandModus === 'lauf') {
+      if (p.wandKontakt && p.wandModus !== 'lauf') {
+        want = 'idle';
+      } else if (p.wandModus === 'lauf') {
         if (findClip(m.clips, WANDLAUF_CLIP)) want = WANDLAUF_CLIP;
         else if (findClip(m.clips, 'run')) want = 'run';
       } else if (p.wandModus === 'kriechen') {
@@ -8299,7 +8408,7 @@ function makeGlbVisual(m) {
              einem Zeitfaktor zwischen rund 1 und 2 statt am Anschlag 3,0:
                walk         bis 2,5 m/s   walk        1,49 m/s
                run          bis 4,0 m/s   run         2,21 m/s
-               schnell      bis 8,0 m/s   sprint      3,96 m/s
+               schnell      bis 5,4 m/s   sprint      3,96 m/s
                voller Lauf  darueber      sprint_lang 5,51 m/s */
           if (gangStufe === 2 && vBoden > GANG_UM_VOLL + GANG_UM_BAND) gangStufe = 3;
           else if (gangStufe === 3 && vBoden < GANG_UM_VOLL - GANG_UM_BAND) gangStufe = 2;
@@ -8380,7 +8489,8 @@ function makeGlbVisual(m) {
         /* Obergrenze so hoch, dass auch der volle Sprint noch passt:
            bei 11 m/s braucht der Lauf-Clip (4,2 m/s) Faktor 2,6. Mit der
            früheren Deckelung auf 2,4 rutschte die Figur im Sprint. */
-        current.timeScale = clamp(vGlatt / ref, 0.45, 3.0) * (p.rueckwaerts ? -1 : 1);
+        const maxCadence = p.gang && want === 'sprint_lang' ? 1.65 : 3.0;
+        current.timeScale = clamp(vGlatt / ref, 0.45, maxCadence) * (p.rueckwaerts ? -1 : 1);
         letzterTakt = { was: want, faktor: current.timeScale, ref, v: vGlatt };
       } else if (current && key === 'duckstand' && want === 'ducken') {
         /* Angehalten statt abgespielt: sonst liefe die Figur im Stand auf
@@ -9689,7 +9799,7 @@ const helpBox = document.getElementById('help');
    noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
    nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
    war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
-const BAU_STAND = '2026-09-05 / Posen, Netze und Stadtleben';
+const BAU_STAND = '2026-09-05 / Kletterkontakte, Rettungswagen, Bus und Park';
 if (helpBox) {
   const z = document.createElement('div');
   z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
@@ -15191,15 +15301,18 @@ function updateHeroVisual(dt) {
        loest sich die Figur zurueck aus der Wand statt sich vorwaerts
        durchzudrehen. */
     heroVisual.wandKriechen(wandAb, KRIECH_TIEFE * wandAb,
-                            (player.wandRoll || 0) * wandAb, player.wandLetztLauf);
-    const n = player.wandLetztN;
-    if (n && !player.wandLetztLauf && heroVisual.wandHuefteFlach) heroVisual.wandHuefteFlach(n.x, n.z, wandAb);
+                            (player.wandRoll || 0) * wandAb, player.wandLetztLauf, true, dt);
+    // The contact pose uses an upright base; do not flatten the pelvis again.
   } else if (player.state !== 'climb' && heroVisual.versatzAus) {
     heroVisual.versatzAus(Math.min(1, dt * 8));
   }
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
+  if ((!player.onGround || player.attack || player.platform || player.perchMix > 0.015 || player.rollT > 0) && heroVisual.loeseFusskontakte) {
+    heroVisual.loeseFusskontakte();
+  }
   heroVisual.play(player.anim, {
     wandKriechen: player.wandKriechen,
+    wandKontakt: player.wandKriechen,
     /* Geht die Figur rueckwaerts (Katapult spannen)? Dann laeuft die
        Gangart rueckwaerts ab - sonst rudern die Beine vorwaerts, waehrend
        der Koerper nach hinten faehrt. */
@@ -15326,16 +15439,9 @@ function updateHeroVisual(dt) {
            im Stand um jede kleine Restbewegung. */
         const wunsch = tempo > 0.9 ? Math.atan2(-vq, vh) : 0;
         player.wandRoll = wunsch;
-        heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch, player.wandlauf);
-        /* Becken flach an die Fassade - siehe achseInEbene. */
-        if (!player.wandlauf && heroVisual.wandHuefteFlach) heroVisual.wandHuefteFlach(w.nx, w.nz, 1);
-        /* Im Stillstand die Klebehaltung darueberlegen. Sie blendet ein
-           und aus, damit der Uebergang zur Kriechbewegung weich ist. */
-        player.wandRuhe = clamp((player.wandRuhe || 0) +
-          dt * (player.wandStill ? 5 : -8), 0, 1);
-        if (player.wandRuhe > 0.02 && heroVisual.poseWandhalt) {
-          heroVisual.poseWandhalt(w.nx, w.nz, player.wandRuhe, w.nx ? (w.nx > 0 ? w.col.x1 : w.col.x0) : (w.nz > 0 ? w.col.z1 : w.col.z0));
-        }
+        heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch, player.wandlauf, true, dt);
+        // Contacts are applied once, after the final body/corner placement.
+        player.wandRuhe = clamp((player.wandRuhe || 0) + dt * (player.wandStill ? 5 : -8), 0, 1);
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
         MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
@@ -15385,6 +15491,10 @@ function updateHeroVisual(dt) {
         heroVisual.fussIK(bodenHoeheFuerFuss, 0.85,
                           Math.sin(player.facing), Math.cos(player.facing),
                           Math.sin(player.facing), Math.cos(player.facing));
+        if (heroVisual.gangKontakt && !player.platform &&
+            ['walk', 'run', 'sprint'].includes(player.gang) && hSpeed > 0.15) {
+          heroVisual.gangKontakt(player.vel, dt, bodenHoeheFuerFuss);
+        }
       }
       if (heroVisual.kopfStabil) heroVisual.kopfStabil(r.rotation.x, 0.55);
       /* Geduckt zum Schluss: die Pose muss über der Laufbewegung liegen.
@@ -15736,7 +15846,7 @@ function wandFreiraum(dt) {
   else {
     const raus = Math.max(0, WAND_LUFT - min);        // aus der Wand heraus
     const rein = Math.min(0, WAND_TIEF_MAX - min);    // so weit hoechstens hinein
-    ziel = clamp((player.wandlauf ? 0.52 : HUEFT_ZIEL) - huefte, rein, raus);
+    ziel = clamp((player.wandlauf ? 0.52 : player.wandKriechen ? 0.26 : HUEFT_ZIEL) - huefte, rein, raus);
     /* Geprueft und VERWORFEN: den Koerper zusaetzlich herauszuschieben,
        sobald ein Glied tiefer als WAND_TIEF_MAX steckt. Waehrend des
        Kletterschritts taucht das Schwungbein regelmaessig kurz ein - die
@@ -15842,10 +15952,8 @@ function wandFreiraum(dt) {
   if (player.wandlauf && !eckHalb && heroVisual.poseWandSprint) {
     heroVisual.poseWandSprint(gf.nx, gf.nz, gf.fl, player.phase, player.wandRoll, 0.9);
     r.updateMatrixWorld(true);
-  } else if (player.wandStill && player.wandRuhe > 0.95 && !eckHalb && heroVisual.poseWandhalt) {
-    // Reach after final body placement, so the four contacts share the
-    // same facade as the visible torso and retain flat palms and soles.
-    heroVisual.poseWandhalt(gf.nx, gf.nz, 1, gf.fl);
+  } else if (player.wandKriechen && !player.wandlauf && !eckHalb && heroVisual.poseWandKontakt) {
+    heroVisual.poseWandKontakt(gf.nx, gf.nz, gf.fl, player.vel, dtWand, 1);
     r.updateMatrixWorld(true);
   } else if (heroVisual.wandGriff) {
     /* Waehrend der Ecke schwaecher, aber nicht aus. */
@@ -16453,10 +16561,11 @@ function updateBusGaeste(dt) {
     g.visual.root.visible = true;
     g.visual.root.position.copy(_bgP);
     g.visual.root.rotation.y = ry + pl.ry;
+    g.visual.root.scale.setScalar(pl.scale || 1);
     const echtesSitzen = g.visual.hatClip && g.visual.hatClip('sitzen');
     g.visual.play(echtesSitzen ? 'sitzen' : 'idle', { t: elapsed }, dt);
     {
-      if (g.visual.poseSitzen && (pl.fahrer || !echtesSitzen)) g.visual.poseSitzen(1, undefined, !!pl.fahrer);
+      if (g.visual.poseSitzen) g.visual.poseSitzen(1, undefined, !!pl.fahrer);
       const m = g.visual.sitzMasse ? g.visual.sitzMasse() : null;
       if (m) g.visual.root.position.y += (bester.mesh.position.y + pl.y) - m.huefte;
     }
@@ -17185,6 +17294,16 @@ function collidePlayerHelis(prevY) {
 /* Baut ein Fahrzeug nach Typ. Alles aus Kisten, damit es zum Stil passt. */
 function makeFahrzeugMesh(typ, farbe) {
   if (typ.art === 'pkw') return makeCarMesh(farbe);
+  if (typ.art === 'bus' && CITY_LOOK && CITY_LOOK.createBus) {
+    const bus = CITY_LOOK.createBus(typ, farbe), people = [];
+    for (const [i, seat] of bus.userData.sitzplaetze.entries()) {
+      if (i > 0 && i % 3 === 0) continue;
+      for (const part of sitzMensch(seat.x, seat.y, seat.z, seat.ry, seat.scale, i)) people.push(part);
+    }
+    const crew = new THREE.Mesh(verschmelzeTeile(people), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    crew.name = 'DistantBusPassengers'; bus.add(crew); bus.userData.insassen = crew;
+    scene.add(bus); return bus;
+  }
   const g = new THREE.Group();
   const L = typ.laenge, B = typ.breite;
   const lack = new THREE.MeshLambertMaterial({ color: farbe });
@@ -25000,9 +25119,16 @@ function respBaueWagen(ein, start) {
   return car;
 }
 
-/* Der Rettungswagen: heller Kasten mit roten Streifen und Balken. Aus der
-   vorhandenen Fahrzeuggeometrie, kein neues Modell. */
+/* Rettungswagen mit eigener Kabine und Patientenaufbau; die Einsatzlogik
+   verwendet weiterhin denselben Fahrzeugtyp und dieselben Lichtreferenzen. */
 function respBaueRtwMesh() {
+  if (CITY_LOOK && CITY_LOOK.createAmbulance) {
+    const vehicle = CITY_LOOK.createAmbulance(), seat = vehicle.userData.fahrerSitz;
+    const crew = new THREE.Mesh(verschmelzeTeile(sitzMensch(seat.x, seat.y, seat.z, 0, seat.scale)),
+      new THREE.MeshLambertMaterial({ vertexColors: true }));
+    crew.name = 'DistantAmbulanceDriver'; vehicle.add(crew); vehicle.userData.insassen = crew;
+    return vehicle;
+  }
   const g = new THREE.Group();
   const hell = new THREE.MeshLambertMaterial({ color: 0xf2f2f5 });
   const rot = new THREE.MeshLambertMaterial({ color: 0xc22a28 });
