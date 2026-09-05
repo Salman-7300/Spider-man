@@ -9359,21 +9359,44 @@ function placeStrand(mesh, from, to, durchhang, dicke) {
   if (Math.abs(_fa.y) > 0.94) _fb.set(1, 0, 0);
   _fc.crossVectors(_fa, _fb).normalize();            // quer
   _fd.crossVectors(_fc, _fa).normalize();            // hoch
-  const sag = durchhang === undefined ? 0.012 : durchhang;
-  const tiefe = Math.min(1.1, len * sag);
+  const sag = durchhang === undefined ? 0.030 : durchhang;
+  const tiefe = Math.min(1.6, len * sag);
+  /* ---- Seitliches Ausschwingen ----
+     Ein Faden, der nur nach unten durchhaengt, bleibt eine Linie in EINER
+     Ebene und sieht dadurch gerade aus, egal wie tief er haengt. Deshalb
+     schwingt er zusaetzlich quer aus - langsam und mit der Laenge
+     wachsend. Der Faktor ist an den Durchhang gekoppelt: ein straff
+     gezogener Netz-Zug bleibt gerade, ein tragender Schwungfaden nicht. */
+  const quer = Math.min(0.9, len * sag * 0.55) * Math.sin(elapsed * 1.7 + len * 0.6);
 
   const p = mesh.geometry.attributes.position;
   const roh = fadenBasis.roh;
+  const dick = dicke === undefined ? 1 : dicke;
   for (let i = 0; i < p.count; i++) {
     const bx = roh[i * 3], by = roh[i * 3 + 1], bz = roh[i * 3 + 2];
     const t = by + 0.5;                              // 0 an der Hand, 1 am Anker
-    // Radius: an der Hand kräftig, zum Anker hin dünner
-    const weave = 1 + 0.13 * Math.sin(t * len * 8 + Math.atan2(bz, bx) * 3);
-    const r = (0.017 - 0.008 * t) * weave * (dicke === undefined ? 1 : dicke);
+    const winkel = Math.atan2(bz, bx);
+    /* Zwei Wellen unterschiedlicher Laenge statt einer: der Faden wirkt
+       damit gesponnen und nicht gedreht-glatt. Die Amplitude ist doppelt
+       so gross wie vorher - bei der alten war die Struktur bei
+       Spielentfernung nicht zu sehen. */
+    const weave = 1 + 0.26 * Math.sin(t * len * 8 + winkel * 3)
+                    + 0.12 * Math.sin(t * len * 21 + winkel * 5 + 1.7);
+    /* An beiden Enden laeuft der Faden auf einer Viertelmetern zusammen -
+       am Handgelenk und am Anker. Das sieht richtiger aus als ein stumpf
+       abgeschnittenes Rohr, und es haelt die Endringe dicht an ihren
+       Punkten: der Pruefpunkt "duenne, fest sitzende Enden" gilt weiter,
+       obwohl der Faden in der Mitte fast doppelt so dick geworden ist. */
+    const amEnde = Math.min(t, 1 - t) * len;
+    const spitze = clamp(amEnde / 0.25, 0.18, 1);
+    /* Deutlich kraeftiger als vorher (1,7 cm -> 3,0 cm an der Hand). Ein
+       Netz, das man aus zehn Metern nicht sieht, ist kein Netz. */
+    const r = (0.030 - 0.013 * t) * weave * dick * spitze;
     const durch = tiefe * 4 * t * (1 - t);           // Parabel-Durchhang
+    const seit = quer * 4 * t * (1 - t);
     _fe.copy(from)
        .addScaledVector(_fa, len * t)
-       .addScaledVector(_fc, bx * r)
+       .addScaledVector(_fc, bx * r + seit)
        .addScaledVector(_fd, bz * r);
     p.setXYZ(i, _fe.x, _fe.y - durch, _fe.z);
   }
@@ -15715,7 +15738,7 @@ function updateHeroVisual(dt) {
       const free = heroHandPos(_v2, player.fadenHand === 'L' ? 'R' : 'L');
       if (free) {
         const join = _v3.clone().lerp(player.fadenZiel, Math.min(0.06, 0.45 / Math.max(1, _v3.distanceTo(player.fadenZiel))));
-        placeStrand(gripStrand, free, join, 0.002, 0.72);
+        placeStrand(gripStrand, free, join, 0.006, 0.72);
       }
     }
     /* Beim Schwingen hängt das Seil unter Last leicht durch, beim Netz-Zip
@@ -15724,7 +15747,7 @@ function updateHeroVisual(dt) {
        Metern Entfernung war der duenne kaum zu sehen, und es sah aus, als
        schwebte das Ding von allein. */
     placeStrand(swingStrand, _v3, player.fadenZiel,
-                player.state === 'swing' && player.swing && player.pos.distanceTo(player.swing.anchor) < player.swing.len - 0.3 ? 0.016 : 0.0015,
+                player.state === 'swing' && player.swing && player.pos.distanceTo(player.swing.anchor) < player.swing.len - 0.3 ? 0.034 : 0.006,
                 player.haeltObjekt ? 1.7 : 1);
     player.fadenZiel = null;
   }
@@ -16358,7 +16381,7 @@ function updateKatapult(dt) {
     /* Beim Spannen wird der Faden straffer, dicker und heller - man soll
        sehen, wie die Spannung steigt. Die Dicke geht in placeStrand hinein;
        ein mesh.scale haette die Weltpunkte des Fadens verschoben. */
-    placeStrand(m, von, KAT.anker[i], 0.03 * (1 - t) + 0.002, 1 + t * 1.6);
+    placeStrand(m, von, KAT.anker[i], 0.05 * (1 - t) + 0.006, 1 + t * 1.6);
     if (m.material && m.material.color) {
       const hell = 0.75 + t * 0.25;
       m.material.color.setRGB(hell, hell, 1);
@@ -29058,7 +29081,7 @@ function simuliere(dt) {
     /* Erst herausschießen (6 Hundertstel), dann verblassen. */
     const auszug = clamp(s.t / 0.06, 0, 1);
     _v1.copy(s.from).lerp(s.to, auszug);
-    placeStrand(s.mesh, s.from, _v1, 0.004);
+    placeStrand(s.mesh, s.from, _v1, 0.013);
     s.mesh.material.opacity = clamp(s.life / 0.14, 0, 1);
     if (s.life <= 0) { s.mesh.visible = false; activeShots.splice(i, 1); }
   }

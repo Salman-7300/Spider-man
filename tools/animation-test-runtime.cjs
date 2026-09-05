@@ -93,6 +93,10 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     sun: { position: new THREE.Vector3(), target: new THREE.Object3D() },
     SONNE_RICHTUNG: new THREE.Vector3(1, 1, 0).normalize(), kamTelemetrie: () => {},
     rand: () => 0, dampAngle: (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t,
+    /* Die globale Spieluhr. Fest auf 0, damit zeitabhaengige Bewegungen
+       (etwa das seitliche Ausschwingen des Netzfadens) im Test einen
+       festen, wiederholbaren Wert bekommen. */
+    elapsed: 0, clamp: (n, a, b) => Math.max(a, Math.min(b, n)),
     _v1: new THREE.Vector3(), _v2: new THREE.Vector3(), _v3: new THREE.Vector3(),
   };
   const context = vm.createContext(env);
