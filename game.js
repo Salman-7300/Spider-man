@@ -9347,30 +9347,6 @@ function flashWebShot(from, to) {
   mesh.material.opacity = 1;
 }
 
-/* ---- Echte Fadentextur ----
-   Der gezeichnete 64er Canvas oben bleibt der Rueckfall: fehlt die Datei,
-   sieht das Netz aus wie bisher. Liegt sie vor, bekommt JEDER Faden eine
-   eigene Texturinstanz - placeStrand setzt die Wiederholung je Bild aus
-   der aktuellen Fadenlaenge, eine geteilte Textur wuerde alle Faeden auf
-   die Laenge des zuletzt gezeichneten ziehen.
-
-   Der Aufruf steht bewusst HIER und nicht direkt bei makeWebStrand: die
-   Pruefskripte schneiden den Abschnitt von "const FADEN_RING =" bis zum
-   Netzklatscher heraus und fahren ihn allein hoch. Alles in diesem
-   Bereich muss ohne den Rest der Datei laufen. */
-ladeTexturDatei('assets/texturen/netzfaden.png', (tex) => {
-  for (const f of [swingStrand, gripStrand, ...shotStrands]) {
-    const neu = tex.clone();
-    neu.needsUpdate = true;
-    neu.wrapS = neu.wrapT = THREE.RepeatWrapping;
-    const vorher = f.material.map;
-    f.material.map = neu;
-    f.material.needsUpdate = true;
-    if (vorher) vorher.dispose();
-  }
-  tex.dispose();
-});
-
 /* ======================= Treffer-Effekte ======================= */
 /* Kleine Sammlung wiederverwendbarer Effekte: ein aufblitzender Ring und
    ein paar Funken. Das gibt Schlägen spürbares Gewicht. */
