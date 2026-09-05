@@ -5,6 +5,7 @@
 (function () {
 'use strict';
 if (typeof THREE === 'undefined') return;
+const CITY_LOOK = window.WEB_HERO_VISUALS && window.WEB_HERO_VISUALS.enabled ? window.WEB_HERO_VISUALS : null;
 
 /* ======================= Konfiguration ======================= */
 const CFG = {
@@ -3204,6 +3205,15 @@ const ZUG_Z = [UB_GLEIS_A, UB_GLEIS_B];
    Tuerfluegel bleiben beweglich (zwei Meshes je Zug, eins je
    Schieberichtung). */
 function baueZug(farbe) {
+  const modern = !!CITY_LOOK;
+  const glasFest = [], glasL = [], glasR = [];
+  const wandAbschnitte = [];
+  let abschnittStart = -ZUG_WLANG / 2;
+  for (const tx of ZUG_TUER_X) {
+    wandAbschnitte.push([abschnittStart, tx - ZUG_TUER_B]);
+    abschnittStart = tx + ZUG_TUER_B;
+  }
+  wandAbschnitte.push([abschnittStart, ZUG_WLANG / 2]);
   const fest = [];
   const frei = [];      // leere Sitzplaetze fuer echte Zivilisten
   const tuerL = [], tuerR = [];
@@ -3224,15 +3234,39 @@ function baueZug(farbe) {
     kiste(fest, ZUG_WLANG - 1.2, 0.16, 1.7, wx, ZUG_BODEN + ZUG_HOCH - 0.3, 0, 0xd8dde4);
     for (const s2 of [-1, 1]) {
       const zs = s2 * (ZUG_BREIT / 2 - 0.05);
+      if (modern) {
+        kiste(fest, ZUG_WLANG, 0.85, 0.1, wx, ZUG_BODEN + ZUG_HOCH - 0.62, zs, 0xc3cdd3);
+        for (const [a, b] of wandAbschnitte) {
+          const mitte = wx + (a + b) / 2, breite = b - a;
+          kiste(fest, breite, 0.95, 0.1, mitte, ZUG_BODEN + 0.48, zs, 0xbcc8cf);
+          kiste(fest, breite, 0.15, 0.11, mitte, ZUG_BODEN + 0.79, zs, farbe);
+          kiste(glasFest, breite - 0.12, 1.43, 0.032, mitte, ZUG_BODEN + 1.68, zs, 0xffffff);
+          for (const x of [a + 0.03, b - 0.03])
+            kiste(fest, 0.06, 1.47, 0.095, wx + x, ZUG_BODEN + 1.68, zs, 0x465760);
+        }
+      } else {
       kiste(fest, ZUG_WLANG, 0.95, 0.1, wx, ZUG_BODEN + 0.48, zs, farbe);          // Bruestung
       kiste(fest, ZUG_WLANG, 0.85, 0.1, wx, ZUG_BODEN + ZUG_HOCH - 0.62, zs, farbe); // ueber dem Fenster
       kiste(fest, ZUG_WLANG - 2.4, 1.2, 0.06, wx, ZUG_BODEN + 1.55, zs, 0xcfe4f4);  // Fensterband
+      }
       /* Tuerrahmen und -fluegel */
       for (const tx of ZUG_TUER_X) {
         kiste(fest, 0.14, 2.35, 0.14, wx + tx - ZUG_TUER_B, ZUG_BODEN + 1.18, zs, 0x8fa6bc);
         kiste(fest, 0.14, 2.35, 0.14, wx + tx + ZUG_TUER_B, ZUG_BODEN + 1.18, zs, 0x8fa6bc);
+        if (modern) {
+          for (const [teile, scheiben, vorzeichen] of [[tuerL, glasL, -1], [tuerR, glasR, 1]]) {
+            const dx = wx + tx + vorzeichen * ZUG_TUER_B / 2;
+            kiste(teile, ZUG_TUER_B, 0.96, 0.09, dx, ZUG_BODEN + 0.48, zs, 0x879da9);
+            kiste(teile, ZUG_TUER_B, 0.15, 0.1, dx, ZUG_BODEN + 0.79, zs, farbe);
+            kiste(teile, ZUG_TUER_B, 0.25, 0.09, dx, ZUG_BODEN + 2.19, zs, 0x879da9);
+            kiste(scheiben, ZUG_TUER_B - 0.16, 1.08, 0.032, dx, ZUG_BODEN + 1.52, zs, 0xffffff);
+            for (const sx of [-1, 1]) kiste(teile, 0.08, 1.15, 0.09,
+              dx + sx * (ZUG_TUER_B / 2 - 0.04), ZUG_BODEN + 1.53, zs, 0x657d8b);
+          }
+        } else {
         kiste(tuerL, ZUG_TUER_B, 2.3, 0.09, wx + tx - ZUG_TUER_B / 2, ZUG_BODEN + 1.18, zs, 0x2b3a48);
         kiste(tuerR, ZUG_TUER_B, 2.3, 0.09, wx + tx + ZUG_TUER_B / 2, ZUG_BODEN + 1.18, zs, 0x2b3a48);
+        }
       }
       /* Stirnwaende NUR ganz vorn und ganz hinten. Dazwischen bleibt der
          Zug offen und wird von einem Faltenbalg verbunden - vorher klaffte
@@ -3240,10 +3274,10 @@ function baueZug(farbe) {
       if (w === 0 || w === ZUG_WAGEN - 1) {
         const sx = w === 0 ? -1 : 1;
         kiste(fest, 0.16, ZUG_HOCH, ZUG_BREIT, wx + sx * (ZUG_WLANG / 2 - 0.08),
-              ZUG_BODEN + ZUG_HOCH / 2, 0, farbe);
+              ZUG_BODEN + ZUG_HOCH / 2, 0, modern ? 0xc3cdd3 : farbe);
         kiste(fest, 0.1, 1.0, ZUG_BREIT - 0.7, wx + sx * (ZUG_WLANG / 2 + 0.02),
               ZUG_BODEN + 2.2, 0, 0x0f1620);                                   // Frontscheibe
-        kiste(fest, 0.1, 0.34, 1.5, wx + sx * (ZUG_WLANG / 2 + 0.02),
+        if (!modern) kiste(fest, 0.1, 0.34, 1.5, wx + sx * (ZUG_WLANG / 2 + 0.02),
               ZUG_BODEN + 0.7, 0, 0xfff3c4);                                   // Scheinwerfer
       }
     }
@@ -3259,7 +3293,15 @@ function baueZug(farbe) {
        Leute, die vorher am Bahnsteig gewartet haben. */
     for (const s2 of [-1, 1]) {
       const zs = s2 * (ZUG_BREIT / 2 - 0.34);
-      kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x37414d);
+      if (modern) {
+        for (const [a, b] of wandAbschnitte) {
+          const x0 = Math.max(a, -ZUG_WLANG / 2 + 1.35), x1 = Math.min(b, ZUG_WLANG / 2 - 1.35);
+          if (x1 <= x0) continue;
+          const mitte = wx + (x0 + x1) / 2;
+          kiste(fest, x1 - x0, 0.12, 0.5, mitte, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x496f7d);
+          kiste(fest, x1 - x0, 0.42, 0.07, mitte, ZUG_BODEN + ZUG_BANK + 0.22, zs + s2 * 0.21, 0x3e6171);
+        }
+      } else kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x37414d);
       /* Hier wurden 45 % der Plaetze mit einfachen Sitzfiguren aufgefuellt.
          Im Wagen sass dadurch eine Mischung aus echten Zivilisten und
          Kloetzchenmenschen nebeneinander - und genau das faellt auf.
@@ -3311,9 +3353,21 @@ function baueZug(farbe) {
   const g = new THREE.Group();
   g.userData.freieSitze = frei;
   const kasten = new THREE.Mesh(verschmelzeTeile(fest), mat);
-  const links = new THREE.Mesh(verschmelzeTeile(tuerL), mat);
-  const rechts = new THREE.Mesh(verschmelzeTeile(tuerR), mat);
+  const links = new THREE.Group(), rechts = new THREE.Group();
+  links.add(new THREE.Mesh(verschmelzeTeile(tuerL), mat));
+  rechts.add(new THREE.Mesh(verschmelzeTeile(tuerR), mat));
   g.add(kasten); g.add(links); g.add(rechts);
+  if (modern) {
+    const glas = new THREE.MeshPhongMaterial({ color: 0x7895a5, transparent: true,
+      opacity: 0.24, depthWrite: false, shininess: 45 });
+    g.add(new THREE.Mesh(verschmelzeTeile(glasFest), glas));
+    links.add(new THREE.Mesh(verschmelzeTeile(glasL), glas));
+    rechts.add(new THREE.Mesh(verschmelzeTeile(glasR), glas));
+    const details = CITY_LOOK.trainDetails(ZUG_WAGEN, ZUG_WLANG, ZUG_LUECKE,
+      ZUG_BREIT, ZUG_HOCH, ZUG_BODEN, farbe);
+    g.add(details);
+    g.userData.trainMotion = details.userData.trainMotion;
+  }
   g.userData.tuerL = links;
   g.userData.tuerR = rechts;
   g.visible = false;
@@ -3384,6 +3438,7 @@ function updateZug(dt) {
       if (t.x < t.linie.x0 + ZUG_LANG / 2) { t.x = t.linie.x0 + ZUG_LANG / 2; t.richtung = 1; t.warten = 4; }
     }
     t.mesh.position.set(t.x, UB_GLEIS_TIEF, t.z);
+    if (CITY_LOOK) CITY_LOOK.updateTrain(t.mesh, t.haelt ? 0 : t.richtung * t.tempo, dt);
     /* Tueren: im Halt gehen sie auf, vor der Abfahrt wieder zu. Die
        Fluegel schieben sich dabei auseinander. */
     const tuerZiel = t.haelt && t.warten > 0.9 ? 1 : 0;
@@ -4616,6 +4671,13 @@ function setzeHausModelle(szene) {
 
   let gesetzt = 0;
   for (const e of HAUS_KISTEN) {
+    if (CITY_LOOK && e.h >= 38) {
+      const variante = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % CITY_LOOK.towerStyles.length;
+      const hochhaus = CITY_LOOK.createTower(e.w, e.h, e.d, variante);
+      hochhaus.position.set(e.x, SLAB_H, e.z);
+      cityGroup.add(hochhaus); HAUS_MODELLE.push(hochhaus); gesetzt++;
+      continue;
+    }
     const kl = e.h > 62 ? 3 : e.h > 38 ? 2 : e.h > 19 ? 1 : 0;
     const liste = nachKlasse[kl];
     /* Ortsabhaengige Wahl: gleiches Haus, gleiches Modell - auch nach
@@ -6463,12 +6525,48 @@ function makeGlbVisual(m) {
     bone.quaternion.slerp(_ikQ2, k === undefined ? 1 : k);
   }
 
+  const _poseEuler = new THREE.Euler(), _poseQuat = new THREE.Quaternion();
   function drehe(bone, x, y, z, k) {
-    if (!bone) return;
-    bone.rotation.x = lerp(bone.rotation.x, x, k);
-    bone.rotation.y = lerp(bone.rotation.y, y || 0, k);
-    bone.rotation.z = lerp(bone.rotation.z, z || 0, k);
+    if (!bone || k <= 0) return;
+    // Euler interpolation crossed the long way around at -PI/+PI.
+    _poseEuler.set(x, y || 0, z || 0, bone.rotation.order);
+    _poseQuat.setFromEuler(_poseEuler);
+    bone.quaternion.slerp(_poseQuat, clamp(k, 0, 1));
   }
+
+  const _naS = new THREE.Vector3(), _naE = new THREE.Vector3(), _naH = new THREE.Vector3();
+  const _naD = new THREE.Vector3(), _naPole = new THREE.Vector3(), _naGoal = new THREE.Vector3();
+  const _naElbow = new THREE.Vector3(), _naQ = new THREE.Quaternion();
+  function netzArm(side, anchor, weight) {
+    const upper = knochen[side + 'arm'], lower = knochen[side + 'forearm'], hand = knochen[side + 'hand'];
+    if (!upper || !lower || !hand || weight < 0.001) return;
+    root.updateMatrixWorld(true);
+    upper.getWorldPosition(_naS); lower.getWorldPosition(_naE); hand.getWorldPosition(_naH);
+    const a = _naS.distanceTo(_naE), b = _naE.distanceTo(_naH);
+    if (Math.min(a, b) < 0.01) return;
+    _naD.subVectors(anchor, _naS);
+    const distance = _naD.length();
+    if (distance < 0.001) return;
+    _naD.multiplyScalar(1 / distance);
+    const reach = clamp(distance, Math.abs(a - b) + 0.001, (a + b) * 0.94);
+    _naGoal.copy(_naS).addScaledVector(_naD, reach);
+    root.getWorldQuaternion(_naQ);
+    _naPole.set(side === 'left' ? -0.3 : 0.3, -0.15, 1).applyQuaternion(_naQ);
+    _naPole.addScaledVector(_naD, -_naPole.dot(_naD));
+    if (_naPole.lengthSq() < 0.001) {
+      _naPole.set(0, 1, 0).applyQuaternion(_naQ);
+      _naPole.addScaledVector(_naD, -_naPole.dot(_naD));
+    }
+    _naPole.normalize();
+    const along = (a * a - b * b + reach * reach) / (2 * reach);
+    const bend = Math.sqrt(Math.max(0, a * a - along * along));
+    _naElbow.copy(_naS).addScaledVector(_naD, along).addScaledVector(_naPole, bend);
+    zieleKnochen(upper, lower, _naElbow, weight);
+    zieleKnochen(lower, hand, _naGoal, weight);
+  }
+  let schwungLinks = null, schwungZeit = null, schwungZweitgriff = 0;
+  const netzArmVorher = new Map();
+  const NETZ_ARM_KNOCHEN = ['leftshoulder', 'rightshoulder', 'leftarm', 'rightarm', 'leftforearm', 'rightforearm'];
 
   let current = null;
   let lodAcc = 0, lodFrame = 0;
@@ -6493,34 +6591,23 @@ function makeGlbVisual(m) {
     poseSchwung(zielWelt, seite, t, bogen, neigung, beide, staerke) {
       const _sk = staerke === undefined ? 1 : clamp(staerke, 0, 1);
       if (_sk <= 0.001) return;
-      const gross = seite === 'L' ? 'leftarm' : 'rightarm';
-      const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
-      const hand = seite === 'L' ? 'lefthand' : 'righthand';
-      const andere = seite === 'L' ? 'rightarm' : 'leftarm';
-      const andereK = seite === 'L' ? 'rightforearm' : 'leftforearm';
-      const andereH = seite === 'L' ? 'righthand' : 'lefthand';
-      /* Nur der Netzarm wird geführt. Die Beine überlässt der Schwung der
-         laufenden Animation – eigene Beinposen haben gegen sie gearbeitet
-         und zu zuckenden Beinen geführt. */
-      /* Der Oberarm zeigt zum Anker, der Unterarm bleibt leicht gebeugt.
-         Beide Glieder auf den Anker zu richten streckt den Arm vollständig
-         durch – bei waagerechtem Körper landet er dann HINTER dem Kopf,
-         und die Figur sah verrenkt aus. */
-      zieleKnochen(knochen[gross], knochen[klein], zielWelt, _sk);
-      drehe(knochen[klein], -0.14, 0, 0, _sk);
-      const wiegen = Math.sin((t || 0) * 1.6) * 0.1;
-      drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5 * _sk);
-      drehe(knochen[andereK], -0.5, 0, 0, 0.5 * _sk);
-      /* Die geladene Hänge-Bewegung steht fast still – am Netz sah das aus
-         wie eine eingefrorene Puppe. Ein ruhiger Beintakt im Rhythmus des
-         Pendels bringt Leben hinein, ohne der Bewegung ins Handwerk zu
-         pfuschen (halbes Gewicht, kleine Ausschläge). */
+      const linksZiel = seite === 'L' ? 1 : 0;
+      const zeit = Number.isFinite(t) ? t : 0;
+      const poseDt = schwungZeit === null ? 0 : clamp(zeit - schwungZeit, 0, 0.1);
+      if (schwungLinks === null || schwungZeit === null || zeit - schwungZeit > 0.4 || zeit < schwungZeit) {
+        schwungLinks = linksZiel; schwungZweitgriff = 0; netzArmVorher.clear();
+      } else {
+        schwungLinks += (linksZiel - schwungLinks) * (1 - Math.exp(-poseDt * 12));
+        schwungZweitgriff += ((beide ? 1 : 0) - schwungZweitgriff) * (1 - Math.exp(-poseDt * 8));
+      }
+      schwungZeit = zeit;
       const takt = Math.sin((t || 0) * 2.3);
       /* Gibt es die echte Schwunghaltung, fuehrt sie die Beine. Die
          selbstgesetzten Winkel legen sich dann nur noch leicht darueber
          (0,35 statt 0,9) und bringen den Pendeltakt hinein - vorher haben
          sie die Bewegungsdatei vollstaendig ueberschrieben. */
-      const k = (findClip(m.clips, 'schwung') ? 0.15
+      const k = (findClip(m.clips, 'schwung2') ? 0.33
+              : findClip(m.clips, 'schwung') ? 0.15
               : findClip(m.clips, 'schwungpose') ? 0.35 : 0.9) * _sk;
       /* lage: -1 = es geht abwärts in den Bogen hinein, +1 = es geht wieder
          hinauf. Am tiefsten Punkt zieht man die Beine an, oben streckt man
@@ -6582,33 +6669,18 @@ function makeGlbVisual(m) {
       /* Rumpf: am Tiefpunkt eingerollt, im Aufstieg aufgerichtet, dazu
          eine leichte Drehung zum Netzarm hin. */
       drehe(knochen.spine1, -0.06 + anziehen * 0.16 - strecken * 0.12,
-            (seite === 'L' ? 0.12 : -0.12) + takt * 0.05, 0, 0.5 * _sk);
-      drehe(knochen.spine, -0.04 + anziehen * 0.08, seite === 'L' ? 0.08 : -0.08, 0, 0.4 * _sk);
-      /* Beide Hände am Netz oder nur eine?
-         Im Vorbild hängt Spider-Man meist an EINER Hand; mit beiden greift
-         er zu, wenn er sich kräftig hochzieht. Genau so ist es hier: beim
-         Pumpen (W) fasst die zweite Hand an denselben Faden, sonst zieht
-         der freie Arm gestreckt nach hinten – vorher stand er wie
-         vergessen in der Luft. */
-      if (beide) {
-        /* Die zweite Hand greift NEBEN die erste an denselben Faden. Sie
-           zielt deshalb nicht auf den Anker – das streckte den Arm hinter
-           den Kopf –, sondern auf einen Punkt kurz über der Netzhand. */
-        knochen[hand].getWorldPosition(_vw1);
-        _vw2.copy(zielWelt).sub(_vw1).normalize();
-        _vw3.copy(_vw1).addScaledVector(_vw2, 0.42);
-        zieleKnochen(knochen[andere], knochen[andereK], _vw3, 0.95 * _sk);
-        drehe(knochen[andereK], -0.2, 0, 0, 0.95 * _sk);
-        faust(seite === 'L' ? 'right' : 'left', _sk);
-      } else {
-        /* Nach hinten ausgestreckt in Flugrichtung – wie ein Ruder. */
-        drehe(knochen[andere], -0.15 + wiegen * 1.4 - strecken * 0.25, 0,
-              seite === 'L' ? -0.55 : 0.55, 0.75 * _sk);
-        drehe(knochen[andereK], -0.12 - anziehen * 0.25, 0, 0, 0.75 * _sk);
-        faust(seite === 'L' ? 'right' : 'left', 0.55 * _sk);
+            (schwungLinks * 2 - 1) * 0.12 + takt * 0.035, 0, 0.5 * _sk);
+      drehe(knochen.spine, -0.04 + anziehen * 0.08, (schwungLinks * 2 - 1) * 0.08, 0, 0.4 * _sk);
+      // Both arms receive continuous weights during a hand-off. A side change
+      // must not turn a fully relaxed arm into the gripping arm in one frame.
+      for (const side of ['left', 'right']) {
+        const grip = side === 'left' ? schwungLinks : 1 - schwungLinks;
+        const free = (1 - grip) * (1 - schwungZweitgriff * 0.88) * _sk;
+        drehZuRuhe(knochen[side + 'arm'], -0.17 - strecken * 0.18, 0,
+          side === 'left' ? -0.42 : 0.42, free * 0.55);
+        drehZuRuhe(knochen[side + 'forearm'], -0.22, 0, 0, free * 0.4);
+        faust(side, (0.38 + 0.62 * (grip + (1 - grip) * schwungZweitgriff)) * _sk);
       }
-      /* Die Netzhand ist eine feste Faust um den Faden. */
-      faust(seite === 'L' ? 'left' : 'right', _sk);
       /* Der Kopf hält gegen die Vorlage, damit der Blick nach vorn geht
          und nicht auf den Asphalt. */
       /* Bei 66° Vorlage muss der Blick um denselben Betrag zurückgenommen
@@ -6619,6 +6691,38 @@ function makeGlbVisual(m) {
       drehZuRuhe(knochen.head, gegen * 0.55, 0, 0, 0.85 * _sk);
       drehZuRuhe(knochen.neck, gegen * 0.3, 0, 0, 0.8 * _sk);
       drehe(knochen.spine2, gegen * 0.22, 0, 0, 0.55 * _sk);
+      // Solve the arm AFTER the torso correction; otherwise the shoulder
+      // moves again after aiming and the wrist no longer follows the web.
+      netzArm('left', zielWelt, schwungLinks * _sk);
+      netzArm('right', zielWelt, (1 - schwungLinks) * _sk);
+      if (schwungZweitgriff > 0.001 && knochen.leftarm && knochen.rightarm &&
+          knochen.leftforearm && knochen.lefthand) {
+        root.updateMatrixWorld(true);
+        knochen.leftarm.getWorldPosition(_naS);
+        knochen.leftforearm.getWorldPosition(_naE);
+        knochen.lefthand.getWorldPosition(_naH);
+        const reach = (_naS.distanceTo(_naE) + _naE.distanceTo(_naH)) * 0.82;
+        knochen.rightarm.getWorldPosition(_vw1);
+        _vw3.copy(_naS).add(_vw1).multiplyScalar(0.5);
+        _vw2.subVectors(zielWelt, _vw3).normalize();
+        _vw3.addScaledVector(_vw2, reach);
+        netzArm('left', _vw3, schwungZweitgriff * 0.9 * _sk);
+        _vw3.addScaledVector(_vw2, 0.1);
+        netzArm('right', _vw3, schwungZweitgriff * 0.9 * _sk);
+      }
+      // A two-hand grab changes the IK plane. Limit only the swing arms'
+      // angular speed (600 degrees/s) so this cannot make an elbow snap.
+      for (const name of NETZ_ARM_KNOCHEN) {
+        const bone = knochen[name];
+        if (!bone) continue;
+        const previous = netzArmVorher.get(name);
+        if (previous && poseDt > 0) {
+          const angle = previous.angleTo(bone.quaternion), limit = poseDt * Math.PI * (10 / 3);
+          if (angle > limit) bone.quaternion.copy(previous.clone().slerp(bone.quaternion, limit / angle));
+        }
+        if (previous) previous.copy(bone.quaternion);
+        else netzArmVorher.set(name, bone.quaternion.clone());
+      }
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -8188,7 +8292,7 @@ function makeGlbVisual(m) {
          den geladenen Bewegungen nicht, und erfunden wird keine. */
       if (key === 'kampfstand') want = findClip(m.clips, 'warten') ? 'warten' : 'idle';
 
-      if ((key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
+      if (want === key && (key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
            key === 'klettern_seit') && !findClip(m.clips, key)) {
         want = findClip(m.clips, 'climb') ? 'climb' : 'idle';
         if (key === 'swing') want = 'idle';
@@ -8338,6 +8442,16 @@ function makeGlbVisual(m) {
            gleich tief auf dem Boden. */
         current.timeScale = 0;
         current.time = DUCK_STAND_T;
+      } else if (current && want === 'schwung2') {
+        // ApexTwist is a one-off flourish, NOT a loop: its final left knee
+        // differs from its first by 149 degrees. Use only the stable opening
+        // (hips turn less than 28 degrees) and sample it from the real arc.
+        current.timeScale = 0;
+        const phase = (clamp(p.bogen === undefined ? 0 : p.bogen, -1, 1) + 1) * 0.5;
+        if (want !== letzterKey) bogenGlatt = phase;
+        bogenGlatt += (phase - bogenGlatt) * (1 - Math.exp(-dt * 4.5));
+        const ease = bogenGlatt * bogenGlatt * (3 - 2 * bogenGlatt);
+        current.time = (current.getClip().duration || 1) * lerp(0.015, 0.12, ease);
       } else if (current && (want === 'schwung' || want === 'schwungpose')) {
         /* Der Clip laeuft nicht von selbst ab, seine Stelle folgt dem
            Pendel: unten im Bogen liegt die Figur lang gestreckt (Ende des
@@ -14739,7 +14853,7 @@ function updateHeroVisual(dt) {
        liessen die 90 Grad in zwei Bildern umklappen. */
     const schnell = player.eckT > 0 ? 7
                   : player.onGround || player.state === 'climb' ? 30 : 11;
-    r.rotation.y = dampAngle(r.rotation.y, player.facing, Math.min(1, dt * schnell));
+    r.rotation.y = dampAngle(r.rotation.y, player.facing, 1 - Math.exp(-dt * schnell));
   }
   /* ---- In die Kurve legen ----
      Am Netz und im Gleitflug legt sich die Figur in die Kurve, so wie ein
@@ -14827,7 +14941,7 @@ function updateHeroVisual(dt) {
            dorthin, wo gar kein Anker mehr ist. */
         if (MISCH.schwung < 0.05) MISCH.ankerGlatt.copy(player.swing.anchor);
       }
-      MISCH.ankerGlatt.lerp(player.swing.anchor, Math.min(1, dt * 4));
+      MISCH.ankerGlatt.lerp(player.swing.anchor, 1 - Math.exp(-dt * 6));
       // Kurvenlage: seitlich in den Bogen legen
       const a = player.swing.anchor;
       const rx = Math.cos(player.facing), rz = -Math.sin(player.facing);
@@ -16589,7 +16703,9 @@ function waehleFahrzeug() {
 }
 
 function makeCarMesh(color) {
-  const g = new THREE.Group();
+  const modern = CITY_LOOK ? CITY_LOOK.createCar(color) : null;
+  const g = modern || new THREE.Group();
+  if (!modern) {
   const bodyMat = new THREE.MeshLambertMaterial({ color });
   /* Das Auto ist gewachsen. Vorher endete das Dach auf 1,57 m - in so eine
      Zelle passt kein Mensch von 1,76 m, deshalb sassen dort nur auf 0,66
@@ -16641,6 +16757,7 @@ function makeCarMesh(color) {
       g.add(holm);
     }
   }
+  } // Klassische Karosserie als abschaltbarer Vergleich
   /* ---- Sitze ----
      Im Wagen gab es ueberhaupt keine Sitze: die Insassen schwebten auf
      einer gedachten Hoehe im leeren Kasten. Jetzt stehen zwei Vordersitze
@@ -16703,6 +16820,7 @@ function makeCarMesh(color) {
   }
   /* Wo der Fahrer sitzt, in Wagenkoordinaten. */
   g.userData.fahrerSitz = { x: -0.44, y: 0.96, z: 0.12 };
+  if (!modern) {
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.25, 10);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x17181c });
   for (const [sx, sz] of [[-1, 1.35], [1, 1.35], [-1, -1.35], [1, -1.35]]) {
@@ -16731,6 +16849,7 @@ function makeCarMesh(color) {
     l.position.set(sx * 0.62, 0.74, -2.22);
     g.add(l);
   }
+  } // Die moderne Karosserie bringt Raeder und Leuchten mit.
   scene.add(g);
   return g;
 }
@@ -16746,6 +16865,7 @@ function makeHeliMesh() {
   const dunkel = new THREE.MeshLambertMaterial({ color: 0x14161c });
   const glas = new THREE.MeshLambertMaterial({ color: 0x9fd2e8 });
 
+  if (CITY_LOOK) g.add(CITY_LOOK.createHelicopterShell());
   const rumpf = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.5, 4.2), lack);
   rumpf.position.y = 0.2; rumpf.castShadow = true;
   g.add(rumpf);
@@ -16753,6 +16873,7 @@ function makeHeliMesh() {
   kanzel.scale.set(0.95, 0.8, 1.1);
   kanzel.position.set(0, 0.25, 2.1);
   g.add(kanzel);
+  if (CITY_LOOK) { g.remove(rumpf); g.remove(kanzel); rumpf.geometry.dispose(); kanzel.geometry.dispose(); }
   /* Pilot und Beobachter in der Kanzel - vorher flogen die Hubschrauber
      unbemannt ueber die Stadt. Das Glas wird dafuer halbdurchsichtig. */
   glas.transparent = true; glas.opacity = 0.45; glas.depthWrite = false;
@@ -16806,8 +16927,8 @@ function makeHeliMesh() {
   const heckRotor = new THREE.Group();
   heckRotor.position.set(0.28, 1.1, -4.9);
   for (let i = 0; i < 3; i++) {
-    const blatt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.06), dunkel);
-    blatt.rotation.z = i * Math.PI / 3;
+    const blatt = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.5, 0.1), dunkel);
+    blatt.rotation.x = i * Math.PI / 3;
     heckRotor.add(blatt);
   }
   g.add(heckRotor);
@@ -16966,7 +17087,7 @@ function makeFahrzeugMesh(typ, farbe) {
     const auto = makeCarMesh(0xf2c12e);
     const schild = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.28, 0.35),
       new THREE.MeshBasicMaterial({ color: 0xfff3c0 }));
-    schild.position.set(0, 1.56, -0.2);
+    schild.position.set(0, (auto.userData.roofHeight || 1.98) + 0.14, -0.2);
     auto.add(schild);
     for (const sz of [1, -1]) {                       // Schachbrettstreifen
       const streifen = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 2.6),
@@ -17004,13 +17125,16 @@ function makeFahrzeugMesh(typ, farbe) {
     return auto;
   }
   // Bus und LKW
+  const cityWheels = [];
   const raeder = (positionen) => {
     const geo = new THREE.CylinderGeometry(0.46, 0.46, 0.3, 10);
     for (const [sx, sz] of positionen) {
       const w = new THREE.Mesh(geo, dunkel);
       w.rotation.z = Math.PI / 2;
-      w.position.set(sx * (B / 2 - 0.1), 0.46, sz);
-      g.add(w);
+      const steer = new THREE.Group();
+      steer.position.set(sx * (B / 2 - 0.1), 0.46, sz);
+      steer.add(w); g.add(steer);
+      cityWheels.push({ steer, roll: w, front: sz > 0 });
     }
   };
   if (typ.art === 'bus') {
@@ -17131,6 +17255,7 @@ function makeFahrzeugMesh(typ, farbe) {
     l.position.set(sx * (B / 2 - 0.4), 0.75, L / 2 + 0.02);
     g.add(l);
   }
+  if (CITY_LOOK) CITY_LOOK.finishUtilityVehicle(g, typ, farbe, cityWheels);
   scene.add(g);
   return g;
 }
@@ -18311,6 +18436,7 @@ function updateCars(dt) {
       car.mesh.position.set(zx, 0, zz);
       car.mesh.rotation.y = zy;
     }
+    if (CITY_LOOK) CITY_LOOK.updateCar(car.mesh, speed, dt);
     /* ---- Blaulicht nur im Einsatz ----
        Der Balken blinkte bei JEDEM Polizeiwagen, also auch bei den zwei
        Streifen, die ohnehin im normalen Verkehr mitfahren. Damit sah die
@@ -19637,6 +19763,7 @@ function spawnCivilian() {
   const loop = sidewalkLoop(bi, bj);
   const wp = randi(0, 3);
   const visual = makeCharacterVisual('civilian', {});
+  if (CITY_LOOK) CITY_LOOK.dressCivilian(visual);
   /* Gestartet wird auf einem gueltigen Gehwegknoten, nicht auf einer
      zufaelligen Weltkoordinate. */
   baueGehnetz();
@@ -21168,6 +21295,7 @@ function spawnGang(cx, cz, n, quelle) {
     });
     const typ = waehleGanov();
     visual.root.scale.setScalar(typ.groesse);
+    if (CITY_LOOK) CITY_LOOK.dressEnemy(visual, typ.art);
     const hpBar = makeHPBar();
     visual.root.add(hpBar.g);
     const warn = makeWarnzeichen(); visual.root.add(warn);
@@ -22035,6 +22163,7 @@ function updateEnemies(dtBild) {
   verteileAngriffsrechte(dtBild);
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
+    if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, e.boss ? 'enforcer' : e.typ.art);
     /* Ganoven weit weg vom Helden ebenfalls nur jedes dritte Bild. Wer
        gerade ausholt oder zuschlägt, wird immer gerechnet – sonst
        verschiebt sich die Vorwarnzeit und der Konter passt nicht mehr. */
@@ -22254,6 +22383,13 @@ function updateEnemies(dtBild) {
       e.visual.play('air', { t: elapsed }, dt);
       // Pose erst nach der Animation setzen, sonst überschreibt der Mixer sie
       if (e.visual.poseTreffer) e.visual.poseTreffer(1 - e.staggerT / 0.9);
+      /* Die Bossphase muss auch im Taumeln nachgefuehrt werden. Sonst
+         friert sie ein, solange man den Boss unter Dauerbeschuss haelt -
+         gemessen: bei 7,5 Schlaegen pro Sekunde blieb er bis 5 % Leben in
+         Phase 1, und die Bossleiste stand still. updateBoss setzt keinen
+         Angriff, es fuehrt nur Phase, Uhren und Leiste nach; der
+         Phasenwechsel raeumt den Stagger absichtlich selbst weg. */
+      if (e.boss) updateBoss(e, dt);
       continue;
     }
 
@@ -26220,7 +26356,17 @@ function missionZiel() {
     case 'geisel': return d.civ ? d.civ.pos : null;
     case 'dieb': return d.dieb && !d.dieb.dead ? d.dieb.pos : null;
     case 'rennen': return d.rest.length ? d.rest[0].pos : null;
-    case 'story': return d.zielPos || null;
+    case 'story': {
+      /* Minikarte und Leuchtturm muessen dasselbe zeigen. Der Leuchtturm
+         faellt auf den naechsten lebenden Storygegner zurueck (z. B. den
+         Kurier in Mission 3, der keinen festen Zielpunkt hat) - die
+         Minikarte tat das nicht und blieb dort leer. */
+      if (d.zielPos) return d.zielPos;
+      for (const g of (d.gangs || [])) {
+        for (const e of g.enemies) if (!e.dead) return e.pos;
+      }
+      return null;
+    }
     default: return null;
   }
 }
@@ -26818,9 +26964,12 @@ const STORY_DEF = [
                       stFunk('Zwei am Eingang. Sie haben dich gesehen.'); },
         pruef: () => stAlleGangsTot() ? 'weiter' : null },
       { ziel: 'Den Innenhof räumen',
+        /* Punkt 14 erlaubt hoechstens zwei Zwischenmeldungen je Mission.
+           Diese hier war die dritte und sagte nichts, was der Auftragstext
+           "Den Innenhof raeumen" nicht schon sagt - die beiden anderen
+           (Eingang, Funkgeraet) tragen dagegen Information. */
         auf: (m) => { stGang(m.ort.x - 8, m.ort.z + 4, 4, 'story');
-                      stGang(m.ort.x + 4, m.ort.z - 8, 3, 'story');
-                      stFunk('Mehr als gedacht. Deutlich mehr.'); },
+                      stGang(m.ort.x + 4, m.ort.z - 8, 3, 'story'); },
         pruef: () => stAlleGangsTot() ? 'weiter' : null },
       { ziel: 'Den Anführer stellen',
         auf: (m) => {
@@ -26898,13 +27047,32 @@ const STORY_DEF = [
              ruhig. Also zaehlt eine halbe Minute ohne einen einzigen
              Verletzten als erfuellt - und die Uhr bleibt nur fuer den
              Fall, dass jemand liegt und man ihn nicht erreicht. */
-          let liegt = false;
-          for (const c of civilians) if (c.state === 'hurt' && c.hilfeBar) liegt = true;
+          /* ---- Diese Phase hatte als einzige gar kein Ziel ----
+             Weder ein fester Punkt noch eine Storygang: setzeBeacon bekam
+             null, der Spieler las "Nach den Verletzten sehen" und hatte
+             keinen einzigen Hinweis, wohin. Die Telemetrie hat das als
+             bisZielVerstanden = -1 gemeldet. Wie in Mission 2 fuehrt der
+             Leuchtturm jetzt zum naechsten Verletzten - das Helfen bleibt
+             der Inhalt, das Suchen war nie einer. */
+          let liegt = null, ld = 1e9;
+          for (const c of civilians) {
+            if (c.state !== 'hurt' || !c.hilfeBar) continue;
+            const dd = Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z);
+            if (dd < ld) { ld = dd; liegt = c; }
+          }
+          m.zielPos = liegt
+            ? { x: liegt.pos.x, y: liegt.pos.y + 1, z: liegt.pos.z }
+            : null;
           if (!liegt) {
             m.warteT += dt;
+            /* Auch das Warten braucht eine Ansage, sonst sieht Ruhe aus
+               wie ein haengender Auftrag. */
+            STORY.zielText = 'Die Stadt ist ruhig (' +
+              Math.max(0, Math.ceil(30 - m.warteT)) + 's)';
             if (m.warteT > 30) return 'weiter';
           } else {
             m.warteT = 0;
+            STORY.zielText = 'Nach den Verletzten sehen';
           }
           if (m.t <= 0) return 'weich';
           return null;
@@ -28771,7 +28939,19 @@ if (window.__WEBHERO_TEST__ === true) {
     storyPlaytestReport: ptBericht,
     get storyPlaytestAn() { return STORY_PLAYTEST; },
     storyKampfPhase, storyOffen, storyZustand,
-    storyZielPos() { const m = MISSION.daten; return (m && m.zielPos) || null; },
+    storyZielPos() {
+      /* Muss zeigen, was der Spieler sieht - sonst misst ein Testbot die
+         Blindheit des Bots statt die des Spielers. Ein erster Akt-1-Lauf
+         meldete deshalb 95 s Ratlosigkeit in Mission 3, obwohl der
+         Leuchtturm die ganze Zeit auf dem Kurier stand. */
+      const m = MISSION.daten;
+      if (!m) return null;
+      if (m.zielPos) return m.zielPos;
+      for (const g of (m.gangs || [])) {
+        for (const e of g.enemies) if (!e.dead) return { x: e.pos.x, y: e.pos.y, z: e.pos.z };
+      }
+      return null;
+    },
     missionDaten() { return MISSION.daten; },
     /* Eine Mission bis zum Ende durchspielen, ohne den Kampf wirklich zu
        fuehren: fuer die Ablauftests. Der Weg bleibt der echte - es wird

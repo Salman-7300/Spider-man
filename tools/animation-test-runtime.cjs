@@ -72,7 +72,7 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     THREE, console, Math, Set, Map, player,
     clamp: (v, a, b) => Math.min(b, Math.max(a, v)), lerp: (a, b, t) => a + (b - a) * t,
     V3: (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z),
-    CFG: { sprintSpeed: 11 }, dist2: 0, WAND_RUHE_T: 0, LOD_WEITE: 130,
+    CFG: { sprintSpeed: 11 }, dist2: 0, WAND_RUHE_T: 0, LOD_WEITE: 130, ZIELE_ALT: false,
     WANDLAUF_CLIP: 'kriechen', KLETTER_CLIP: 'kriechen',
     EINST: { maus: 100, autokam: 'aus' }, mouseDX: 0, mouseDY: 0, touchAktiv: false,
     KAT: { aktiv: false }, groundY: () => 0, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(),
