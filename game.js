@@ -5,6 +5,7 @@
 (function () {
 'use strict';
 if (typeof THREE === 'undefined') return;
+const CITY_LOOK = window.WEB_HERO_VISUALS && window.WEB_HERO_VISUALS.enabled ? window.WEB_HERO_VISUALS : null;
 
 /* ======================= Konfiguration ======================= */
 const CFG = {
@@ -1586,7 +1587,48 @@ function baueUBahnMesh() {
   ubahnMesh.receiveShadow = true;
   ubahnMesh.frustumCulled = false;
   cityGroup.add(ubahnMesh);
+  cityGroup.add(ubSchilder);
   ubDekoTeile.length = 0;
+}
+// Station signs are actual readable text, shared per label. All new
+// decoration stays on existing floors/walls; stairs and collision stay open.
+const ubSchilder = new THREE.Group();
+const ubSchildMaterial = new Map();
+function ubLinienNummer() { return UB_LINIEN.findIndex(l => l.dz === UB_DZ) + 1; }
+function ubStationsname(x) {
+  const names = ['Westend', 'Riverside', 'City West', 'Central', 'City Ost', 'Park Avenue', 'Eastend'];
+  return names[clamp(Math.round((x + 150) / 50), 0, names.length - 1)];
+}
+function ubSchild(titel, untertitel, x, y, z, ry, breite, hoehe) {
+  const key = titel + '|' + untertitel;
+  let material = ubSchildMaterial.get(key);
+  if (!material) {
+    const texture = canvasTex(1024, 192, (ctx, w, h) => {
+      ctx.fillStyle = '#132f47'; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#52c8c2'; ctx.fillRect(0, 0, 12, h);
+      ctx.fillStyle = '#f6f3e9'; ctx.font = '600 60px Arial';
+      ctx.fillText(titel, 38, 78, 948);
+      ctx.fillStyle = '#b9d6e2'; ctx.font = '32px Arial';
+      ctx.fillText(untertitel, 40, 142, 940);
+    });
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+    material = new THREE.MeshBasicMaterial({ map: texture });
+    ubSchildMaterial.set(key, material);
+  }
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(breite || 3.2, hoehe || 0.6), material);
+  mesh.rotation.y = ry || 0;
+  const lod = new THREE.LOD(); lod.addLevel(mesh, 0); lod.addLevel(new THREE.Group(), 65);
+  lod.position.set(x, y, z + UB_DZ);
+  (y > SLAB_H ? cityGroup : ubSchilder).add(lod);
+}
+function ubBodenMuster(x0, x1, z0, z1, y) {
+  const step = 1.4;
+  for (let x = x0 + step / 2; x < x1; x += step) for (let z = z0 + step / 2; z < z1; z += step) {
+    const w = Math.min(step - 0.025, (x1 - x) * 2), d = Math.min(step - 0.025, (z1 - z) * 2);
+    if (w < 0.05 || d < 0.05) continue;
+    ubDeko(w, 0.012, d, x, y + 0.009, z,
+      (Math.round(x / step) + Math.round(z / step)) % 5 === 0 ? 0x717a7b : 0x939992);
+  }
 }
 function ubCollider(c) {
   return addCollider(Object.assign({}, c, { z0: c.z0 + UB_DZ, z1: c.z1 + UB_DZ }));
@@ -2380,6 +2422,18 @@ const parks = [];
 function bauePark(cx, cz, size) {
   const halb = size / 2;
   parks.push({ x: cx, z: cz, s: size });
+  if (CITY_LOOK && CITY_LOOK.createPark) {
+    const park = CITY_LOOK.createPark(size, rasenTex);
+    park.position.set(cx, SLAB_H, cz); cityGroup.add(park);
+    for (const c of park.userData.solids) addCollider({
+      x0: cx + c.x0, x1: cx + c.x1, z0: cz + c.z0, z1: cz + c.z1,
+      h: SLAB_H + c.h, klein: true,
+    });
+    for (const [x, z, along] of [[-7, 2.4, false], [7, 2.4, false], [2.4, -7, true], [2.4, 7, true]]) {
+      baueBank(cx + x, SLAB_H, cz + z, along, 0x80634b);
+    }
+    return;
+  }
   /* Rasen und Wege liegen BÜNDIG mit dem Gehweg. Vorher standen sie 6 cm
      darüber und die Füße steckten sichtbar im Gras. */
   const rasen = new THREE.Mesh(new THREE.PlaneGeometry(size, size),
@@ -2477,6 +2531,9 @@ function baueBEbene(sx, sch) {
   const tief = (d) => zIn + weg * d;
   const vorn = (d) => zAus - weg * d;       // Abstand von der Aussenwand
 
+  ubBodenMuster(r.x0 + 0.15, r.x1 - 0.15, r.z0 + 0.15, r.z1 - 0.15, u0);
+  ubSchild('U' + ubLinienNummer() + ' · ' + ubStationsname(sx), 'Bahnsteige · Tickets · Ausgang',
+    mx, u1 - 0.62, vorn(0.65), weg > 0 ? Math.PI : 0, Math.min(4.4, lx - 1), 0.68);
   /* ---- Huelle ---- */
   /* Zur Schachtseite hin KEIN Ueberstand: dort liegt schon der Boden der
      Zwischenebene, und zwei Boeden auf derselben Hoehe flackern. */
@@ -2526,7 +2583,9 @@ function baueBEbene(sx, sch) {
   for (let i = 0; i < nL; i++) {
     const cx = r.x0 + 0.3 + bw * (i + 0.5);
     ubDeko(bw - 0.30, 2.30, 0.14, cx, u0 + 1.15, vorn(0.26), UB_LADEN_WAND[i]);
-    ubDeko(bw - 0.30, 0.50, 0.16, cx, u0 + 2.62, vorn(0.32), UB_LADEN_SCHILD[i]);
+    ubDeko(bw - 0.30, 0.50, 0.16, cx, u0 + 2.62, vorn(0.32), 0x173448);
+    ubSchild(['CITY COFFEE', 'PRESS & BOOKS', 'GREEN MARKET', 'BAKERY'][i], 'Central Arcade',
+      cx, u0 + 2.62, vorn(0.415), weg > 0 ? Math.PI : 0, bw - 0.42, 0.44);
     /* Zwei Regalboeden mit Ware. */
     for (const [hy, n] of [[1.00, 5], [1.55, 4]]) {
       ubDeko(bw - 0.80, 0.07, 0.34, cx, u0 + hy, vorn(0.48), 0xd9d2c2);
@@ -2848,7 +2907,8 @@ function baueUBahn(x) {
         for (const f of [0.3, 0.7]) {
           const bx = mx - ml / 2 + ml * f;
           ubDeko(1.40, 0.42, 0.12, bx, UB_MITTE + 2.05, bz, 0x1b3fa0);
-          ubDeko(1.16, 0.10, 0.14, bx, UB_MITTE + 2.05, bz, 0xf2f4f8);
+          ubSchild(f < 0.5 ? 'Bahnsteige' : 'Ausgang', f < 0.5 ? 'U' + ubLinienNummer() + ' · Gleis 1 / 2' : 'Straße · Stadt',
+            bx, UB_MITTE + 2.05, bz - s3 * 0.08, s3 > 0 ? Math.PI : 0, 1.34, 0.38);
         }
       }
       /* Zwei Deckenleuchten wie unten auf dem Bahnsteig. */
@@ -2948,6 +3008,8 @@ function baueUBahn(x) {
   ubDeko(hx, 0.4, steigAT, x, UB_TIEF - 0.2, steigA, 0x4a5058);
   ubDeko(hx, 0.4, steigBT, x, UB_TIEF - 0.2, steigB, 0x4a5058);
   ubDeko(hx, 0.4, gleisT, x, UB_GLEIS_TIEF - 0.2, gleisM, 0x1a1d21);
+  ubBodenMuster(x - hx / 2, x + hx / 2, UB_STEIG_Z0 + 0.65, UB_STEIG_Z1, UB_TIEF);
+  ubBodenMuster(x - hx / 2, x + hx / 2, UB_STEIG2_Z0, UB_STEIG2_Z1 - 0.65, UB_TIEF);
   /* Decke mit Aussparungen fuer beide Treppenschaechte. */
   for (const t of flaecheMitLoechern(x - hx / 2, x + hx / 2, UB_QUER_Z0, UB_QUER_Z1,
                                      ubLoecherLokal('unten'))) {
@@ -2962,7 +3024,14 @@ function baueUBahn(x) {
       if (bw < 0.5) continue;
       const bx = seite < 0 ? (x - hx / 2 + bw / 2) : (x + hx / 2 - bw / 2);
       ubDeko(bw, 5.0, 0.5, bx, UB_TIEF + 2.5, wz, 0x66707c);
-      ubDeko(bw, 1.4, 0.12, bx, UB_TIEF + 2.0, wz + (wz > UB_Z ? -0.3 : 0.3), 0xa8b6c2);
+      const inward = wz > UB_Z ? -1 : 1;
+      for (let row = 0; row < 7; row++) {
+        const count = Math.max(1, Math.ceil(bw / 1.2)), tw = bw / count;
+        for (let col = 0; col < count; col++) ubDeko(tw - 0.025, 0.43, 0.10,
+          bx - bw / 2 + (col + 0.5) * tw, UB_TIEF + 0.45 + row * 0.46,
+          wz + inward * 0.3, row === 3 ? 0x326e79 : 0xc9c9b9);
+      }
+      ubDeko(bw, 0.12, 0.10, bx, UB_TIEF + 3.7, wz + inward * 0.3, 0x8ea5a3);
       ubCollider({ x0: bx - bw / 2, x1: bx + bw / 2, z0: wz - 0.25, z1: wz + 0.25,
                     h: -0.12, y0: UB_TIEF - 0.4, keinKlettern: true });
     }
@@ -2995,13 +3064,10 @@ function baueUBahn(x) {
        die halbe Wand. Jetzt eine flache Namenstafel im selben Blau wie
        oben am Eingang, mit U-Zeichen davor. */
     const sz = zw - rueck * 0.35;
-    ubDeko(2.60, 0.62, 0.12, x, UB_TIEF + 2.65, sz, 0x1b3fa0);
-    ubDeko(2.40, 0.44, 0.14, x, UB_TIEF + 2.65, sz, 0xf2f4f8);
-    ubDeko(0.60, 0.60, 0.16, x - 1.00, UB_TIEF + 2.65, sz, 0x1b3fa0);
-    for (const s4 of [-1, 1])
-      ubDeko(0.09, 0.34, 0.18, x - 1.00 + s4 * 0.14, UB_TIEF + 2.70, sz, 0xf4f8ff);
-    ubDeko(0.37, 0.09, 0.18, x - 1.00, UB_TIEF + 2.52, sz, 0xf4f8ff);
-    ubDeko(1.30, 0.09, 0.16, x + 0.35, UB_TIEF + 2.65, sz, 0x39404a);
+    ubDeko(3.8, 0.72, 0.12, x, UB_TIEF + 2.65, sz, 0x173448);
+    ubSchild('U' + ubLinienNummer() + ' · ' + ubStationsname(x),
+      'Gleis ' + (rueck > 0 ? '1' : '2') + '     Ausgang über die Treppe',
+      x, UB_TIEF + 2.65, sz - rueck * 0.075, rueck > 0 ? Math.PI : 0, 3.65, 0.63);
     for (const s2 of [-1, 1])
       baueBank(x + s2 * 8, UB_TIEF, zw - rueck * 1.5, false, undefined, rueck);
   }
@@ -3049,7 +3115,8 @@ function baueUBahn(x) {
       }
       /* Beschriftete Stirnseite - von der Strasse aus lesbar. */
       ubDeko(0.12, 0.42, bt - 0.5, dx - zur * 1.26, H - 0.28, dz, 0x1b3fa0);
-      ubDeko(0.14, 0.24, bt - 1.1, dx - zur * 1.30, H - 0.28, dz, 0xf2f6ff);
+      ubSchild('U' + ubLinienNummer() + ' · ' + ubStationsname(x), 'Bahnsteige · Tickets',
+        dx - zur * 1.33, H - 0.28, dz, -zur * Math.PI / 2, bt - 0.7, 0.38);
       ubCollider({ x0: dx - 1.25, x1: dx + 1.25, z0: dz - bt / 2, z1: dz + bt / 2,
                     h: H + 0.35, y0: H - 0.1, keinKlettern: true });
     }
@@ -3204,6 +3271,15 @@ const ZUG_Z = [UB_GLEIS_A, UB_GLEIS_B];
    Tuerfluegel bleiben beweglich (zwei Meshes je Zug, eins je
    Schieberichtung). */
 function baueZug(farbe) {
+  const modern = !!CITY_LOOK;
+  const glasFest = [], glasL = [], glasR = [];
+  const wandAbschnitte = [];
+  let abschnittStart = -ZUG_WLANG / 2;
+  for (const tx of ZUG_TUER_X) {
+    wandAbschnitte.push([abschnittStart, tx - ZUG_TUER_B]);
+    abschnittStart = tx + ZUG_TUER_B;
+  }
+  wandAbschnitte.push([abschnittStart, ZUG_WLANG / 2]);
   const fest = [];
   const frei = [];      // leere Sitzplaetze fuer echte Zivilisten
   const tuerL = [], tuerR = [];
@@ -3224,15 +3300,39 @@ function baueZug(farbe) {
     kiste(fest, ZUG_WLANG - 1.2, 0.16, 1.7, wx, ZUG_BODEN + ZUG_HOCH - 0.3, 0, 0xd8dde4);
     for (const s2 of [-1, 1]) {
       const zs = s2 * (ZUG_BREIT / 2 - 0.05);
+      if (modern) {
+        kiste(fest, ZUG_WLANG, 0.85, 0.1, wx, ZUG_BODEN + ZUG_HOCH - 0.62, zs, 0xc3cdd3);
+        for (const [a, b] of wandAbschnitte) {
+          const mitte = wx + (a + b) / 2, breite = b - a;
+          kiste(fest, breite, 0.95, 0.1, mitte, ZUG_BODEN + 0.48, zs, 0xbcc8cf);
+          kiste(fest, breite, 0.15, 0.11, mitte, ZUG_BODEN + 0.79, zs, farbe);
+          kiste(glasFest, breite - 0.12, 1.43, 0.032, mitte, ZUG_BODEN + 1.68, zs, 0xffffff);
+          for (const x of [a + 0.03, b - 0.03])
+            kiste(fest, 0.06, 1.47, 0.095, wx + x, ZUG_BODEN + 1.68, zs, 0x465760);
+        }
+      } else {
       kiste(fest, ZUG_WLANG, 0.95, 0.1, wx, ZUG_BODEN + 0.48, zs, farbe);          // Bruestung
       kiste(fest, ZUG_WLANG, 0.85, 0.1, wx, ZUG_BODEN + ZUG_HOCH - 0.62, zs, farbe); // ueber dem Fenster
       kiste(fest, ZUG_WLANG - 2.4, 1.2, 0.06, wx, ZUG_BODEN + 1.55, zs, 0xcfe4f4);  // Fensterband
+      }
       /* Tuerrahmen und -fluegel */
       for (const tx of ZUG_TUER_X) {
         kiste(fest, 0.14, 2.35, 0.14, wx + tx - ZUG_TUER_B, ZUG_BODEN + 1.18, zs, 0x8fa6bc);
         kiste(fest, 0.14, 2.35, 0.14, wx + tx + ZUG_TUER_B, ZUG_BODEN + 1.18, zs, 0x8fa6bc);
+        if (modern) {
+          for (const [teile, scheiben, vorzeichen] of [[tuerL, glasL, -1], [tuerR, glasR, 1]]) {
+            const dx = wx + tx + vorzeichen * ZUG_TUER_B / 2;
+            kiste(teile, ZUG_TUER_B, 0.96, 0.09, dx, ZUG_BODEN + 0.48, zs, 0x879da9);
+            kiste(teile, ZUG_TUER_B, 0.15, 0.1, dx, ZUG_BODEN + 0.79, zs, farbe);
+            kiste(teile, ZUG_TUER_B, 0.25, 0.09, dx, ZUG_BODEN + 2.19, zs, 0x879da9);
+            kiste(scheiben, ZUG_TUER_B - 0.16, 1.08, 0.032, dx, ZUG_BODEN + 1.52, zs, 0xffffff);
+            for (const sx of [-1, 1]) kiste(teile, 0.08, 1.15, 0.09,
+              dx + sx * (ZUG_TUER_B / 2 - 0.04), ZUG_BODEN + 1.53, zs, 0x657d8b);
+          }
+        } else {
         kiste(tuerL, ZUG_TUER_B, 2.3, 0.09, wx + tx - ZUG_TUER_B / 2, ZUG_BODEN + 1.18, zs, 0x2b3a48);
         kiste(tuerR, ZUG_TUER_B, 2.3, 0.09, wx + tx + ZUG_TUER_B / 2, ZUG_BODEN + 1.18, zs, 0x2b3a48);
+        }
       }
       /* Stirnwaende NUR ganz vorn und ganz hinten. Dazwischen bleibt der
          Zug offen und wird von einem Faltenbalg verbunden - vorher klaffte
@@ -3240,10 +3340,10 @@ function baueZug(farbe) {
       if (w === 0 || w === ZUG_WAGEN - 1) {
         const sx = w === 0 ? -1 : 1;
         kiste(fest, 0.16, ZUG_HOCH, ZUG_BREIT, wx + sx * (ZUG_WLANG / 2 - 0.08),
-              ZUG_BODEN + ZUG_HOCH / 2, 0, farbe);
+              ZUG_BODEN + ZUG_HOCH / 2, 0, modern ? 0xc3cdd3 : farbe);
         kiste(fest, 0.1, 1.0, ZUG_BREIT - 0.7, wx + sx * (ZUG_WLANG / 2 + 0.02),
               ZUG_BODEN + 2.2, 0, 0x0f1620);                                   // Frontscheibe
-        kiste(fest, 0.1, 0.34, 1.5, wx + sx * (ZUG_WLANG / 2 + 0.02),
+        if (!modern) kiste(fest, 0.1, 0.34, 1.5, wx + sx * (ZUG_WLANG / 2 + 0.02),
               ZUG_BODEN + 0.7, 0, 0xfff3c4);                                   // Scheinwerfer
       }
     }
@@ -3259,7 +3359,15 @@ function baueZug(farbe) {
        Leute, die vorher am Bahnsteig gewartet haben. */
     for (const s2 of [-1, 1]) {
       const zs = s2 * (ZUG_BREIT / 2 - 0.34);
-      kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x37414d);
+      if (modern) {
+        for (const [a, b] of wandAbschnitte) {
+          const x0 = Math.max(a, -ZUG_WLANG / 2 + 1.35), x1 = Math.min(b, ZUG_WLANG / 2 - 1.35);
+          if (x1 <= x0) continue;
+          const mitte = wx + (x0 + x1) / 2;
+          kiste(fest, x1 - x0, 0.12, 0.5, mitte, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x496f7d);
+          kiste(fest, x1 - x0, 0.42, 0.07, mitte, ZUG_BODEN + ZUG_BANK + 0.22, zs + s2 * 0.21, 0x3e6171);
+        }
+      } else kiste(fest, ZUG_WLANG - 3.2, 0.12, 0.5, wx, ZUG_BODEN + ZUG_BANK - 0.06, zs, 0x37414d);
       /* Hier wurden 45 % der Plaetze mit einfachen Sitzfiguren aufgefuellt.
          Im Wagen sass dadurch eine Mischung aus echten Zivilisten und
          Kloetzchenmenschen nebeneinander - und genau das faellt auf.
@@ -3311,9 +3419,21 @@ function baueZug(farbe) {
   const g = new THREE.Group();
   g.userData.freieSitze = frei;
   const kasten = new THREE.Mesh(verschmelzeTeile(fest), mat);
-  const links = new THREE.Mesh(verschmelzeTeile(tuerL), mat);
-  const rechts = new THREE.Mesh(verschmelzeTeile(tuerR), mat);
+  const links = new THREE.Group(), rechts = new THREE.Group();
+  links.add(new THREE.Mesh(verschmelzeTeile(tuerL), mat));
+  rechts.add(new THREE.Mesh(verschmelzeTeile(tuerR), mat));
   g.add(kasten); g.add(links); g.add(rechts);
+  if (modern) {
+    const glas = new THREE.MeshPhongMaterial({ color: 0x7895a5, transparent: true,
+      opacity: 0.24, depthWrite: false, shininess: 45 });
+    g.add(new THREE.Mesh(verschmelzeTeile(glasFest), glas));
+    links.add(new THREE.Mesh(verschmelzeTeile(glasL), glas));
+    rechts.add(new THREE.Mesh(verschmelzeTeile(glasR), glas));
+    const details = CITY_LOOK.trainDetails(ZUG_WAGEN, ZUG_WLANG, ZUG_LUECKE,
+      ZUG_BREIT, ZUG_HOCH, ZUG_BODEN, farbe);
+    g.add(details);
+    g.userData.trainMotion = details.userData.trainMotion;
+  }
   g.userData.tuerL = links;
   g.userData.tuerR = rechts;
   g.visible = false;
@@ -3348,6 +3468,7 @@ function baueZuege() {
 function updateUnterwelt() {
   const unten = player.pos.y < SLAB_H + 3;
   if (ubahnMesh && ubahnMesh.visible !== unten) ubahnMesh.visible = unten;
+  ubSchilder.visible = unten;
   for (const a of AUFZUEGE) {
     if (a.mesh.visible !== unten) a.mesh.visible = unten;
   }
@@ -3360,6 +3481,7 @@ function updateZug(dt) {
   const untenDrin = player.pos.y < SLAB_H;
   let naehe = 0;
   for (const t of ZUEGE) {
+    const vorherX = t.x;
     /* Sichtbarkeit haengt NUR daran, ob man unter Tage ist. In der ersten
        Fassung wurde der Zug waehrend des Halts unsichtbar geschaltet - er
        verschwand also genau dann vor der Nase, wenn er im Bahnhof stand. */
@@ -3384,6 +3506,7 @@ function updateZug(dt) {
       if (t.x < t.linie.x0 + ZUG_LANG / 2) { t.x = t.linie.x0 + ZUG_LANG / 2; t.richtung = 1; t.warten = 4; }
     }
     t.mesh.position.set(t.x, UB_GLEIS_TIEF, t.z);
+    if (CITY_LOOK) CITY_LOOK.updateTrain(t.mesh, dt > 0 ? (t.x - vorherX) / dt : 0, dt, t.richtung);
     /* Tueren: im Halt gehen sie auf, vor der Abfahrt wieder zu. Die
        Fluegel schieben sich dabei auseinander. */
     const tuerZiel = t.haelt && t.warten > 0.9 ? 1 : 0;
@@ -3902,6 +4025,12 @@ function buildRiverAndBridge() {
     const takt = Math.round((z + 190) / 8) % 3;
     if (takt === 0) {
       const bx = PROM_X0 + 4.5, bz = z + 3.5;
+      if (CITY_LOOK && CITY_LOOK.createTree) {
+        const tree = CITY_LOOK.createTree(Math.round(z / 24));
+        tree.position.set(bx, SLAB_H, bz); cityGroup.add(tree);
+        addCollider({ x0: bx - 0.34, x1: bx + 0.34, z0: bz - 0.34, z1: bz + 0.34,
+          h: SLAB_H + tree.userData.trunk.height, klein: true });
+      } else {
       deko(0.5, 3.2, 0.5, bx, SLAB_H + 1.6, bz, 0x5a4028);
       const krone = new THREE.Mesh(new THREE.SphereGeometry(rand(1.7, 2.3), 7, 6), kroneMatU);
       krone.position.set(bx, SLAB_H + rand(3.8, 4.4), bz);
@@ -3909,6 +4038,7 @@ function buildRiverAndBridge() {
       cityGroup.add(krone);
       addCollider({ x0: bx - 0.4, x1: bx + 0.4, z0: bz - 0.4, z1: bz + 0.4,
                     h: SLAB_H + 3.2, klein: true });
+      }
     } else if (takt === 1) {
       baueBank(PROM_X1 - 3.2, SLAB_H, z + 3.5, true);      // Blick aufs Wasser
     } else {
@@ -4102,6 +4232,12 @@ function buildFarShore() {
         for (let i = 0; i < 5; i++) {
           const bx = cx + rand(-innen / 2 + 2, innen / 2 - 2);
           const bz = cz + rand(-innen / 2 + 2, innen / 2 - 2);
+          if (CITY_LOOK && CITY_LOOK.createTree) {
+            const tree = CITY_LOOK.createTree(i);
+            tree.position.set(bx, SLAB_H, bz); cityGroup.add(tree);
+            addCollider({ x0: bx - 0.34, x1: bx + 0.34, z0: bz - 0.34, z1: bz + 0.34,
+              h: SLAB_H + tree.userData.trunk.height, klein: true });
+          } else {
           const stamm = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.6, 6),
             new THREE.MeshLambertMaterial({ color: 0x5a4530 }));
           stamm.position.set(bx, SLAB_H + 1.3, bz);
@@ -4111,6 +4247,7 @@ function buildFarShore() {
           krone.position.set(bx, SLAB_H + rand(3.4, 4.2), bz);
           krone.castShadow = true;
           cityGroup.add(krone);
+          }
         }
       } else if (stil < 0.55) {
         // Ein Turm auf dem ganzen Block
@@ -4243,12 +4380,17 @@ const GANG_REF = {
   symgang: 1.2,
 };
 const GANG_CLIPS = Object.keys(GANG_REF);
+/* Beim Bremsen zaehlt die Restbewegung. Die kleinere Ausschaltschwelle
+   verhindert einen Wechsel zur Standpose mitten im letzten Schritt. */
+function hatBodenbewegung(tempo, vorigeAnimation) {
+  return tempo > (vorigeAnimation === 'run' ? 0.12 : 0.4);
+}
 /* Umschaltpunkte zwischen den Laufdateien, siehe play(). Sie liegen dort,
    wo die naechste Datei mit einem angenehmeren Zeitfaktor laeuft als die
    vorige mit einem zu hohen. */
 let GANG_UM_LAUF = 2.5;
 let GANG_UM_SPRINT = 4.0;
-let GANG_UM_VOLL = 8.0;
+let GANG_UM_VOLL = 5.4;
 let GANG_UM_BAND = 0.35;
 /* Stelle im Duck-Clip, an der die Figur im Stand angehalten wird.
    Abgetastet: dort ist der Hoehenunterschied zwischen den Fuessen am
@@ -4324,7 +4466,7 @@ const HELD_ANIM_PARTS = RICHT_8.map((r) => 'ausw_' + r)
      deshalb hierher und nicht in die Liste fuer alle Figuren, sonst
      suchten Zivilisten und Gegner eine Datei, die es fuer sie nicht
      gibt. */
-  .concat(['spin_l', 'spin_r', 'sprint_lang']);
+  .concat(['spin_l', 'spin_r', 'sprint_lang', 'gleiten']);
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -4611,6 +4753,13 @@ function setzeHausModelle(szene) {
 
   let gesetzt = 0;
   for (const e of HAUS_KISTEN) {
+    if (CITY_LOOK && e.h >= 38) {
+      const variante = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % CITY_LOOK.towerStyles.length;
+      const hochhaus = CITY_LOOK.createTower(e.w, e.h, e.d, variante);
+      hochhaus.position.set(e.x, SLAB_H, e.z);
+      cityGroup.add(hochhaus); HAUS_MODELLE.push(hochhaus); gesetzt++;
+      continue;
+    }
     const kl = e.h > 62 ? 3 : e.h > 38 ? 2 : e.h > 19 ? 1 : 0;
     const liste = nachKlasse[kl];
     /* Ortsabhaengige Wahl: gleiches Haus, gleiches Modell - auch nach
@@ -4956,7 +5105,7 @@ const WAND_GRIFF_BAND = 0.20;
    Gemessen sprangen Knie und Schultern um ueber 100 Grad, die Hand um
    87 Zentimeter. Hier wird der Startwert der Blende auf das aktuelle
    Gewicht gesetzt, dann bleibt der Uebergang stetig. */
-/* Das aktuelle Gewicht einer Bewegung - null, wenn sie gar nicht laeuft.
+/* Das aktuelle Gewicht einer Bewegung - null, wenn sie nicht aktiv ist.
    getEffectiveWeight() allein reicht nicht: der Wert stammt aus dem
    letzten Mischerdurchlauf. Wurde die Blende erst in DIESEM Bild
    eingerichtet - etwa weil Doppelsprung und Netzwurf im selben Bild
@@ -4964,7 +5113,12 @@ const WAND_GRIFF_BAND = 0.20;
    angelegten Bewegung sogar die volle Eins. Deshalb wird die Blendenkurve
    direkt an der aktuellen Mischerzeit ausgewertet. */
 function gewichtVon(a) {
-  if (!a || !a.isRunning || !a.isRunning()) return 0;
+  /* timeScale=0, paused und clampWhenFinished halten nur die ZEIT an.
+     Ihre Pose wirkt weiter auf den Mischer und muss von ihrem sichtbaren
+     Gewicht ausblenden. isRunning() meldet fuer diese Posen false. */
+  if (!a || !a.enabled || !a.isScheduled || !a.isScheduled()) return 0;
+  if (a._startTime !== null && a._startTime !== undefined &&
+      a._mixer && a._startTime > a._mixer.time) return 0;
   const iv = a._weightInterpolant;
   const mx = a._mixer;
   if (iv && mx && iv.parameterPositions && iv.sampleValues) {
@@ -5119,6 +5273,7 @@ const GLB_CLIP_PATTERNS = {
   gelangweilt: [/^gelangweilt$/i], froh: [/^froh$/i], winken: [/^winken$/i],
   ziehen: [/^ziehen$/i], stampfen: [/^stampfen$/i],
   schwung2: [/^schwung2$/], flip_v: [/^flip_v$/], flip_h: [/^flip_h$/],
+  gleiten: [/^gleiten$/],
   sturzflug: [/^sturzflug$/], sturzflug2: [/^sturzflug2$/],
   wandsprung: [/^wandsprung$/], netzwurf: [/^netzwurf$/],
   zip_dreh: [/^zip_dreh$/],
@@ -5181,11 +5336,8 @@ const GLB_FALLBACK = {
   trinken: ['idle'], gelangweilt: ['idle'], froh: ['idle'], winken: ['jubel', 'idle'],
   ziehen: ['idle'], stampfen: ['kick', 'attack'],
   schwung2: ['schwung', 'swing'], flip_v: ['frontflip', 'roll'], flip_h: ['backflip', 'roll'],
-  /* Fuer den Gleitflug gibt es keine eigene Datei. Ersatz war bisher die
-     RUHEHALTUNG - deshalb stand die Figur im Gleitflug kerzengerade in der
-     Luft und nur die Arme waren zur Seite gelegt. Der Sturzflug ("Straight
-     Dive") liegt dagegen flach auf dem Bauch, Kopf voran: genau die
-     Grundhaltung, die ein Gleitflug braucht. */
+  /* Falls der eigene Gleitclip nicht geladen werden konnte, bleibt die
+     flache StraightDive-Pose als Ersatz verfuegbar. */
   gleiten: ['sturzflug', 'sturzflug2', 'air'],
   sturzflug: ['sturzflug2', 'air'], sturzflug2: ['sturzflug', 'air'],
   wandsprung: ['jump', 'air'], netzwurf: ['schwung2', 'swing'],
@@ -6312,6 +6464,33 @@ function makeGlbVisual(m) {
     bone.updateMatrixWorld(true);
   }
 
+  // Two-bone reach with an explicit bend direction. Bone lengths stay
+  // unchanged; the elbow/knee absorbs reach instead of extending past it.
+  const limbOrigin = new THREE.Vector3(), limbMid = new THREE.Vector3();
+  const limbEnd = new THREE.Vector3(), limbAxis = new THREE.Vector3();
+  const limbPole = new THREE.Vector3(), limbTarget = new THREE.Vector3();
+  const climbMotion = { phase: 0, speed: 0, along: new THREE.Vector3(0, 1, 0) };
+  const groundContacts = { left: {}, right: {} };
+  function gliedZiel(a, b, c, target, pole, weight) {
+    if (!a || !b || !c || weight <= 0) return;
+    root.updateMatrixWorld(true);
+    a.getWorldPosition(limbOrigin); b.getWorldPosition(limbMid); c.getWorldPosition(limbEnd);
+    const l1 = limbOrigin.distanceTo(limbMid), l2 = limbMid.distanceTo(limbEnd);
+    if (Math.min(l1, l2) < 0.01) return;
+    limbAxis.subVectors(target, limbOrigin);
+    const d = clamp(limbAxis.length(), Math.abs(l1 - l2) + 0.005, (l1 + l2) * 0.985);
+    if (limbAxis.lengthSq() < 1e-8) return;
+    limbAxis.normalize(); limbTarget.copy(limbOrigin).addScaledVector(limbAxis, d);
+    limbPole.subVectors(pole, limbOrigin).addScaledVector(limbAxis, -limbPole.dot(limbAxis));
+    if (limbPole.lengthSq() < 1e-8) limbPole.set(0, 1, 0).addScaledVector(limbAxis, -limbAxis.y);
+    if (limbPole.lengthSq() < 1e-8) limbPole.set(1, 0, 0);
+    limbPole.normalize();
+    const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+    limbMid.copy(limbOrigin).addScaledVector(limbAxis, along)
+      .addScaledVector(limbPole, Math.sqrt(Math.max(0, l1 * l1 - along * along)));
+    zieleKnochen(a, b, limbMid, weight); zieleKnochen(b, c, limbTarget, weight);
+  }
+
   /* ---- Ein Glied ZUM ZIEL NACHDREHEN, ohne die Haltung zu verwerfen ----
      zieleKnochen() setzt eine ABSOLUTE Ausrichtung: der Knochen zeigt
      danach zum Ziel, seine gesamte animierte Verdrehung ist weg. Fuer den
@@ -6455,12 +6634,49 @@ function makeGlbVisual(m) {
     bone.quaternion.slerp(_ikQ2, k === undefined ? 1 : k);
   }
 
+  const _poseEuler = new THREE.Euler(), _poseQuat = new THREE.Quaternion();
   function drehe(bone, x, y, z, k) {
-    if (!bone) return;
-    bone.rotation.x = lerp(bone.rotation.x, x, k);
-    bone.rotation.y = lerp(bone.rotation.y, y || 0, k);
-    bone.rotation.z = lerp(bone.rotation.z, z || 0, k);
+    if (!bone || k <= 0) return;
+    // Euler interpolation crossed the long way around at -PI/+PI.
+    _poseEuler.set(x, y || 0, z || 0, bone.rotation.order);
+    _poseQuat.setFromEuler(_poseEuler);
+    bone.quaternion.slerp(_poseQuat, clamp(k, 0, 1));
   }
+
+  const _naS = new THREE.Vector3(), _naE = new THREE.Vector3(), _naH = new THREE.Vector3();
+  const _naD = new THREE.Vector3(), _naPole = new THREE.Vector3(), _naGoal = new THREE.Vector3();
+  const _naElbow = new THREE.Vector3(), _naQ = new THREE.Quaternion();
+  function netzArm(side, anchor, weight) {
+    const upper = knochen[side + 'arm'], lower = knochen[side + 'forearm'], hand = knochen[side + 'hand'];
+    if (!upper || !lower || !hand || weight < 0.001) return;
+    root.updateMatrixWorld(true);
+    upper.getWorldPosition(_naS); lower.getWorldPosition(_naE); hand.getWorldPosition(_naH);
+    const a = _naS.distanceTo(_naE), b = _naE.distanceTo(_naH);
+    if (Math.min(a, b) < 0.01) return;
+    _naD.subVectors(anchor, _naS);
+    const distance = _naD.length();
+    if (distance < 0.001) return;
+    _naD.multiplyScalar(1 / distance);
+    const reach = clamp(distance, Math.abs(a - b) + 0.001, (a + b) * 0.94);
+    _naGoal.copy(_naS).addScaledVector(_naD, reach);
+    root.getWorldQuaternion(_naQ);
+    _naPole.set(side === 'left' ? -0.3 : 0.3, -0.15, 1).applyQuaternion(_naQ);
+    _naPole.addScaledVector(_naD, -_naPole.dot(_naD));
+    if (_naPole.lengthSq() < 0.001) {
+      _naPole.set(0, 1, 0).applyQuaternion(_naQ);
+      _naPole.addScaledVector(_naD, -_naPole.dot(_naD));
+    }
+    _naPole.normalize();
+    const along = (a * a - b * b + reach * reach) / (2 * reach);
+    const bend = Math.sqrt(Math.max(0, a * a - along * along));
+    _naElbow.copy(_naS).addScaledVector(_naD, along).addScaledVector(_naPole, bend);
+    zieleKnochen(upper, lower, _naElbow, weight);
+    zieleKnochen(lower, hand, _naGoal, weight);
+  }
+  let schwungLinks = null, schwungZeit = null, schwungZweitgriff = 0;
+  const netzArmVorher = new Map();
+  const NETZ_GELENKE = ['leftshoulder', 'rightshoulder', 'leftarm', 'rightarm', 'leftforearm', 'rightforearm',
+    'leftupleg', 'rightupleg', 'leftleg', 'rightleg', 'leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase'];
 
   let current = null;
   let lodAcc = 0, lodFrame = 0;
@@ -6485,34 +6701,23 @@ function makeGlbVisual(m) {
     poseSchwung(zielWelt, seite, t, bogen, neigung, beide, staerke) {
       const _sk = staerke === undefined ? 1 : clamp(staerke, 0, 1);
       if (_sk <= 0.001) return;
-      const gross = seite === 'L' ? 'leftarm' : 'rightarm';
-      const klein = seite === 'L' ? 'leftforearm' : 'rightforearm';
-      const hand = seite === 'L' ? 'lefthand' : 'righthand';
-      const andere = seite === 'L' ? 'rightarm' : 'leftarm';
-      const andereK = seite === 'L' ? 'rightforearm' : 'leftforearm';
-      const andereH = seite === 'L' ? 'righthand' : 'lefthand';
-      /* Nur der Netzarm wird geführt. Die Beine überlässt der Schwung der
-         laufenden Animation – eigene Beinposen haben gegen sie gearbeitet
-         und zu zuckenden Beinen geführt. */
-      /* Der Oberarm zeigt zum Anker, der Unterarm bleibt leicht gebeugt.
-         Beide Glieder auf den Anker zu richten streckt den Arm vollständig
-         durch – bei waagerechtem Körper landet er dann HINTER dem Kopf,
-         und die Figur sah verrenkt aus. */
-      zieleKnochen(knochen[gross], knochen[klein], zielWelt, _sk);
-      drehe(knochen[klein], -0.14, 0, 0, _sk);
-      const wiegen = Math.sin((t || 0) * 1.6) * 0.1;
-      drehe(knochen[andere], -0.3 + wiegen, 0, seite === 'L' ? -0.7 : 0.7, 0.5 * _sk);
-      drehe(knochen[andereK], -0.5, 0, 0, 0.5 * _sk);
-      /* Die geladene Hänge-Bewegung steht fast still – am Netz sah das aus
-         wie eine eingefrorene Puppe. Ein ruhiger Beintakt im Rhythmus des
-         Pendels bringt Leben hinein, ohne der Bewegung ins Handwerk zu
-         pfuschen (halbes Gewicht, kleine Ausschläge). */
+      const linksZiel = seite === 'L' ? 1 : 0;
+      const zeit = Number.isFinite(t) ? t : 0;
+      const poseDt = schwungZeit === null ? 0 : clamp(zeit - schwungZeit, 0, 0.1);
+      if (schwungLinks === null || schwungZeit === null || zeit - schwungZeit > 0.4 || zeit < schwungZeit) {
+        schwungLinks = linksZiel; schwungZweitgriff = 0; netzArmVorher.clear();
+      } else {
+        schwungLinks += (linksZiel - schwungLinks) * (1 - Math.exp(-poseDt * 12));
+        schwungZweitgriff += ((beide ? 1 : 0) - schwungZweitgriff) * (1 - Math.exp(-poseDt * 8));
+      }
+      schwungZeit = zeit;
       const takt = Math.sin((t || 0) * 2.3);
       /* Gibt es die echte Schwunghaltung, fuehrt sie die Beine. Die
          selbstgesetzten Winkel legen sich dann nur noch leicht darueber
-         (0,35 statt 0,9) und bringen den Pendeltakt hinein - vorher haben
-         sie die Bewegungsdatei vollstaendig ueberschrieben. */
-      const k = (findClip(m.clips, 'schwung') ? 0.15
+         und bringen die Last im Bogen hinein. Kleine Folgebewegungen
+         begleiten den Schwung, ohne die Beine staendig zappeln zu lassen. */
+      const k = (findClip(m.clips, 'schwung2') ? 0.58
+              : findClip(m.clips, 'schwung') ? 0.42
               : findClip(m.clips, 'schwungpose') ? 0.35 : 0.9) * _sk;
       /* lage: -1 = es geht abwärts in den Bogen hinein, +1 = es geht wieder
          hinauf. Am tiefsten Punkt zieht man die Beine an, oben streckt man
@@ -6529,8 +6734,8 @@ function makeGlbVisual(m) {
          dabei hinterherziehen, nicht nach vorn geklappt werden – also
          kaum Hüftbeugung, dafür angewinkelte Knie. Am Tiefpunkt zieht er
          sie an, im Aufstieg streckt er sie aus. */
-      const hueft = 0.04 + anziehen * 0.18 - strecken * 0.16;
-      const knie = 0.45 + anziehen * 0.75 - strecken * 0.32;
+      const hueft = 0.08 + anziehen * 0.32 - strecken * 0.16;
+      const knie = 0.6 + anziehen * 0.9 - strecken * 0.35;
       /* Die Beine wirkten wie ein Stück Stoff: beide Gelenke folgten
          demselben Sinus, die Knöchel wurden gar nicht geführt und alles
          bewegte sich in einer Ebene. Drei Dinge machen daraus ein Bein
@@ -6540,17 +6745,17 @@ function makeGlbVisual(m) {
          3. die Beine scheren leicht seitlich, statt parallel zu pendeln. */
       const takt2 = Math.sin((t || 0) * 2.3 - 0.55);       // Knie hinkt nach
       const takt3 = Math.sin((t || 0) * 2.3 - 1.05);       // Knöchel noch später
-      const schere = 0.10 + Math.sin((t || 0) * 1.15) * 0.16;   // Beine nie parallel
+      const schere = 0.10 + Math.sin((t || 0) * 1.15) * 0.055;   // Beine nie parallel
 
-      drehZuRuhe(knochen.leftupleg,  hueft + takt * 0.34, 0, schere, k);
-      drehZuRuhe(knochen.rightupleg, hueft + 0.06 - takt * 0.34, 0, -schere, k);
+      drehZuRuhe(knochen.leftupleg,  hueft + takt * 0.18, 0, schere, k);
+      drehZuRuhe(knochen.rightupleg, hueft + 0.06 - takt * 0.18, 0, -schere, k);
 
       /* Das Knie beugt nur in eine Richtung – ein negativer Wert würde das
          Bein nach vorn überstrecken. */
       /* Auch das Knie hat eine Grenze: rund 140° (2,4 rad) sind das
          Äußerste, davor liegt die Ferse am Gesäß. */
-      const knieL = clamp(knie + 0.22 - takt2 * 0.46, 0.12, 2.2);
-      const knieR = clamp(knie - 0.24 + takt2 * 0.46, 0.12, 2.2);
+      const knieL = clamp(knie + (schwungLinks * 2 - 1) * 0.28 - takt2 * 0.22, 0.12, 2.2);
+      const knieR = clamp(knie - (schwungLinks * 2 - 1) * 0.28 + takt2 * 0.22, 0.12, 2.2);
       drehZuRuhe(knochen.leftleg,  knieL, 0, 0, k);
       drehZuRuhe(knochen.rightleg, knieR, 0, 0, k);
 
@@ -6574,33 +6779,18 @@ function makeGlbVisual(m) {
       /* Rumpf: am Tiefpunkt eingerollt, im Aufstieg aufgerichtet, dazu
          eine leichte Drehung zum Netzarm hin. */
       drehe(knochen.spine1, -0.06 + anziehen * 0.16 - strecken * 0.12,
-            (seite === 'L' ? 0.12 : -0.12) + takt * 0.05, 0, 0.5 * _sk);
-      drehe(knochen.spine, -0.04 + anziehen * 0.08, seite === 'L' ? 0.08 : -0.08, 0, 0.4 * _sk);
-      /* Beide Hände am Netz oder nur eine?
-         Im Vorbild hängt Spider-Man meist an EINER Hand; mit beiden greift
-         er zu, wenn er sich kräftig hochzieht. Genau so ist es hier: beim
-         Pumpen (W) fasst die zweite Hand an denselben Faden, sonst zieht
-         der freie Arm gestreckt nach hinten – vorher stand er wie
-         vergessen in der Luft. */
-      if (beide) {
-        /* Die zweite Hand greift NEBEN die erste an denselben Faden. Sie
-           zielt deshalb nicht auf den Anker – das streckte den Arm hinter
-           den Kopf –, sondern auf einen Punkt kurz über der Netzhand. */
-        knochen[hand].getWorldPosition(_vw1);
-        _vw2.copy(zielWelt).sub(_vw1).normalize();
-        _vw3.copy(_vw1).addScaledVector(_vw2, 0.42);
-        zieleKnochen(knochen[andere], knochen[andereK], _vw3, 0.95 * _sk);
-        drehe(knochen[andereK], -0.2, 0, 0, 0.95 * _sk);
-        faust(seite === 'L' ? 'right' : 'left', _sk);
-      } else {
-        /* Nach hinten ausgestreckt in Flugrichtung – wie ein Ruder. */
-        drehe(knochen[andere], -0.15 + wiegen * 1.4 - strecken * 0.25, 0,
-              seite === 'L' ? -0.55 : 0.55, 0.75 * _sk);
-        drehe(knochen[andereK], -0.12 - anziehen * 0.25, 0, 0, 0.75 * _sk);
-        faust(seite === 'L' ? 'right' : 'left', 0.55 * _sk);
+            (schwungLinks * 2 - 1) * 0.12 + takt * 0.035, 0, 0.5 * _sk);
+      drehe(knochen.spine, -0.04 + anziehen * 0.08, (schwungLinks * 2 - 1) * 0.08, 0, 0.4 * _sk);
+      // Both arms receive continuous weights during a hand-off. A side change
+      // must not turn a fully relaxed arm into the gripping arm in one frame.
+      for (const side of ['left', 'right']) {
+        const grip = side === 'left' ? schwungLinks : 1 - schwungLinks;
+        const free = (1 - grip) * (1 - schwungZweitgriff * 0.88) * _sk;
+        drehZuRuhe(knochen[side + 'arm'], -0.17 - strecken * 0.18, 0,
+          side === 'left' ? -0.42 : 0.42, free * 0.55);
+        drehZuRuhe(knochen[side + 'forearm'], -0.22, 0, 0, free * 0.4);
+        faust(side, (0.38 + 0.62 * (grip + (1 - grip) * schwungZweitgriff)) * _sk);
       }
-      /* Die Netzhand ist eine feste Faust um den Faden. */
-      faust(seite === 'L' ? 'left' : 'right', _sk);
       /* Der Kopf hält gegen die Vorlage, damit der Blick nach vorn geht
          und nicht auf den Asphalt. */
       /* Bei 66° Vorlage muss der Blick um denselben Betrag zurückgenommen
@@ -6611,6 +6801,38 @@ function makeGlbVisual(m) {
       drehZuRuhe(knochen.head, gegen * 0.55, 0, 0, 0.85 * _sk);
       drehZuRuhe(knochen.neck, gegen * 0.3, 0, 0, 0.8 * _sk);
       drehe(knochen.spine2, gegen * 0.22, 0, 0, 0.55 * _sk);
+      // Solve the arm AFTER the torso correction; otherwise the shoulder
+      // moves again after aiming and the wrist no longer follows the web.
+      netzArm('left', zielWelt, schwungLinks * _sk);
+      netzArm('right', zielWelt, (1 - schwungLinks) * _sk);
+      if (schwungZweitgriff > 0.001 && knochen.leftarm && knochen.rightarm &&
+          knochen.leftforearm && knochen.lefthand) {
+        root.updateMatrixWorld(true);
+        knochen.leftarm.getWorldPosition(_naS);
+        knochen.leftforearm.getWorldPosition(_naE);
+        knochen.lefthand.getWorldPosition(_naH);
+        const reach = (_naS.distanceTo(_naE) + _naE.distanceTo(_naH)) * 0.82;
+        knochen.rightarm.getWorldPosition(_vw1);
+        _vw3.copy(_naS).add(_vw1).multiplyScalar(0.5);
+        _vw2.subVectors(zielWelt, _vw3).normalize();
+        _vw3.addScaledVector(_vw2, reach);
+        netzArm('left', _vw3, schwungZweitgriff * 0.9 * _sk);
+        _vw3.addScaledVector(_vw2, 0.1);
+        netzArm('right', _vw3, schwungZweitgriff * 0.9 * _sk);
+      }
+      // Hand-offs and load changes share a 600 degrees/s joint limit.
+      // The stronger tuck must not make either an elbow or a knee snap.
+      for (const name of NETZ_GELENKE) {
+        const bone = knochen[name];
+        if (!bone) continue;
+        const previous = netzArmVorher.get(name);
+        if (previous && poseDt > 0) {
+          const angle = previous.angleTo(bone.quaternion), limit = poseDt * Math.PI * (10 / 3);
+          if (angle > limit) bone.quaternion.copy(previous.clone().slerp(bone.quaternion, limit / angle));
+        }
+        if (previous) previous.copy(bone.quaternion);
+        else netzArmVorher.set(name, bone.quaternion.clone());
+      }
     },
     /* Schlagbewegung: Ausholen, Durchziehen, Zurücknehmen.
        Jeder Treffer der Kette sieht anders aus – Jab, Haken, Tritt und
@@ -6649,13 +6871,16 @@ function makeGlbVisual(m) {
       drehe(knochen.head, 0, seite * -0.2 * stoss, 0, 1);
     },
     /* Getroffen: kurzes Zurückzucken */
-    poseTreffer(t) {
-      const z = Math.sin(clamp(t, 0, 1) * Math.PI);
-      drehe(knochen.spine1, -0.45 * z, 0, 0, 1);
-      drehe(knochen.spine2, -0.3 * z, 0, 0, 1);
-      drehe(knochen.head, -0.35 * z, 0, 0, 1);
-      drehe(knochen.leftarm, -0.4 * z, 0, 0.6 * z, 1);
-      drehe(knochen.rightarm, -0.4 * z, 0, -0.6 * z, 1);
+    poseTreffer(t, richtung, staerke) {
+      const z = Math.sin(clamp(t, 0, 1) * Math.PI) * clamp(staerke === undefined ? 1 : staerke, 0, 1);
+      if (z < 0.001) return;
+      const seite = richtung === 'links' ? -1 : richtung === 'rechts' ? 1 : 0;
+      const vor = richtung === 'hinten' ? 0.28 : seite ? -0.12 : -0.4;
+      // Keep the authored arm pose. A directional torso overlay fades to
+      // zero instead of resetting the rig to Euler zero at either endpoint.
+      drehZuRuhe(knochen.spine1, vor, seite * 0.16, seite * 0.25, z * 0.7);
+      drehZuRuhe(knochen.spine2, vor * 0.6, seite * 0.1, seite * 0.14, z * 0.6);
+      drehZuRuhe(knochen.head, vor * 0.5, -seite * 0.08, seite * 0.08, z * 0.55);
     },
     /* Kletter-Pose: flach an der Wand, Arme und Beine greifen abwechselnd */
     poseKlettern(phase) {
@@ -6915,15 +7140,16 @@ function makeGlbVisual(m) {
        Beine stiegen also nach oben, waehrend die Figur zur Seite glitt.
        Gedreht wird ueber den kuerzesten Weg, sonst nimmt die Figur beim
        Wechsel von links nach rechts den ganzen Kreis. */
-    wandKriechen(k, tiefe, roll) {
+    wandKriechen(k, tiefe, roll, lauf, kontakt, dt = 1 / 60) {
       const kk = clamp(k === undefined ? 1 : k, 0, 1);
-      innerKipp = lerp(innerKipp, -Math.PI / 2 * kk, 0.28);
+      const rate = 1 - Math.exp(-19.7 * dt);
+      innerKipp = lerp(innerKipp, (lauf ? 0.18 : kontakt ? 0 : -Math.PI / 2) * kk, rate);
       inner.rotation.x = innerKipp;
-      const zZ = (roll || 0) * kk;
+      const zZ = (kontakt && !lauf ? 0 : (roll || 0)) * kk;
       let dz = zZ - inner.rotation.z;
       while (dz > Math.PI) dz -= Math.PI * 2;
       while (dz < -Math.PI) dz += Math.PI * 2;
-      inner.rotation.z += dz * 0.14;
+      inner.rotation.z += dz * (1 - Math.exp(-9 * dt));
       /* Solange gekippt wird, liegt "unter der Figur" die Wand. Die
          Bodenkorrektur (inner.position.y) wuerde sie an der Wand
          entlangschieben - sie wird deshalb ausgeblendet. */
@@ -6932,13 +7158,34 @@ function makeGlbVisual(m) {
       inner.position.z = lerp(inner.position.z, zZiel, 0.25);
       inner.position.x = lerp(inner.position.x, grundX, 0.25);
     },
+    poseWandSprint(nx, nz, plane, phase, roll, k) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      if (w <= 0 || !knochen.hips) return;
+      root.updateMatrixWorld(true);
+      const normal = new THREE.Vector3(nx, 0, nz);
+      const along = new THREE.Vector3(nz * Math.sin(roll || 0), Math.cos(roll || 0), -nx * Math.sin(roll || 0));
+      const right = new THREE.Vector3().crossVectors(along, normal).normalize();
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3());
+      for (const side of ['left', 'right']) {
+        const upper = knochen[side + 'upleg'];
+        if (!upper) continue;
+        const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        const stride = Math.sin((phase || 0) + (sign < 0 ? Math.PI : 0));
+        const target = hip.clone().addScaledVector(right, sign * 0.15)
+          .addScaledVector(along, -0.38 + stride * 0.24);
+        target.addScaledVector(normal, plane * (nx || nz) + 0.075 + Math.max(0, stride) * 0.14 - target.dot(normal));
+        const pole = hip.clone().addScaledVector(along, 0.15).addScaledVector(right, sign * 0.21).addScaledVector(normal, 0.2);
+        gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'], target, pole, w);
+        setzeFuss(side, along, normal.clone().negate(), w);
+      }
+    },
     /* Das Becken flach an die Fassade drehen. Siehe achseInEbene. */
     wandHuefteFlach(nx, nz, k) {
       achseInEbene(knochen.hips, nx, nz,
                    WAND_HUEFT_FLACH * clamp(k === undefined ? 1 : k, 0, 1));
     },
     /* Ist die Figur gerade an die Wand gekippt? */
-    get wandGekippt() { return innerKipp < -0.02; },
+    get wandGekippt() { return Math.abs(innerKipp) > 0.02 || Math.abs(inner.rotation.z) > 0.02; },
     /* Rohwerte der Wandkippung - nur fuer die Fehlersuche. */
     get kippWerte() {
       return { kipp: +innerKipp.toFixed(4),
@@ -7216,69 +7463,46 @@ function makeGlbVisual(m) {
     /* Gleitpose: Arme seitlich weit ausgebreitet, Beine gespreizt und
        leicht angewinkelt. Zwischen Armen und Rumpf spannt sich später die
        Netzhaut – dafür müssen die Arme wirklich weg vom Körper stehen. */
-    poseGleiten(nase, kurve, t, k) {
-      const w = k === undefined ? 0.9 : k;
-      const flattern = Math.sin((t || 0) * 2.4) * 0.03;
-      /* Arme: fast waagerecht zur Seite, minimal nach vorn. Die Kurve
-         senkt den inneren und hebt den äußeren Arm. */
-      const roll = (kurve || 0) * 0.3;
-      /* Die Arme werden im WELTRAUM ausgerichtet, nicht über Eulerwinkel.
-         Beim Mixamo-Skelett liegt die Ruhedrehung der Oberarme so, dass
-         eine Drehung um die lokale Z-Achse den Arm nach vorn statt zur
-         Seite führt – die Netzhaut blieb dadurch auf zehn Zentimeter
-         zusammengefaltet. Mit einem Zielpunkt weit seitlich stimmt es
-         unabhängig von der Ruhelage. */
+    poseGleiten(nase, kurve, t, k, tempo) {
+      const w = clamp(k === undefined ? 0.9 : k, 0, 1);
+      if (w <= 0 || !knochen.hips) return;
       root.updateMatrixWorld(true);
-      _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();  // rechts
-      _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();  // vorn
-      for (const seite of ['left', 'right']) {
-        /* Achtung: Das Skelett ist gespiegelt benannt – der Knochen
-           "leftarm" liegt auf der rechten Körperseite (+X, während die
-           Figur nach +Z schaut). Mit der naheliegenden Zuordnung kreuzten
-           die Arme vor dem Körper, statt sich zu spreizen. */
-        const vz = seite === 'left' ? 1 : -1;
-        const arm = knochen[seite + 'arm'], unter = knochen[seite + 'forearm'];
-        const hand = knochen[seite + 'hand'];
-        if (!arm || !unter) continue;
-        arm.getWorldPosition(_vw3);
-        /* Ziel: weit zur Seite, ein Stück nach hinten und leicht nach
-           unten – die typische Haltung mit gespannter Netzhaut. */
-        const hoch = -0.16 + roll * vz * 0.8 + flattern * vz * 2;
-        _vw4.copy(_vw3)
-          .addScaledVector(_vw1, vz * 3.0)
-          .addScaledVector(_vw2, -0.55)
-          .addScaledVector(_fh.set(0, 1, 0), hoch * 3);
-        zieleKnochen(arm, unter, _vw4, w);
-        if (hand) {
-          /* Der Unterarm zeigt in dieselbe Richtung weiter – der Ellbogen
-             bleibt fast gestreckt, sonst knickt die Haut ein. */
-          unter.getWorldPosition(_vw3);
-          _vw4.copy(_vw3)
-            .addScaledVector(_vw1, vz * 3.0)
-            .addScaledVector(_vw2, -0.4)
-            .addScaledVector(_fh.set(0, 1, 0), hoch * 2.4);
-          zieleKnochen(unter, hand, _vw4, w * 0.95);
-        }
+      const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).normalize();
+      const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).normalize();
+      const up = new THREE.Vector3().crossVectors(forward, right).normalize();
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3());
+      const flight = forward.clone().addScaledVector(up, 0.1 - clamp(nase || 0, -1, 1) * 0.1).normalize();
+      // Lay out the complete body before reaching the wings. Resetting only
+      // the legs against a prone imported pelvis produced the twisted body.
+      zieleKnochen(knochen.hips, knochen.spine, hip.clone().add(flight), w);
+      for (const [name, child] of [['spine', 'spine1'], ['spine1', 'spine2'], ['spine2', 'neck']]) {
+        const bone = knochen[name];
+        if (bone && knochen[child]) zieleKnochen(bone, knochen[child],
+          bone.getWorldPosition(new THREE.Vector3()).add(flight), w * 0.8);
       }
-      /* Beine fast geschlossen und nur leicht angewinkelt. Vorher standen
-         sie mit 0,34 rad weit auseinander und waren stark gebeugt - die
-         Silhouette wurde dadurch zum Seestern, und die Netzhaut zwischen
-         Arm und Rumpf ging in der Luecke unter. Enge Beine geben die
-         Deltaform, die den Gleitflug lesbar macht. */
-      const beinAn = 0.16 - (nase || 0) * 0.14;
-      drehZuRuhe(knochen.leftupleg,  beinAn, 0,  0.13 + roll * 0.4, w);
-      drehZuRuhe(knochen.rightupleg, beinAn, 0, -0.13 + roll * 0.4, w);
-      drehZuRuhe(knochen.leftleg,  0.22 + flattern * 2, 0, 0, w);
-      drehZuRuhe(knochen.rightleg, 0.22 - flattern * 2, 0, 0, w);
-      /* Fussspitzen gestreckt nach hinten - wie beim Springen vom Brett. */
-      if (knochen.leftfoot)  drehZuRuhe(knochen.leftfoot,  -0.30, 0, 0, w * 0.8);
-      if (knochen.rightfoot) drehZuRuhe(knochen.rightfoot, -0.30, 0, 0, w * 0.8);
-      /* Rumpf: bei gedrückter Nase mehr Vorlage, dazu Kurvenlage. */
-      drehe(knochen.spine1, -0.1 + (nase || 0) * 0.1, (kurve || 0) * 0.16, 0, 0.5);
-      drehe(knochen.spine,  -0.06, (kurve || 0) * 0.1, 0, 0.4);
-      /* Der Blick geht nach vorn, nicht auf den Asphalt. */
-      drehZuRuhe(knochen.head, -0.30, (kurve || 0) * 0.2, 0, 0.8);
-      drehZuRuhe(knochen.neck, -0.18, 0, 0, 0.75);
+      const speed = clamp((tempo === undefined ? 18 : tempo) / 30, 0, 1);
+      const breathe = Math.sin((t || 0) * 1.8) * (0.018 - speed * 0.008);
+      const bank = clamp(kurve || 0, -1, 1) * 0.1;
+      for (const side of ['left', 'right']) {
+        const upper = knochen[side + 'upleg'], arm = knochen[side + 'arm'];
+        if (!upper || !arm) continue;
+        const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
+          hip.clone().addScaledVector(flight, -0.83).addScaledVector(right, sign * 0.11)
+            .addScaledVector(up, 0.015 + breathe * sign),
+          hip.clone().addScaledVector(flight, -0.4).addScaledVector(right, sign * 0.16).addScaledVector(up, -0.12), w);
+        drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
+        root.updateMatrixWorld(true);
+        const shoulder = arm.getWorldPosition(new THREE.Vector3());
+        gliedZiel(arm, knochen[side + 'forearm'], knochen[side + 'hand'],
+          shoulder.clone().addScaledVector(right, sign * 0.48).addScaledVector(flight, -0.11)
+            .addScaledVector(up, bank * sign + breathe),
+          shoulder.clone().addScaledVector(right, sign * 0.35).addScaledVector(flight, -0.05).addScaledVector(up, 0.08), w);
+        setzeFuss(side, flight.clone().negate(), up.clone().negate(), w * 0.85);
+        setzeHand(side, right.clone().multiplyScalar(sign), up.clone().negate(), w * 0.9);
+      }
+      if (knochen.neck && knochen.head) zieleKnochen(knochen.neck, knochen.head,
+        knochen.neck.getWorldPosition(new THREE.Vector3()).addScaledVector(flight, 0.22).addScaledVector(up, 0.13), w * 0.8);
     },
     /* Den freien Arm hängen lassen. Beim Schirmhalten stand der zweite Arm
        mit offener Hand ebenfalls in der Luft – das sah aus, als würde die
@@ -7365,71 +7589,78 @@ function makeGlbVisual(m) {
        Zielpunkt haette also je nach Koerpergroesse danebengelegen.
          hoch = die Wand hinauf, quer = an der Wand entlang,
          raus = von der Wand weg.                                        */
-    poseWandhalt(nx, nz, k) {
+    // One contact pose owns the moving climb. It replaces the prone clip,
+    // hip flattening and iterative limb pulling on this path.
+    poseWandKontakt(nx, nz, flaeche, velocity, dt, k = 1) {
+      const w = clamp(k, 0, 1);
+      if (w <= 0 || !knochen.hips) return;
+      const normal = new THREE.Vector3(nx, 0, nz), right = new THREE.Vector3(-nz, 0, nx);
+      const vel = velocity.clone().addScaledVector(normal, -velocity.dot(normal));
+      const speed = vel.length(), step = Math.min(0.05, Math.max(0, dt));
+      climbMotion.speed += (speed - climbMotion.speed) * (1 - Math.exp(-14 * step));
+      if (speed > 0.05) climbMotion.along.lerp(vel.normalize(), 1 - Math.exp(-12 * step)).normalize();
+      climbMotion.phase = (climbMotion.phase + speed * step / 1.10) % 1;
+      const moving = clamp(climbMotion.speed / 0.7, 0, 1), along = climbMotion.along;
+      // Upright torso faces the wall. Elbows and knees bend away from it.
+      drehZuRuhe(knochen.hips, 0, 0, 0, w);
+      const bodyUp = new THREE.Vector3(0, 1, 0).addScaledVector(normal, -0.13).normalize();
+      for (const [a, b] of [['hips', 'spine'], ['spine', 'spine1'], ['spine1', 'spine2'], ['spine2', 'neck']]) {
+        if (knochen[a] && knochen[b]) zieleKnochen(knochen[a], knochen[b],
+          knochen[a].getWorldPosition(new THREE.Vector3()).add(bodyUp), w);
+      }
+      for (const side of ['left', 'right']) drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
+      root.updateMatrixWorld(true);
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3()), plane = flaeche * (nx || nz);
+      const point = (x, y, depth) => hip.clone().addScaledVector(right, x)
+        .add(new THREE.Vector3(0, y, 0)).addScaledVector(normal, plane + depth - hip.dot(normal));
+      const contact = (phase, base, reach, depth) => {
+        const p = ((phase % 1) + 1) % 1, stance = 0.58;
+        const u = Math.max(0, (p - stance) / (1 - stance));
+        const travel = p < stance ? 0.5 - p / stance : -0.5 + u * u * (3 - 2 * u);
+        const lift = Math.sin(Math.PI * u) ** 2;
+        return base.addScaledVector(along, travel * 1.10 * stance * moving * reach)
+          .addScaledVector(normal, lift * depth * moving);
+      };
+      for (const side of ['left', 'right']) {
+        const upper = knochen[side + 'upleg']; if (!upper) continue;
+        const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        const phase = climbMotion.phase + (sign > 0 ? 0.5 : 0);
+        const hand = contact(phase, point(sign * 0.28, sign > 0 ? 0.74 : 0.66, 0.068), 1, 0.14);
+        const foot = contact(phase + 0.5, point(sign * 0.23, sign > 0 ? -0.52 : -0.60, 0.085), 0.86, 0.16);
+        gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
+          hand, point(sign * 0.45, 0.32, 0.34), w);
+        gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
+          foot, point(sign * 0.43, -0.16, 0.50), w);
+        const fingers = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
+        setzeHand(side, fingers, normal.clone().negate(), w);
+        setzeFuss(side, fingers, normal.clone().negate(), w);
+        krallen(side, 0.12 * w);
+      }
+      if (knochen.neck && knochen.head) zieleKnochen(knochen.neck, knochen.head,
+        knochen.neck.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 1, 0)), w);
+    },
+    poseWandhalt(nx, nz, k, flaeche) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
-      const hueft = knochen.hips;
-      if (!hueft) return;
+      if (w <= 0 || !knochen.hips) return;
       root.updateMatrixWorld(true);
-      const rx = -nz, rz = nx;                    // Tangente laengs der Wand
-      /* ---- Zielpunkte relativ zur HUEFTE, nicht zum jeweiligen Knochen ----
-         Vorher lag jedes Ziel relativ zu dem Knochen, der gedreht werden
-         sollte. Das ist gefaehrlich, weil das Skelett gespiegelt benannt
-         ist und die beiden Seiten dadurch unterschiedlich weit ausschlugen:
-         gemessen stand die eine Hand 19 cm neben der Koerpermitte, die
-         andere 45 cm - eine Hand hing vor dem Gesicht, die andere weit
-         draussen. Ausserdem standen die Ellbogen 20 bis 25 cm und die
-         Knie bis zu 40 cm VON DER WAND WEG; das sah nach Boxdeckung aus,
-         nicht nach Kleben.
-         Von der Huefte aus gemessen sind beide Seiten sauber gespiegelt
-         und die Abstaende zur Fassade stimmen.
-           hoch = die Wand hinauf, quer = an der Wand entlang,
-           raus = von der Wand weg. */
-      /* Rumpf gerade an die Wand. Die Kriechbewegung darunter legt den
-         Oberkoerper zur Seite - gemessen stand der Kopf 18 cm neben der
-         Huefte, und weil die Schultern mitwandern, standen auch die Haende
-         schief (eine 31 cm links, die andere 47 cm rechts der Mitte). */
-      for (const n of ['spine', 'spine1', 'spine2']) {
-        if (knochen[n]) drehZuRuhe(knochen[n], 0, 0, 0, w * 0.85);
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3());
+      const normal = new THREE.Vector3(nx, 0, nz), right = new THREE.Vector3(-nz, 0, nx);
+      const plane = flaeche === undefined ? hip.dot(normal) - 0.3 : flaeche * (nx || nz);
+      const point = (x, y, depth) => hip.clone().addScaledVector(right, x)
+        .add(new THREE.Vector3(0, y, 0)).addScaledVector(normal, plane + depth - hip.dot(normal));
+      for (const side of ['left', 'right']) {
+        const leg = knochen[side + 'upleg'];
+        if (!leg) continue;
+        const sign = leg.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
+          point(sign * 0.25, sign > 0 ? 0.76 : 0.65, 0.065), point(sign * 0.4, 0.4, 0.28), w);
+        gliedZiel(leg, knochen[side + 'leg'], knochen[side + 'foot'],
+          point(sign * 0.2, sign > 0 ? -0.46 : -0.65, 0.09), point(sign * 0.34, -0.08, 0.38), w);
+        const upward = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
+        setzeHand(side, upward, normal.clone().negate(), w);
+        setzeFuss(side, upward, normal.clone().negate(), w);
+        krallen(side, 0.08 * w);
       }
-      root.updateMatrixWorld(true);
-      hueft.getWorldPosition(_hp);
-      const ziel = (hoch, quer, raus) => _vw4.set(
-        _hp.x + rx * quer + nx * raus, _hp.y + hoch, _hp.z + rz * quer + nz * raus);
-      for (const p of ['left', 'right']) {
-        const vz = p === 'left' ? 1 : -1;   // Skelett ist gespiegelt benannt
-        const arm = knochen[p + 'arm'], varm = knochen[p + 'forearm'];
-        const hand = knochen[p + 'hand'];
-        if (arm && varm) {
-          /* Ellbogen leicht nach aussen, Hand darueber flach an der Wand. */
-          zieleKnochen(arm, varm, ziel(0.74, vz * 0.34, 0.14), w);
-          if (hand) zieleKnochen(varm, hand, ziel(1.28, vz * 0.24, 0.03), w);
-        }
-        const ober = knochen[p + 'upleg'], unter = knochen[p + 'leg'];
-        const fuss = knochen[p + 'foot'];
-        if (ober && unter) {
-          /* ---- Knie angehockt, aber nicht abgespreizt ----
-             Die alten Masse (Knie 0,42 m, Fuss 0,30 m quer) ergaben
-             gemessen 0,94 m Knie- und 0,68 m Fussabstand - einen fast
-             waagerechten Spagat. Jetzt kompakter, und die beiden Seiten
-             sind bewusst NICHT gleich: ein Knie steht hoeher und etwas
-             weiter, das andere tiefer und enger. Eine exakt gespiegelte
-             Haltung sieht aus wie ein Frosch, eine leicht versetzte wie
-             jemand, der sich an der Wand haelt. */
-          const versatz = vz > 0 ? 1 : 0;               // nur die linke Seite hoeher
-          zieleKnochen(ober, unter,
-            ziel(-0.10 + versatz * 0.13,
-                 vz * (WANDHALT_KNIE_QUER + versatz * 0.05), 0.26), w);
-          if (fuss) {
-            zieleKnochen(unter, fuss,
-              ziel(-0.62 + versatz * 0.16,
-                   vz * (WANDHALT_FUSS_QUER + versatz * 0.03), 0.05), w);
-            drehZuRuhe(fuss, 0.35, 0, 0, w * 0.7);
-          }
-        }
-      }
-      /* Kopf leicht angehoben - der Blick geht die Wand hinauf. */
-      drehZuRuhe(knochen.neck, -0.22, 0, 0, w * 0.8);
-      drehZuRuhe(knochen.head, -0.20, 0, 0, w * 0.8);
     },
     /* ---- Haende und Fuesse einzeln an die Fassade legen ----
        wandFreiraum() schiebt den GANZEN Koerper so weit heraus, dass der
@@ -7442,7 +7673,7 @@ function makeGlbVisual(m) {
        nur - die Gliedlaenge bleibt, es kann also nichts ausleiern. */
     /* kraft = je Glied 1 (Stuetzphase) bis GRIFF_SCHWUNG (setzt um).
        Siehe die Erklaerung an der Messstelle in wandFreiraum(). */
-    wandGriff(nx, nz, flaeche, k, kraft) {
+    wandGriff(nx, nz, flaeche, k, kraft, nurFuesse) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
       /* Welchem Kontaktglied gehoert dieses Knochenpaar? */
       const gliedVon = (eltern, spitze) => {
@@ -7487,6 +7718,7 @@ function makeGlbVisual(m) {
          den Rest - gemessen 0,611 -> 0,352 m. */
       for (let durch = 0; durch < 3; durch++)
       for (const [eltern, spitze, rest] of paare) {
+        if (nurFuesse && /arm|hand/.test(eltern + spitze)) continue;
         const a = knochen[eltern], b = knochen[spitze];
         if (!a || !b) continue;
         b.getWorldPosition(_vw3);
@@ -7566,152 +7798,39 @@ function makeGlbVisual(m) {
        Faktor ruecken Knie, Fuesse und Arme so weit zusammen, dass alles
        auf dem Halt aufliegt. */
     poseKauern(k, eng) {
-      const w = clamp(k === undefined ? 1 : k, 0, 1);
-      const eg = clamp(eng === undefined ? 0 : eng, 0, 1);
-      const q = 1 - eg * KAU_ENG;
-      /* Zwischen Dach-Perch und Mast-Perch ueberblenden. */
-      const M = (n) => lerp(KAU[n], KAU_MAST[n], eg);
-      const kV = M('knieV'), kQ = M('knieQ'), kH = M('knieH');
-      const fV = M('fussV'), fQ = M('fussQ'), fH = M('fussH');
-      const hueft = knochen.hips;
-      if (!hueft) return;
-      /* Erst der Rumpf: rund nach vorn, Kopf dagegen wieder hoch. Er wird
-         VOR den Gliedmassen gesetzt, weil Arme und Beine gleich auf
-         Weltpunkte gezielt werden - und die haengen an der Lage von
-         Huefte und Schultern. */
-      /* drehZuRuhe statt drehe: drehe setzt den Eulerwinkel ABSOLUT, und
-         die Mixamo-Wirbel stehen in Ruhe nicht auf null - aus einer
-         gewuenschten Beuge von 69 Grad wurden dadurch gemessene 42, und
-         die Schultern blieben 20 cm zu hoch, sodass die Haende die Kante
-         nicht erreichten. drehZuRuhe legt die Drehung an die RUHELAGE an,
-         der Winkel stimmt dann wirklich. */
-      drehZuRuhe(knochen.spine, KAU.r1, 0, 0, w);
-      drehZuRuhe(knochen.spine1, KAU.r2, 0, 0, w);
-      drehZuRuhe(knochen.spine2, KAU.r3, 0, 0, w);
+      const w = clamp(k === undefined ? 1 : k, 0, 1), narrow = clamp(eng || 0, 0, 1);
+      if (w <= 0 || !knochen.hips) return;
+      drehZuRuhe(knochen.spine, 0.64, 0.06 * (1 - narrow), 0, w);
+      drehZuRuhe(knochen.spine1, 0.64, 0.12 * (1 - narrow), 0, w);
+      drehZuRuhe(knochen.spine2, 0.28, 0, 0, w);
       root.updateMatrixWorld(true);
-      _vw1.setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();   // rechts
-      _vw2.setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();   // vorn
-      /* ---- Kopf HOCH ----
-         Vorher wurden Nacken und Kopf ueber feste Winkel gedreht
-         (drehZuRuhe). Die Mixamo-Halsknochen stehen aber schraeg im Raum,
-         und aus -1,3 rad wurde deshalb fast nichts: gemessen sass der
-         Kopf nur 2 Zentimeter ueber den Schultern, die Figur schaute auf
-         ihre eigenen Knie. Genau das war "sitzt nicht wie Spider-Man".
-         Der Nacken wird jetzt auf einen WELTPUNKT ueber sich selbst
-         gezielt - dann steht er aufrecht, egal wie der Rumpf liegt - und
-         der Kopf bekommt danach nur noch seine Blickneigung. */
-      {
-        const na = knochen.neck, ko = knochen.head;
-        if (na && ko) {
-          na.updateMatrixWorld(true);
-          na.getWorldPosition(_vw3);
-          zieleKnochen(na, ko, _vw4.copy(_vw3)
-            .addScaledVector(_vw2, KAU.kopfVorn)
-            .addScaledVector(_fh.set(0, 1, 0), KAU.kopfHoch), w * 0.95);
-          drehZuRuhe(ko, KAU.kopfNeig, 0, 0, w * 0.85);
-        }
+      const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).setY(0).normalize();
+      const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).setY(0).normalize();
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3());
+      const point = (x, y, z) => hip.clone().addScaledVector(right, x)
+        .addScaledVector(forward, z).add(new THREE.Vector3(0, y, 0));
+      const floor = hip.y - 0.32, span = lerp(0.29, 0.13, narrow);
+      for (const side of ['left', 'right']) {
+        const upper = knochen[side + 'upleg'];
+        if (!upper) continue;
+        const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        const foot = point(sign * span, floor - hip.y + 0.1, lerp(sign > 0 ? 0.28 : 0.04, 0.12, narrow));
+        gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'], foot,
+          point(sign * lerp(0.43, 0.12, narrow), sign > 0 ? 0.65 : 0.50, sign > 0 ? 0.63 : 0.90), w);
+        setzeFuss(side, forward.clone().addScaledVector(right, sign * 0.25), new THREE.Vector3(0, -1, 0), w);
+        const support = sign < 0 || narrow > 0.5;
+        const hand = support ? point(sign * lerp(0.12, 0.12, narrow), floor - hip.y + 0.08, 0.42)
+          : knochen[side + 'leg'].getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.06, 0)).addScaledVector(right, -sign * 0.09);
+        gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
+          hand, point(sign * 0.44, 0.28, 0.30), w);
+        setzeHand(side, forward, new THREE.Vector3(0, -1, 0), w);
+        krallen(side, 0.05 * w);
       }
-      root.updateMatrixWorld(true);
-      hueft.getWorldPosition(_hp);
-      /* Alle Ziele liegen als WELTPUNKTE relativ zur Huefte fest. Der
-         erste Anlauf hat die Beine ueber feste Eulerwinkel gedreht
-         (drehZuRuhe) - dabei kippten die Oberschenkel nach HINTEN, die
-         Knie zeigten nach unten weg und die Figur kniete eher, als dass
-         sie hockte. Genau das war "die Beine sind falschherum".
-         Mit Zielpunkten kann das nicht passieren: das Knie liegt vorn
-         oben, der Fuss darunter am Boden, und der Winkel dazwischen
-         ergibt sich von selbst.
-         Masse aus dem Vorbild: Fuesse flach nebeneinander, Knie fast auf
-         Schulterhoehe, beide Haende VOR den Fuessen auf der Kante. */
-      const ziel = (vorn, quer, hoch) => _vw4.copy(_hp)
-        .addScaledVector(_vw2, vorn)
-        .addScaledVector(_vw1, quer)
-        .addScaledVector(_fh.set(0, 1, 0), hoch);
-      for (const p of ['left', 'right']) {
-        const vz = p === 'left' ? 1 : -1;    // Skelett ist gespiegelt benannt
-        const ober = knochen[p + 'upleg'], unter = knochen[p + 'leg'];
-        const fuss = knochen[p + 'foot'];
-        if (ober && unter) {
-          /* Knie nach VORN OBEN - das macht die Hocke aus. */
-          zieleKnochen(ober, unter, ziel(kV, vz * kQ * q, kH), w);
-          if (fuss) {
-            /* Unterschenkel wieder nach hinten unten auf den Boden. */
-            zieleKnochen(unter, fuss, ziel(fV, vz * fQ * q, fH), w);
-            /* Fussohle flach und die Zehen NACH VORN.
-               Vorher stand hier nur eine feste Nachdrehung des Fusses.
-               Das reichte nicht: zieleKnochen richtet den Unterschenkel
-               ABSOLUT aus und wirft dabei seine Verdrehung weg - der Fuss
-               haengt daran und zeigte gemessen 13 cm nach HINTEN statt
-               nach vorn. Deshalb wird der Fuss jetzt selbst gezielt: vom
-               Knoechel aus nach vorn, die Spitze ein Stueck tiefer. */
-            const zehe = knochen[p + 'toebase'];
-            if (zehe) {
-              fuss.getWorldPosition(_vw3);
-              /* Die Zehen zeigen nicht stur geradeaus: die Beine stehen
-                 breit, die Fuesse folgen ihnen ein Stueck nach aussen.
-                 Ohne diesen Anteil standen die Fuesse quer zum Bein und
-                 sahen verdreht aus. */
-              zieleKnochen(fuss, zehe, _vw4.copy(_vw3)
-                .addScaledVector(_vw2, 0.16)
-                .addScaledVector(_vw1, vz * KAU.zehQuer * q)
-                .addScaledVector(_fh.set(0, 1, 0), -KAU.zehTief), w * 0.95);
-            } else {
-              drehZuRuhe(fuss, KAU.fussDreh, 0, 0, w * 0.85);
-            }
-          }
-        }
-      }
-      /* ---- Die Haende AUF die Flaeche, nicht hinein ----
-         Vorher zeigten die Arme einfach senkrecht nach unten. Der Arm ist
-         aber laenger als der Abstand von der Schulter zum Dach, und weil
-         zieleKnochen nur die RICHTUNG dreht, landete die Hand entsprechend
-         tiefer: gemessen steckten die Fingerspitzen 29 Zentimeter im Dach.
-         Jetzt wird zuerst die Sohlenebene bestimmt (aus dem tiefsten Fuss)
-         und der Zielpunkt dann so gewaehlt, dass die Hand GENAU auf dieser
-         Ebene ankommt - was an Weg uebrig bleibt, geht nach vorn. Das ist
-         auch die Haltung aus dem Vorbild: die Haende stuetzen VOR den
-         Fuessen auf der Kante. */
-      root.updateMatrixWorld(true);
-      let sohle = Infinity;
-      for (const p of ['left', 'right']) {
-        const f = knochen[p + 'foot'];
-        if (!f) continue;
-        f.getWorldPosition(_vw3);
-        sohle = Math.min(sohle, _vw3.y - KAU_SOHLE);
-      }
-      for (const p of ['left', 'right']) {
-        const vz = p === 'left' ? 1 : -1;
-        const arm = knochen[p + 'arm'], varm = knochen[p + 'forearm'];
-        const hand = knochen[p + 'hand'];
-        if (!arm || !varm || !hand) continue;
-        /* Zielpunkt auf der Sohlenebene, im richtigen Abstand vom Gelenk:
-           liegt die Ebene naeher als das Glied lang ist, muss der Rest
-           nach vorn gehen, sonst zeigt das Glied unter die Ebene. */
-        const aufEbene = (gelenk, spitze, vorn, quer, rest) => {
-          gelenk.getWorldPosition(_vw3);
-          spitze.getWorldPosition(_hp2);
-          const laenge = _vw3.distanceTo(_hp2);
-          const hoch = _vw3.y - (isFinite(sohle) ? sohle + rest : _vw3.y - laenge);
-          const waag = Math.sqrt(Math.max(0.0004, laenge * laenge - hoch * hoch));
-          return _vw4.copy(_vw3)
-            .addScaledVector(_vw2, vorn * waag)
-            .addScaledVector(_vw1, vz * quer * waag)
-            .setY(_vw3.y - Math.min(hoch, laenge));
-        };
-        /* Auf einem schmalen Halt wird die Unsymmetrie zurueckgenommen -
-           dort brauchen beide Haende den Mast. */
-        const sym = 1 - eg;
-        const fuehrend = p === 'right';
-        const fv = 1 + ((fuehrend ? KAU.fuehrVor : KAU.freiVor) - 1) * sym;
-        const fq = 1 + (((fuehrend ? KAU.fuehrQuer : KAU.freiQuer)) - 1) * sym;
-        const fh = 1 + (((fuehrend ? 1 : KAU.freiHoch)) - 1) * sym;
-        zieleKnochen(arm, varm,
-          aufEbene(arm, varm, KAU.armV * q * fv, KAU.armQ * q * fq,
-                   KAU.armRest), w);
-        varm.updateMatrixWorld(true);
-        zieleKnochen(varm, hand,
-          aufEbene(varm, hand, KAU.handV * q * fv, KAU.handQ * q * fq,
-                   KAU.handHoch * fh), w);
+      if (knochen.neck && knochen.head) {
+        const neck = knochen.neck.getWorldPosition(new THREE.Vector3());
+        zieleKnochen(knochen.neck, knochen.head,
+          neck.add(new THREE.Vector3(0, 0.3, 0)).addScaledVector(forward, 0.1), w);
+        drehZuRuhe(knochen.head, 0.05, -0.08 * (1 - narrow), 0, w * 0.8);
       }
     },
     poseDreiPunkt(k, seite) {
@@ -7854,7 +7973,8 @@ function makeGlbVisual(m) {
       if (!punkte.length) return;
       root.updateMatrixWorld(true);
       let tiefster = Infinity;
-      for (const b of punkte) { b.getWorldPosition(_vb); tiefster = Math.min(tiefster, _vb.y); }
+      for (const b of punkte) { b.getWorldPosition(_vb);
+        tiefster = Math.min(tiefster, _vb.y - (/toebase/i.test(b.name) ? 0.075 : 0.015)); }
       const ziel = clamp(bodenKorrektur + (root.position.y - tiefster), -1.1, 0.9);
       bodenKorrektur = lerp(bodenKorrektur, ziel, clamp(k === undefined ? 0.12 : k, 0, 0.5));
       legeY();
@@ -7894,18 +8014,42 @@ function makeGlbVisual(m) {
        Verletzten AM BODEN und wurde im Zug prompt zum auf dem Gang
        liegenden Fahrgast. Die Haltung wird deshalb gesetzt - Huefte und
        Knie je rund 85 Grad, Rumpf aufrecht, Arme locker.
-       bankY ist die Welthoehe der Sitzflaeche: die Figur wird so
-       verschoben, dass das Becken genau darauf zu liegen kommt. */
-    poseSitzen(k, bankY) {
+       Der Aufrufer setzt das Becken mit sitzMasse auf die Sitzflaeche.
+       Fahrer richten Oberkoerper und Haende auf das Lenkrad aus. */
+    poseSitzen(k, bankY, fahrer) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
-      for (const p of ['left', 'right']) {
-        drehZuRuhe(knochen[p + 'upleg'], 1.38 * w, 0, 0.05 * w, w);
-        drehZuRuhe(knochen[p + 'leg'], -1.55 * w, 0, 0, w);
-        if (knochen[p + 'foot']) drehZuRuhe(knochen[p + 'foot'], 0.16 * w, 0, 0, w * 0.7);
-        if (knochen[p + 'arm']) drehZuRuhe(knochen[p + 'arm'], 0.3 * w, 0, 0, w * 0.55);
-        if (knochen[p + 'forearm']) drehZuRuhe(knochen[p + 'forearm'], 0.55 * w, 0, 0, w * 0.55);
+      if (w <= 0 || !knochen.hips) return;
+      root.updateMatrixWorld(true);
+      const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).normalize();
+      const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).normalize();
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3());
+      if (fahrer) {
+        const bodyUp = new THREE.Vector3(0, 1, 0).addScaledVector(forward, 0.34).normalize();
+        for (const [name, child] of [['hips', 'spine'], ['spine', 'spine1'], ['spine1', 'spine2'], ['spine2', 'neck']]) {
+          const bone = knochen[name];
+          if (bone && knochen[child]) zieleKnochen(bone, knochen[child],
+            bone.getWorldPosition(new THREE.Vector3()).add(bodyUp), w);
+        }
+        for (const side of ['left', 'right']) drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
+        if (knochen.neck && knochen.head) zieleKnochen(knochen.neck, knochen.head,
+          knochen.neck.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 1, 0)), w);
+        root.updateMatrixWorld(true);
       }
-      if (knochen.spine1) drehe(knochen.spine1, 0.05 * w, 0, 0, w * 0.4);
+      const point = (x, y, z) => hip.clone().addScaledVector(right, x)
+        .addScaledVector(forward, z).add(new THREE.Vector3(0, y, 0));
+      for (const side of ['left', 'right']) {
+        const bone = knochen[side + 'upleg'];
+        if (!bone) continue;
+        const sign = bone.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        gliedZiel(bone, knochen[side + 'leg'], knochen[side + 'foot'],
+          point(sign * 0.16, -0.53, fahrer ? 0.51 : 0.43), point(sign * 0.2, -0.05, 0.65), w);
+        setzeFuss(side, forward, new THREE.Vector3(0, -1, 0), w);
+        gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
+          point(sign * (fahrer ? 0.22 : 0.14), fahrer ? 0.28 : 0.05, fahrer ? 0.43 : 0.37),
+          point(sign * 0.32, 0.15, 0.19), w);
+        setzeHand(side, forward, new THREE.Vector3(0, -1, 0), w * 0.9);
+        if (fahrer) faust(side, w * 0.55);
+      }
     },
     /* Welthoehe des Beckens und des tiefsten Fusspunktes - damit der
        Aufrufer eine sitzende Figur genau auf die Sitzflaeche setzen kann,
@@ -7959,26 +8103,54 @@ function makeGlbVisual(m) {
        Hier wird jedes Bein einzeln nachgeführt: Zweigelenk-IK aus Hüfte,
        Knie und Knöchel, Ziel ist der Boden unter genau diesem Fuß.
        hoeheFn(x, z) liefert die Bodenhöhe, k die Stärke. */
-    /* ---- Schrittbremse: gebaut, vermessen und wieder ENTFERNT ----
-       Der Laufclip traegt weniger Weg, als die Figur zuruecklegt (1,56 m/s
-       gegen 6,91 m/s). Der naheliegende Ausweg ist, den Standfuss waehrend
-       seines Bodenkontakts auf seinem Weltpunkt festzuhalten - ueber
-       dieselbe Zweigelenk-Nachfuehrung, die hier schon die Bodenhoehe
-       macht, also ohne die Knochen zu strecken.
-       Gebaut, mit weichem Auf- und Abbau des Griffs, einer Reichweiten-
-       grenze und einem Temposchwellwert, damit das saubere Gehen
-       unberuehrt bleibt. Ueber je 600 Bilder gemessen (Anteil des
-       Rutschens am Weg der Figur, und groesster Schlupf je Bild):
-         ohne Bremse   gehen 11 % / 0,010   laufen 76 % / 0,203   sprint 45 % / 0,162
-         Staerke 0,3   gehen 33 % / 0,158   laufen 55 % / 0,142   sprint 38 %
-         Staerke 0,6   gehen 22 % / 0,054   laufen 47 % / 0,323   sprint 32 % / 0,196
-         Staerke 0,85  gehen 19 % / 0,081   laufen 74 % / 0,600   sprint 32 % / 0,356
-       Der Mittelwert sinkt also, der GROESSTE Schlupf steigt aber auf das
-       Dreifache: aus gleichmaessigem Rutschen wird ein Ruck, sobald der
-       Griff loslaesst. Und das Gehen, das mit 11 Prozent sauber war, wird
-       messbar schlechter. Ein Ruck faellt mehr auf als ein Schleifen,
-       deshalb ist die Bremse wieder draussen. Das Rutschen bleibt als
-       offener Punkt im Bericht stehen. */
+    /* Standkontakte fuer den laengeren Laufclip: nach der Boden-IK den
+       Weltpunkt weich halten und vor der Reichweitengrenze freigeben.
+       Der Clip liefert weiterhin Schwungphase und Kniebeugung. Sprung,
+       Klettern, Kampf und bewegte Plattformen loesen diese Kontakte. */
+    loeseFusskontakte() {
+      for (const side of ['left', 'right']) {
+        groundContacts[side].anchor = null; groundContacts[side].weight = 0;
+        groundContacts[side].previous = null;
+      }
+    },
+    // Keep the stance foot in world space, release before the swing, and
+    // fade corrections rather than snapping back to the animation pose.
+    gangKontakt(velocity, dt, hoeheFn) {
+      if (!current || !knochen.hips) return;
+      const speed = Math.hypot(velocity.x, velocity.z);
+      if (speed < 0.15) { this.loeseFusskontakte(); return; }
+      root.updateMatrixWorld(true);
+      const forward = velocity.clone().setY(0).normalize();
+      for (const side of ['left', 'right']) {
+        const upper = knochen[side + 'upleg'], knee = knochen[side + 'leg'], foot = knochen[side + 'foot'];
+        if (!upper || !knee || !foot) continue;
+        const state = groundContacts[side], ankle = foot.getWorldPosition(new THREE.Vector3());
+        if (state.anchor && state.anchor.distanceTo(ankle) > 0.65) {
+          state.anchor = null; state.weight = 0;
+        }
+        const hip = upper.getWorldPosition(new THREE.Vector3()), pole = knee.getWorldPosition(new THREE.Vector3());
+        const ground = hoeheFn(ankle.x, ankle.z), clearance = ankle.y - ground;
+        const rel = ankle.clone().sub(root.position);
+        const backward = !state.previous || rel.clone().sub(state.previous).dot(forward) < 0;
+        state.previous = rel;
+        const reach = hip.distanceTo(pole) + pole.distanceTo(ankle);
+        const stance = backward && clearance < 0.14 && clearance > -0.08;
+        if (stance && !state.anchor) state.anchor = ankle.clone();
+        const near = state.anchor && hip.distanceTo(state.anchor) < reach * 0.94;
+        const desired = stance && near ? 1 : 0;
+        state.weight = (state.weight || 0) + (desired - (state.weight || 0)) * (1 - Math.exp(-dt * (desired ? 32 : 24)));
+        if (state.anchor && state.weight > 0.015) {
+          const target = ankle.clone().lerp(state.anchor, state.weight);
+          target.y = Math.max(ground + 0.06, ankle.y);
+          const orientation = foot.getWorldQuaternion(new THREE.Quaternion());
+          // The clip's knee sets the bend plane; only its planted endpoint moves.
+          gliedZiel(upper, knee, foot, target, pole, 1);
+          foot.quaternion.copy(foot.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(orientation));
+          foot.updateMatrixWorld(true);
+        }
+        if (!desired && state.weight < 0.04) state.anchor = null;
+      }
+    },
     fussIK(hoeheFn, k, blickX, blickZ) {
       if (k <= 0.001) return;
       root.updateMatrixWorld(true);
@@ -8152,7 +8324,9 @@ function makeGlbVisual(m) {
          Versuch, dafuer die Wandbewegung aus hero-3 zu nehmen, war ein
          Rueckschritt: das ist ein flaches Kriechen, und aus dem Rennen die
          Wand hoch wurde damit ein Wuehlen. */
-      if (p.wandModus === 'lauf') {
+      if (p.wandKontakt && p.wandModus !== 'lauf') {
+        want = 'idle';
+      } else if (p.wandModus === 'lauf') {
         if (findClip(m.clips, WANDLAUF_CLIP)) want = WANDLAUF_CLIP;
         else if (findClip(m.clips, 'run')) want = 'run';
       } else if (p.wandModus === 'kriechen') {
@@ -8173,7 +8347,7 @@ function makeGlbVisual(m) {
          den geladenen Bewegungen nicht, und erfunden wird keine. */
       if (key === 'kampfstand') want = findClip(m.clips, 'warten') ? 'warten' : 'idle';
 
-      if ((key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
+      if (want === key && (key === 'swing' || key === 'climb' || key === 'klettern_frei' ||
            key === 'klettern_seit') && !findClip(m.clips, key)) {
         want = findClip(m.clips, 'climb') ? 'climb' : 'idle';
         if (key === 'swing') want = 'idle';
@@ -8185,7 +8359,7 @@ function makeGlbVisual(m) {
       /* Das Tempo wird geglättet. Roh schwankt es von Bild zu Bild (Stöße,
          Kollisionen, Richtungswechsel) und die Schrittfrequenz zappelte
          entsprechend mit. */
-      vGlatt += (vRoh - vGlatt) * Math.min(1, dt * 9);
+      vGlatt += (vRoh - vGlatt) * (1 - Math.exp(-dt * (vRoh < vGlatt ? 18 : 9)));
       const vBoden = vGlatt;
       /* Hysterese am Übergang Gehen/Laufen: mit einer einzigen Schwelle
          sprang die Figur bei knapp drei Metern je Sekunde ständig zwischen
@@ -8234,7 +8408,7 @@ function makeGlbVisual(m) {
              einem Zeitfaktor zwischen rund 1 und 2 statt am Anschlag 3,0:
                walk         bis 2,5 m/s   walk        1,49 m/s
                run          bis 4,0 m/s   run         2,21 m/s
-               schnell      bis 8,0 m/s   sprint      3,96 m/s
+               schnell      bis 5,4 m/s   sprint      3,96 m/s
                voller Lauf  darueber      sprint_lang 5,51 m/s */
           if (gangStufe === 2 && vBoden > GANG_UM_VOLL + GANG_UM_BAND) gangStufe = 3;
           else if (gangStufe === 3 && vBoden < GANG_UM_VOLL - GANG_UM_BAND) gangStufe = 2;
@@ -8286,7 +8460,7 @@ function makeGlbVisual(m) {
            ihr erstes Bild zurueckgesetzt. Gemessen sprang die Fussspitze
            dabei um 79 Zentimeter, obwohl der Mischer nur 15 hergab.
            Eine laufende Schleife behaelt deshalb ihre Stelle. */
-        if (!einmal && a.isRunning()) { a.enabled = true; a.paused = false; }
+        if (!einmal && wAlt > 0) { a.enabled = true; a.paused = false; }
         else {
           a.reset();
           /* Die Zughaltung wird nicht von vorn angefangen: gemessen liegt
@@ -8307,7 +8481,7 @@ function makeGlbVisual(m) {
          waagerechten Tempo, und das ist beim Klettern null - der Clip lief
          dadurch mit 0,45 statt mit dem gesetzten Klettertempo. Genau das
          war "die Animation ist langsam, aber er ist schon halb oben". */
-      if (current && GANG_REF[want] !== undefined && !p.wandKriechen) {
+      if (current && GANG_REF[want] !== undefined && !p.wandKriechen && key !== 'duckstand') {
         const ref = GANG_REF[want];
         /* Unten weiter aufgemacht (0,45 statt 0,7): wer langsam schleicht,
            bewegte die Beine sonst schneller als er vorankam – genau das
@@ -8315,7 +8489,8 @@ function makeGlbVisual(m) {
         /* Obergrenze so hoch, dass auch der volle Sprint noch passt:
            bei 11 m/s braucht der Lauf-Clip (4,2 m/s) Faktor 2,6. Mit der
            früheren Deckelung auf 2,4 rutschte die Figur im Sprint. */
-        current.timeScale = clamp(vGlatt / ref, 0.45, 3.0) * (p.rueckwaerts ? -1 : 1);
+        const maxCadence = p.gang && want === 'sprint_lang' ? 1.65 : 3.0;
+        current.timeScale = clamp(vGlatt / ref, 0.45, maxCadence) * (p.rueckwaerts ? -1 : 1);
         letzterTakt = { was: want, faktor: current.timeScale, ref, v: vGlatt };
       } else if (current && key === 'duckstand' && want === 'ducken') {
         /* Angehalten statt abgespielt: sonst liefe die Figur im Stand auf
@@ -8323,6 +8498,16 @@ function makeGlbVisual(m) {
            gleich tief auf dem Boden. */
         current.timeScale = 0;
         current.time = DUCK_STAND_T;
+      } else if (current && want === 'schwung2') {
+        // ApexTwist is a one-off flourish, NOT a loop: its final left knee
+        // differs from its first by 149 degrees. Use only the stable opening
+        // (hips turn less than 28 degrees) and sample it from the real arc.
+        current.timeScale = 0;
+        const phase = (clamp(p.bogen === undefined ? 0 : p.bogen, -1, 1) + 1) * 0.5;
+        if (want !== letzterKey) bogenGlatt = phase;
+        bogenGlatt += (phase - bogenGlatt) * (1 - Math.exp(-dt * 4.5));
+        const ease = bogenGlatt * bogenGlatt * (3 - 2 * bogenGlatt);
+        current.time = (current.getClip().duration || 1) * lerp(0.015, 0.12, ease);
       } else if (current && (want === 'schwung' || want === 'schwungpose')) {
         /* Der Clip laeuft nicht von selbst ab, seine Stelle folgt dem
            Pendel: unten im Bogen liegt die Figur lang gestreckt (Ende des
@@ -8665,11 +8850,13 @@ function makeCharacterVisual(kind, cfg) {
   if (kind === 'civilian') {
     const variants = ZIVI_SLOTS.filter((s) => glbModels[s]);
     if (variants.length) m = glbModels[pick(variants)];
+  } else if (kind === 'thug' && cfg && cfg.model && glbModels[cfg.model] && glbModels.thug) {
+    m = Object.assign({}, glbModels[cfg.model], { clips: glbModels.thug.clips });
   } else if (glbModels[kind]) {
     m = glbModels[kind];
   }
   const v = m ? makeGlbVisual(m) : makeProceduralVisual(cfg);
-  if (kind === 'civilian' && m) faerbeKleidung(v);
+  if ((kind === 'civilian' || (cfg && cfg.model)) && m) faerbeKleidung(v);
   /* Welches Modell steckt wirklich dahinter? Fuer die Sichtpruefung
      wichtig: dieselbe Bewegungsdatei kann auf zwei Modellen voellig
      verschieden aussehen, wenn ihre Ruhehaltungen abweichen. */
@@ -8999,7 +9186,7 @@ fadenTex.wrapS = fadenTex.wrapT = THREE.RepeatWrapping;
 
 /* Grundgitter: offener Zylinder, dessen Punkte jedes Bild neu gesetzt
    werden. Ein starrer Zylinder kann sich nicht durchbiegen. */
-const FADEN_RING = 6, FADEN_LANG = 14;
+const FADEN_RING = 8, FADEN_LANG = 28;
 const fadenBasis = (() => {
   const g = new THREE.CylinderGeometry(1, 1, 1, FADEN_RING, FADEN_LANG, true);
   const p = g.attributes.position;
@@ -9024,6 +9211,7 @@ function makeWebStrand() {
   return m;
 }
 const swingStrand = makeWebStrand();
+const gripStrand = makeWebStrand();
 const shotStrands = [makeWebStrand(), makeWebStrand(), makeWebStrand()];
 let shotIdx = 0;
 const activeShots = []; // {mesh, life, from, to}
@@ -9072,19 +9260,19 @@ function placeStrand(mesh, from, to, durchhang, dicke) {
     const bx = roh[i * 3], by = roh[i * 3 + 1], bz = roh[i * 3 + 2];
     const t = by + 0.5;                              // 0 an der Hand, 1 am Anker
     // Radius: an der Hand kräftig, zum Anker hin dünner
-    const r = (0.036 - 0.021 * t) * (dicke === undefined ? 1 : dicke);
+    const weave = 1 + 0.13 * Math.sin(t * len * 8 + Math.atan2(bz, bx) * 3);
+    const r = (0.017 - 0.008 * t) * weave * (dicke === undefined ? 1 : dicke);
     const durch = tiefe * 4 * t * (1 - t);           // Parabel-Durchhang
     _fe.copy(from)
        .addScaledVector(_fa, len * t)
-       .addScaledVector(_fd, -durch)
        .addScaledVector(_fc, bx * r)
        .addScaledVector(_fd, bz * r);
-    p.setXYZ(i, _fe.x, _fe.y, _fe.z);
+    p.setXYZ(i, _fe.x, _fe.y - durch, _fe.z);
   }
   p.needsUpdate = true;
   mesh.geometry.computeBoundingSphere();
   // Muster mit der Länge mitwachsen lassen, sonst wird es lang gezogen
-  mesh.material.map.repeat.set(1, Math.max(1, Math.round(len * 0.6)));
+  mesh.material.map.repeat.set(1, Math.max(1, len * 0.6));
 }
 
 /* Kurzer Netzklatscher: ein aufblitzendes Netzmuster am Einschlagpunkt. */
@@ -9598,7 +9786,10 @@ let pointerLocked = false;
 let swingHeld = false; // rechte Maustaste
 
 // Testmodus: erlaubt automatisierte Läufe ohne Pointer-Lock
-function isActive() { return pointerLocked || touchAktiv || window.__WEBHERO_TEST__ === true; }
+function isActive() {
+  return window.__WEBHERO_TEST__ === true ||
+    ((pointerLocked || touchAktiv) && !window.WEB_HERO_MENU.isBlocking());
+}
 
 const overlay = document.getElementById('overlay');
 const hud = document.getElementById('hud');
@@ -9608,7 +9799,7 @@ const helpBox = document.getElementById('help');
    noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
    nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
    war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
-const BAU_STAND = '2026-08-29 / 19';
+const BAU_STAND = '2026-09-05 / Kletterkontakte, Rettungswagen, Bus und Park';
 if (helpBox) {
   const z = document.createElement('div');
   z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
@@ -9616,7 +9807,8 @@ if (helpBox) {
   helpBox.appendChild(z);
 }
 
-overlay.addEventListener('click', () => {
+document.getElementById('clickmsg').addEventListener('click', () => {
+  window.WEB_HERO_MENU.closeAll();
   SFX.init();
   /* Musik darf erst nach einer Nutzeraktion starten (Browser-Regel). */
   MUSIK.starte();
@@ -9649,13 +9841,14 @@ overlay.addEventListener('click', () => {
     }
     return;
   }
+  document.getElementById('clickmsg').blur();
   renderer.domElement.requestPointerLock();
 });
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
   overlay.style.display = pointerLocked ? 'none' : 'flex';
   hud.style.display = pointerLocked ? 'block' : 'none';
-  if (pointerLocked) document.getElementById('clickmsg').textContent = '▶ Klicken zum Fortsetzen';
+  if (pointerLocked) document.getElementById('clickmsg').textContent = 'Weiterspielen ↗';
 });
 document.addEventListener('mousemove', (e) => {
   if (!isActive()) return;
@@ -9670,14 +9863,22 @@ document.addEventListener('mouseup', (e) => { if (e.button === 2) swingHeld = fa
 /* Verlässt das Fenster den Fokus oder springt die Mauszeigersperre auf,
    kommt kein mouseup mehr an – die rechte Taste bliebe sonst "gedrückt"
    und der Netzschwung ließe sich nicht mehr beenden. */
-window.addEventListener('blur', () => { swingHeld = false; });
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement) swingHeld = false; });
+function clearMovementKeys() { swingHeld = false; for (const key of Object.keys(keys)) keys[key] = false; }
+window.addEventListener('blur', clearMovementKeys);
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement) clearMovementKeys(); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 document.addEventListener('keydown', (e) => {
   if (e.code === 'F5' || (e.ctrlKey && e.code === 'KeyR')) return;
-  keys[e.code] = true;
+  if (e.code === 'Escape') {
+    if (document.pointerLockElement) document.exitPointerLock();
+    touchAktiv = false; clearMovementKeys();
+    overlay.style.display = 'flex'; hud.style.display = 'none';
+    e.preventDefault(); return;
+  }
+  if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
   if (!isActive()) return;
+  keys[e.code] = true;
   if (e.repeat) return;
   switch (e.code) {
     case 'Space': tryJump(); break;
@@ -9685,13 +9886,12 @@ document.addEventListener('keydown', (e) => {
     case 'KeyQ': webShot(); break;
     case 'KeyE': webZip(); break;
     case 'ControlLeft': case 'ControlRight': dodge(); e.preventDefault(); break;
-    case 'KeyH': helpBox.style.display = helpBox.style.display === 'block' ? 'none' : 'block'; break;
+    case 'KeyH': window.WEB_HERO_MENU.open('controls'); break;
     case 'KeyM': { const m = SFX.toggleMute(); popupScreen(m ? '🔇 Ton aus' : '🔊 Ton an'); break; }
     /* J nimmt den angebotenen Auftrag an - oder bricht den laufenden ab.
        Nichts startet von selbst: der Spieler entscheidet, ob er gerade
        Geschichte will oder weiter durch die Stadt zieht. */
     case 'KeyJ': storyTaste(); break;
-    case 'Escape': zeigeEinstellungen(settingsEl.style.display !== 'flex'); break;
     case 'KeyP': {
       const el = document.getElementById('fortschritt');
       zeigeFortschritt(!el || el.style.display !== 'flex');
@@ -10137,7 +10337,107 @@ let flugGlatt = 0;   // geglättete Flugrichtung für die mitziehende Kamera
 let vorausGlatt = 0; // wie weit der Blickpunkt vorauswandert
 let kamFrei = 6;     // geglaettete freie Sichtweite hinter der Figur
 let kamZwang = 0;    // nur für Tests: feste Kameraentfernung
+const KAMERA_RADIUS = 0.30;
+const _kameraAnker = new THREE.Vector3();
+const _kameraKandidaten = new Set();
+const _kameraProbe = new THREE.Vector3(), _kameraRichtung = new THREE.Vector3();
+const _kameraBeste = new THREE.Vector3();
+
+function kameraWandAnker(anker, wand) {
+  if (!wand || !wand.col || anker.y > wand.col.h + KAMERA_RADIUS) return;
+  const c = wand.col, abstand = KAMERA_RADIUS + 0.05;
+  // The climbing gap can be smaller than the camera radius. Keep the
+  // camera pivot outside that expanded wall; never ignore the wall itself.
+  if (wand.nx > 0) anker.x = Math.max(anker.x, c.x1 + abstand);
+  if (wand.nx < 0) anker.x = Math.min(anker.x, c.x0 - abstand);
+  if (wand.nz > 0) anker.z = Math.max(anker.z, c.z1 + abstand);
+  if (wand.nz < 0) anker.z = Math.min(anker.z, c.z0 - abstand);
+}
+
+function kameraWandRichtung(target, dir, distanz, wand) {
+  if (!wand || !wand.col) return;
+  _kameraProbe.copy(target).addScaledVector(dir, distanz);
+  if (distanz * kameraFreierAnteil(target, _kameraProbe) >= Math.min(4.8, distanz * 0.85)) return;
+  const normalYaw = Math.atan2(wand.nx, wand.nz);
+  const winkel = Math.atan2(Math.sin(camYaw - normalYaw), Math.cos(camYaw - normalYaw));
+  const naheYaw = normalYaw + clamp(winkel, -1.4, 1.4);
+  let best = -Infinity, bestYaw = camYaw, bestPitch = camPitch;
+  // Search only when the requested view is obstructed. Include shallow
+  // side views for alleys, and test every candidate against all colliders.
+  for (const yaw of [camYaw, naheYaw, normalYaw, normalYaw - 0.7, normalYaw + 0.7,
+                     normalYaw - 1.4, normalYaw + 1.4]) {
+    for (const pitch of [camPitch, 0.12]) {
+      _kameraRichtung.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+      _kameraProbe.copy(target).addScaledVector(_kameraRichtung, distanz);
+      const frei = distanz * kameraFreierAnteil(target, _kameraProbe);
+      const drehung = Math.abs(Math.atan2(Math.sin(yaw - camYaw), Math.cos(yaw - camYaw)));
+      const wert = Math.min(frei, 5.5) * 2 - drehung * 0.22 - Math.abs(pitch - camPitch) * 0.12;
+      if (wert > best) { best = wert; bestYaw = yaw; bestPitch = pitch; _kameraBeste.copy(_kameraRichtung); }
+    }
+  }
+  dir.copy(_kameraBeste); camYaw = bestYaw; camPitch = bestPitch;
+}
+
+/* Exakter Eintritt einer Strecke in einen um den Kameraradius erweiterten
+   Kasten. Auch ein duennes Gesims zwischen zwei Abtastpunkten wird erfasst.
+   1 = frei, 0 = Startpunkt liegt bereits im Hindernis. */
+function kameraKastenTreffer(von, nach, c, radius) {
+  let ein = 0, aus = 1;
+  const bereiche = [[von.x, nach.x - von.x, c.x0 - radius, c.x1 + radius],
+                    [von.y, nach.y - von.y, c.y0 === undefined ? -Infinity : c.y0 - radius, c.h + radius],
+                    [von.z, nach.z - von.z, c.z0 - radius, c.z1 + radius]];
+  for (const [start, richtung, min, max] of bereiche) {
+    if (Math.abs(richtung) < 1e-9) {
+      if (start < min || start > max) return 1;
+    } else {
+      let a = (min - start) / richtung, b = (max - start) / richtung;
+      if (a > b) { const tausch = a; a = b; b = tausch; }
+      ein = Math.max(ein, a); aus = Math.min(aus, b);
+      if (ein > aus) return 1;
+    }
+  }
+  return aus < 0 || ein > 1 ? 1 : Math.max(0, ein);
+}
+
+/* Alle beruehrten Rasterzellen statt einzelner Punkte abfragen. Die
+   Set-Liste vermeidet mehrfache Tests grosser Gebaeude. */
+function kameraFreierAnteil(von, nach) {
+  const laenge = von.distanceTo(nach);
+  if (laenge < 1e-8) return 1;
+  const r = KAMERA_RADIUS;
+  const i0 = Math.floor((Math.min(von.x, nach.x) - r - ORIGIN) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + r - ORIGIN) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - r - ORIGIN) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + r - ORIGIN) / PITCH);
+  _kameraKandidaten.clear();
+  let frei = 1;
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    for (const c of colliderGrid.get(i + ',' + j) || []) {
+      if (_kameraKandidaten.has(c)) continue;
+      _kameraKandidaten.add(c);
+      const treffer = kameraKastenTreffer(von, nach, c, r);
+      if (treffer < 1) frei = Math.min(frei, Math.max(0, treffer - 0.04 / laenge));
+    }
+  }
+  /* Strasse, Gehweg und die bisherige Dach-Untergrenze beibehalten. */
+  const schritte = Math.max(1, Math.ceil(laenge * frei / 0.25));
+  for (let i = 1; i <= schritte; i++) {
+    const t = frei * i / schritte;
+    const x = lerp(von.x, nach.x, t), y = lerp(von.y, nach.y, t), z = lerp(von.z, nach.z, t);
+    const unten = Math.max(groundY(x, z, y) + r, player.onGround ? player.pos.y + 0.35 : -Infinity);
+    if (y < unten) return frei * (i - 1) / schritte;
+  }
+  return frei;
+}
+
+function begrenzeKamera(von, nach) {
+  const anteil = kameraFreierAnteil(von, nach);
+  if (anteil < 1) nach.sub(von).multiplyScalar(anteil).add(von);
+  return anteil;
+}
+
 function updateCamera(dt) {
+  const wand = (player.state === 'climb' || player.state === 'kante') && (player.wallInfo || player.wall);
   const emp = 0.0023 * (EINST.maus / 100);
   const mausAktiv = Math.abs(mouseDX) > 0.5 || Math.abs(mouseDY) > 0.5;
   camYaw -= mouseDX * emp;
@@ -10195,17 +10495,18 @@ function updateCamera(dt) {
   let schwungWeit = 0;
   if (player.state === 'swing' && player.swing) {
     const tief = clamp((player.swing.anchor.y - player.pos.y) / Math.max(4, player.swing.len), 0, 1);
-    schwungWeit = tief * 2.6;
+    schwungWeit = tief * 1.0;
   }
   const targetDist = kamZwang > 0 ? kamZwang
-                   : (player.state === 'swing' ? 8.0 + schwungWeit
-                                              : lerp(6.3, 7.8, clamp(speed / 25, 0, 1)));
-  camDist = lerp(camDist, targetDist, dt * 3);
-  const targetFov = lerp(70, 84, clamp(speed / 30, 0, 1));
+                   : wand ? 6.4
+                   : (player.state === 'swing' ? 6.8 + schwungWeit
+                                              : lerp(5.6, 6.6, clamp(speed / 25, 0, 1)));
+  camDist = lerp(camDist, targetDist, 1 - Math.exp(-dt * 3));
+  const targetFov = lerp(70, 78, clamp(speed / 30, 0, 1));
   /* Gemessen aenderte sich das Sichtfeld mit bis zu 45 Grad je Sekunde -
      das ist der Zoom, den man beim Anschwingen als Ruck sieht. Mit 2,5
      statt 4 bleibt es unter 30 Grad je Sekunde und faellt nicht mehr auf. */
-  camera.fov = lerp(camera.fov, targetFov, dt * 2.5);
+  camera.fov = lerp(camera.fov, targetFov, 1 - Math.exp(-dt * 2.5));
   camera.updateProjectionMatrix();
 
   /* ---- Vorausschau ----
@@ -10214,72 +10515,39 @@ function updateCamera(dt) {
      spaet im Bild. Der Blickpunkt wandert deshalb ein Stueck in die
      Flugrichtung - geglaettet ueber flugGlatt, damit er im Bogen nicht
      hin und her springt, und nur bei Tempo. */
-  const vorausWeit = clamp((speed - 8) / 22, 0, 1) * (player.onGround ? 1.1 : 2.4);
+  const vorausWeit = wand ? 0 : clamp((speed - 8) / 22, 0, 1) * (player.onGround ? 1.1 : 2.4);
   vorausGlatt = lerp(vorausGlatt, vorausWeit, Math.min(1, dt * 2.5));
-  const target = _v1.copy(player.pos); target.y += 1.7;
+  const target = _v1.copy(player.pos); target.y += wand ? 1.35 : 1.7;
   if (vorausGlatt > 0.01) {
     target.x += Math.sin(flugGlatt) * vorausGlatt;
     target.z += Math.cos(flugGlatt) * vorausGlatt;
   }
+  /* Vorausschau darf den Blickpunkt nicht durch eine Fassade schieben.
+     Sonst beginnt auch eine genaue Kamerapruefung bereits IM Haus. */
+  _kameraAnker.copy(player.pos); _kameraAnker.y += wand ? 1.35 : 1.7;
+  kameraWandAnker(_kameraAnker, wand);
+  kameraWandAnker(target, wand);
+  begrenzeKamera(_kameraAnker, target);
   const dir = _v2.set(
     Math.sin(camYaw) * Math.cos(camPitch),
     Math.sin(camPitch),
     Math.cos(camYaw) * Math.cos(camPitch)
   );
-  // Kamerakollision mit Gebäuden (abtasten)
-  /* Zehn Schritte auf bis zu 10,6 m sind Schritte von ueber einem Meter -
-     eine Hausecke passt bequem dazwischen. Sechzehn sind rund 65 cm. */
-  let d = camDist;
-  for (let i = 1; i <= 16; i++) {
-    const t = (camDist * i) / 16;
-    const px = target.x + dir.x * t, py = target.y + dir.y * t, pz = target.z + dir.z * t;
-    let blocked = py < groundY(px, pz, py) + 0.3;
-    /* Steht die Figur auf einem Dach und man schaut nach unten, rutschte
-       die Kamera an der Dachkante vorbei unter das Dach – man sah dann von
-       unten in das Gesims hinein. Solange man festen Boden unter den Füßen
-       hat, darf die Kamera nicht nennenswert darunter. */
-    if (!blocked && player.onGround && py < player.pos.y + 0.35) blocked = true;
-    if (!blocked) {
-      const cols = collidersNear(px, pz);
-      for (const c of cols) {
-        /* Auch Vorsprünge (Gesimse, Feuerleitern) blockieren – aber nur in
-           ihrer eigenen Höhe. */
-        if (c.y0 !== undefined && py < c.y0 - 0.3) continue;
-        if (px > c.x0 - 0.3 && px < c.x1 + 0.3 && pz > c.z0 - 0.3 && pz < c.z1 + 0.3 && py < c.h + 0.2) { blocked = true; break; }
-      }
-    }
-    /* Hier stand Math.max(1.2, t - 0.5). Blockte etwas schon bei 1,0 m,
-       kam 1,2 heraus - die Kamera wurde also HINTER das Hindernis gesetzt
-       und stand mitten in der Fassade. Beim Schwingen dicht an Haeusern
-       vorbei fuellte dann eine dunkle Wand das ganze Bild.
-       Jetzt wird nie weiter gerueckt als bis kurz vor den Treffer. */
-    if (blocked) { d = Math.max(0.55, t - 0.55); break; }
-  }
-  /* ---- Heran sofort, zurueck langsam ----
-     Die Sichtpruefung liefert einen SPRUNG: eine Hausecke schiebt sich vor
-     die Kamera, und die Zielentfernung faellt in einem Bild von acht
-     Metern auf einen halben. Gemessen ergab das ueber 75 Sekunden Flug
-     106 Kamerarucke - fast alle beim Zurueckfahren, wenn die Ecke wieder
-     frei wird. Heranholen muss schnell gehen (sonst steht die Kamera in
-     der Wand), zurueck darf es dauern. */
-  /* Auch das Heranholen wird gefuehrt, nur viel schneller: mit dt*22
-     sitzt die Kamera nach rund fuenf Bildern an der neuen Stelle, statt
-     in einem einzigen Bild siebeneinhalb Meter zu springen. Die halbe
-     Sekunde Vorhalt (0,55 m) im Sichttest deckt die paar Bilder ab. */
-  if (d < kamFrei) {
-    /* Begrenzt statt geblendet: eine feste Geschwindigkeit laesst sich an
-       das Tempo der Figur haengen. Langsamer als die Figur darf die Kamera
-       nicht heran, sonst haengt sie zurueck; viel schneller braucht sie
-       nicht, sonst ist genau das der Ruck. */
-    kamFrei = Math.max(d, kamFrei - Math.max(20, speed * 1.2) * dt);
-  } else kamFrei = lerp(kamFrei, d, Math.min(1, dt * 2.2));
-  const desired = _v3.copy(target).addScaledVector(dir, kamFrei);
-  camPos.lerp(desired, Math.min(1, dt * 12));
+  kameraWandRichtung(target, dir, camDist, wand);
+  const desired = _v3.copy(target).addScaledVector(dir, camDist);
+  const d = camDist * kameraFreierAnteil(target, desired);
+  /* Bei einem Hindernis sofort davor bleiben, bei freier Sicht sanft
+     herausfahren. Die endgueltige Lage wird NACH dem Glaetten geprueft. */
+  kamFrei = d < kamFrei ? d : lerp(kamFrei, d, 1 - Math.exp(-dt * (wand ? 6 : 2.2)));
+  desired.copy(target).addScaledVector(dir, kamFrei);
+  camPos.lerp(desired, 1 - Math.exp(-dt * 12));
+  begrenzeKamera(target, camPos);
   camera.position.copy(camPos);
   if (camShake > 0) {
     camera.position.x += rand(-1, 1) * camShake;
     camera.position.y += rand(-1, 1) * camShake;
     camShake = Math.max(0, camShake - dt * 1.6);
+    begrenzeKamera(target, camera.position);
   }
   camera.lookAt(target);
 
@@ -10291,15 +10559,15 @@ function updateCamera(dt) {
     /* Seitliche Beschleunigung: Geschwindigkeit quer zur Blickrichtung. */
     const f = _v1.set(Math.sin(camYaw), 0, Math.cos(camYaw));
     const quer = player.vel.x * f.z - player.vel.z * f.x;
-    rollZiel = clamp(-quer / 26, -0.42, 0.42);
+    rollZiel = clamp(-quer / 50, -0.14, 0.14);
     /* Zusätzlich in die Richtung des Netzarms kippen. */
-    rollZiel += (player.swing.hand === 'L' ? 0.07 : -0.07);
+    rollZiel += (player.swing.hand === 'L' ? 0.018 : -0.018);
   } else if (!player.onGround) {
     rollZiel = clamp(-player.vel.y / 160, -0.09, 0.09);
   }
   /* 3,5 ergab gemessen bis zu 2,37 rad/s Neigungsaenderung - beim
      Handwechsel im Bogen kippt das Bild dann sichtbar um. */
-  camRoll = lerp(camRoll, rollZiel, Math.min(1, dt * 2.2));
+  camRoll = lerp(camRoll, rollZiel, 1 - Math.exp(-dt * 2.2));
   if (Math.abs(camRoll) > 0.001) camera.rotateZ(camRoll);
 
   kamTelemetrie(dt);
@@ -10454,7 +10722,76 @@ function freieSicht(ax, ay, az, bx, by, bz, ziel) {
   return true;
 }
 
+// Moving anchors use the same world collision boxes as the camera. Test
+// every crossed cell and the exact segment, including thin projections.
+function netzWegFrei(von, nach, radius) {
+  const seen = new Set(), r = radius || 0;
+  const i0 = Math.floor((Math.min(von.x, nach.x) - r - ORIGIN) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + r - ORIGIN) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - r - ORIGIN) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + r - ORIGIN) / PITCH);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    for (const c of colliderGrid.get(i + ',' + j) || []) {
+      if (seen.has(c)) continue;
+      seen.add(c);
+      if (kameraKastenTreffer(von, nach, c, r) < 0.999) return false;
+    }
+  }
+  return true;
+}
+function findHeliAnchor() {
+  if (player.pos.y < SLAB_H + 28) return null;
+  const aim = camera.getWorldDirection(new THREE.Vector3());
+  const from = player.pos.clone().add(new THREE.Vector3(0, 1.25, 0));
+  let best = null, score = -Infinity;
+  for (const heli of helis) {
+    if (!heli.mesh || !heli.mesh.visible) continue;
+    heli.mesh.updateMatrixWorld(true);
+    const local = new THREE.Vector3(0, -0.86, 0.2); // undercarriage, below the rotor
+    const point = heli.mesh.localToWorld(local.clone());
+    const direction = point.clone().sub(from), distance = direction.length();
+    if (point.y < from.y + 4 || distance < 7 || distance > 80) continue;
+    const dot = direction.multiplyScalar(1 / distance).dot(aim);
+    if (dot < 0.86 || !netzWegFrei(from, point, 0.035)) continue;
+    const rank = dot * 4 - distance / 100;
+    if (rank > score) { score = rank; best = point; best.heli = heli; best.heliLocal = local; }
+  }
+  return best;
+}
+function bewegeNetzAnker(s, dt) {
+  if (!s.heli) return true;
+  if (!(dt > 0) || !helis.includes(s.heli) || !s.heli.mesh || !s.heli.mesh.visible) return false;
+  s.heli.mesh.updateMatrixWorld(true);
+  const next = s.heli.mesh.localToWorld(s.heliLocal.clone());
+  const delta = next.clone().sub(s.anchor);
+  // A reset/teleport must release the web, never drag the player across town.
+  if (delta.length() > Math.max(1, dt * 45)) return false;
+  const from = player.pos.clone().add(new THREE.Vector3(0, 1.25, 0));
+  if (!netzWegFrei(from, next, 0.035)) return false;
+  s.anchorVelocity.copy(delta).multiplyScalar(1 / dt);
+  s.anchor.copy(next);
+  return true;
+}
+function spannNetz(s, pos, vel, radius) {
+  const direction = pos.clone().sub(s.anchor), distance = direction.length();
+  if (distance <= s.len || distance < 0.001) return true;
+  direction.multiplyScalar(1 / distance);
+  const target = s.anchor.clone().addScaledVector(direction, s.len);
+  if (s.heli) {
+    const lift = new THREE.Vector3(0, 0.9, 0);
+    if (!netzWegFrei(pos.clone().add(lift), target.clone().add(lift), radius || 0.4)) return false;
+  }
+  pos.copy(target);
+  // Velocities are stored in world coordinates. A moving anchor removes
+  // only outward RELATIVE motion, retaining the helicopter's velocity.
+  const radial = vel.dot(direction) - (s.anchorVelocity ? s.anchorVelocity.dot(direction) : 0);
+  if (radial > 0) vel.addScaledVector(direction, -radial * 0.98);
+  return true;
+}
+
 function findAnchor() {
+  const heliAnchor = findHeliAnchor();
+  if (heliAnchor) return heliAnchor;
   /* Guter Ankerpunkt: möglichst weit VOR dem Spieler und deutlich über ihm –
      dann entsteht ein weiter Bogen statt eines abrupten Rucks.
      Die Flugrichtung zählt mit, damit der Schwung nicht bei jedem Kameraruck
@@ -10566,7 +10903,9 @@ function startSwing() {
      wird dann eingeholt. Wurde es sofort auf die Wunschlänge gesetzt, hat
      die harte Seilbedingung die Figur im selben Bild an den Anker
      herangerissen – das war der Sprung nach oben beim Anschwingen. */
-  player.swing = { anchor, hand, len: Math.max(abstand, zielLen), zielLen, t: 0 };
+  player.swing = { anchor, hand, len: Math.max(abstand, zielLen), zielLen, t: 0,
+    heli: anchor.heli || null, heliLocal: anchor.heliLocal || null, anchorVelocity: new THREE.Vector3() };
+  if (anchor.heli) popupScreen('Netz an der Kufe – loslassen zum Abspringen');
   player.state = 'swing';
   /* Der Wurf selbst ist eine eigene kurze Bewegung: der Arm holt aus und
      schiesst den Faden. Vorher hing die Figur im ersten Bild einfach schon
@@ -10657,6 +10996,8 @@ function schwungKunst(mindestHoehe) {
 function stopSwing(boost) {
   if (player.state !== 'swing') return;
   player.swing = null;
+  player.fadenZiel = null;
+  gripStrand.visible = false;
   player.state = 'air';
   if (boost) {
     /* Am tiefsten Punkt loslassen gibt den größten Schub – wie beim
@@ -11536,6 +11877,50 @@ function starteLuftkombo(e) {
   popupScreen('Leertaste: hinterher!');
 }
 
+// Swept body/line against existing world boxes. This keeps the attack's
+// short forward step from teleporting through thin walls or parked vehicles.
+function kampfFreierWeg(von, nach, radius, hoehe) {
+  const len = von.distanceTo(nach);
+  if (len < 1e-8) return 1;
+  const i0 = Math.floor((Math.min(von.x, nach.x) - radius - ORIGIN) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + radius - ORIGIN) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - radius - ORIGIN) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + radius - ORIGIN) / PITCH);
+  const gesehen = new Set(); let frei = 1;
+  const pruefe = c => {
+    const box = { x0: c.x0 - radius, x1: c.x1 + radius, z0: c.z0 - radius, z1: c.z1 + radius,
+      y0: c.y0 === undefined ? -Infinity : c.y0 - hoehe + 0.025, h: c.h - 0.025 };
+    const hit = kameraKastenTreffer(von, nach, box, 0);
+    if (hit < 1) frei = Math.min(frei, Math.max(0, hit - 0.015 / len));
+  };
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    for (const c of colliderGrid.get(i + ',' + j) || []) {
+      if (gesehen.has(c)) continue; gesehen.add(c); pruefe(c);
+    }
+  }
+  for (const car of cars) {
+    if (car.aus) continue;
+    const b = carAABB(car);
+    pruefe({ ...b, h: b.top, y0: car.mesh.position.y + 0.02 });
+  }
+  return frei;
+}
+
+function nahkampfZielFrei(e) {
+  if (!e || e.dead) return false;
+  const von = new THREE.Vector3(player.pos.x, player.pos.y + 1.1, player.pos.z);
+  const nach = new THREE.Vector3(e.pos.x, e.pos.y + 1.1, e.pos.z);
+  return kampfFreierWeg(von, nach, 0.035, 0.08) >= 1;
+}
+
+function nahkampfNachzug(e) {
+  const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z, d = Math.hypot(dx, dz);
+  if (d <= NAHKAMPF + 0.12) return;
+  const nach = player.pos.clone().addScaledVector(new THREE.Vector3(dx / d, 0, dz / d), Math.min(0.8, d - NAHKAMPF));
+  const frei = kampfFreierWeg(player.pos, nach, player.radius, player.height);
+  player.pos.lerp(nach, frei); player.facing = Math.atan2(dx, dz);
+}
+
 function tryAttack(type) {
   if (!heroVisual || player.dead || player.state === 'climb') return;
   /* Mit jemandem in der Hand ist der Schlag ein Schmettern zu Boden. */
@@ -11618,13 +12003,13 @@ function tryAttack(type) {
      Vorher wurde bei JEDEM Schlag neu der nächstgelegene gesucht – mitten
      in der Kombo sprang die Figur deshalb zu einem anderen Gegner, drehte
      sich weg und rutschte quer durch die Gruppe. */
-  if (player.ziel && (player.ziel.dead ||
+  if (player.ziel && (player.ziel.dead || !nahkampfZielFrei(player.ziel) ||
       Math.hypot(player.ziel.pos.x - player.pos.x, player.ziel.pos.z - player.pos.z) > 5.5 ||
       Math.abs(player.ziel.pos.y - player.pos.y) > 2.5)) {
     player.ziel = null;
   }
   if (!player.ziel || player.comboTimer <= 0) {
-    const neu = nearestEnemy(4.2, 0.2);
+    const neu = nearestEnemy(4.2, 0.2, true);
     if (neu) player.ziel = neu;
   }
   const target = player.ziel;
@@ -11660,7 +12045,7 @@ function updateAnlauf(dt) {
   if (!(player.anlaufT > 0)) { player.anlaufSatz = false; return; }
   const z = player.anlaufZiel;
   player.anlaufT -= dt;
-  if (!z || z.dead || player.dead || player.state === 'climb' || player.state === 'swing') {
+  if (!z || z.dead || player.dead || player.state === 'climb' || player.state === 'swing' || !nahkampfZielFrei(z)) {
     player.anlaufT = 0; player.anlaufSatz = false; return;
   }
   const dx = z.pos.x - player.pos.x, dz = z.pos.z - player.pos.z;
@@ -11681,7 +12066,7 @@ function updateAnlauf(dt) {
   }
 }
 
-function nearestEnemy(maxDist, minDot) {
+function nearestEnemy(maxDist, minDot, nurFreieSicht) {
   let best = null, bestD = maxDist;
   const fx = Math.sin(player.facing), fz = Math.cos(player.facing);
   for (const e of enemies) {
@@ -11691,6 +12076,7 @@ function nearestEnemy(maxDist, minDot) {
     if (d > bestD || Math.abs(e.pos.y - player.pos.y) > 2.5) continue;
     const dot = (dx * fx + dz * fz) / (d || 1);
     if (d > 1 && dot < minDot) continue;
+    if (nurFreieSicht && !nahkampfZielFrei(e)) continue;
     best = e; bestD = d;
   }
   return best;
@@ -12071,11 +12457,11 @@ function resolveAttackHit() {
   /* Zuerst das gebundene Ziel prüfen – sonst zählt mitten in der Kombo
      plötzlich ein anderer Gegner als Treffer. */
   let e = null;
-  if (player.ziel && !player.ziel.dead) {
+  if (player.ziel && !player.ziel.dead && nahkampfZielFrei(player.ziel)) {
     const zd = Math.hypot(player.ziel.pos.x - player.pos.x, player.ziel.pos.z - player.pos.z);
     if (zd <= range + 0.4 && Math.abs(player.ziel.pos.y - player.pos.y) <= 2.5) e = player.ziel;
   }
-  if (!e) e = nearestEnemy(range, 0.05);
+  if (!e) e = nearestEnemy(range, 0.05, true);
   if (!e) {
     /* Ein Schlag ins Leere setzt die Kette nicht mehr auf null zurück –
        sonst kam man ohne Gegner nie über Stufe 1 hinaus und die Kombo
@@ -12089,16 +12475,7 @@ function resolveAttackHit() {
      Geschwindigkeit allein war zu langsam: gemessen standen die Figuren im
      Moment des Treffers noch 1,70 m auseinander, da berührt sich nichts.
      Der Nachzug ist auf 0,8 m begrenzt und sieht wie ein Ausfallschritt aus. */
-  {
-    const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
-    const d = Math.hypot(dx, dz);
-    if (d > NAHKAMPF + 0.12) {
-      const zieh = Math.min(0.8, d - NAHKAMPF);
-      player.pos.x += (dx / d) * zieh;
-      player.pos.z += (dz / d) * zieh;
-      player.facing = Math.atan2(dx, dz);
-    }
-  }
+  nahkampfNachzug(e);
   /* ---- Parade ----
      Sie kommt VOR der Deckung: ein parierter Schlag richtet gar nichts
      aus. Die Druckwelle des Symbiontenanzugs laesst sich nicht
@@ -13104,7 +13481,7 @@ function updatePlayer(dt) {
        Er traegt rund sechs Meter; danach klettert man weiter oder setzt
        neu an. Dauerlauf die Fassade hinauf wird es dadurch nicht. */
     if (player.wandBoostCd > 0) player.wandBoostCd -= dt;
-    if (sprintAn() && up > 0.05 && player.wandSchwung < 2.0 &&
+    if (sprintAn() && (up > 0.05 || Math.abs(side) > 0.05) && player.wandSchwung < 2.0 &&
         (player.wandBoostCd || 0) <= 0) {
       player.wandSchwung = 9.5;
       player.wandBoostCd = 2.2;
@@ -13127,12 +13504,15 @@ function updatePlayer(dt) {
     }
     const kTempo = CFG.climbSpeed;
     const sTempo = CFG.climbSpeedSeit || kTempo;
-    const hoch = up * kTempo + Math.max(0, player.wandSchwung);
+    const inputLen = Math.hypot(up, side) || 1;
+    const schub = Math.max(0, player.wandSchwung);
+    const hoch = up * kTempo + (up > 0 ? up / inputLen * schub : 0);
+    const querTempo = side * sTempo + side / inputLen * schub;
     /* Ohne Eingabe ist es kein Lauf mehr. Vorher blieb die waagerechte
        Laufhaltung stehen, solange noch Schwung da war - man klebte quer
        an der Fassade, obwohl man stand. */
     player.wandlauf = player.wandSchwung > 1.5 && (Math.abs(up) + Math.abs(side)) > 0.05;
-    player.vel.set(tx * side * sTempo, hoch, tz * side * sTempo);
+    player.vel.set(tx * querTempo, hoch, tz * querTempo);
     player.pos.addScaledVector(player.vel, dt);
     /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
        der Fassade heraus. Vorher steckte die Figur mit dem Oberkörper darin
@@ -13239,11 +13619,9 @@ function updatePlayer(dt) {
          Bewegung stand praktisch still und der ganze Koerper glitt
          seitwaerts weg. Gemessen rutschte die Hand dabei um 106 Prozent
          des Koerperwegs - sie hielt sich also ueberhaupt nicht fest. */
-      const vSteig = Math.hypot(hoch, side * sTempo);
+      const vSteig = Math.hypot(hoch, querTempo);
       /* Beim Rennen die Eigengeschwindigkeit des Laufs, beim Klettern die
          der Kriechbewegung an der Wand. */
-      /* Der Wandlauf faehrt jetzt dieselbe Bewegung wie das Klettern,
-         also gilt auch dieselbe Eigengeschwindigkeit. */
       /* Je Kletterdatei ihre EIGENE Geschwindigkeit. Vorher galt fuer alle
          derselbe Wert 0,62 - gemessen (die greifende Hand wandert relativ
          zur Huefte genauso schnell nach unten, wie der Koerper hinaufsteigt):
@@ -13252,7 +13630,7 @@ function updatePlayer(dt) {
          Mit dem gemeinsamen Wert lief die Kriechbewegung also 2,2-fach zu
          schnell und die Kletterbewegung 1,6-fach zu langsam. Genau das war
          der Hauptanteil an der hohen Knochengeschwindigkeit beim Klettern. */
-      const eigen = KLETTER_REFS[heroVisual.aktuellerClip] || KLETTER_REF;
+      const eigen = player.wandlauf ? GANG_REF.run : (KLETTER_REFS[heroVisual.aktuellerClip] || KLETTER_REF);
       player.klettertempo = clamp(vSteig / eigen, 0.5, KLETTER_MAX) * (up < 0 ? -1 : 1);
     }
     /* Oben angekommen → über die Kante ziehen. Vorher wurde die Figur
@@ -13727,6 +14105,7 @@ function updatePlayer(dt) {
      Das Seil wird in mehreren Teilschritten gelöst. Ein einziger Schritt pro
      Bild lässt das Pendel bei hohem Tempo hart anschlagen – genau das hat den
      Schwung ruckeln lassen. */
+  if (player.state === 'swing' && player.swing && !bewegeNetzAnker(player.swing, dt)) stopSwing(false);
   if (player.state === 'swing' && player.swing) {
     const s = player.swing;
     s.t += dt;
@@ -13781,9 +14160,7 @@ function updatePlayer(dt) {
       const dist = d.length() || 0.001;
       if (dist > s.len) {
         const n = d.multiplyScalar(1 / dist);
-        player.pos.copy(s.anchor).addScaledVector(n, s.len);
-        const vn = player.vel.dot(n);
-        if (vn > 0) player.vel.addScaledVector(n, -vn * 0.98);   // weich abfangen
+        if (!spannNetz(s, player.pos, player.vel, player.radius)) { stopSwing(false); break; }
         /* Tangentialer Antrieb in Blickrichtung: fühlt sich an wie Schwung
            holen, ohne das Pendel zu verzerren. */
         if (keys['KeyW'] || keys['ArrowUp']) {
@@ -13834,7 +14211,12 @@ function updatePlayer(dt) {
         const w2 = (kurveEin * 2.0 - geradeAus * 0.5) * hdt;
         _vSeil.copy(player.pos).sub(s.anchor);
         const sl = _vSeil.length();
-        if (sl > 0.2) { _vSeil.multiplyScalar(1 / sl); player.vel.applyAxisAngle(_vSeil, w2); }
+        if (sl > 0.2) {
+          _vSeil.multiplyScalar(1 / sl);
+          if (s.heli) player.vel.sub(s.anchorVelocity);
+          player.vel.applyAxisAngle(_vSeil, w2);
+          if (s.heli) player.vel.add(s.anchorVelocity);
+        }
       }
     }
     player.vel.multiplyScalar(1 - 0.02 * dt);
@@ -13843,7 +14225,7 @@ function updatePlayer(dt) {
     if (player.vel.length() > 2) {
       player.facing = dampAngle(player.facing, Math.atan2(player.vel.x, player.vel.z), dt * 8);
     }
-    player.fadenZiel = s.anchor; player.fadenHand = s.hand;
+    if (player.swing === s) { player.fadenZiel = s.anchor; player.fadenHand = s.hand; }
     if (Math.random() < dt * 1.2) SFX.swoosh();
   }
 
@@ -14374,13 +14756,7 @@ function updatePlayer(dt) {
       while (dw < -Math.PI) dw += Math.PI * 2;
       player.facing += clamp(dw, -1, 1) * Math.min(1, dt * 4.5);
     }
-    /* Aufrichten: die Duckbewegung ab der Hockstelle nach vorn abspielen.
-       Vorher wechselte die Figur in einem Bild von der Hocke in den
-       Stand. */
-    if (warHocke && player.hockeT === 0 && heroVisual.abOneShot &&
-        heroVisual.hatClip && heroVisual.hatClip('ducken')) {
-      player.aufrichtT = heroVisual.abOneShot('ducken', DUCK_STAND_T, 0.42) || 0;
-    }
+    if (warHocke && player.hockeT === 0) player.aufrichtT = 0.24;
     if (player.aufrichtT > 0) player.aufrichtT -= dt;
   }
   /* Wer lange faellt und dabei nichts tut, breitet die Arme aus. Die
@@ -14449,9 +14825,9 @@ function updatePlayer(dt) {
        die ruhige Stehbewegung. */
     player.anim = 'idle';
   }
-  else if (dir && hSpeed > 0.4) {
-    /* Nur laufen, wenn auch wirklich eine Richtungstaste gedrückt ist –
-       sonst „läuft" die Figur beim Ausrollen weiter, obwohl man steht. */
+  else if (hatBodenbewegung(hSpeed, player.anim)) {
+    /* Auch ohne gedrueckte Taste bewegt sich die Figur beim Bremsen noch.
+       Erst im Stillstand darf die Standpose die Schritte ersetzen. */
     player.anim = 'run';
     player.phase += dt * (5 + hSpeed * 1.15);
     /* Schritte im Takt der BEWEGUNGSDATEI. Die laeuft mit
@@ -14673,7 +15049,7 @@ function mischeHaltungen(dt) {
       heroVisual.poseSchwung(a[0], a[1], a[2], a[3], a[4], a[5], g);
     } else if (n === 'gleiten' && MISCH.gleitArg && heroVisual.poseGleiten) {
       const a = MISCH.gleitArg;
-      heroVisual.poseGleiten(a[0], a[1], a[2], a[3] * g);
+      heroVisual.poseGleiten(a[0], a[1], a[2], a[3] * g, a[4]);
     } else if (n === 'wand' && MISCH.wandArg && heroVisual.poseWandkriechen) {
       const a = MISCH.wandArg;
       heroVisual.poseWandkriechen(a[0], a[1], a[2], a[3] * g);
@@ -14698,7 +15074,7 @@ function updateHeroVisual(dt) {
        liessen die 90 Grad in zwei Bildern umklappen. */
     const schnell = player.eckT > 0 ? 7
                   : player.onGround || player.state === 'climb' ? 30 : 11;
-    r.rotation.y = dampAngle(r.rotation.y, player.facing, Math.min(1, dt * schnell));
+    r.rotation.y = dampAngle(r.rotation.y, player.facing, 1 - Math.exp(-dt * schnell));
   }
   /* ---- In die Kurve legen ----
      Am Netz und im Gleitflug legt sich die Figur in die Kurve, so wie ein
@@ -14786,7 +15162,7 @@ function updateHeroVisual(dt) {
            dorthin, wo gar kein Anker mehr ist. */
         if (MISCH.schwung < 0.05) MISCH.ankerGlatt.copy(player.swing.anchor);
       }
-      MISCH.ankerGlatt.lerp(player.swing.anchor, Math.min(1, dt * 4));
+      MISCH.ankerGlatt.lerp(player.swing.anchor, 1 - Math.exp(-dt * 6));
       // Kurvenlage: seitlich in den Bogen legen
       const a = player.swing.anchor;
       const rx = Math.cos(player.facing), rz = -Math.sin(player.facing);
@@ -14857,17 +15233,11 @@ function updateHeroVisual(dt) {
     }
   }
 
-  /* Wandkriechen: an einer echten Hauswand, nicht beim Wandlauf und nicht
-     beim ruhigen Haengen. Braucht die Kriechbewegung. */
-  /* An der Wand gibt es zwei Bewegungen, und beide werden mit DERSELBEN
-     Kippung gefahren - genau wie am Boden Laufen und Kriechen dieselbe
-     Schwerkraft haben:
-       'kriechen' - das normale Hochklettern,
-       'lauf'     - der Anlauf mit Schwung, also Rennen die Wand hinauf.
-     Vorher hatte der Wandlauf eine von Hand gesetzte Haltung
-     (poseWandlauf). Die sah nach Klettern aus, nicht nach Rennen. */
+  /* Climbing uses the prone crawl transform; wall-running keeps the
+     upright run clip and a slight lean. Idle wall holds stay on this
+     path too, so their contact IK does not disappear with the hang state. */
   const anWand = player.state === 'climb' && !!player.wallInfo &&
-                 player.anim !== 'haengen' && !!heroVisual.wandKriechen;
+                 !!heroVisual.wandKriechen;
   player.wandModus = !anWand ? null
     : player.wandlauf && heroVisual.hatClip && heroVisual.hatClip('run') ? 'lauf'
     : heroVisual.hatClip && heroVisual.hatClip('kriechen') ? 'kriechen' : null;
@@ -14891,6 +15261,7 @@ function updateHeroVisual(dt) {
     player.wandLetztN = player.wandLetztN || { x: 0, z: 0 };
     player.wandLetztN.x = player.wallInfo.nx;
     player.wandLetztN.z = player.wallInfo.nz;
+    player.wandLetztLauf = player.wandModus === 'lauf';
   }
   if (WAND_AB_AN && player.wandModusAlt && !player.wandModus &&
       heroVisual.wandGekippt) {
@@ -14930,15 +15301,18 @@ function updateHeroVisual(dt) {
        loest sich die Figur zurueck aus der Wand statt sich vorwaerts
        durchzudrehen. */
     heroVisual.wandKriechen(wandAb, KRIECH_TIEFE * wandAb,
-                            (player.wandRoll || 0) * wandAb);
-    const n = player.wandLetztN;
-    if (n && heroVisual.wandHuefteFlach) heroVisual.wandHuefteFlach(n.x, n.z, wandAb);
+                            (player.wandRoll || 0) * wandAb, player.wandLetztLauf, true, dt);
+    // The contact pose uses an upright base; do not flatten the pelvis again.
   } else if (player.state !== 'climb' && heroVisual.versatzAus) {
     heroVisual.versatzAus(Math.min(1, dt * 8));
   }
   const hSpeed = Math.hypot(player.vel.x, player.vel.z);
+  if ((!player.onGround || player.attack || player.platform || player.perchMix > 0.015 || player.rollT > 0) && heroVisual.loeseFusskontakte) {
+    heroVisual.loeseFusskontakte();
+  }
   heroVisual.play(player.anim, {
     wandKriechen: player.wandKriechen,
+    wandKontakt: player.wandKriechen,
     /* Geht die Figur rueckwaerts (Katapult spannen)? Dann laeuft die
        Gangart rueckwaerts ab - sonst rudern die Beine vorwaerts, waehrend
        der Koerper nach hinten faehrt. */
@@ -14966,6 +15340,9 @@ function updateHeroVisual(dt) {
     bogen: player.bogenGlatt === undefined ? 0 : player.bogenGlatt,
   }, dt);
 
+  const perchTarget = player.onGround && !player.attack ? clamp((player.hockeT - 0.9) * 4, 0, 1) : 0;
+  player.perchMix = lerp(player.perchMix || 0, perchTarget, 1 - Math.exp(-dt * (perchTarget ? 14 : 22)));
+  if (!player.onGround) player.perchMix = 0;
   if (heroVisual.procedural) {
     overlayAttack(heroVisual.human, player.attack, dt);
   } else {
@@ -15004,10 +15381,10 @@ function updateHeroVisual(dt) {
       MISCH.schwungArg = [(MISCH.ankerGlatt || player.swing.anchor).clone(),
                           player.swing.hand, elapsed,
                           player.bogenGlatt, r.rotation.x, beideHaende];
-    } else if (player.hockeT > 0.9 && heroVisual.poseKauern) {
+    } else if (player.perchMix > 0.015 && heroVisual.poseKauern) {
       /* Auf der Dachkante wird die Hocke GESETZT, nicht abgespielt. Keine
          Bewegung aus dem Paket gibt diese Haltung her. */
-      heroVisual.poseKauern(clamp((player.hockeT - 0.9) * 4, 0, 1),
+      heroVisual.poseKauern(player.perchMix,
                             player.mastHocke ? 1 : 0);
       if (heroVisual.hockeAusgleich) heroVisual.hockeAusgleich(Math.min(1, dt * 14));
       else heroVisual.bodenAusgleich(Math.min(1, dt * 14));
@@ -15027,7 +15404,7 @@ function updateHeroVisual(dt) {
          wuerde ihr die Arme wieder zur Seite reissen. */
       MISCH.wunsch = 'gleiten';
       MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
-                        0.9 * clamp(player.gleitMisch || 0, 0, 1)];
+                        0.9 * clamp(player.gleitMisch || 0, 0, 1), hSpeed];
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
@@ -15062,16 +15439,9 @@ function updateHeroVisual(dt) {
            im Stand um jede kleine Restbewegung. */
         const wunsch = tempo > 0.9 ? Math.atan2(-vq, vh) : 0;
         player.wandRoll = wunsch;
-        heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch);
-        /* Becken flach an die Fassade - siehe achseInEbene. */
-        if (heroVisual.wandHuefteFlach) heroVisual.wandHuefteFlach(w.nx, w.nz, 1);
-        /* Im Stillstand die Klebehaltung darueberlegen. Sie blendet ein
-           und aus, damit der Uebergang zur Kriechbewegung weich ist. */
-        player.wandRuhe = clamp((player.wandRuhe || 0) +
-          dt * (player.wandStill ? 5 : -8), 0, 1);
-        if (player.wandRuhe > 0.02 && heroVisual.poseWandhalt) {
-          heroVisual.poseWandhalt(w.nx, w.nz, player.wandRuhe);
-        }
+        heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch, player.wandlauf, true, dt);
+        // Contacts are applied once, after the final body/corner placement.
+        player.wandRuhe = clamp((player.wandRuhe || 0) + dt * (player.wandStill ? 5 : -8), 0, 1);
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
         MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
@@ -15109,7 +15479,7 @@ function updateHeroVisual(dt) {
       /* Beim Kriechen zuegig nachfuehren: dort ist der Unterschied zur
          Ruhehaltung gross, und mit 0,6 je Sekunde braeuchte der Ausgleich
          mehrere Sekunden - so lange schwebt die Figur sichtbar. */
-      const zaeh = (player.gang === 'kriechen' || player.duckt) ? 9
+      const zaeh = player.aufrichtT > 0 ? 18 : (player.gang === 'kriechen' || player.duckt) ? 9
                  : (player.anim === 'run' || player.anim === 'walk') ? 0.6
                  : (player.anim === 'land' || player.anim === 'roll') ? 12 : 5;
       heroVisual.bodenAusgleich(Math.min(0.35, dt * zaeh));
@@ -15121,6 +15491,10 @@ function updateHeroVisual(dt) {
         heroVisual.fussIK(bodenHoeheFuerFuss, 0.85,
                           Math.sin(player.facing), Math.cos(player.facing),
                           Math.sin(player.facing), Math.cos(player.facing));
+        if (heroVisual.gangKontakt && !player.platform &&
+            ['walk', 'run', 'sprint'].includes(player.gang) && hSpeed > 0.15) {
+          heroVisual.gangKontakt(player.vel, dt, bodenHoeheFuerFuss);
+        }
       }
       if (heroVisual.kopfStabil) heroVisual.kopfStabil(r.rotation.x, 0.55);
       /* Geduckt zum Schluss: die Pose muss über der Laufbewegung liegen.
@@ -15189,16 +15563,18 @@ function updateHeroVisual(dt) {
     heroVisual.poseFadenArm(player.fadenHand,
                             _v2.copy(player.haeltObjekt.mesh.position), 1);
   }
+  gripStrand.visible = false;
   if (player.fadenZiel) {
     heroVisual.root.updateMatrixWorld(true);
     heroHandPos(_v3, player.fadenHand);
-    /* Greifen beide Hände zu, beginnt der Faden zwischen ihnen. Die freie
-       Hand zielt zwar zum Anker, kommt bei Armlänge aber nicht exakt auf
-       die Linie – der Faden lief deshalb sichtbar an ihr vorbei und es sah
-       weiter nach einer Hand am Netz aus. */
-    if (player.beideAmFaden) {
-      const frei = heroHandPos(_v2, player.fadenHand === 'L' ? 'R' : 'L');
-      if (frei) _v3.lerp(frei, 0.5);
+    // A short second branch joins the actual free wrist to the main web.
+    // The main strand always starts at a wrist, never in empty space.
+    if (player.state === 'swing' && player.beideAmFaden) {
+      const free = heroHandPos(_v2, player.fadenHand === 'L' ? 'R' : 'L');
+      if (free) {
+        const join = _v3.clone().lerp(player.fadenZiel, Math.min(0.06, 0.45 / Math.max(1, _v3.distanceTo(player.fadenZiel))));
+        placeStrand(gripStrand, free, join, 0.002, 0.72);
+      }
     }
     /* Beim Schwingen hängt das Seil unter Last leicht durch, beim Netz-Zip
        ist es straff gespannt. */
@@ -15206,7 +15582,7 @@ function updateHeroVisual(dt) {
        Metern Entfernung war der duenne kaum zu sehen, und es sah aus, als
        schwebte das Ding von allein. */
     placeStrand(swingStrand, _v3, player.fadenZiel,
-                player.state === 'swing' ? 0.014 : 0.004,
+                player.state === 'swing' && player.swing && player.pos.distanceTo(player.swing.anchor) < player.swing.len - 0.3 ? 0.016 : 0.0015,
                 player.haeltObjekt ? 1.7 : 1);
     player.fadenZiel = null;
   }
@@ -15346,32 +15722,9 @@ const WAND_ZUG_WEIT = 1.2;
    Ab rund dt*90 ist die Durchdringung vollstaendig weg; darueber aendert
    sich nichts mehr. Siehe wandFreiraum. */
 let WAND_ZUG_TEMPO = 90;
-/* ---- Welche Bewegung den Wandlauf fuehrt ----
-   Hier lief der aufrechte Laufschritt, zur Wand gekippt. Der ist dafuer
-   geometrisch ungeeignet, und das laesst sich messen. Kippt man eine
-   Figur um -90 Grad an die Wand, wird aus "unten" die Richtung IN die
-   Fassade. Ein Clip passt also nur, wenn Haende und Fuesse auf aehnlicher
-   Hoehe liegen. Abstand Haende zu Fuessen laengs dieser Achse, ueber je
-   24 Stellen des Clips:
-     kriechen       0,06 bis 0,17 m   Rumpf 0,364 ueber dem tiefsten Punkt
-     klettern       0,28 bis 1,06     Rumpf 1,019
-     wandlauf       0,40 bis 0,86     Rumpf 0,910
-     sprint         0,59 bis 0,83     Rumpf 1,124
-     run            0,67 bis 0,88     Rumpf 1,170
-   Mit dem Laufschritt stehen die Haende also gut einen halben Meter neben
-   der Wand in der Luft, und keine Zielkinematik holt sie dort heran -
-   ein Arm, dessen Schulter einen halben Meter weg ist, laesst sich nicht
-   flach an die Fassade drehen, ohne dass er verrenkt aussieht.
-   Im Spiel an derselben Stelle gemessen (Abstand zur Fassade, und wie
-   flach die Handflaeche aufliegt; -1 waere flach):
-     run        Brust 0,484  Kopf 0,639  Haende 0,128 / 0,298  Flaeche -0,55 / +0,03
-     wandlauf   Brust 0,473  Kopf 0,526  Haende 0,451 / 0,812  Flaeche -0,86 / -0,59
-     kriechen   Brust 0,205  Kopf 0,205  Haende 0,088 / 0,067  Flaeche -0,96 / -0,94
-   Es ist also dieselbe Bewegung wie beim Klettern, nur schneller
-   abgespielt - und genau das ist ein Wandlauf. Der frueher hier notierte
-   Einwand ("aus dem Rennen die Wand hoch wurde ein Wuehlen") galt der
-   Bewegung in ihrem EIGENEN Takt; sie laeuft jetzt mit dem Steigtempo. */
-let WANDLAUF_CLIP = 'kriechen';
+/* The run clip supplies a bipedal wall-run. Hands remain free; only
+   soles receive wall contacts. Crawling continues to use its own clip. */
+let WANDLAUF_CLIP = 'run';
 /* Welche Bewegung an der Wand hochklettert. Umstellbar, damit sich die
    vorhandenen Kandidaten am echten Haus vergleichen lassen. */
 let KLETTER_CLIP = 'kriechen';
@@ -15493,7 +15846,7 @@ function wandFreiraum(dt) {
   else {
     const raus = Math.max(0, WAND_LUFT - min);        // aus der Wand heraus
     const rein = Math.min(0, WAND_TIEF_MAX - min);    // so weit hoechstens hinein
-    ziel = clamp(HUEFT_ZIEL - huefte, rein, raus);
+    ziel = clamp((player.wandlauf ? 0.52 : player.wandKriechen ? 0.26 : HUEFT_ZIEL) - huefte, rein, raus);
     /* Geprueft und VERWORFEN: den Koerper zusaetzlich herauszuschieben,
        sobald ein Glied tiefer als WAND_TIEF_MAX steckt. Waehrend des
        Kletterschritts taucht das Schwungbein regelmaessig kurz ein - die
@@ -15596,10 +15949,16 @@ function wandFreiraum(dt) {
   const eckHalb = (player.eckT || 0) > WAND_ECK_ZEIT * 0.5;
   if (!eckHalb) player.griffFlaeche = neueFl;
   const gf = player.griffFlaeche;
-  if (heroVisual.wandGriff) {
+  if (player.wandlauf && !eckHalb && heroVisual.poseWandSprint) {
+    heroVisual.poseWandSprint(gf.nx, gf.nz, gf.fl, player.phase, player.wandRoll, 0.9);
+    r.updateMatrixWorld(true);
+  } else if (player.wandKriechen && !player.wandlauf && !eckHalb && heroVisual.poseWandKontakt) {
+    heroVisual.poseWandKontakt(gf.nx, gf.nz, gf.fl, player.vel, dtWand, 1);
+    r.updateMatrixWorld(true);
+  } else if (heroVisual.wandGriff) {
     /* Waehrend der Ecke schwaecher, aber nicht aus. */
     heroVisual.wandGriff(gf.nx, gf.nz, gf.fl, eckHalb ? 0.45 : 0.9,
-                         player.gliedKraft);
+                         player.gliedKraft, player.wandlauf);
     r.updateMatrixWorld(true);
   }
   /* Und zum Schluss die harte Zusage: kein Glied steckt tief im Haus.
@@ -16103,8 +16462,7 @@ function baueAutoFahrer() {
 
 function updateAutoFahrer(dt) {
   if (!AUTO_FAHRER.length) { baueAutoFahrer(); if (!AUTO_FAHRER.length) return; }
-  /* Die naechsten Wagen suchen. Nur Personenwagen - Bus und LKW haben
-     ihre eigenen, passend gebauten Insassen. */
+  /* Cars and trucks share the driver pool; buses keep their own seated pool. */
   const nah = [];
   for (const c of cars) {
     if (c.aus || !c.mesh || !c.mesh.userData.fahrerSitz) continue;
@@ -16115,9 +16473,12 @@ function updateAutoFahrer(dt) {
     nah.push({ c, d2 });
   }
   nah.sort((a, b) => a.d2 - b.d2);
+  const retained = new Set(AUTO_FAHRER.map(f => f.auto).filter(c => nah.some(n => n.c === c)));
   for (let i = 0; i < AUTO_FAHRER.length; i++) {
     const f = AUTO_FAHRER[i];
-    const ziel = nah[i] ? nah[i].c : null;
+    const pick = retained.has(f.auto) ? { c: f.auto } : nah.find(n => !retained.has(n.c));
+    const ziel = pick ? pick.c : null;
+    if (ziel) retained.add(ziel);
     if (f.auto !== ziel) {
       /* Beim Umsteigen die einfachen Figuren im alten Wagen wieder zeigen. */
       if (f.auto && f.auto.mesh && f.auto.mesh.userData.insassen) {
@@ -16136,9 +16497,10 @@ function updateAutoFahrer(dt) {
     f.visual.root.visible = true;
     f.visual.root.position.copy(_afP);
     f.visual.root.rotation.y = ry;
-    f.visual.play('idle', { t: elapsed }, dt);
+    f.visual.root.scale.setScalar(sitz.scale || 1);
+    f.visual.play(f.visual.hatClip && f.visual.hatClip('sitzen') ? 'sitzen' : 'idle', { t: elapsed }, dt);
     if (f.visual.poseSitzen) {
-      f.visual.poseSitzen(1);
+      f.visual.poseSitzen(1, undefined, true);
       const m = f.visual.sitzMasse ? f.visual.sitzMasse() : null;
       /* Becken auf die Sitzflaeche des Wagens. */
       if (m) f.visual.root.position.y += (ziel.mesh.position.y + sitz.y) - m.huefte;
@@ -16199,10 +16561,11 @@ function updateBusGaeste(dt) {
     g.visual.root.visible = true;
     g.visual.root.position.copy(_bgP);
     g.visual.root.rotation.y = ry + pl.ry;
+    g.visual.root.scale.setScalar(pl.scale || 1);
     const echtesSitzen = g.visual.hatClip && g.visual.hatClip('sitzen');
     g.visual.play(echtesSitzen ? 'sitzen' : 'idle', { t: elapsed }, dt);
     {
-      if (!echtesSitzen && g.visual.poseSitzen) g.visual.poseSitzen(1);
+      if (g.visual.poseSitzen) g.visual.poseSitzen(1, undefined, !!pl.fahrer);
       const m = g.visual.sitzMasse ? g.visual.sitzMasse() : null;
       if (m) g.visual.root.position.y += (bester.mesh.position.y + pl.y) - m.huefte;
     }
@@ -16214,8 +16577,8 @@ function updateBusGaeste(dt) {
    Zivilisten (die an einer Station eingestiegen sind) - nebeneinander auf
    derselben Bank. Die einfachen sind raus; damit der Wagen trotzdem nicht
    leer ist, faehrt eine kleine Mannschaft echter Leute mit. Sie setzt sich
-   immer auf die naechstgelegenen freien Plaetze des naechsten Zuges.
-   Ein Sitzplatz weiter weg als 30 m ist im Bild ohnehin nicht zu sehen. */
+   auf nahe freie Plaetze; jeder Platz hat eine feste Figurenidentitaet.
+   Sichtweite und Reservierungen bleiben auf 30 m begrenzt. */
 const ZUG_GAST = [];
 const ZUG_GAST_MAX = 7;
 const ZUG_GAST_WEITE = 30;
@@ -16230,6 +16593,15 @@ function baueZugGaeste() {
     scene.add(visual.root);
     ZUG_GAST.push({ visual });
   }
+}
+
+function festeSitzZuordnung(pool, plaetze) {
+  return pool.map((g, i) => {
+    const alte = plaetze.find(p => p.key === g.sitzKey && p.rolle === i);
+    const platz = alte || plaetze.find(p => p.rolle === i) || null;
+    g.sitzKey = platz ? platz.key : null;
+    return platz;
+  });
 }
 
 function updateZugGaeste(dt) {
@@ -16252,12 +16624,14 @@ function updateZugGaeste(dt) {
       const d2 = (wx - player.pos.x) * (wx - player.pos.x) +
                  (wz - player.pos.z) * (wz - player.pos.z);
       if (d2 > ZUG_GAST_WEITE * ZUG_GAST_WEITE) continue;
-      plaetze.push({ x: wx, z: wz, ry: pl.ry, d2 });
+      plaetze.push({ x: wx, z: wz, ry: pl.ry, d2,
+        key: t.mesh.uuid + ':' + k, rolle: (k + ZUEGE.indexOf(t) * 3) % ZUG_GAST_MAX });
     }
   }
   plaetze.sort((a, b) => a.d2 - b.d2);
+  const vergeben = festeSitzZuordnung(ZUG_GAST, plaetze);
   for (let i = 0; i < ZUG_GAST.length; i++) {
-    const g = ZUG_GAST[i], pl = plaetze[i];
+    const g = ZUG_GAST[i], pl = vergeben[i];
     if (!pl) { g.visual.root.visible = false; continue; }
     g.visual.root.visible = true;
     g.visual.root.position.set(pl.x, UB_TIEF, pl.z);
@@ -16548,7 +16922,9 @@ function waehleFahrzeug() {
 }
 
 function makeCarMesh(color) {
-  const g = new THREE.Group();
+  const modern = CITY_LOOK ? CITY_LOOK.createCar(color) : null;
+  const g = modern || new THREE.Group();
+  if (!modern) {
   const bodyMat = new THREE.MeshLambertMaterial({ color });
   /* Das Auto ist gewachsen. Vorher endete das Dach auf 1,57 m - in so eine
      Zelle passt kein Mensch von 1,76 m, deshalb sassen dort nur auf 0,66
@@ -16600,6 +16976,7 @@ function makeCarMesh(color) {
       g.add(holm);
     }
   }
+  } // Klassische Karosserie als abschaltbarer Vergleich
   /* ---- Sitze ----
      Im Wagen gab es ueberhaupt keine Sitze: die Insassen schwebten auf
      einer gedachten Hoehe im leeren Kasten. Jetzt stehen zwei Vordersitze
@@ -16662,6 +17039,7 @@ function makeCarMesh(color) {
   }
   /* Wo der Fahrer sitzt, in Wagenkoordinaten. */
   g.userData.fahrerSitz = { x: -0.44, y: 0.96, z: 0.12 };
+  if (!modern) {
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.25, 10);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x17181c });
   for (const [sx, sz] of [[-1, 1.35], [1, 1.35], [-1, -1.35], [1, -1.35]]) {
@@ -16690,6 +17068,7 @@ function makeCarMesh(color) {
     l.position.set(sx * 0.62, 0.74, -2.22);
     g.add(l);
   }
+  } // Die moderne Karosserie bringt Raeder und Leuchten mit.
   scene.add(g);
   return g;
 }
@@ -16705,6 +17084,7 @@ function makeHeliMesh() {
   const dunkel = new THREE.MeshLambertMaterial({ color: 0x14161c });
   const glas = new THREE.MeshLambertMaterial({ color: 0x9fd2e8 });
 
+  if (CITY_LOOK) g.add(CITY_LOOK.createHelicopterShell());
   const rumpf = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.5, 4.2), lack);
   rumpf.position.y = 0.2; rumpf.castShadow = true;
   g.add(rumpf);
@@ -16712,6 +17092,7 @@ function makeHeliMesh() {
   kanzel.scale.set(0.95, 0.8, 1.1);
   kanzel.position.set(0, 0.25, 2.1);
   g.add(kanzel);
+  if (CITY_LOOK) { g.remove(rumpf); g.remove(kanzel); rumpf.geometry.dispose(); kanzel.geometry.dispose(); }
   /* Pilot und Beobachter in der Kanzel - vorher flogen die Hubschrauber
      unbemannt ueber die Stadt. Das Glas wird dafuer halbdurchsichtig. */
   glas.transparent = true; glas.opacity = 0.45; glas.depthWrite = false;
@@ -16765,8 +17146,8 @@ function makeHeliMesh() {
   const heckRotor = new THREE.Group();
   heckRotor.position.set(0.28, 1.1, -4.9);
   for (let i = 0; i < 3; i++) {
-    const blatt = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.5, 0.06), dunkel);
-    blatt.rotation.z = i * Math.PI / 3;
+    const blatt = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.5, 0.1), dunkel);
+    blatt.rotation.x = i * Math.PI / 3;
     heckRotor.add(blatt);
   }
   g.add(heckRotor);
@@ -16913,6 +17294,16 @@ function collidePlayerHelis(prevY) {
 /* Baut ein Fahrzeug nach Typ. Alles aus Kisten, damit es zum Stil passt. */
 function makeFahrzeugMesh(typ, farbe) {
   if (typ.art === 'pkw') return makeCarMesh(farbe);
+  if (typ.art === 'bus' && CITY_LOOK && CITY_LOOK.createBus) {
+    const bus = CITY_LOOK.createBus(typ, farbe), people = [];
+    for (const [i, seat] of bus.userData.sitzplaetze.entries()) {
+      if (i > 0 && i % 3 === 0) continue;
+      for (const part of sitzMensch(seat.x, seat.y, seat.z, seat.ry, seat.scale, i)) people.push(part);
+    }
+    const crew = new THREE.Mesh(verschmelzeTeile(people), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    crew.name = 'DistantBusPassengers'; bus.add(crew); bus.userData.insassen = crew;
+    scene.add(bus); return bus;
+  }
   const g = new THREE.Group();
   const L = typ.laenge, B = typ.breite;
   const lack = new THREE.MeshLambertMaterial({ color: farbe });
@@ -16925,7 +17316,7 @@ function makeFahrzeugMesh(typ, farbe) {
     const auto = makeCarMesh(0xf2c12e);
     const schild = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.28, 0.35),
       new THREE.MeshBasicMaterial({ color: 0xfff3c0 }));
-    schild.position.set(0, 1.56, -0.2);
+    schild.position.set(0, (auto.userData.roofHeight || 1.98) + 0.14, -0.2);
     auto.add(schild);
     for (const sz of [1, -1]) {                       // Schachbrettstreifen
       const streifen = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 2.6),
@@ -16963,13 +17354,16 @@ function makeFahrzeugMesh(typ, farbe) {
     return auto;
   }
   // Bus und LKW
+  const cityWheels = [];
   const raeder = (positionen) => {
     const geo = new THREE.CylinderGeometry(0.46, 0.46, 0.3, 10);
     for (const [sx, sz] of positionen) {
       const w = new THREE.Mesh(geo, dunkel);
       w.rotation.z = Math.PI / 2;
-      w.position.set(sx * (B / 2 - 0.1), 0.46, sz);
-      g.add(w);
+      const steer = new THREE.Group();
+      steer.position.set(sx * (B / 2 - 0.1), 0.46, sz);
+      steer.add(w); g.add(steer);
+      cityWheels.push({ steer, roll: w, front: sz > 0 });
     }
   };
   if (typ.art === 'bus') {
@@ -17046,7 +17440,7 @@ function makeFahrzeugMesh(typ, farbe) {
       g.userData.insassen = im;
     }
     /* Fuer die echten Fahrgaeste: alle Plaetze samt Fahrerplatz. */
-    g.userData.sitzplaetze = busPlaetze.concat([{ x: fx, y: BUS_BANK, z: fz, ry: 0 }]);
+    g.userData.sitzplaetze = [{ x: fx, y: BUS_BANK, z: fz, ry: 0, fahrer: true }].concat(busPlaetze);
     raeder([[-1, L / 2 - 1.3], [1, L / 2 - 1.3], [-1, -L / 2 + 1.6], [1, -L / 2 + 1.6]]);
   } else {                                            // LKW
     /* Die Kabine war ein voller Kasten mit aufgeklebten Scheiben - der
@@ -17071,14 +17465,13 @@ function makeFahrzeugMesh(typ, farbe) {
       const seite = new THREE.Mesh(new THREE.BoxGeometry(0.05, fOben - fUnten, 2.0), glas);
       seite.position.set(sx * (B / 2 - 0.03), (fUnten + fOben) / 2, kz); g.add(seite);
     }
-    /* Fahrer und manchmal ein Beifahrer - sitzen jetzt so hoch, dass Kopf
-       und Schultern im Fensterband stehen. */
     const leute = [];
     for (const t of sitzMensch(-(B / 2 - 0.6), 1.12, kz - 0.15, 0, 0.78)) leute.push(t);
-    if (Math.random() < 0.5)
-      for (const t of sitzMensch((B / 2 - 0.6), 1.12, kz - 0.15, 0, 0.78)) leute.push(t);
-    g.add(new THREE.Mesh(verschmelzeTeile(leute),
-                         new THREE.MeshLambertMaterial({ vertexColors: true })));
+    const truckCrew = new THREE.Mesh(verschmelzeTeile(leute),
+      new THREE.MeshLambertMaterial({ vertexColors: true }));
+    g.add(truckCrew);
+    g.userData.insassen = truckCrew;
+    g.userData.fahrerSitz = { x: -(B / 2 - 0.6), y: 1.12, z: kz - 0.15, scale: 0.78 };
     const kasten = new THREE.Mesh(new THREE.BoxGeometry(B + 0.1, 2.3, L - 2.6),
       new THREE.MeshLambertMaterial({ color: 0xd9dbe0 }));
     kasten.position.set(0, 1.6, -1.3); kasten.castShadow = true; g.add(kasten);
@@ -17090,6 +17483,7 @@ function makeFahrzeugMesh(typ, farbe) {
     l.position.set(sx * (B / 2 - 0.4), 0.75, L / 2 + 0.02);
     g.add(l);
   }
+  if (CITY_LOOK) CITY_LOOK.finishUtilityVehicle(g, typ, farbe, cityWheels);
   scene.add(g);
   return g;
 }
@@ -18270,6 +18664,7 @@ function updateCars(dt) {
       car.mesh.position.set(zx, 0, zz);
       car.mesh.rotation.y = zy;
     }
+    if (CITY_LOOK) CITY_LOOK.updateCar(car.mesh, speed, dt);
     /* ---- Blaulicht nur im Einsatz ----
        Der Balken blinkte bei JEDEM Polizeiwagen, also auch bei den zwei
        Streifen, die ohnehin im normalen Verkehr mitfahren. Damit sah die
@@ -18295,12 +18690,15 @@ function carAABB(car) {
   /* Box passt jetzt zum Fahrzeug – auf einen Bus konnte man vorher nicht
      richtig steigen, weil die Box die eines PKW war. */
   const t = car.typ || { laenge: 4.4, breite: 1.9, art: 'pkw' };
-  const halbL = t.laenge / 2 + 0.1, halbB = t.breite / 2 + 0.1;
-  const hx = car.axis === 'x' ? halbL : halbB;
-  const hz = car.axis === 'x' ? halbB : halbL;
+  const hull = car.mesh.userData.collisionHull;
+  const halbL = hull ? hull.halfLength : t.laenge / 2 + 0.1;
+  const halbB = hull ? hull.halfWidth : t.breite / 2 + 0.1;
+  const sin = Math.abs(Math.sin(car.mesh.rotation.y)), cos = Math.abs(Math.cos(car.mesh.rotation.y));
+  const hx = halbB * cos + halbL * sin;
+  const hz = halbL * cos + halbB * sin;
   const cx = car.mesh.position.x, cz = car.mesh.position.z;
-  const dach = t.art === 'bus' ? 2.6 : t.art === 'lkw' ? 2.8 : 1.32;
-  return { x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, top: dach };
+  const dach = hull ? hull.roof : t.art === 'bus' ? 2.7 : t.art === 'lkw' ? 2.75 : 1.98;
+  return { x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, top: car.mesh.position.y + dach };
 }
 
 function collidePlayerCars(prevY) {
@@ -19596,6 +19994,7 @@ function spawnCivilian() {
   const loop = sidewalkLoop(bi, bj);
   const wp = randi(0, 3);
   const visual = makeCharacterVisual('civilian', {});
+  if (CITY_LOOK) CITY_LOOK.dressCivilian(visual);
   /* Gestartet wird auf einem gueltigen Gehwegknoten, nicht auf einer
      zufaelligen Weltkoordinate. */
   baueGehnetz();
@@ -20960,6 +21359,12 @@ const GANOVEN = [
     standfest: 0.35, ausweichen: 0.12, farbe: 0x14202c, gewicht: 9,
     poise: 20, guard: 95,  reaktion: 0.36, aggression: 0.55, kombo: 2,
     telegraph: 1.15, ringNah: 3.4 },
+  { art: 'duellant', model: 'civilian4', groesse: 0.98, hp: 32, schaden: 7, tempo: 5.6, blockChance: 0.42,
+    standfest: 0.1, ausweichen: 0.32, farbe: 0x253d48, gewicht: 8,
+    poise: 8, guard: 62, reaktion: 0.29, aggression: 1.05, kombo: 2, telegraph: 1.0, ringNah: 3.9 },
+  { art: 'stuermer', model: 'civilian5', groesse: 1.03, hp: 30, schaden: 10, tempo: 7.0, blockChance: 0.10,
+    standfest: 0.1, ausweichen: 0.18, farbe: 0x593c32, gewicht: 8,
+    poise: 9, guard: 35, reaktion: 0.37, aggression: 1.4, kombo: 1, telegraph: 1.1, ringNah: 4.5 },
   { art: 'werfer',    groesse: 0.96, hp: 26, schaden: 7,  tempo: 4.8, blockChance: 0.10,
     standfest: 0.0, ausweichen: 0.20, farbe: 0x2b2410, gewicht: 7,
     poise: 6,  guard: 25,  reaktion: 0.45, aggression: 0.70, kombo: 1,
@@ -21120,13 +21525,14 @@ function spawnGang(cx, cz, n, quelle) {
   const gang = { enemies: [], home: V3(cx, 0, cz), cleared: false,
                  quelle: quelle || 'ambient' };
   for (let i = 0; i < n; i++) {
+    const typ = waehleGanov();
     const visual = makeCharacterVisual('thug', {
-      thug: true,
+      thug: true, model: typ.model,
       shirt: pick(['#3a3f4a', '#54303a', '#2e4038', '#463a2e']),
       pants: pick(['#26262e', '#3a3630', '#2e3440']),
     });
-    const typ = waehleGanov();
     visual.root.scale.setScalar(typ.groesse);
+    if (CITY_LOOK) CITY_LOOK.dressEnemy(visual, typ.art);
     const hpBar = makeHPBar();
     visual.root.add(hpBar.g);
     const warn = makeWarnzeichen(); visual.root.add(warn);
@@ -21994,6 +22400,7 @@ function updateEnemies(dtBild) {
   verteileAngriffsrechte(dtBild);
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
+    if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, e.boss ? 'enforcer' : e.typ.art);
     /* Ganoven weit weg vom Helden ebenfalls nur jedes dritte Bild. Wer
        gerade ausholt oder zuschlägt, wird immer gerechnet – sonst
        verschiebt sich die Vorwarnzeit und der Konter passt nicht mehr. */
@@ -22001,6 +22408,8 @@ function updateEnemies(dtBild) {
                  && !e.attack && e.warnT <= 0;
     if (fern && ((taktBild + i) % 3)) continue;
     const dt = fern ? dtBild * 3 : dtBild;
+    // Visual hit time must advance during stagger too, before its continue.
+    if (e.kippT > 0) e.kippT = Math.max(0, e.kippT - dt);
     /* ---- In Gewahrsam ----
        Wer uebernommen ist, kaempft nicht mehr und flieht nicht mehr. Er
        steht, bis er abgefuehrt wird. Ohne das faellt ein gefasster
@@ -22212,7 +22621,9 @@ function updateEnemies(dtBild) {
       e.visual.root.position.copy(e.pos);
       e.visual.play('air', { t: elapsed }, dt);
       // Pose erst nach der Animation setzen, sonst überschreibt der Mixer sie
-      if (e.visual.poseTreffer) e.visual.poseTreffer(1 - e.staggerT / 0.9);
+      if (e.visual.poseTreffer && e.kippT > 0) {
+        e.visual.poseTreffer(1 - e.kippT / 0.34, e.kippRichtung, e.kippStaerke);
+      }
       /* Die Bossphase muss auch im Taumeln nachgefuehrt werden. Sonst
          friert sie ein, solange man den Boss unter Dauerbeschuss haelt -
          gemessen: bei 7,5 Schlaegen pro Sekunde blieb er bis 5 % Leben in
@@ -23080,7 +23491,6 @@ function updateEnemies(dtBild) {
        nach vorn, von vorn nach hinten, von der Seite zur Seite und
        dreht dabei ein wenig weg. */
     if (e.kippT > 0) {
-      e.kippT -= dt;
       const k = clamp(e.kippT / 0.34, 0, 1) * (e.kippStaerke || 0.5) * 0.46;
       if (e.kippRichtung === 'vorn') e.visual.root.rotation.x = k;
       else if (e.kippRichtung === 'hinten') e.visual.root.rotation.x = -k;
@@ -24709,9 +25119,16 @@ function respBaueWagen(ein, start) {
   return car;
 }
 
-/* Der Rettungswagen: heller Kasten mit roten Streifen und Balken. Aus der
-   vorhandenen Fahrzeuggeometrie, kein neues Modell. */
+/* Rettungswagen mit eigener Kabine und Patientenaufbau; die Einsatzlogik
+   verwendet weiterhin denselben Fahrzeugtyp und dieselben Lichtreferenzen. */
 function respBaueRtwMesh() {
+  if (CITY_LOOK && CITY_LOOK.createAmbulance) {
+    const vehicle = CITY_LOOK.createAmbulance(), seat = vehicle.userData.fahrerSitz;
+    const crew = new THREE.Mesh(verschmelzeTeile(sitzMensch(seat.x, seat.y, seat.z, 0, seat.scale)),
+      new THREE.MeshLambertMaterial({ vertexColors: true }));
+    crew.name = 'DistantAmbulanceDriver'; vehicle.add(crew); vehicle.userData.insassen = crew;
+    return vehicle;
+  }
   const g = new THREE.Group();
   const hell = new THREE.MeshLambertMaterial({ color: 0xf2f2f5 });
   const rot = new THREE.MeshLambertMaterial({ color: 0xc22a28 });
@@ -27373,8 +27790,7 @@ function wendeTonAn() {
 }
 
 function zeigeEinstellungen(an) {
-  settingsEl.style.display = an ? 'flex' : 'none';
-  if (an && document.pointerLockElement) document.exitPointerLock();
+  if (an) window.WEB_HERO_MENU.open('settings'); else window.WEB_HERO_MENU.closeAll();
 }
 
 /* ======================= Fortschrittsansicht =======================
@@ -27389,11 +27805,7 @@ let fortschrittEl = null;
 function zeigeFortschritt(an) {
   if (!fortschrittEl) fortschrittEl = document.getElementById('fortschritt');
   if (!fortschrittEl) return;
-  fortschrittEl.style.display = an ? 'flex' : 'none';
-  if (an) {
-    if (document.pointerLockElement) document.exitPointerLock();
-    baueFortschrittAnsicht();
-  }
+  if (an) window.WEB_HERO_MENU.open('fortschritt'); else window.WEB_HERO_MENU.closeAll();
 }
 
 function fsEntkomme(t) {
@@ -27535,6 +27947,14 @@ function baueFortschrittAnsicht() {
     });
   }
 }
+window.WEB_HERO_MENU.setHooks({
+  pause() {
+    clearMovementKeys(); touchAktiv = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+    overlay.style.display = 'flex'; hud.style.display = 'none';
+  },
+  progress: baueFortschrittAnsicht,
+});
 (function baueFortschrittKnopf() {
   const zu = document.getElementById('fsZu');
   if (zu) zu.addEventListener('click', () => zeigeFortschritt(false));
@@ -28420,11 +28840,12 @@ function simuliere(dt) {
   if (zeitlupe > 0) { zeitlupe -= dt; dt *= 0.34; }
   elapsed += dt;
 
+  // Moving rope anchors and landing decks must use this frame's helicopter transform.
+  updateHelis(dt);
   updatePlayer(dt);
   updateWetter(dt);
   updateTagNacht(dt);
   updateCars(dt);
-  updateHelis(dt);
   updateCivilians(dt);
   updateEnemies(dt);
   if (COMBAT_DEBUG) zeigeKampfTafel(dt);

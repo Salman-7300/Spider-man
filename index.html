@@ -226,31 +226,171 @@
 
   #loaderr { position:fixed; inset:0; z-index:30; display:none; align-items:center;
     justify-content:center; text-align:center; background:#0a0e1a; padding:30px; }
+
+  /* Desktop and touch share one readable pause menu. */
+  button, input, select { font:inherit; }
+  button { cursor:pointer; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline:3px solid #73dfd4; outline-offset:4px; }
+  [hidden] { display:none !important; }
+  #overlay { padding:clamp(20px,5vw,76px); overflow-y:auto; cursor:default; text-align:left;
+    background:linear-gradient(105deg,rgba(6,13,23,.97),rgba(9,22,35,.84)); align-items:stretch; }
+  .menu-shell { width:min(1120px,100%); margin:auto; display:grid; grid-template-columns:1.12fr 1fr; gap:clamp(35px,8vw,140px); align-items:center; }
+  .eyebrow { font-size:11px; font-weight:700; letter-spacing:.18em; color:#7bcac5; margin-bottom:18px; }
+  #title { font:900 clamp(65px,8.4vw,116px)/.84 'Arial Black',Arial,sans-serif; letter-spacing:-.075em;
+    color:#f3f0e7; background:none; text-shadow:none; transform:skew(-5deg); margin:0 0 27px; }
+  #title span { color:#ff5257; }
+  #subtitle { color:#f3f0e7; font-size:22px; margin:0; font-weight:600; }
+  .menu-lead { color:#a4b2c1; font-size:15px; margin:9px 0 27px; }
+  #clickmsg { border:0; margin:22px 0 12px; background:#ed414d; color:#fff; width:100%; padding:17px 23px;
+    text-align:left; animation:none; font-size:18px; border-radius:5px; box-shadow:0 10px 35px #b9213022; }
+  #clickmsg span { float:right; }
+  #clickmsg:hover { background:#ff535e; }
+  .menu-nav { display:grid; }
+  .menu-nav button { display:flex; align-items:center; gap:18px; padding:15px 4px; color:#e3eaf0; background:none; border:0; border-bottom:1px solid #ffffff1c; text-align:left; font-size:16px; }
+  .menu-nav button:hover { color:#7ce0d5; }
+  .menu-nav button span { font-size:10px; color:#718498; }
+  .menu-nav button b { margin-left:auto; font-weight:400; }
+  #note { margin-top:21px; font-size:11px; opacity:1; color:#8094a7; }
+  .menu-guide { border-left:1px solid #ffffff20; padding-left:36px; }
+  .menu-guide h2 { font-size:clamp(26px,3.1vw,43px); font-weight:500; line-height:1.17; letter-spacing:-.035em; color:#e6e9e9; }
+  #ctrl { padding:0; margin:28px 0; border:0; background:none; line-height:1.3; }
+  #ctrl>div { display:flex; flex-direction:column; align-items:flex-start; gap:9px; margin:19px 0; }
+  #ctrl span { font-size:13px; color:#aab9c6; }
+  kbd { font:600 11px/1.5 'Segoe UI',sans-serif; letter-spacing:.025em; color:#e9eff4; background:#ffffff0c; border:1px solid #ffffff2c; border-bottom-width:2px; border-radius:4px; padding:4px 7px; display:inline-block; }
+  .menu-tip, .panel-note { color:#a0b2bf; font-size:13px; line-height:1.65; max-width:380px; }
+  .text-button { border:0; color:#7dd7cf; padding:15px 0; background:none; font-size:13px; }
+  .menu-footer { display:flex; gap:20px; justify-content:space-between; margin:30px auto 0; width:min(1120px,100%); color:#647e94; font-size:10px; letter-spacing:.12em; }
+  #ladewrap { width:100%; height:4px; margin-top:20px; }
+  #ladetext { font-size:12px; }
+  .menu-modal { position:fixed; inset:0; z-index:24; background:#040c16dd; backdrop-filter:blur(9px); align-items:center; justify-content:center; padding:20px; }
+  #controls .box, #settings .box, #fortschritt .box { background:#0f1c2a; border:1px solid #304152; border-radius:10px; padding:30px; width:min(730px,94vw); max-height:88dvh; overflow:auto; box-shadow:0 25px 90px #0008; }
+  #controls h2, #settings h2, #fortschritt h2 { font-size:30px; letter-spacing:-.03em; color:#f1f0e8; margin-bottom:20px; }
+  .control-tabs { display:flex; gap:5px; flex-wrap:wrap; border-bottom:1px solid #304152; padding-bottom:12px; }
+  .control-tabs button { padding:9px 12px; border:0; border-radius:4px; color:#a1b2c0; background:transparent; font-size:12px; }
+  .control-tabs button[aria-selected=true] { color:#0a222a; background:#77d2c8; }
+  .key-list>div { display:grid; grid-template-columns:220px 1fr; gap:17px; align-items:center; padding:13px 0; border-bottom:1px solid #ffffff10; }
+  .key-list dt { color:#9db0c1; font-size:11px; }
+  .key-list dd { font-size:13px; color:#cbd6df; line-height:1.5; }
+  .panel-note { max-width:none; margin:18px 0; }
+  .modal-close, #settings button, #fortschritt button:not(.kauf) { color:#fff; background:#de424d; border:0; border-radius:5px; padding:13px 18px; width:100%; margin-top:22px; }
+  #settings .zeile { padding:12px 0; margin:0; border-bottom:1px solid #ffffff10; }
+  #settings .zeile label { flex:0 0 155px; font-size:14px; }
+  #settings select { min-width:0; flex:1; max-width:100%; padding:9px; background:#192a3b; }
+  #settings .hinweis { color:#a4b5c4; opacity:1; }
+  #settings, #fortschritt { backdrop-filter:blur(9px); }
+  @media(max-width:700px) {
+    .menu-shell { grid-template-columns:1fr; gap:26px; max-width:420px; }
+    .menu-guide { border-left:0; padding:0; border-top:1px solid #ffffff20; padding-top:24px; }
+    .menu-guide h2, .menu-guide>.eyebrow { display:none; }
+    #ctrl { margin:0 0 16px; display:grid; grid-template-columns:1fr; }
+    #ctrl>div { margin:8px 0; flex-direction:row; align-items:center; }
+    #title { font-size:72px; }
+    .menu-footer { max-width:420px; letter-spacing:0; }
+    #controls .box, #settings .box, #fortschritt .box { padding:20px; }
+    .key-list>div { grid-template-columns:1fr; gap:7px; }
+    #settings .zeile { flex-wrap:wrap; gap:9px; }
+    #settings .zeile label { flex-basis:100%; }
+    .control-tabs button { flex:1 1 40%; }
+  }
+  @media(max-height:650px) and (min-width:701px) {
+    #overlay { padding:25px 6vw; justify-content:flex-start; }
+    #title { font-size:70px; }
+    .menu-lead, .menu-guide>.eyebrow, .menu-footer { display:none; }
+    .menu-nav button { padding:11px 4px; }
+  }
 </style>
 </head>
 <body>
 
 <div id="overlay">
-  <div id="title">WEB&nbsp;HERO</div>
-  <div id="subtitle">Die Stadt braucht dich! – Schwinge dich durch die Straßenschluchten,<br>
-    stoppe die Gangs und rette die Zivilisten.</div>
-  <div id="ladewrap"><div id="ladebar"></div></div>
-  <div id="ladetext">Figuren werden geladen …</div>
-  <div id="clickmsg" style="display:none">▶ Klicken zum Starten</div>
-  <div id="ctrl">
-    <b>W A S D</b> Laufen &nbsp;·&nbsp; <b>Maus</b> Kamera &nbsp;·&nbsp; <b>Shift</b> Sprinten<br>
-    <b>Leertaste</b> Springen · in der Luft halten: <b>Netzschwung</b><br>
-    <b>Rechte Maustaste (halten)</b> Netzschwung (alternativ)<br>
-    <b>Linksklick</b> Schlag-Kombo &nbsp;·&nbsp; <b>F</b> Tritt &nbsp;·&nbsp; <b>Strg</b> Ausweichrolle<br>
-    <b>Q</b> Netzschuss (Gegner einwickeln) &nbsp;·&nbsp; <b>E</b> Netz-Zip / Netz-Angriff<br>
-    <b>R</b> Aufwärtshaken (Luftkombo) &nbsp;·&nbsp; <b>G</b> Packen &amp; Werfen<br>
-    <b>Strg im richtigen Moment</b> Spinnensinn-Konter &nbsp;·&nbsp; <b>Shift an der Wand</b> Wandlauf<br>
-    <b>Wand berühren (in der Luft)</b> Klettern &nbsp;·&nbsp; <b>H</b> Hilfe &nbsp;·&nbsp; <b>M</b> Ton
+  <main class="menu-shell" aria-label="Hauptmenü">
+    <section class="menu-intro">
+      <p class="eyebrow">DEINE STADT. DEIN SCHWUNG.</p>
+      <h1 id="title">WEB<br><span>HERO</span></h1>
+      <p id="subtitle">Die Stadt braucht dich.</p>
+      <p class="menu-lead">Über die Dächer. Mitten ins Geschehen.</p>
+      <div id="ladewrap"><div id="ladebar"></div></div>
+      <div id="ladetext" role="status">Figuren werden geladen …</div>
+      <button id="clickmsg" class="menu-play" style="display:none">Spielen <span>↗</span></button>
+      <nav class="menu-nav" aria-label="Spielmenü">
+        <button data-menu="controls"><span>01</span> Steuerung <b>↗</b></button>
+        <button data-menu="settings"><span>02</span> Einstellungen <b>↗</b></button>
+        <button data-menu="fortschritt"><span>03</span> Fortschritt <b>↗</b></button>
+      </nav>
+      <p id="note">Tastatur & Maus · Gamepad · Touch</p>
+    </section>
+    <aside class="menu-guide">
+      <p class="eyebrow">BEREIT FÜR DEN NÄCHSTEN SPRUNG?</p>
+      <h2>Die Stadt<br>liegt dir zu Füßen.</h2>
+      <div id="ctrl">
+        <div><kbd>W A S D</kbd><span>Bewegen & klettern</span></div>
+        <div><kbd>Leertaste halten</kbd><span>In der Luft schwingen</span></div>
+        <div><kbd>Shift</kbd><span>Sprint · Wandlauf · Gleitflug</span></div>
+      </div>
+      <p class="menu-tip">Heli im Blick? Hoch über der Stadt kannst du dein Netz an seiner Kufe befestigen.</p>
+      <button class="text-button" data-menu="controls">Alle Tasten ansehen →</button>
+    </aside>
+  </main>
+  <div class="menu-footer"><span>WEB HERO / ACT 1</span><span>Esc · Pause & Menü</span></div>
+</div>
+
+<div id="controls" class="menu-modal" role="dialog" aria-modal="true" aria-labelledby="controls-title" style="display:none">
+  <div class="box">
+    <p class="eyebrow">ALLES IM GRIFF</p><h2 id="controls-title">Steuerung</h2>
+    <div class="control-tabs" role="tablist" aria-label="Steuerungsbereich">
+      <button role="tab" id="tab-move" data-tab="move" aria-controls="panel-move" aria-selected="true">Bewegung</button>
+      <button role="tab" id="tab-web" data-tab="web" aria-controls="panel-web" aria-selected="false">Netze & Kampf</button>
+      <button role="tab" id="tab-city" data-tab="city" aria-controls="panel-city" aria-selected="false">Stadt & Menü</button>
+      <button role="tab" id="tab-pad" data-tab="pad" aria-controls="panel-pad" aria-selected="false">Gamepad & Touch</button>
+    </div>
+    <section id="panel-move" role="tabpanel" aria-labelledby="tab-move">
+      <dl class="key-list">
+        <div><dt><kbd>W A S D</kbd></dt><dd>Laufen und an Wänden klettern</dd></div>
+        <div><dt><kbd>Maus</kbd></dt><dd>Kamera drehen</dd></div>
+        <div><dt><kbd>Leertaste</kbd></dt><dd>Springen · erneut drücken: Doppelsprung · an der Wand: abspringen</dd></div>
+        <div><dt><kbd>Leertaste halten</kbd> / <kbd>Rechte Maus halten</kbd></dt><dd>Netzschwung in der Luft · loslassen zum Abspringen</dd></div>
+        <div><dt><kbd>Shift</kbd></dt><dd>Sprinten · an der Wand mit W/A/D: Wandlauf · in der Luft: gleiten</dd></div>
+        <div><dt><kbd>Alt</kbd> / <kbd>X</kbd></dt><dd>Gehen / ducken · X + Alt: schleichen · X + Shift: kriechen</dd></div>
+        <div><dt><kbd>Y</kbd> (neben X)</dt><dd>An der Wand festhalten</dd></div>
+      </dl>
+    </section>
+    <section id="panel-web" role="tabpanel" aria-labelledby="tab-web" hidden>
+      <dl class="key-list">
+        <div><dt><kbd>Linke Maus</kbd> / <kbd>F</kbd></dt><dd>Schlagkombo / Tritt – bricht Deckung</dd></div>
+        <div><dt><kbd>Strg</kbd></dt><dd>Ausweichen · im richtigen Moment kontern</dd></div>
+        <div><dt><kbd>Q</kbd></dt><dd>Netzschuss · Gegner fesseln oder Gegenstand heranziehen · erneut Q: werfen</dd></div>
+        <div><dt><kbd>E</kbd></dt><dd>Netz-Zip nach vorn oder Netzangriff auf ein Ziel</dd></div>
+        <div><dt><kbd>R</kbd></dt><dd>Aufwärtshaken ab Stufe 2 · danach Leertaste: Luftkombo</dd></div>
+        <div><dt><kbd>G</kbd></dt><dd>Ab Stufe 3 packen · erneut G: werfen · Linksklick: schmettern · Strg: loslassen</dd></div>
+        <div><dt><kbd>V halten</kbd></dt><dd>Netz-Katapult spannen · loslassen zum Starten</dd></div>
+        <div><dt><kbd>T</kbd></dt><dd>Symbiont aktivieren, wenn der Balken voll ist</dd></div>
+      </dl>
+      <p class="panel-note">Heli-Schwung: oberhalb der Dächer den Hubschrauber ins Fadenkreuz nehmen und die Schwungtaste halten. Reichweite: 80 m, freie Sicht erforderlich.</p>
+    </section>
+    <section id="panel-city" role="tabpanel" aria-labelledby="tab-city" hidden>
+      <dl class="key-list">
+        <div><dt><kbd>J</kbd></dt><dd>Auftrag annehmen · zweimal J: laufenden Auftrag abbrechen</dd></div>
+        <div><dt><kbd>C</kbd></dt><dd>Verletzten in der Nähe Erste Hilfe leisten</dd></div>
+        <div><dt><kbd>P</kbd></dt><dd>Fortschritt, Fertigkeiten und Geschichte ansehen</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Pause und Hauptmenü · dort findest du Kamera, Grafik und Ton</dd></div>
+        <div><dt><kbd>H</kbd> / <kbd>M</kbd></dt><dd>Steuerung öffnen / Ton umschalten</dd></div>
+        <div><dt><kbd>Enter</kbd></dt><dd>Nach K.o. wieder einsteigen</dd></div>
+      </dl>
+      <p class="panel-note">Duellanten blocken und weichen häufiger aus. Stürmer schließen schnell auf. Tritte, Netze und gutes Timing helfen gegen ihre unterschiedlichen Stärken.</p>
+    </section>
+    <section id="panel-pad" role="tabpanel" aria-labelledby="tab-pad" hidden>
+      <dl class="key-list">
+        <div><dt><kbd>Linker Stick</kbd> / <kbd>Rechter Stick</kbd></dt><dd>Bewegen / Kamera</dd></div>
+        <div><dt><kbd>A</kbd> / <kbd>X</kbd> / <kbd>Y</kbd> / <kbd>B</kbd></dt><dd>Springen / schlagen / treten / ausweichen (Xbox-Bezeichnungen)</dd></div>
+        <div><dt><kbd>RT halten</kbd></dt><dd>Netzschwung</dd></div>
+        <div><dt><kbd>LB</kbd> / <kbd>RB</kbd> / <kbd>LT</kbd></dt><dd>Netzschuss / Zip / Aufwärtshaken</dd></div>
+        <div><dt><kbd>L3</kbd> / <kbd>R3</kbd></dt><dd>Sprinten oder gleiten / packen und werfen</dd></div>
+        <div><dt><kbd>Menü</kbd></dt><dd>Einstellungen</dd></div>
+      </dl>
+      <p class="panel-note">Auf Handy und Tablet: linker Bildschirmstick zum Bewegen, rechts wischen für die Kamera. Die beschrifteten Aktionstasten und die Hilfe „?“ erscheinen im Spiel.</p>
+    </section>
+    <button data-close="controls" class="modal-close">Zurück zum Menü</button>
   </div>
-  <div id="note">Auch mit Gamepad (Xbox/PlayStation) und auf dem Handy spielbar –
-    dort erscheint automatisch eine Bildschirmsteuerung.<br>
-    Fan-Projekt mit einem eigenen Netz-Helden im klassischen Rot-Blau-Look.
-    Läuft komplett offline im Browser (Three.js liegt im Spielordner bei).</div>
 </div>
 
 <style>
@@ -284,91 +424,8 @@
   <!-- Spinnensinn: Zeiger in Richtung der Gefahr, auch wenn sie im Ruecken liegt -->
   <div id="sinn"></div>
   <div id="crosshair"></div>
-  <div id="hint">H – Hilfe · J – Auftrag · P – Fortschritt · C – Erste Hilfe · Esc – Einstellungen</div>
-  <div id="help">
-    <b>W A S D</b> Laufen / Klettern<br>
-    <b>Shift</b> Sprinten (11 m/s)<br>
-    <b>Alt</b> Gehen (2,8 m/s) &nbsp;·&nbsp; <b>ohne</b> Laufen (7 m/s)<br>
-    <b>X</b> Ducken (2,2 m/s) &nbsp;·&nbsp; <b>X + Alt</b> Schleichen (1,4 m/s)<br>
-    <b>X + Shift</b> Kriechen auf allen vieren (0,85 m/s)<br>
-    <b>Y</b> (links neben X) an der Wand: festhalten statt abrutschen<br>
-    <b>Leertaste</b> Springen (2× Doppelsprung)<br>
-    <b>Leertaste / RMT halten</b> Netzschwung in der Luft<br>
-    <b>Linksklick</b> Schlag-Kombo<br>
-    <b>F</b> Tritt (mehr Schaden)<br>
-    <b>R</b> Aufwärtshaken – schleudert Gegner hoch (ab Stufe 2)<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small>Danach bleibt ein kurzes Fenster: <b>Leertaste</b> springt ihm HINTERHER.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Oben dann <b>Q</b> = Netz dran und mit Schwung runterschmettern (Umstehende gehen mit zu Boden).</small><br>
-    <b>G</b> Packen (ab Stufe 3) – du hältst ihn am Netz vor dir, dann entscheidest du:<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small><b>G</b> nochmal = auf einen anderen Gegner werfen · <b>Linksklick</b> = zu Boden schmettern<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<b>Leertaste</b> = hochreißen (Luftkombo) · <b>Strg</b> = loslassen. Nach 4 s reißt er sich los.</small><br>
-    <b>Q</b> Netzschuss – wickelt Gegner ein. Ohne Gegner im Blick:<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small>Laterne oder Ampelmast – du ziehst dich HIN und hockst dich oben drauf.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Unterwegs kommt „Jetzt!“ auf den Bildschirm: <b>Leertaste</b> = Schub nach vorn.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Zu früh gedrückt ist nicht schlimm – der Schub kommt dann von allein im richtigen Moment.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Mülltonne, Hydrant, Briefkasten – das Ding kommt zu DIR und bleibt am Netz hängen; noch einmal <b>Q</b> wirft es.</small><br>
-    <b>E</b> Netz-Zip nach vorn / zu Gegnern<br>
-    <b>Strg</b> Ausweichrolle – im richtigen Moment: Spinnensinn-Konter<br>
-    <b>C</b> Erste Hilfe bei Verletzten (rotes Kreuz)<br>
-    <b>T</b> Symbiont – schwarzer Anzug, 22 s deutlich mehr Wucht.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small>Der Balken füllt sich beim Kämpfen; erst wenn er voll ist, geht es.</small><br>
-    <b>V halten</b> Netz-Katapult: zwei Netze spannen, loslassen = Riesensprung<br>
-    <b>Shift in der Luft</b> Gleitflug mit den Netzflügeln<br>
-    <b>An Wänden</b> automatisch klettern, <b>Shift</b> = Wandlauf<br>
-    <b>Leertaste an der Wand</b> Absprung<br>
-    <b>Enter</b> Zurück zum Startpunkt (nach K.o.)<br>
-    <br>
-    <b>J</b> Auftrag der Leitstelle annehmen – zweimal <b>J</b> bricht einen laufenden ab<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small>Die Geschichte drängt sich nicht auf. Du entscheidest, wann du sie weiterspielst.</small><br>
-    <b>P</b> Fortschritt: Stufe, Fertigkeiten, Geschichte, Bezirke, Bestzeiten<br>
-    <br>
-    <b>Die Stadt</b><br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small>Passanten laufen nicht mehr im Kreis um ihren Block: jeder hat ein Ziel<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;irgendwo in der Stadt und einen Weg dorthin über die Gehwege.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Über die Straße geht es nur an den Ecken – und erst, wenn die Lücke reicht.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Wer schon auf der Fahrbahn ist, hat Vorrang: die Autos bremsen für ihn.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Am Ziel wird telefoniert, getippt, sich umgesehen – auf der Promenade länger.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Manche gehen zu zweit, manche bleiben stehen und reden ein paar Sekunden.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Taucht eine Gang auf, brechen die Gespräche ab – danach geht es weiter.</small><br>
-    <br>
-    <b>Die Gegner</b><br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small>Sie sehen dich nicht durch Häuser und nicht im Rücken – aber sie hören einen Kampf.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Verlierst du sie aus den Augen, suchen sie an der letzten Stelle und geben dann auf.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Höchstens zwei greifen gleichzeitig an, die anderen umkreisen dich.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Das Ausrufezeichen ist die Vorwarnung – manchmal ist es aber nur eine Finte.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Fällt ein Kamerad, verlieren die anderen den Mut: sie halten mehr Abstand,<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;gehen öfter in Deckung, ziehen sich früher zurück – und ganz ohne Mut laufen sie weg.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Fünf Arten: <b>Schläger</b> (Standard) · <b>Brecher</b> (groß, langsam, harter Schlag) ·<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<b>Flinker</b> (schnell, weicht aus, lange Kombos) · <b>Wächter</b> (deckt sich, Deckung muss man brechen) ·<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<b>Werfer</b> (hält Abstand und wirft – der Spinnensinn meldet auch den Wurf).<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Deckung hält nicht ewig: ein Tritt bricht sie sofort, mehrere Schläge zerbrechen sie.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Ein Anführer macht seine Gang mutiger – schaltest du ihn aus, bricht die Gruppe ein.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Wickelst du einen ein, holt ein Kamerad ihn wieder heraus, wenn du nicht danebenstehst.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Der Werfer sucht sich Deckung hinter Hausecken und tritt zum Werfen kurz heraus.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<b>Elite</b> (Raute über dem Kopf) kann mehr, statt mehr auszuhalten: sie <b>pariert</b><br>
-    &nbsp;&nbsp;&nbsp;&nbsp;deine Schläge. Eine Parade unterbricht deine Kombo – aber sie muss vorher raten.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Schlägst du später zu als erwartet, greift sie ins Leere und steht offen.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Woher der Treffer kommt, sieht man: von hinten trifft es härter als von vorn.</small><br>
-    <br>
-    <b>Der ENFORCER</b><br>
-    &nbsp;&nbsp;&nbsp;&nbsp;<small>Selten führt er eine Gang an – dann läuft unten seine Lebensleiste.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Drei Phasen: erst kontrolliert, dann mit neuen Ketten und Würfen, zuletzt hart.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Beim Phasenwechsel weicht er zurück und greift kurz nicht an.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Sein schwerer Schlag ist lang angekündigt – weicht man aus, steht er offen.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Der Kniestoß lässt sich <b>nicht kontern</b>, nur ausweichen.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Ein Netz hält ihn nur kurz – vier Netze fesseln ihn wirklich.<br>
-    &nbsp;&nbsp;&nbsp;&nbsp;Genug Druck bricht seine Standfestigkeit: dann wankt er und du hast Zeit.</small><br>
-    <br>
-    <b>Gamepad</b> A Sprung · X Schlag · Y Tritt · B Rolle<br>
-    <b>Gamepad</b> LB Netz · RB Zip · LT Haken · RT Schwung · R3 Wurf<br>
-    <b>Gamepad</b> L3 sprinten / in der Luft gleiten · Y Katapult<br>
-    <b>Gamepad-Stick</b> bis 55 % gehen · bis 85 % laufen · darüber sprinten<br>
-    Jede der fünf Gangarten hat eine eigene Bewegung – Schleichen, Ducken,
-    Gehen, Laufen, Sprinten.<br>
-    <br>
-    <b>Kamera</b> zieht auf Wunsch von allein hinter die Flugrichtung –
-    im Menü (Esc) unter „Kamera folgt".
-  </div>
+  <div id="hint">H – Hilfe · J – Auftrag · P – Fortschritt · C – Erste Hilfe · Esc – Menü</div>
+  <div id="help">H öffnet die Steuerung. Esc öffnet das Menü.</div>
   <div id="vignette"></div>
 </div>
 
@@ -386,32 +443,32 @@
   <button id="thilfeZu">Weiter spielen</button>
 </div></div>
 
-<div id="settings">
+<div id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <div class="box">
-    <h2>Einstellungen</h2>
-    <div class="zeile"><span id="lblMaus">Mausempfindlichkeit</span>
+    <p class="eyebrow">SO SPIELST DU AM LIEBSTEN</p><h2 id="settings-title">Einstellungen</h2>
+    <div class="zeile"><label for="setMaus" id="lblMaus">Mausempfindlichkeit</label>
       <input id="setMaus" type="range" min="30" max="260" step="5"><span class="wert" id="wMaus"></span></div>
-    <div class="zeile"><span>Lautstärke</span>
+    <div class="zeile"><label for="setTon">Lautstärke</label>
       <input id="setTon" type="range" min="0" max="100" step="5"><span class="wert" id="wTon"></span></div>
-    <div class="zeile"><span>Musik</span>
+    <div class="zeile"><label for="setMusik">Musik</label>
       <select id="setMusik">
         <option value="an">An – Stadtklang und Musik</option>
         <option value="stadt">Nur Stadtklang</option>
         <option value="aus">Aus</option>
       </select></div>
-    <div class="zeile"><span>Kamera folgt</span>
+    <div class="zeile"><label for="setAutokam">Kamera folgt</label>
       <select id="setAutokam">
         <option value="an">Immer – auch beim Laufen</option>
         <option value="schwung">Schwingen, Gleiten und Katapult</option>
         <option value="gleiten">Nur beim Gleiten</option>
         <option value="aus">Aus – Kamera nur von Hand</option>
       </select></div>
-    <div class="zeile"><span>Minikarte</span>
+    <div class="zeile"><label for="setKarte">Minikarte</label>
       <select id="setKarte">
         <option value="an">An</option>
         <option value="aus">Aus</option>
       </select></div>
-    <div class="zeile"><span>Grafik</span>
+    <div class="zeile"><label for="setGrafik">Grafik</label>
       <select id="setGrafik">
         <option value="hoch">Hoch – Schatten, Regen, weite Sicht</option>
         <option value="mittel">Mittel – ohne Schatten</option>
@@ -421,17 +478,17 @@
       <button id="setReset" style="width:auto;margin:0;padding:6px 12px;background:#3a2530">Zurücksetzen</button></div>
     <div class="hinweis">Esc schließt dieses Fenster wieder. Die Einstellungen
       werden im Browser gespeichert.</div>
-    <button id="setZu">Weiterspielen</button>
+    <button id="setZu" data-close="settings">Zurück zum Menü</button>
   </div>
 </div>
 
-<div id="fortschritt">
+<div id="fortschritt" role="dialog" aria-modal="true" aria-labelledby="progress-title">
   <div class="box">
-    <h2>Fortschritt</h2>
+    <h2 id="progress-title">Fortschritt</h2>
     <div id="fsInhalt"></div>
-    <div class="hinweis">P schließt dieses Fenster wieder. Der Fortschritt
+    <div class="hinweis">Esc oder P schließt dieses Fenster wieder. Der Fortschritt
       wird im Browser gespeichert.</div>
-    <button id="fsZu">Weiterspielen</button>
+    <button id="fsZu" data-close="fortschritt">Zurück zum Menü</button>
   </div>
 </div>
 
@@ -464,6 +521,8 @@
 </script>
 <script src="lib/GLTFLoader.js"></script>
 <script src="lib/SkeletonUtils.js"></script>
+<script src="city-visuals.js"></script>
+<script src="menu.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
