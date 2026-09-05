@@ -1,5 +1,10 @@
 # Stadt, Fahrzeuge und Schwunganimation – Teststand
 
+Folgedurchgang vom 5. September 2026:
+[Glas, Kletterkamera und Kontakt](REALISM-CAMERA-POLISH.md).
+Die Modellübersicht unten zeigt den aktuellen Stand; die Beschreibung und
+Messwerte dieses Berichts dokumentieren den davorliegenden Durchgang.
+
 Grundlage: Claudes Branch `claude/spider-man-game-dev-8cepen` bis
 `28a5a232779e1018329cfb8570b656cc8313f96c`, einschließlich seiner letzten
 Korrekturen an Mission 6 und dem Missionsziel von Mission 8. Diese Änderungen

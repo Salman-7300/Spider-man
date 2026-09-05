@@ -6,10 +6,12 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { cityRuntime, THREE, root } = require('./city-test-runtime.cjs');
 const runtime = cityRuntime();
-const out = path.resolve(process.argv[2] || path.join(root, 'docs/city-model-preview.png'));
+const windows = process.argv.includes('--windows');
+const outputArg = process.argv.slice(2).find(arg => !arg.startsWith('--'));
+const out = path.resolve(outputArg || path.join(root, windows ? 'docs/window-interior-preview.png' : 'docs/city-model-preview.png'));
 const panels = [];
 
-function panel(model, label, rect, direction = [1, 0.6, 1.25]) {
+function panel(model, label, rect, direction = [1, 0.6, 1.25], focus) {
   model.visible = true;
   model.updateMatrixWorld(true);
   const view = new THREE.Vector3(...direction).normalize();
@@ -46,8 +48,11 @@ function panel(model, label, rect, direction = [1, 0.6, 1.25]) {
         alpha: mat.transparent ? mat.opacity : 1 });
     }
   });
-  const minX = Math.min(...points.map(p => p[0])), maxX = Math.max(...points.map(p => p[0]));
-  const minY = Math.min(...points.map(p => p[1])), maxY = Math.max(...points.map(p => p[1]));
+  const center = focus && new THREE.Vector3(...focus.center);
+  const minX = focus ? center.dot(right) - focus.width / 2 : Math.min(...points.map(p => p[0]));
+  const maxX = focus ? center.dot(right) + focus.width / 2 : Math.max(...points.map(p => p[0]));
+  const minY = focus ? -center.dot(up) - focus.height / 2 : Math.min(...points.map(p => p[1]));
+  const maxY = focus ? -center.dot(up) + focus.height / 2 : Math.max(...points.map(p => p[1]));
   const [x, y, w, h] = rect, scale = Math.min((w - 46) / (maxX - minX), (h - 64) / (maxY - minY));
   const cx = x + w / 2, cy = y + (h - 32) / 2;
   for (const t of triangles) t.xy = t.xy.map(p => [cx + (p[0] - (minX + maxX) / 2) * scale,
@@ -56,6 +61,12 @@ function panel(model, label, rect, direction = [1, 0.6, 1.25]) {
   panels.push({ label, rect, triangles });
 }
 
+if (windows) {
+  for (let i = 0; i < 4; i++) panel(runtime.look.createTower(18, 90, 22, i),
+    runtime.look.towerStyles[i] + ' · Glas vor einem echten Innenraum',
+    [24 + (i % 2) * 792, 118 + Math.floor(i / 2) * 476, 768, 460], [0.16, 0.12, 1],
+    { center: [-3.5, 7.1, 10.5], width: 10.2, height: 6 });
+} else {
 for (let i = 0; i < 4; i++) panel(runtime.look.createTower(18, 90, 22, i),
   runtime.look.towerStyles[i], [24 + i * 392, 118, 376, 460]);
 for (let i = 0; i < 3; i++) panel(runtime.makeCarMesh([0x426e85, 0xaaa69f, 0x873f48][i]),
@@ -70,6 +81,7 @@ panel(heli.mesh, 'Helikopter · Rumpf und Cockpit', [1074, 870, 508, 270], [1, 0
 const train = runtime.baueZug(0x376f95);
 train.userData.tuerL.position.x = -1.19; train.userData.tuerR.position.x = 1.19;
 panel(train, 'U-Bahn · drei Wagen, geöffnete Türen', [24, 1156, 1558, 295], [0.43, 0.45, 1.4]);
+}
 
 fs.mkdirSync(path.dirname(out), { recursive: true });
 const python = String.raw`
@@ -77,11 +89,11 @@ import json, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 data=json.load(sys.stdin); S=2
-im=Image.new('RGB',(1608*S,1512*S),(16,25,35)); d=ImageDraw.Draw(im)
+im=Image.new('RGB',(1608*S,data['height']*S),(16,25,35)); d=ImageDraw.Draw(im)
 def font(size,bold=False):
     return ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans'+('-Bold' if bold else '')+'.ttf',size*S)
 def text(x,y,s,size,color=(223,233,240),bold=False): d.text((x*S,y*S),s,font=font(size,bold),fill=color)
-text(24,20,'WEB HERO  /  STADT & FAHRZEUGE',30,bold=True)
+text(24,20,data['title'],30,bold=True)
 text(24,67,'Echte Spielgeometrie · CPU-Modellansicht mit vereinfachtem Licht · kein Gameplay-Screenshot',17,(149,170,185))
 for p in data['panels']:
     x,y,w,h=p['rect']; bg=(28,41,53)
@@ -109,9 +121,11 @@ for p in data['panels']:
         else: ps[mask]=t['color']; ds[mask]=zz[mask]
     im.paste(Image.fromarray(np.clip(pixels,0,255).astype(np.uint8)),(x*S,y*S)); d=ImageDraw.Draw(im)
     text(x+18,y+h-34,p['label'],17)
-text(24,1475,'Modelle aus city-visuals.js und game.js · Maßstab je Kachel angepasst',16,(149,170,185))
-im.resize((1608,1512),Image.Resampling.LANCZOS).save(data['out'])
+text(24,data['height']-37,'Modelle aus city-visuals.js und game.js · Maßstab je Kachel angepasst',16,(149,170,185))
+im.resize((1608,data['height']),Image.Resampling.LANCZOS).save(data['out'])
 `;
-const result = spawnSync('python3', ['-c', python], { input: JSON.stringify({ panels, out }), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+const result = spawnSync('python3', ['-c', python], { input: JSON.stringify({ panels, out,
+  height: windows ? 1110 : 1512, title: windows ? 'WEB HERO  /  FENSTER & INNENRÄUME' : 'WEB HERO  /  STADT & FAHRZEUGE' }),
+  encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
 if (result.status !== 0) throw new Error(result.stderr || 'CPU preview failed');
 console.log(out);

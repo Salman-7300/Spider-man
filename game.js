@@ -3414,6 +3414,7 @@ function updateZug(dt) {
   const untenDrin = player.pos.y < SLAB_H;
   let naehe = 0;
   for (const t of ZUEGE) {
+    const vorherX = t.x;
     /* Sichtbarkeit haengt NUR daran, ob man unter Tage ist. In der ersten
        Fassung wurde der Zug waehrend des Halts unsichtbar geschaltet - er
        verschwand also genau dann vor der Nase, wenn er im Bahnhof stand. */
@@ -3438,7 +3439,7 @@ function updateZug(dt) {
       if (t.x < t.linie.x0 + ZUG_LANG / 2) { t.x = t.linie.x0 + ZUG_LANG / 2; t.richtung = 1; t.warten = 4; }
     }
     t.mesh.position.set(t.x, UB_GLEIS_TIEF, t.z);
-    if (CITY_LOOK) CITY_LOOK.updateTrain(t.mesh, t.haelt ? 0 : t.richtung * t.tempo, dt);
+    if (CITY_LOOK) CITY_LOOK.updateTrain(t.mesh, dt > 0 ? (t.x - vorherX) / dt : 0, dt, t.richtung);
     /* Tueren: im Halt gehen sie auf, vor der Abfahrt wieder zu. Die
        Fluegel schieben sich dabei auseinander. */
     const tuerZiel = t.haelt && t.warten > 0.9 ? 1 : 0;
@@ -6761,13 +6762,16 @@ function makeGlbVisual(m) {
       drehe(knochen.head, 0, seite * -0.2 * stoss, 0, 1);
     },
     /* Getroffen: kurzes Zurückzucken */
-    poseTreffer(t) {
-      const z = Math.sin(clamp(t, 0, 1) * Math.PI);
-      drehe(knochen.spine1, -0.45 * z, 0, 0, 1);
-      drehe(knochen.spine2, -0.3 * z, 0, 0, 1);
-      drehe(knochen.head, -0.35 * z, 0, 0, 1);
-      drehe(knochen.leftarm, -0.4 * z, 0, 0.6 * z, 1);
-      drehe(knochen.rightarm, -0.4 * z, 0, -0.6 * z, 1);
+    poseTreffer(t, richtung, staerke) {
+      const z = Math.sin(clamp(t, 0, 1) * Math.PI) * clamp(staerke === undefined ? 1 : staerke, 0, 1);
+      if (z < 0.001) return;
+      const seite = richtung === 'links' ? -1 : richtung === 'rechts' ? 1 : 0;
+      const vor = richtung === 'hinten' ? 0.28 : seite ? -0.12 : -0.4;
+      // Keep the authored arm pose. A directional torso overlay fades to
+      // zero instead of resetting the rig to Euler zero at either endpoint.
+      drehZuRuhe(knochen.spine1, vor, seite * 0.16, seite * 0.25, z * 0.7);
+      drehZuRuhe(knochen.spine2, vor * 0.6, seite * 0.1, seite * 0.14, z * 0.6);
+      drehZuRuhe(knochen.head, vor * 0.5, -seite * 0.08, seite * 0.08, z * 0.55);
     },
     /* Kletter-Pose: flach an der Wand, Arme und Beine greifen abwechselnd */
     poseKlettern(phase) {
@@ -9737,7 +9741,7 @@ const helpBox = document.getElementById('help');
    noch die alte Datei aus dem Zwischenspeicher steckte - und dann war
    nicht zu unterscheiden, ob etwas nicht gefixt oder nur nicht geladen
    war. Die Hilfe zeigt deshalb, welcher Stand gerade laeuft. */
-const BAU_STAND = '2026-08-29 / 19';
+const BAU_STAND = '2026-09-05 / Glas, Kletterkamera und Kontakt';
 if (helpBox) {
   const z = document.createElement('div');
   z.style.cssText = 'margin-top:8px;opacity:.55;font-size:11px';
@@ -10269,6 +10273,43 @@ let kamZwang = 0;    // nur für Tests: feste Kameraentfernung
 const KAMERA_RADIUS = 0.30;
 const _kameraAnker = new THREE.Vector3();
 const _kameraKandidaten = new Set();
+const _kameraProbe = new THREE.Vector3(), _kameraRichtung = new THREE.Vector3();
+const _kameraBeste = new THREE.Vector3();
+
+function kameraWandAnker(anker, wand) {
+  if (!wand || !wand.col || anker.y > wand.col.h + KAMERA_RADIUS) return;
+  const c = wand.col, abstand = KAMERA_RADIUS + 0.05;
+  // The climbing gap can be smaller than the camera radius. Keep the
+  // camera pivot outside that expanded wall; never ignore the wall itself.
+  if (wand.nx > 0) anker.x = Math.max(anker.x, c.x1 + abstand);
+  if (wand.nx < 0) anker.x = Math.min(anker.x, c.x0 - abstand);
+  if (wand.nz > 0) anker.z = Math.max(anker.z, c.z1 + abstand);
+  if (wand.nz < 0) anker.z = Math.min(anker.z, c.z0 - abstand);
+}
+
+function kameraWandRichtung(target, dir, distanz, wand) {
+  if (!wand || !wand.col) return;
+  _kameraProbe.copy(target).addScaledVector(dir, distanz);
+  if (distanz * kameraFreierAnteil(target, _kameraProbe) >= Math.min(4.8, distanz * 0.85)) return;
+  const normalYaw = Math.atan2(wand.nx, wand.nz);
+  const winkel = Math.atan2(Math.sin(camYaw - normalYaw), Math.cos(camYaw - normalYaw));
+  const naheYaw = normalYaw + clamp(winkel, -1.4, 1.4);
+  let best = -Infinity, bestYaw = camYaw, bestPitch = camPitch;
+  // Search only when the requested view is obstructed. Include shallow
+  // side views for alleys, and test every candidate against all colliders.
+  for (const yaw of [camYaw, naheYaw, normalYaw, normalYaw - 0.7, normalYaw + 0.7,
+                     normalYaw - 1.4, normalYaw + 1.4]) {
+    for (const pitch of [camPitch, 0.12]) {
+      _kameraRichtung.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+      _kameraProbe.copy(target).addScaledVector(_kameraRichtung, distanz);
+      const frei = distanz * kameraFreierAnteil(target, _kameraProbe);
+      const drehung = Math.abs(Math.atan2(Math.sin(yaw - camYaw), Math.cos(yaw - camYaw)));
+      const wert = Math.min(frei, 5.5) * 2 - drehung * 0.22 - Math.abs(pitch - camPitch) * 0.12;
+      if (wert > best) { best = wert; bestYaw = yaw; bestPitch = pitch; _kameraBeste.copy(_kameraRichtung); }
+    }
+  }
+  dir.copy(_kameraBeste); camYaw = bestYaw; camPitch = bestPitch;
+}
 
 /* Exakter Eintritt einer Strecke in einen um den Kameraradius erweiterten
    Kasten. Auch ein duennes Gesims zwischen zwei Abtastpunkten wird erfasst.
@@ -10329,6 +10370,7 @@ function begrenzeKamera(von, nach) {
 }
 
 function updateCamera(dt) {
+  const wand = (player.state === 'climb' || player.state === 'kante') && (player.wallInfo || player.wall);
   const emp = 0.0023 * (EINST.maus / 100);
   const mausAktiv = Math.abs(mouseDX) > 0.5 || Math.abs(mouseDY) > 0.5;
   camYaw -= mouseDX * emp;
@@ -10389,6 +10431,7 @@ function updateCamera(dt) {
     schwungWeit = tief * 1.0;
   }
   const targetDist = kamZwang > 0 ? kamZwang
+                   : wand ? 6.4
                    : (player.state === 'swing' ? 6.8 + schwungWeit
                                               : lerp(5.6, 6.6, clamp(speed / 25, 0, 1)));
   camDist = lerp(camDist, targetDist, 1 - Math.exp(-dt * 3));
@@ -10405,27 +10448,30 @@ function updateCamera(dt) {
      spaet im Bild. Der Blickpunkt wandert deshalb ein Stueck in die
      Flugrichtung - geglaettet ueber flugGlatt, damit er im Bogen nicht
      hin und her springt, und nur bei Tempo. */
-  const vorausWeit = clamp((speed - 8) / 22, 0, 1) * (player.onGround ? 1.1 : 2.4);
+  const vorausWeit = wand ? 0 : clamp((speed - 8) / 22, 0, 1) * (player.onGround ? 1.1 : 2.4);
   vorausGlatt = lerp(vorausGlatt, vorausWeit, Math.min(1, dt * 2.5));
-  const target = _v1.copy(player.pos); target.y += 1.7;
+  const target = _v1.copy(player.pos); target.y += wand ? 1.35 : 1.7;
   if (vorausGlatt > 0.01) {
     target.x += Math.sin(flugGlatt) * vorausGlatt;
     target.z += Math.cos(flugGlatt) * vorausGlatt;
   }
   /* Vorausschau darf den Blickpunkt nicht durch eine Fassade schieben.
      Sonst beginnt auch eine genaue Kamerapruefung bereits IM Haus. */
-  _kameraAnker.copy(player.pos); _kameraAnker.y += 1.7;
+  _kameraAnker.copy(player.pos); _kameraAnker.y += wand ? 1.35 : 1.7;
+  kameraWandAnker(_kameraAnker, wand);
+  kameraWandAnker(target, wand);
   begrenzeKamera(_kameraAnker, target);
   const dir = _v2.set(
     Math.sin(camYaw) * Math.cos(camPitch),
     Math.sin(camPitch),
     Math.cos(camYaw) * Math.cos(camPitch)
   );
+  kameraWandRichtung(target, dir, camDist, wand);
   const desired = _v3.copy(target).addScaledVector(dir, camDist);
   const d = camDist * kameraFreierAnteil(target, desired);
   /* Bei einem Hindernis sofort davor bleiben, bei freier Sicht sanft
      herausfahren. Die endgueltige Lage wird NACH dem Glaetten geprueft. */
-  kamFrei = d < kamFrei ? d : lerp(kamFrei, d, 1 - Math.exp(-dt * 2.2));
+  kamFrei = d < kamFrei ? d : lerp(kamFrei, d, 1 - Math.exp(-dt * (wand ? 6 : 2.2)));
   desired.copy(target).addScaledVector(dir, kamFrei);
   camPos.lerp(desired, 1 - Math.exp(-dt * 12));
   begrenzeKamera(target, camPos);
@@ -11691,6 +11737,50 @@ function starteLuftkombo(e) {
   popupScreen('Leertaste: hinterher!');
 }
 
+// Swept body/line against existing world boxes. This keeps the attack's
+// short forward step from teleporting through thin walls or parked vehicles.
+function kampfFreierWeg(von, nach, radius, hoehe) {
+  const len = von.distanceTo(nach);
+  if (len < 1e-8) return 1;
+  const i0 = Math.floor((Math.min(von.x, nach.x) - radius - ORIGIN) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + radius - ORIGIN) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - radius - ORIGIN) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + radius - ORIGIN) / PITCH);
+  const gesehen = new Set(); let frei = 1;
+  const pruefe = c => {
+    const box = { x0: c.x0 - radius, x1: c.x1 + radius, z0: c.z0 - radius, z1: c.z1 + radius,
+      y0: c.y0 === undefined ? -Infinity : c.y0 - hoehe + 0.025, h: c.h - 0.025 };
+    const hit = kameraKastenTreffer(von, nach, box, 0);
+    if (hit < 1) frei = Math.min(frei, Math.max(0, hit - 0.015 / len));
+  };
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    for (const c of colliderGrid.get(i + ',' + j) || []) {
+      if (gesehen.has(c)) continue; gesehen.add(c); pruefe(c);
+    }
+  }
+  for (const car of cars) {
+    if (car.aus) continue;
+    const b = carAABB(car);
+    pruefe({ ...b, h: b.top, y0: car.mesh.position.y + 0.02 });
+  }
+  return frei;
+}
+
+function nahkampfZielFrei(e) {
+  if (!e || e.dead) return false;
+  const von = new THREE.Vector3(player.pos.x, player.pos.y + 1.1, player.pos.z);
+  const nach = new THREE.Vector3(e.pos.x, e.pos.y + 1.1, e.pos.z);
+  return kampfFreierWeg(von, nach, 0.035, 0.08) >= 1;
+}
+
+function nahkampfNachzug(e) {
+  const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z, d = Math.hypot(dx, dz);
+  if (d <= NAHKAMPF + 0.12) return;
+  const nach = player.pos.clone().addScaledVector(new THREE.Vector3(dx / d, 0, dz / d), Math.min(0.8, d - NAHKAMPF));
+  const frei = kampfFreierWeg(player.pos, nach, player.radius, player.height);
+  player.pos.lerp(nach, frei); player.facing = Math.atan2(dx, dz);
+}
+
 function tryAttack(type) {
   if (!heroVisual || player.dead || player.state === 'climb') return;
   /* Mit jemandem in der Hand ist der Schlag ein Schmettern zu Boden. */
@@ -11773,13 +11863,13 @@ function tryAttack(type) {
      Vorher wurde bei JEDEM Schlag neu der nächstgelegene gesucht – mitten
      in der Kombo sprang die Figur deshalb zu einem anderen Gegner, drehte
      sich weg und rutschte quer durch die Gruppe. */
-  if (player.ziel && (player.ziel.dead ||
+  if (player.ziel && (player.ziel.dead || !nahkampfZielFrei(player.ziel) ||
       Math.hypot(player.ziel.pos.x - player.pos.x, player.ziel.pos.z - player.pos.z) > 5.5 ||
       Math.abs(player.ziel.pos.y - player.pos.y) > 2.5)) {
     player.ziel = null;
   }
   if (!player.ziel || player.comboTimer <= 0) {
-    const neu = nearestEnemy(4.2, 0.2);
+    const neu = nearestEnemy(4.2, 0.2, true);
     if (neu) player.ziel = neu;
   }
   const target = player.ziel;
@@ -11815,7 +11905,7 @@ function updateAnlauf(dt) {
   if (!(player.anlaufT > 0)) { player.anlaufSatz = false; return; }
   const z = player.anlaufZiel;
   player.anlaufT -= dt;
-  if (!z || z.dead || player.dead || player.state === 'climb' || player.state === 'swing') {
+  if (!z || z.dead || player.dead || player.state === 'climb' || player.state === 'swing' || !nahkampfZielFrei(z)) {
     player.anlaufT = 0; player.anlaufSatz = false; return;
   }
   const dx = z.pos.x - player.pos.x, dz = z.pos.z - player.pos.z;
@@ -11836,7 +11926,7 @@ function updateAnlauf(dt) {
   }
 }
 
-function nearestEnemy(maxDist, minDot) {
+function nearestEnemy(maxDist, minDot, nurFreieSicht) {
   let best = null, bestD = maxDist;
   const fx = Math.sin(player.facing), fz = Math.cos(player.facing);
   for (const e of enemies) {
@@ -11846,6 +11936,7 @@ function nearestEnemy(maxDist, minDot) {
     if (d > bestD || Math.abs(e.pos.y - player.pos.y) > 2.5) continue;
     const dot = (dx * fx + dz * fz) / (d || 1);
     if (d > 1 && dot < minDot) continue;
+    if (nurFreieSicht && !nahkampfZielFrei(e)) continue;
     best = e; bestD = d;
   }
   return best;
@@ -12226,11 +12317,11 @@ function resolveAttackHit() {
   /* Zuerst das gebundene Ziel prüfen – sonst zählt mitten in der Kombo
      plötzlich ein anderer Gegner als Treffer. */
   let e = null;
-  if (player.ziel && !player.ziel.dead) {
+  if (player.ziel && !player.ziel.dead && nahkampfZielFrei(player.ziel)) {
     const zd = Math.hypot(player.ziel.pos.x - player.pos.x, player.ziel.pos.z - player.pos.z);
     if (zd <= range + 0.4 && Math.abs(player.ziel.pos.y - player.pos.y) <= 2.5) e = player.ziel;
   }
-  if (!e) e = nearestEnemy(range, 0.05);
+  if (!e) e = nearestEnemy(range, 0.05, true);
   if (!e) {
     /* Ein Schlag ins Leere setzt die Kette nicht mehr auf null zurück –
        sonst kam man ohne Gegner nie über Stufe 1 hinaus und die Kombo
@@ -12244,16 +12335,7 @@ function resolveAttackHit() {
      Geschwindigkeit allein war zu langsam: gemessen standen die Figuren im
      Moment des Treffers noch 1,70 m auseinander, da berührt sich nichts.
      Der Nachzug ist auf 0,8 m begrenzt und sieht wie ein Ausfallschritt aus. */
-  {
-    const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
-    const d = Math.hypot(dx, dz);
-    if (d > NAHKAMPF + 0.12) {
-      const zieh = Math.min(0.8, d - NAHKAMPF);
-      player.pos.x += (dx / d) * zieh;
-      player.pos.z += (dz / d) * zieh;
-      player.facing = Math.atan2(dx, dz);
-    }
-  }
+  nahkampfNachzug(e);
   /* ---- Parade ----
      Sie kommt VOR der Deckung: ein parierter Schlag richtet gar nichts
      aus. Die Druckwelle des Symbiontenanzugs laesst sich nicht
@@ -18462,12 +18544,15 @@ function carAABB(car) {
   /* Box passt jetzt zum Fahrzeug – auf einen Bus konnte man vorher nicht
      richtig steigen, weil die Box die eines PKW war. */
   const t = car.typ || { laenge: 4.4, breite: 1.9, art: 'pkw' };
-  const halbL = t.laenge / 2 + 0.1, halbB = t.breite / 2 + 0.1;
-  const hx = car.axis === 'x' ? halbL : halbB;
-  const hz = car.axis === 'x' ? halbB : halbL;
+  const hull = car.mesh.userData.collisionHull;
+  const halbL = hull ? hull.halfLength : t.laenge / 2 + 0.1;
+  const halbB = hull ? hull.halfWidth : t.breite / 2 + 0.1;
+  const sin = Math.abs(Math.sin(car.mesh.rotation.y)), cos = Math.abs(Math.cos(car.mesh.rotation.y));
+  const hx = halbB * cos + halbL * sin;
+  const hz = halbL * cos + halbB * sin;
   const cx = car.mesh.position.x, cz = car.mesh.position.z;
-  const dach = t.art === 'bus' ? 2.6 : t.art === 'lkw' ? 2.8 : 1.32;
-  return { x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, top: dach };
+  const dach = hull ? hull.roof : t.art === 'bus' ? 2.7 : t.art === 'lkw' ? 2.75 : 1.98;
+  return { x0: cx - hx, x1: cx + hx, z0: cz - hz, z1: cz + hz, top: car.mesh.position.y + dach };
 }
 
 function collidePlayerCars(prevY) {
@@ -22171,6 +22256,8 @@ function updateEnemies(dtBild) {
                  && !e.attack && e.warnT <= 0;
     if (fern && ((taktBild + i) % 3)) continue;
     const dt = fern ? dtBild * 3 : dtBild;
+    // Visual hit time must advance during stagger too, before its continue.
+    if (e.kippT > 0) e.kippT = Math.max(0, e.kippT - dt);
     /* ---- In Gewahrsam ----
        Wer uebernommen ist, kaempft nicht mehr und flieht nicht mehr. Er
        steht, bis er abgefuehrt wird. Ohne das faellt ein gefasster
@@ -22382,7 +22469,9 @@ function updateEnemies(dtBild) {
       e.visual.root.position.copy(e.pos);
       e.visual.play('air', { t: elapsed }, dt);
       // Pose erst nach der Animation setzen, sonst überschreibt der Mixer sie
-      if (e.visual.poseTreffer) e.visual.poseTreffer(1 - e.staggerT / 0.9);
+      if (e.visual.poseTreffer && e.kippT > 0) {
+        e.visual.poseTreffer(1 - e.kippT / 0.34, e.kippRichtung, e.kippStaerke);
+      }
       /* Die Bossphase muss auch im Taumeln nachgefuehrt werden. Sonst
          friert sie ein, solange man den Boss unter Dauerbeschuss haelt -
          gemessen: bei 7,5 Schlaegen pro Sekunde blieb er bis 5 % Leben in
@@ -23250,7 +23339,6 @@ function updateEnemies(dtBild) {
        nach vorn, von vorn nach hinten, von der Seite zur Seite und
        dreht dabei ein wenig weg. */
     if (e.kippT > 0) {
-      e.kippT -= dt;
       const k = clamp(e.kippT / 0.34, 0, 1) * (e.kippStaerke || 0.5) * 0.46;
       if (e.kippRichtung === 'vorn') e.visual.root.rotation.x = k;
       else if (e.kippRichtung === 'hinten') e.visual.root.rotation.x = -k;

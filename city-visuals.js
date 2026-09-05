@@ -12,7 +12,8 @@
   const up = new THREE.Vector3(0, 1, 0);
   const materials = {
     stone: new THREE.MeshLambertMaterial({ vertexColors: true }),
-    glass: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 65, specular: 0x829ea9 }),
+    glass: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 95, specular: 0xb6ceda,
+      transparent: true, opacity: 0.23, depthWrite: false, side: THREE.DoubleSide }),
     trim: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 32, specular: 0x596370 }),
     windows: new THREE.MeshPhongMaterial({ color: 0x718b99, transparent: true,
       opacity: 0.25, depthWrite: false, shininess: 45 }),
@@ -37,17 +38,26 @@
       const q = new THREE.Quaternion().setFromAxisAngle(up, ry);
       this.geometry(box, color, new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(w, h, d)));
     }
+    softBox(w, h, d, x, y, z, color) {
+      const b = new Batch();
+      loft(b, [[-d / 2, w / 2, -h / 2, h / 2], [d / 2, w / 2, -h / 2, h / 2]], color);
+      const geo = b.finish(); this.geometry(geo, color, new THREE.Matrix4().makeTranslation(x, y, z)); geo.dispose();
+    }
     panel(w, h, x, y, z, color, ry = 0) {
       const q = new THREE.Quaternion().setFromAxisAngle(up, ry);
       this.geometry(plane, color, new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(w, h, 1)));
     }
     quad(a, b, c, d, color) {
+      this.polygon([a, b, c, d], color);
+    }
+    polygon(vertices, color) {
+      const [a, b, c] = vertices;
       const n = new THREE.Vector3().subVectors(new THREE.Vector3(...b), new THREE.Vector3(...a))
         .cross(new THREE.Vector3().subVectors(new THREE.Vector3(...c), new THREE.Vector3(...a))).normalize();
       const col = new THREE.Color(color);
-      for (const v of [a, b, c, a, c, d]) {
-        this.p.push(...v); this.n.push(n.x, n.y, n.z); this.c.push(col.r, col.g, col.b);
-      }
+      for (let i = 1; i < vertices.length - 1; i++) for (const v of [a, vertices[i], vertices[i + 1]]) {
+          this.p.push(...v); this.n.push(n.x, n.y, n.z); this.c.push(col.r, col.g, col.b);
+        }
     }
     beam(a, b, w, d, color) {
       const start = new THREE.Vector3(...a), end = new THREE.Vector3(...b), dir = end.clone().sub(start);
@@ -77,11 +87,20 @@
   function createTower(w, h, d, variant = 0) {
     if (![w, h, d].every(Number.isFinite) || Math.min(w, h, d) <= 0) throw new Error('Invalid tower dimensions');
     const kind = ((variant % TOWERS.length) + TOWERS.length) % TOWERS.length, style = TOWERS[kind];
-    const solid = new Batch(), glazing = new Batch(), group = new THREE.Group();
+    const solid = new Batch(), glazing = new Batch(), rooms = new Batch(), lamps = new Batch();
+    const group = new THREE.Group();
     const lobby = Math.min(4.2, h * 0.18), floors = Math.max(1, Math.floor((h - lobby) / 3.15));
     const rise = (h - lobby - 0.36) / floors;
-    solid.box(w - 0.08, h - 0.12, d - 0.08, 0, (h - 0.12) / 2, 0, style.wall);
+    const roomDepth = Math.min(3.6, Math.min(w, d) * 0.28);
+    // Real space behind the glass: the opaque core is recessed by several
+    // metres. Collision remains the original closed building envelope.
+    solid.box(w - roomDepth * 2, h - 0.12, d - roomDepth * 2, 0, (h - 0.12) / 2, 0, 0x696963);
+    solid.box(w, 0.12, d, 0, 0.06, 0, 0x8c8b83);
     solid.box(w, 0.12, d, 0, h - 0.06, 0, 0x849095); // exact walkable roof; no invisible crown
+    for (let floor = 0; floor <= floors; floor++) {
+      const y = lobby + floor * rise;
+      solid.box(w - 0.08, 0.16, d - 0.08, 0, y + 0.08, 0, 0xa6a59c);
+    }
     for (let face = 0; face < 4; face++) {
       const width = face % 2 ? d : w, depth = face % 2 ? w : d, ry = face * Math.PI / 2;
       const local = (x, z) => [Math.cos(ry) * x + Math.sin(ry) * z, -Math.sin(ry) * x + Math.cos(ry) * z];
@@ -91,52 +110,87 @@
       const window = (bw, bh, x, y, color, inset = 0.015) => {
         const [px, pz] = local(x, depth / 2 - inset); glazing.panel(bw, bh, px, y, pz, color, ry);
       };
+      const inside = (batch, bw, bh, bd, x, y, inset, color) => {
+        const [px, pz] = local(x, depth / 2 - inset); batch.box(bw, bh, bd, px, y, pz, color, ry);
+      };
       const cols = Math.max(2, Math.floor((width - 0.5) / (kind === 1 ? 2.9 : 2.5)));
       const step = (width - 0.5) / cols;
+      const column = kind === 1 ? 0.38 : kind === 2 ? 0.16 : 0.09;
+      const band = kind === 3 ? 0.4 : 0.18;
       for (let col = 0; col < cols; col++) {
         const x = -width / 2 + 0.25 + (col + 0.5) * step;
-        window(step - 0.15, lobby - 0.55, x, lobby / 2, style.glass[(col + face) % 4]);
+        window(step - column, lobby - 0.18, x, lobby / 2, 0xc1d6d9);
         for (let floor = 0; floor < floors; floor++) {
-          const y = lobby + (floor + 0.5) * rise;
-          window(step - (kind === 1 ? 0.52 : 0.11), rise - (kind === 3 ? 0.62 : 0.23), x, y,
-            style.glass[(floor * 11 + col * 7 + face * 3) % 4]);
+          const base = lobby + floor * rise, y = base + rise / 2;
+          const seed = floor * 11 + col * 7 + face * 3 + kind * 17;
+          window(step - column, rise - band, x, y, seed % 3 ? 0xc2d8dd : 0xb0cbd4);
+          // Some offices have blinds. Others reveal desks, chairs and
+          // monitors; no furniture or luminous panel sits on the glass.
+          if (seed % 9 === 0) {
+            inside(rooms, step - column - 0.08, rise * 0.28, 0.018, x,
+              base + rise * 0.79, 0.13, 0xb9b7aa);
+          }
+          if (seed % 12 === 0) {
+            const deskDepth = Math.min(roomDepth - 0.55, 1.55);
+            inside(rooms, Math.min(step * 0.65, 1.45), 0.07, 0.68, x, base + 0.88, deskDepth, 0x9c8262);
+            for (const sx of [-1, 1]) inside(rooms, 0.055, 0.67, 0.5,
+              x + sx * Math.min(step * 0.24, 0.54), base + 0.51, deskDepth, 0x495258);
+            inside(rooms, 0.49, 0.31, 0.05, x, base + 1.09, deskDepth + 0.13, 0x26333c);
+            inside(rooms, 0.43, 0.37, 0.06, x, base + 0.75, deskDepth - 0.48, 0x4c6269);
+          }
+          if (seed % 5 === 0) {
+            const half = Math.min(step - 0.3, 1.1) / 2, z = depth / 2 - roomDepth * 0.52;
+            const corners = [[x - half, z - 0.21], [x + half, z - 0.21],
+              [x + half, z + 0.21], [x - half, z + 0.21]].map(([px, pz]) => {
+                const p = local(px, pz); return [p[0], base + rise - 0.1, p[1]];
+              });
+            lamps.quad(...corners, seed % 2 ? 0xeadcc2 : 0xd2e3e5);
+          }
+          if (col > 0 && col % 3 === 0) inside(solid, 0.07, rise - 0.16,
+            roomDepth - 0.13, x - step / 2, y + 0.08, roomDepth / 2 + 0.065, 0xaba89c);
         }
       }
       // Columns and floor bands have depth, but stay inside the existing collision box.
       for (let col = 0; col <= cols; col++) {
         const x = -width / 2 + 0.25 + col * step;
-        bar(kind === 1 ? 0.3 : kind === 2 ? 0.16 : 0.08, h - 0.22, 0.1, x, (h - 0.22) / 2, 0.05, style.trim);
+        bar(column, h - 0.22, 0.1, x, (h - 0.22) / 2, 0.05, style.trim);
       }
       for (let floor = 0; floor <= floors; floor++) {
         const y = lobby + floor * rise;
-        bar(width - 0.2, kind === 3 ? 0.31 : floor % 5 === 0 ? 0.23 : 0.09, 0.1, 0, y, 0.05, style.trim);
+        bar(width - 0.2, band, 0.1, 0, y, 0.05, style.trim);
       }
       bar(width, 0.16, 0.12, 0, h - 0.25, 0.06, style.trim);
       bar(width, 0.18, 0.12, 0, 0.09, 0.06, style.trim);
       // A narrow recessed double door makes the ground floor readable at street level.
       if (face === 0) {
-        window(Math.min(2.25, width * 0.24), lobby - 0.65, 0, (lobby - 0.65) / 2, 0x20343e, 0.008);
+        window(Math.min(2.25, width * 0.24), lobby - 0.65, 0, (lobby - 0.65) / 2, 0xb9d1d4, 0.008);
         bar(0.07, lobby - 0.65, 0.1, 0, (lobby - 0.65) / 2, 0.05, style.trim);
+        inside(rooms, Math.min(width * 0.3, 3.5), 0.92, 0.7, 0, 0.58, roomDepth - 0.5, 0x776f61);
       }
     }
-    group.add(solid.mesh(materials.stone, 'Structure'), glazing.mesh(materials.glass, 'Glazing'));
+    const interior = new THREE.LOD(); interior.name = 'OfficeDetails';
+    interior.addLevel(rooms.mesh(materials.stone, 'OfficeFurniture'), 0);
+    interior.addLevel(new THREE.Group(), 150);
+    const panes = glazing.mesh(materials.glass, 'Glazing'); panes.castShadow = false; panes.renderOrder = 2;
+    group.add(solid.mesh(materials.stone, 'Structure'), panes, lamps.mesh(materials.light, 'OfficeLights'), interior);
     group.name = 'WEB_HERO_Hochhaus_' + style.name;
     group.userData = { visualKind: 'tower', variant: kind, floors: floors + 1, roofHeight: h,
-      footprint: { width: w, depth: d }, source: 'native-geometry' };
+      footprint: { width: w, depth: d }, roomDepth, source: 'native-geometry' };
     return group;
   }
 
   function loft(batch, sections, color) {
-    for (let i = 0; i < sections.length - 1; i++) {
-      const [az, aw, al, ah] = sections[i], [bz, bw, bl, bh] = sections[i + 1];
-      batch.quad([aw, al, az], [aw, ah, az], [bw, bh, bz], [bw, bl, bz], color);
-      batch.quad([-aw, al, az], [-bw, bl, bz], [-bw, bh, bz], [-aw, ah, az], color);
-      batch.quad([-aw, ah, az], [-bw, bh, bz], [bw, bh, bz], [aw, ah, az], color);
-      batch.quad([-aw, al, az], [aw, al, az], [bw, bl, bz], [-bw, bl, bz], color);
+    const rings = sections.map(([z, w, low, high]) => {
+      const b = Math.min(0.065, (high - low) * 0.3, w * 0.13);
+      return [[-w + b, low, z], [w - b, low, z], [w, low + b, z], [w, high - b, z],
+        [w - b, high, z], [-w + b, high, z], [-w, high - b, z], [-w, low + b, z]];
+    });
+    for (let i = 0; i < rings.length - 1; i++) for (let j = 0; j < 8; j++) {
+      const next = (j + 1) % 8;
+      batch.quad(rings[i][j], rings[i][next], rings[i + 1][next], rings[i + 1][j], color);
     }
-    const [az, aw, al, ah] = sections[0], [bz, bw, bl, bh] = sections[sections.length - 1];
-    batch.quad([-aw, al, az], [-aw, ah, az], [aw, ah, az], [aw, al, az], color);
-    batch.quad([-bw, bl, bz], [bw, bl, bz], [bw, bh, bz], [-bw, bh, bz], color);
+    batch.polygon(rings[0].slice().reverse(), color);
+    batch.polygon(rings[rings.length - 1], color);
   }
   let carSerial = 0;
   const carCache = new Map();
@@ -186,6 +240,11 @@
     loft(open, [[rearRoof - 0.06, 0.76, 1.88, 1.94], [rearRoof + 0.2, 0.81, 1.88, 1.98],
       [0.44, 0.81, 1.88, 1.98], [0.7, 0.76, 1.87, 1.94]], color);
     for (const sz of [-1, 1]) trim.box(1.52, 0.12, 0.065, 0, 0.48, sz * 2.27, 0x202a33);
+    // Wipers follow the windshield, rather than floating across the cabin.
+    for (const sx of [-1, 1]) trim.beam([sx * 0.55, 1.155, 1.082],
+      [sx * 0.16, 1.43, 0.928], 0.018, 0.018, 0x263039);
+    if (kind !== 0) for (const sx of [-1, 1]) trim.box(0.045, 0.045, 1.56,
+      sx * 0.7, 1.954, -0.42, kind === 1 ? 0x343c41 : 0x9ca9ae);
     trim.box(0.94, 0.17, 0.02, 0, 0.73, 2.285, 0x1c2932);
     for (let i = 0; i < 5; i++) trim.box(0.8, 0.008, 0.025, 0, 0.67 + i * 0.026, 2.3, 0x4f5e66);
     for (const sx of [-1, 1]) lights.box(0.4, 0.065, 0.028, sx * 0.51, 0.86, 2.285, 0xe9f5fa);
@@ -210,6 +269,7 @@
     g.add(tail.mesh(brake, 'BrakeLights'));
     g.name = 'WEB_HERO_' + ['Fastback', 'Crossover', 'Sportkombi'][kind];
     g.userData.visualKind = 'modern-car'; g.userData.variant = kind; g.userData.roofHeight = 1.98;
+    g.userData.collisionHull = { halfWidth: 1.09, halfLength: 2.32, roof: 1.98 };
     g.userData.cityMotion = { wheels, brake, speed: 0, yaw: null, steering: 0 };
     return g;
   }
@@ -270,6 +330,7 @@
     g.add(tail.mesh(brake, 'BrakeLights'));
     g.userData.cityMotion = { wheels, brake, speed: 0, yaw: null, steering: 0, radius: 0.46 };
     g.userData.visualKind = cargo ? 'modern-truck' : 'modern-bus';
+    g.userData.collisionHull = { halfWidth: B / 2 + 0.09, halfLength: L / 2 + 0.1, roof: cargo ? 2.75 : 2.7 };
   }
 
   function createHelicopterShell() {
@@ -287,6 +348,10 @@
       frame.beam([sx * 0.9, -0.27, 1.3], [sx * 0.78, 0.89, 1.17], 0.06, 0.06, 0x243441);
       frame.box(0.035, 0.12, 1.6, sx * 0.994, 0.24, -0.46, 0xc5d4dc);
       frame.box(0.025, 0.035, 0.27, sx * 1.015, 0.1, -0.25, 0x92a7b4);
+      // Door seam, hinge and ventilation grille follow the body envelope.
+      frame.beam([sx * 0.95, -0.13, 0.28], [sx * 0.91, 0.63, 0.17], 0.022, 0.022, 0x20313e);
+      for (let i = 0; i < 5; i++) frame.box(0.025, 0.018, 0.31,
+        sx * 0.91, 0.44 + i * 0.04, -1.19, 0x1e2e38);
     }
     g.add(frame.mesh(materials.trim, 'CockpitFrame'));
     g.userData.visualKind = 'modern-helicopter'; return g;
@@ -295,6 +360,7 @@
   let trainWheelGeometry;
   function trainDetails(count, length, gap, width, height, floor, color) {
     const metal = new Batch(), lamp = new Batch(), g = new THREE.Group();
+    const positive = new Batch(), negative = new Batch();
     const wheelSpots = [];
     for (let w = 0; w < count; w++) {
       const x = (w - (count - 1) / 2) * (length + gap);
@@ -313,23 +379,31 @@
       if (w === 0 || w === count - 1) {
         const sx = w === 0 ? -1 : 1, end = x + sx * (length / 2 + 0.075);
         metal.box(0.04, 0.12, width - 0.2, end, floor + 1.07, 0, color);
-        for (const sz of [-1, 1]) lamp.box(0.048, 0.065, 0.39, end, floor + 0.76, sz * 0.8, 0xe8f3f7);
+        for (const sz of [-1, 1]) (sx > 0 ? positive : negative).box(0.048, 0.065, 0.39,
+          end, floor + 0.76, sz * 0.8, 0xffffff);
         metal.box(0.041, 0.19, 0.8, end, floor + 3.02, 0, 0x1c3039);
         lamp.box(0.047, 0.035, 0.53, end, floor + 3.02, 0, 0xf4d885);
       }
     }
     g.add(metal.mesh(materials.trim, 'TrainMetalwork'), lamp.mesh(materials.light, 'TrainLED'));
+    const frontLights = new THREE.MeshBasicMaterial({ color: 0xe8f3f7 });
+    const rearLights = new THREE.MeshBasicMaterial({ color: 0xd24632 });
+    g.add(positive.mesh(frontLights, 'PositiveEndLights'), negative.mesh(rearLights, 'NegativeEndLights'));
     if (!trainWheelGeometry) trainWheelGeometry = wheel().clone().rotateY(Math.PI / 2).scale(0.37 / 0.35, 0.37 / 0.35, 0.37 / 0.35);
     const wheels = new THREE.InstancedMesh(trainWheelGeometry, materials.trim, wheelSpots.length);
     wheels.name = 'TrainWheels'; wheels.frustumCulled = false;
     const matrix = new THREE.Matrix4();
     wheelSpots.forEach((p, i) => { matrix.makeTranslation(p.x, p.y, p.z); wheels.setMatrixAt(i, matrix); });
-    g.add(wheels); g.userData.trainMotion = { wheels, wheelSpots, phase: 0, matrix };
+    g.add(wheels); g.userData.trainMotion = { wheels, wheelSpots, phase: 0, matrix, frontLights, rearLights };
     return g;
   }
-  function updateTrain(g, speed, dt) {
+  function updateTrain(g, speed, dt, direction) {
     const m = g.userData.trainMotion;
-    if (!m || !Number.isFinite(speed) || !Number.isFinite(dt) || dt <= 0 || speed === 0) return;
+    if (!m || !Number.isFinite(speed) || !Number.isFinite(dt) || dt <= 0) return;
+    const sign = Number.isFinite(direction) && direction !== 0 ? Math.sign(direction) : Math.sign(speed);
+    if (sign) { m.frontLights.color.setHex(sign > 0 ? 0xe8f3f7 : 0xd24632);
+      m.rearLights.color.setHex(sign > 0 ? 0xd24632 : 0xe8f3f7); }
+    if (speed === 0) return;
     m.phase = (m.phase - speed * Math.min(dt, 0.1) / 0.37) % (Math.PI * 2);
     m.wheelSpots.forEach((p, i) => {
       m.matrix.makeRotationZ(m.phase); m.matrix.setPosition(p); m.wheels.setMatrixAt(i, m.matrix);
@@ -359,19 +433,19 @@
     if (accessoryCache.has(kind)) return accessoryCache.get(kind);
     const b = new Batch();
     if (kind === 'backpack') {
-      b.box(0.29, 0.36, 0.14, 0, 1.3, -0.2, 0x334b54);
-      b.box(0.25, 0.14, 0.04, 0, 1.19, -0.285, 0x54717a);
+      b.softBox(0.29, 0.36, 0.14, 0, 1.3, -0.2, 0x334b54);
+      b.softBox(0.25, 0.14, 0.04, 0, 1.19, -0.285, 0x54717a);
       for (const sx of [-1, 1]) b.beam([sx * 0.11, 1.51, -0.15], [sx * 0.12, 1.12, 0.145], 0.037, 0.022, 0x35434b);
     } else if (kind === 'satchel') {
-      b.box(0.17, 0.23, 0.23, 0.22, 0.94, -0.05, 0x795e47);
+      b.softBox(0.17, 0.23, 0.23, 0.22, 0.94, -0.05, 0x795e47);
       b.beam([-0.13, 1.49, 0.14], [0.22, 0.99, 0.12], 0.035, 0.022, 0x574638);
     } else {
       const e = ENEMIES[kind];
-      b.box(e.width, kind === 'flink' ? 0.19 : 0.33, 0.06, 0, 1.3, 0.145, e.plate);
+      b.softBox(e.width, kind === 'flink' ? 0.19 : 0.33, 0.06, 0, 1.3, 0.145, e.plate);
       b.box(e.width * 0.74, 0.045, 0.071, 0, 1.36, 0.15, e.color);
       for (const sx of [-1, 1]) b.box(0.055, 0.4, 0.035, sx * e.width * 0.35, 1.29, 0.18, e.color);
       if (kind === 'brecher' || kind === 'enforcer') {
-        for (const sx of [-1, 1]) b.box(0.15, 0.12, 0.24, sx * 0.26, 1.49, 0.01, e.plate);
+        for (const sx of [-1, 1]) b.softBox(0.15, 0.12, 0.24, sx * 0.26, 1.49, 0.01, e.plate);
       }
       if (kind === 'waechter') for (const y of [1.18, 1.26, 1.43]) b.box(0.4, 0.046, 0.035, 0, y, 0.19, e.color);
       if (kind === 'werfer') {

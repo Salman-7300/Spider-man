@@ -13,11 +13,11 @@ test('Four high-rise styles retain footprint and exact roof height at different 
   for (let variant = 0; variant < 4; variant++) for (const [w, h, d] of [[9, 38, 11], [18, 90, 22], [24, 132, 20]]) {
     const tower = look.createTower(w, h, d, variant), box = new THREE.Box3().setFromObject(tower);
     near(box.min.x, -w / 2); near(box.max.x, w / 2); near(box.min.z, -d / 2); near(box.max.z, d / 2);
-    near(box.min.y, 0); near(box.max.y, h); assert.equal(tower.children.length, 2);
+    near(box.min.y, 0); near(box.max.y, h); assert.equal(tower.children.length, 4);
     let triangles = 0;
     tower.traverse(o => { if (o.isMesh) { triangles += o.geometry.attributes.position.count / 3;
       for (const value of o.geometry.attributes.position.array) assert.ok(Number.isFinite(value)); } });
-    assert.ok(triangles < 6500);
+    assert.ok(triangles < 19000, 'bounded detailed tower geometry');
   }
 });
 

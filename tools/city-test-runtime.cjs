@@ -25,6 +25,7 @@ function cityRuntime(modern = true) {
     between('function makeCarMesh(', '/* ======================= Helikopter'),
     between('function makeHeliMesh(', '/* Höchstes Haus entlang'),
     between('function makeFahrzeugMesh(', '/* ======================= Ampeln'),
+    between('function carAABB(', 'function collidePlayerCars('),
     between('function baueZug(', 'function baueZuege('),
   ].join('\n'), env);
   return { ...env, look, source };
