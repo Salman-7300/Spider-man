@@ -948,6 +948,20 @@ const rasenTex = canvasTex(128, 128, (g) => {
 });
 rasenTex.repeat.set(14, 14);
 
+/* ---- Texturdatei laden, wenn es geht ----
+   Die Prüfskripte in tools/ fahren game.js in Node hoch. Dort gibt es kein
+   document, und THREE.TextureLoader legt intern ein <img> an - der Aufruf
+   wirft also beim Laden der Datei. Weil jede Bilddatei hier nur die Optik
+   verbessert und nie Spiellogik traegt, ist Nichtstun der richtige
+   Rueckfall: ohne DOM und bei fehlender Datei bleibt alles beim
+   gezeichneten Ersatz. */
+function ladeTexturDatei(pfad, fertig) {
+  if (typeof document === 'undefined' || !document.createElement) return;
+  try {
+    new THREE.TextureLoader().load(pfad, fertig, undefined, () => {});
+  } catch (e) { /* kein Bildladen moeglich - Ersatz bleibt stehen */ }
+}
+
 /* ---- Oberflächentextur für Fassaden ----
    Bis hierher ist jede Textur im Spiel prozedural gezeichnet. Die
    Fassadenkachel ist die erste aus einer Datei, weil feines Mauerwerk auf
@@ -961,16 +975,11 @@ rasenTex.repeat.set(14, 14);
    Fehlt die Datei, passiert nichts und die Stadt sieht aus wie zuvor —
    deshalb kein Abbruch und keine Fehlermeldung im Ladebalken. */
 if (CITY_LOOK && CITY_LOOK.setzeFassadenTextur) {
-  new THREE.TextureLoader().load(
-    'assets/texturen/fassade.png',
-    (tex) => {
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.anisotropy = 4;
-      CITY_LOOK.setzeFassadenTextur(tex);
-    },
-    undefined,
-    () => {},
-  );
+  ladeTexturDatei('assets/texturen/fassade.png', (tex) => {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    CITY_LOOK.setzeFassadenTextur(tex);
+  });
 }
 
 /* Kiesweg für den Park. */
@@ -9238,6 +9247,7 @@ function makeWebStrand() {
 const swingStrand = makeWebStrand();
 const gripStrand = makeWebStrand();
 const shotStrands = [makeWebStrand(), makeWebStrand(), makeWebStrand()];
+
 let shotIdx = 0;
 const activeShots = []; // {mesh, life, from, to}
 
@@ -9336,6 +9346,30 @@ function flashWebShot(from, to) {
   placeStrand(mesh, from, from, 0);
   mesh.material.opacity = 1;
 }
+
+/* ---- Echte Fadentextur ----
+   Der gezeichnete 64er Canvas oben bleibt der Rueckfall: fehlt die Datei,
+   sieht das Netz aus wie bisher. Liegt sie vor, bekommt JEDER Faden eine
+   eigene Texturinstanz - placeStrand setzt die Wiederholung je Bild aus
+   der aktuellen Fadenlaenge, eine geteilte Textur wuerde alle Faeden auf
+   die Laenge des zuletzt gezeichneten ziehen.
+
+   Der Aufruf steht bewusst HIER und nicht direkt bei makeWebStrand: die
+   Pruefskripte schneiden den Abschnitt von "const FADEN_RING =" bis zum
+   Netzklatscher heraus und fahren ihn allein hoch. Alles in diesem
+   Bereich muss ohne den Rest der Datei laufen. */
+ladeTexturDatei('assets/texturen/netzfaden.png', (tex) => {
+  for (const f of [swingStrand, gripStrand, ...shotStrands]) {
+    const neu = tex.clone();
+    neu.needsUpdate = true;
+    neu.wrapS = neu.wrapT = THREE.RepeatWrapping;
+    const vorher = f.material.map;
+    f.material.map = neu;
+    f.material.needsUpdate = true;
+    if (vorher) vorher.dispose();
+  }
+  tex.dispose();
+});
 
 /* ======================= Treffer-Effekte ======================= */
 /* Kleine Sammlung wiederverwendbarer Effekte: ein aufblitzender Ring und
