@@ -9347,6 +9347,40 @@ function flashWebShot(from, to) {
   mesh.material.opacity = 1;
 }
 
+/* ---- Echte Fadentextur ----
+   Der gezeichnete 64er Canvas oben bleibt der Rueckfall: fehlt die Datei,
+   sieht das Netz aus wie bisher.
+
+   Beim ersten Anlauf waren die Netze damit UNSICHTBAR. Das Material
+   verwirft mit alphaTest 0.12 jedes Pixel unter der Schwelle, und
+   placeStrand setzt repeat.y auf Laenge * 0,6 - ein langer Faden zeigt
+   ein Dutzend Kacheln auf wenigen Bildschirmpunkten. Zu duenne Straenge
+   mitteln sich beim Verkleinern unter die Schwelle und werden dann ganz
+   verworfen. Die neue Kachel ist deshalb auf Strangbreite und Alphaboden
+   ausgelegt, nicht auf Fotoschaerfe; tools/netztextur-aufbereiten.py
+   weist die Deckung ueber alle Verkleinerungsstufen aus.
+
+   Jeder Faden bekommt eine eigene Texturinstanz: placeStrand setzt die
+   Wiederholung je Bild aus der aktuellen Fadenlaenge, eine geteilte
+   Textur wuerde alle Faeden auf die Laenge des zuletzt gezeichneten
+   ziehen.
+
+   Der Aufruf steht bewusst HIER und nicht bei makeWebStrand: die
+   Pruefskripte schneiden den Abschnitt von "const FADEN_RING =" bis zum
+   Netzklatscher heraus und fahren ihn allein hoch. */
+ladeTexturDatei('assets/texturen/netzfaden.png', (tex) => {
+  for (const f of [swingStrand, gripStrand, ...shotStrands]) {
+    const neu = tex.clone();
+    neu.needsUpdate = true;
+    neu.wrapS = neu.wrapT = THREE.RepeatWrapping;
+    const vorher = f.material.map;
+    f.material.map = neu;
+    f.material.needsUpdate = true;
+    if (vorher) vorher.dispose();
+  }
+  tex.dispose();
+});
+
 /* ======================= Treffer-Effekte ======================= */
 /* Kleine Sammlung wiederverwendbarer Effekte: ein aufblitzender Ring und
    ein paar Funken. Das gibt Schlägen spürbares Gewicht. */
