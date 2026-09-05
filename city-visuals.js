@@ -20,9 +20,27 @@
     light: new THREE.MeshBasicMaterial({ vertexColors: true }),
   };
 
+  /* Wie viele Meter eine Kachel der Oberflaechentextur abdeckt. Die UVs
+     entstehen aus der Weltposition, nicht aus einer Auswicklung - fuer
+     Mauerwerk ist das richtig so: zwei gleich hohe Haeuser bekommen
+     dieselbe Steingroesse, und an keiner Kante entsteht eine Naht. */
+  const TEXTUR_METER = 2.4;
+
   // One draw call per surface group, never one per window or brick.
   class Batch {
-    constructor() { this.p = []; this.n = []; this.c = []; }
+    constructor() { this.p = []; this.n = []; this.c = []; this.u = []; }
+    /* Dreifachprojektion: jeder Eckpunkt wird entlang seiner staerksten
+       Normalenachse auf eine Ebene projiziert. Damit braucht keine der
+       Aufrufstellen eigene Texturkoordinaten, und Boxen, Loft-Koerper und
+       Polygone werden gleich behandelt. */
+    uv(x, y, z, nx, ny, nz) {
+      const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+      let u, v2;
+      if (ay >= ax && ay >= az) { u = x; v2 = z; }        // Boden und Dach
+      else if (ax >= az) { u = z; v2 = y; }               // Seitenwaende
+      else { u = x; v2 = y; }                             // Vorder- und Rueckwand
+      this.u.push(u / TEXTUR_METER, v2 / TEXTUR_METER);
+    }
     geometry(g, color, matrix) {
       const p = g.attributes.position, n = g.attributes.normal;
       const v = new THREE.Vector3(), nn = new THREE.Vector3();
@@ -32,6 +50,7 @@
         v.fromBufferAttribute(p, i).applyMatrix4(matrix);
         nn.fromBufferAttribute(n, i).applyMatrix3(normal).normalize();
         this.p.push(v.x, v.y, v.z); this.n.push(nn.x, nn.y, nn.z); this.c.push(c.r, c.g, c.b);
+        this.uv(v.x, v.y, v.z, nn.x, nn.y, nn.z);
       }
     }
     box(w, h, d, x, y, z, color, ry = 0) {
@@ -57,6 +76,7 @@
       const col = new THREE.Color(color);
       for (let i = 1; i < vertices.length - 1; i++) for (const v of [a, vertices[i], vertices[i + 1]]) {
           this.p.push(...v); this.n.push(n.x, n.y, n.z); this.c.push(col.r, col.g, col.b);
+          this.uv(v[0], v[1], v[2], n.x, n.y, n.z);
         }
     }
     beam(a, b, w, d, color) {
@@ -69,6 +89,7 @@
       g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
       g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
       g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2));
       g.computeBoundingBox(); g.computeBoundingSphere(); return g;
     }
     mesh(mat, name) {
@@ -753,7 +774,26 @@
     else v.cityGear.geometry = accessory(key); // shared immutable geometry; no nodes accumulate on role changes
     v.root.userData.cityRole = key;
   }
-  return { enabled, createTower, createCar, updateCar, finishUtilityVehicle, createAmbulance, createBus, createTree, createPark, createHelicopterShell,
+  /* ---- Oberflaechentextur ----
+     Die Batch-Geometrie traegt seit der UV-Erweiterung Texturkoordinaten
+     aus der Weltposition. Eine graue Kachel wird hier MIT der vorhandenen
+     Vertexfarbe multipliziert - die vier Fassadenstile bleiben also
+     erhalten und bekommen nur Oberflaeche dazu. Ohne Aufruf sieht die
+     Stadt genauso aus wie vorher; das Modul laedt selbst keine Datei und
+     kennt keine Pfade. */
+  function setzeFassadenTextur(tex) {
+    if (!tex) return false;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    for (const name of ['stone', 'trim']) {
+      const m = materials[name];
+      if (!m) continue;
+      m.map = tex;
+      m.needsUpdate = true;
+    }
+    return true;
+  }
+
+  return { enabled, setzeFassadenTextur, createTower, createCar, updateCar, finishUtilityVehicle, createAmbulance, createBus, createTree, createPark, createHelicopterShell,
     trainDetails, updateTrain, dressCivilian, dressEnemy,
     towerStyles: TOWERS.map(t => t.name), carStyles: ['Fastback', 'Crossover', 'Sportkombi'],
     civilianStyles: OUTFITS.map(o => o.name), enemyStyles: Object.keys(ENEMIES) };

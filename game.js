@@ -948,6 +948,31 @@ const rasenTex = canvasTex(128, 128, (g) => {
 });
 rasenTex.repeat.set(14, 14);
 
+/* ---- Oberflächentextur für Fassaden ----
+   Bis hierher ist jede Textur im Spiel prozedural gezeichnet. Die
+   Fassadenkachel ist die erste aus einer Datei, weil feines Mauerwerk auf
+   einem 128er Canvas nicht überzeugend wird.
+
+   Sie ist bewusst GRAU: city-visuals multipliziert sie mit der
+   vorhandenen Vertexfarbe, also bleiben die vier Fassadenstile erhalten
+   und bekommen nur Oberfläche dazu. Der Mittelwert liegt bei 236 von 255,
+   damit die Häuser dadurch nicht dunkler werden.
+
+   Fehlt die Datei, passiert nichts und die Stadt sieht aus wie zuvor —
+   deshalb kein Abbruch und keine Fehlermeldung im Ladebalken. */
+if (CITY_LOOK && CITY_LOOK.setzeFassadenTextur) {
+  new THREE.TextureLoader().load(
+    'assets/texturen/fassade.png',
+    (tex) => {
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.anisotropy = 4;
+      CITY_LOOK.setzeFassadenTextur(tex);
+    },
+    undefined,
+    () => {},
+  );
+}
+
 /* Kiesweg für den Park. */
 const wegTex = canvasTex(64, 64, (g) => {
   g.fillStyle = '#5d5342'; g.fillRect(0, 0, 64, 64);
