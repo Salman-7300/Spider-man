@@ -81,7 +81,7 @@
   const TOWERS = [
     { name: 'Glasraster', wall: 0x233c48, trim: 0xa4b4bc, glass: [0x426876, 0x527f8d, 0x315967, 0x69929b] },
     { name: 'Kalkstein', wall: 0xb8b5a8, trim: 0xd8d3c5, glass: [0x294c5c, 0x365f6b, 0x254453, 0x526d72] },
-    { name: 'Kupferrippen', wall: 0x263d43, trim: 0xb28561, glass: [0x365e65, 0x45717a, 0x254c57, 0x62858a] },
+    { name: 'Backstein & Kupfer', wall: 0x735449, trim: 0xb28561, glass: [0x365e65, 0x45717a, 0x254c57, 0x62858a] },
     { name: 'Silberband', wall: 0x526069, trim: 0xc8cdd0, glass: [0x46687f, 0x627f91, 0x365b73, 0x8199a4] },
   ];
   function createTower(w, h, d, variant = 0) {
@@ -115,8 +115,8 @@
       };
       const cols = Math.max(2, Math.floor((width - 0.5) / (kind === 1 ? 2.9 : 2.5)));
       const step = (width - 0.5) / cols;
-      const column = kind === 1 ? 0.38 : kind === 2 ? 0.16 : 0.09;
-      const band = kind === 3 ? 0.4 : 0.18;
+      const column = [0.22, 1.05, 0.66, 0.40][kind];
+      const band = [0.58, 1.05, 0.82, 1.12][kind];
       for (let col = 0; col < cols; col++) {
         const x = -width / 2 + 0.25 + (col + 0.5) * step;
         window(step - column, lobby - 0.18, x, lobby / 2, 0xc1d6d9);
@@ -153,11 +153,13 @@
       // Columns and floor bands have depth, but stay inside the existing collision box.
       for (let col = 0; col <= cols; col++) {
         const x = -width / 2 + 0.25 + col * step;
-        bar(column, h - 0.22, 0.1, x, (h - 0.22) / 2, 0.05, style.trim);
+        bar(col === 0 || col === cols ? Math.min(0.5, column) : column,
+          h - 0.22, 0.18, x, (h - 0.22) / 2, 0.09, kind === 1 || kind === 2 ? style.wall : style.trim);
       }
       for (let floor = 0; floor <= floors; floor++) {
         const y = lobby + floor * rise;
-        bar(width - 0.2, band, 0.1, 0, y, 0.05, style.trim);
+        bar(width - 0.2, floor === floors ? Math.min(band, 0.45) : band,
+          0.16, 0, y, 0.08, kind === 1 || kind === 2 ? style.wall : style.trim);
       }
       bar(width, 0.16, 0.12, 0, h - 0.25, 0.06, style.trim);
       bar(width, 0.18, 0.12, 0, 0.09, 0.06, style.trim);
@@ -427,6 +429,8 @@
     flink: { color: 0x718887, plate: 0x303d42, width: 0.34 },
     waechter: { color: 0x647e99, plate: 0x283747, width: 0.46 },
     werfer: { color: 0xb69454, plate: 0x504a39, width: 0.38 },
+    duellant: { color: 0x70acb3, plate: 0x273b45, width: 0.32 },
+    stuermer: { color: 0xe0a05b, plate: 0x593c32, width: 0.37 },
     enforcer: { color: 0xa95845, plate: 0x292f38, width: 0.52 },
   };
   function accessory(kind) {
@@ -448,6 +452,14 @@
         for (const sx of [-1, 1]) b.softBox(0.15, 0.12, 0.24, sx * 0.26, 1.49, 0.01, e.plate);
       }
       if (kind === 'waechter') for (const y of [1.18, 1.26, 1.43]) b.box(0.4, 0.046, 0.035, 0, y, 0.19, e.color);
+      if (kind === 'duellant') {
+        b.beam([-0.17, 1.5, 0.19], [0.18, 1.13, 0.19], 0.07, 0.025, e.color);
+        b.softBox(0.18, 0.19, 0.10, -0.22, 1.42, -0.01, e.plate);
+      }
+      if (kind === 'stuermer') {
+        b.softBox(0.30, 0.29, 0.13, 0, 1.36, -0.21, e.plate);
+        for (const x of [-0.09, 0.09]) b.box(0.035, 0.35, 0.02, x, 1.29, 0.20, e.color);
+      }
       if (kind === 'werfer') {
         b.box(0.22, 0.22, 0.13, 0.17, 1.03, -0.17, e.color);
         for (const x of [-0.09, 0.09]) b.box(0.065, 0.27, 0.11, x, 1.3, -0.2, 0x8e927b);

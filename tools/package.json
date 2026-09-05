@@ -7,5 +7,8 @@
     "@gltf-transform/functions": "^4.4.2",
     "fbx2gltf": "0.9.7p1",
     "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.12"
   }
 }

@@ -20,8 +20,8 @@ function array(source, index) {
   return out;
 }
 
-function loadClip(name) {
-  const source = readGLB(path.join(root, 'assets/hero@' + name + '.glb'));
+function loadClip(name, slot = 'hero') {
+  const source = readGLB(path.join(root, 'assets/' + slot + '@' + name + '.glb'));
   const animation = source.json.animations[0], tracks = [];
   for (const channel of animation.channels) {
     const target = channel.target;
@@ -36,8 +36,8 @@ function loadClip(name) {
   return new THREE.AnimationClip(name, -1, tracks);
 }
 
-function model(clips) {
-  const { json } = readGLB(path.join(root, 'assets/hero.glb'));
+function model(clips, slot = 'hero') {
+  const { json } = readGLB(path.join(root, 'assets/' + slot + '.glb'));
   const joints = new Set(json.skins.flatMap(s => s.joints));
   const nodes = json.nodes.map((n, i) => {
     const o = joints.has(i) ? new THREE.Bone() : new THREE.Group();
@@ -73,7 +73,7 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     clamp: (v, a, b) => Math.min(b, Math.max(a, v)), lerp: (a, b, t) => a + (b - a) * t,
     V3: (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z),
     CFG: { sprintSpeed: 11 }, dist2: 0, WAND_RUHE_T: 0, LOD_WEITE: 130, ZIELE_ALT: false,
-    WANDLAUF_CLIP: 'kriechen', KLETTER_CLIP: 'kriechen',
+    WANDLAUF_CLIP: 'run', KLETTER_CLIP: 'kriechen',
     EINST: { maus: 100, autokam: 'aus' }, mouseDX: 0, mouseDY: 0, touchAktiv: false,
     KAT: { aktiv: false }, groundY: () => 0, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(),
     camera: new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1000),
@@ -90,7 +90,7 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     between('function makeGlbVisual(', 'function makeProceduralVisual('),
     between('let camYaw =', '/* Bodenhöhe unter einem einzelnen Fuß'),
   ].join('\n'), context);
-  return { env, context, makeVisual: (names) => env.makeGlbVisual(model(names.map(loadClip))),
+  return { env, context, makeVisual: (names) => env.makeGlbVisual(model(names.map(name => loadClip(name)))),
            run: code => vm.runInContext(code, context), source };
 }
 module.exports = { runtime, model, loadClip, array, THREE, root };
