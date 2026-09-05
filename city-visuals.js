@@ -18,6 +18,10 @@
     windows: new THREE.MeshPhongMaterial({ color: 0x718b99, transparent: true,
       opacity: 0.25, depthWrite: false, shininess: 45 }),
     light: new THREE.MeshBasicMaterial({ vertexColors: true }),
+    /* Ausruestung an Figuren - Rucksaecke, Westen, Gurte. Sieht aus wie
+       stone, ist aber bewusst ein eigenes Material: sobald stone eine
+       Fassadentextur bekommt, haetten sonst alle Rucksaecke Mauerwerk. */
+    figur: new THREE.MeshLambertMaterial({ vertexColors: true }),
   };
 
   /* Wie viele Meter eine Kachel der Oberflaechentextur abdeckt. Die UVs
@@ -739,7 +743,7 @@
     const bone = v.knochen && (v.knochen.spine1 || v.knochen.spine || v.knochen.hips);
     if (!bone) return null;
     v.root.updateMatrixWorld(true);
-    const mesh = new THREE.Mesh(geometry, materials.stone); mesh.name = label; mesh.castShadow = false;
+    const mesh = new THREE.Mesh(geometry, materials.figur); mesh.name = label; mesh.castShadow = false;
     // Geometry is authored in character coordinates; transform once into the torso's bind space.
     const matrix = new THREE.Matrix4().copy(bone.matrixWorld).invert().multiply(v.root.matrixWorld);
     matrix.decompose(mesh.position, mesh.quaternion, mesh.scale); bone.add(mesh); return mesh;

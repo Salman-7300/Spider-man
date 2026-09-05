@@ -8933,6 +8933,79 @@ function faerbeKleidung(v) {
   });
 }
 
+/* ---- Gegner: eigene Farbgebung je Rolle ----
+   Fuenf der sieben Rollen benutzen dasselbe thug.glb mit EINEM Material -
+   Schlaeger, Brecher, Flink, Waechter und Werfer sahen deshalb identisch
+   aus. tools/gegner-skins.py faerbt die vorhandene Ruestungstextur je
+   Rolle um: nur der Farbton wechselt, die Helligkeit bleibt, also bleiben
+   auch alle Plattenkanten und Kratzer erhalten. Der Kopf ist ueber seine
+   UV-Insel ausgespart und bleibt in jeder Rolle derselbe Mann.
+
+   Der Schlaeger behaelt die Originaltextur - er ist der Grundtyp.
+
+   SkeletonUtils.clone teilt Materialien zwischen allen Figuren. Je Rolle
+   wird deshalb genau EINE Kopie angelegt und wiederverwendet; ohne das
+   wuerde eine Umfaerbung alle Gegner auf einmal treffen. */
+const GEGNER_HAUT = {
+  brecher:  { ton: 'rostbraun' }, flink: { ton: 'stahlblau' },
+  waechter: { ton: 'oliv' },      werfer: { ton: 'violett' },
+};
+for (const rolle in GEGNER_HAUT) {
+  const eintrag = GEGNER_HAUT[rolle];
+  ladeTexturDatei('assets/texturen/gegner/' + rolle + '_diffuse.jpg', (t) => {
+    /* Am Original abgelesen, nicht geraten: die Textur aus dem GLB hat
+       flipY = false und LinearEncoding. Ein per TextureLoader geladenes
+       Bild kommt mit flipY = true - ohne diese Zeile stuende die Ruestung
+       auf dem Kopf. */
+    t.flipY = false;
+    eintrag.diffuse = t; eintrag.material = null;
+  });
+}
+/* Das Grundmaterial aus thug.glb. Nur Meshes, die GENAU dieses Material
+   tragen, werden umgefaerbt. Ohne diese Bedingung erwischt der Durchlauf
+   auch die Ausruestung, die dressEnemy an den Brustknochen haengt - dann
+   traegt eine Weste die Ruestungstextur oder, schlimmer, die einer
+   anderen Rolle. Genau das ist beim ersten Versuch passiert. */
+let thugGrundMat = null;
+function thugMaterial() {
+  if (thugGrundMat) return thugGrundMat;
+  const m = glbModels.thug && glbModels.thug.scene;
+  if (!m) return null;
+  m.traverse((o) => {
+    if (!thugGrundMat && o.isSkinnedMesh && o.material && o.material.map) thugGrundMat = o.material;
+  });
+  return thugGrundMat;
+}
+function setzeGegnerHaut(v, art) {
+  if (!v || !v.root) return false;
+  const grund = thugMaterial();
+  if (!grund) return false;
+  const e = GEGNER_HAUT[art];
+  const ziel = e && e.diffuse ? null : grund;   // ohne eigene Haut: zurueck aufs Original
+  if (v.hautRolle === art) return false;
+  let getauscht = 0;
+  v.root.traverse((o) => {
+    if (!o.isMesh || !o.isSkinnedMesh) return;
+    if (o.material !== grund && o.material !== (v.hautMat || null)) return;
+    if (ziel) { o.material = ziel; o.userData.normalMat = ziel; getauscht++; return; }
+    if (!e.material) {
+      /* Die Kopie erbt alles - Glanz, Skinning, Vertexfarben - und
+         bekommt nur ein anderes Farbbild. Eine Emissive-Karte hat das
+         Spielmaterial nicht (MeshLambertMaterial, am laufenden Spiel
+         nachgesehen), die orangen Lichter stecken in der Farbtextur
+         selbst und werden dort mit umgefaerbt. */
+      e.material = grund.clone();
+      e.material.map = e.diffuse;
+      e.material.needsUpdate = true;
+    }
+    o.material = e.material;
+    o.userData.normalMat = e.material;
+    getauscht++;
+  });
+  if (getauscht) { v.hautRolle = art; v.hautMat = ziel ? null : e.material; }
+  return getauscht > 0;
+}
+
 /* ======================= Menschen-Baukasten ======================= */
 
 function limb(mat, r0, r1, len) {
@@ -21602,6 +21675,7 @@ function spawnGang(cx, cz, n, quelle) {
     });
     visual.root.scale.setScalar(typ.groesse);
     if (CITY_LOOK) CITY_LOOK.dressEnemy(visual, typ.art);
+    setzeGegnerHaut(visual, typ.art);
     const hpBar = makeHPBar();
     visual.root.add(hpBar.g);
     const warn = makeWarnzeichen(); visual.root.add(warn);
@@ -24277,6 +24351,13 @@ function evSetzeRollen(gang, schwere) {
     e.hp = typ.hp; e.hpMax = typ.hp;
     e.radius = 0.4 * typ.groesse;
     if (e.visual && e.visual.root) e.visual.root.scale.setScalar(typ.groesse);
+    /* Die Rolle wechselt hier NACH dem Bau des Aussehens. Die Groesse wird
+       schon lange nachgezogen - Ausruestung und Farbgebung fehlten. Ohne
+       das trug ein Waechter aus einem Ereignis die Farben des Werfers. */
+    if (e.visual) {
+      if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, typ.art);
+      setzeGegnerHaut(e.visual, typ.art);
+    }
     if (MUT_BASIS[typ.art] !== undefined) e.mut = MUT_BASIS[typ.art];
   }
 }
