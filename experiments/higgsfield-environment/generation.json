@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-09-04",
+  "project": "WEB HERO",
+  "status": "reference-images-only",
+  "purpose": "Two visual references for a later browser-game 3D asset pilot. Not runtime assets.",
+  "integration": {
+    "baseCommit": "ae7297c0d83b42e78f75b6dda574f5c7a5f9c65a",
+    "runtimeFilesModified": false,
+    "glbGenerated": false,
+    "gameplayTested": false
+  },
+  "generation": {
+    "provider": "Higgsfield",
+    "estimatedCreditsPerImage": 2,
+    "estimatedTotalCredits": 4,
+    "chargedCredits": null,
+    "chargeNote": "Estimate only; a settled debit was not confirmed.",
+    "modelNote": "Requested nano_banana_pro; completed jobs report nano_banana_2. Preserve both values."
+  },
+  "assets": [
+    {
+      "file": "brick-shop-reference.png",
+      "jobId": "0ec9fa9c-15f4-4cb3-807e-27b066edfa7b",
+      "status": "completed",
+      "requestedModel": "nano_banana_pro",
+      "reportedModel": "nano_banana_2",
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "request": {
+        "aspect_ratio": "1:1",
+        "count": 1,
+        "model": "nano_banana_pro",
+        "prompt": "Create one precise high quality 3D game-asset reference image for WEB HERO, a stylized realistic urban superhero browser game. Coherent believable real-world proportions, clean readable silhouette, restrained hand-painted surface detail and appealing materials, not a toy and not voxel art. Isolated single complete object on a uniform light warm gray background. Front-right three-quarter view from a slightly elevated camera so the front, right side and top are all clearly visible. Long-lens near-orthographic perspective. Center the entire object with 10 percent clear margin on every side. Soft neutral studio illumination, subtle contact shadow only, no dramatic baked lighting, no depth of field, no motion blur. No people, no surrounding street, no scenery, no labels, no watermark, no real brands, no montage or multiple views. SUBJECT: One freestanding five-story red-brick urban apartment building, rectangular footprint approximately 12 meters wide and 10 meters deep, around 17 meters high. Ground floor is a small corner convenience store with two large clear shop windows, a recessed central entrance and a deep muted-teal awning; use a blank cream signboard with no lettering. Four residential floors above, each with exactly four regularly spaced windows across the front, pale limestone sills and subtle lintels. Right side has consistent windows. Matte warm terracotta brick with restrained weathering. A simple limestone cornice and a low neat parapet around a large FLAT, WALKABLE roof; unobstructed level center of the roof, no pitched roof, no water tower, no fire escapes, no antennas, no loose props and no rooftop equipment. Walls are perfectly vertical, clear box-shaped footprint, clean straight floor lines. Small bevels and shallow window recesses provide detail without an overly complex silhouette. Show all of the building down to its bottom edge without a pedestal or ground tile.",
+        "resolution": "2k",
+        "use_unlim": false
+      },
+      "observedDeviation": "Visible building has four total stories (shop plus three residential floors), although the prompt requested five. Four stories accepted for this visual pilot.",
+      "productionReady": false
+    },
+    {
+      "file": "city-car-reference.png",
+      "jobId": "d91a8f8c-c82c-4ae5-bb44-52d32800e39f",
+      "status": "completed",
+      "requestedModel": "nano_banana_pro",
+      "reportedModel": "nano_banana_2",
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "request": {
+        "aspect_ratio": "1:1",
+        "count": 1,
+        "model": "nano_banana_pro",
+        "prompt": "Create one precise high quality 3D game-asset reference image for WEB HERO, a stylized realistic urban superhero browser game. Coherent believable real-world proportions, clean readable silhouette, restrained hand-painted surface detail and appealing materials, not a toy and not voxel art. Isolated single complete object on a uniform light warm gray background. Front-right three-quarter view from a slightly elevated camera so the front, right side and top are all clearly visible. Long-lens near-orthographic perspective. Center the entire object with 10 percent clear margin on every side. Soft neutral studio illumination, subtle contact shadow only, no dramatic baked lighting, no depth of field, no motion blur. No people, no surrounding street, no scenery, no labels, no watermark, no real brands, no montage or multiple views. SUBJECT: One original compact four-door city hatchback, about 4.5 meters long, 1.9 meters wide and 1.6 meters tall, finished in muted petroleum-teal paint. Clean rounded but clearly structured body panels, short front hood, practical upright cabin with four seats visible through neutral lightly tinted glazing, believable wheelbase and tire diameter. Exactly four simple dark-rubber tires with restrained five-spoke silver wheels, wheels visibly distinct from the body, front wheels pointing straight. Clearly separated headlights, taillights, black lower bumper, door seams, two small side mirrors, modest door handles. Modern everyday city car with personality but no sports-car styling. Body and wheel arches are tidy and bilaterally symmetric; all doors and hatch shut. No roof rack, no taxi sign, no police lights, no license-plate text. No driver. Show full front and right side with both right wheels entirely visible; no exaggerated metallic reflections.",
+        "resolution": "2k",
+        "use_unlim": false
+      },
+      "observedDeviation": "No obvious blocking deviation in the visible three-quarter view; hidden geometry and separated wheels remain unverified.",
+      "productionReady": false
+    }
+  ],
+  "nextStep": {
+    "deliverable": "Meter-scale GLB geometry and textures, followed by isolated integration tests.",
+    "toolAvailability": "The catalog lists 3D models, but generate_3d is not exposed in the currently connected tool set. No 3D generation job was submitted."
+  }
+}
+
