@@ -6754,6 +6754,35 @@ function makeGlbVisual(m) {
     _q2.invert().multiply(_q);
     hand.quaternion.slerp(_q2, clamp(k, 0, 1));
   }
+  /* ---- Ein Gelenk darf nicht weiter knicken, als es kann ----
+     setzeHand und setzeFuss richten Hand bzw. Fuss auf eine WELTrichtung
+     aus, ganz gleich, wo der Unterarm oder der Unterschenkel gerade
+     herkommt. Bei einer gesetzten Kletterhaltung faellt der Unterschied
+     auf das Gelenk: gemessen bog sich das Handgelenk beim Klettern bis
+     92 Grad, waehrend dieselbe Figur am Boden nur 8-19 Grad erreicht.
+     Diese Funktion dreht die gewuenschte Richtung so weit zum Glied
+     zurueck, bis der Knick im erlaubten Bereich liegt - die Richtung
+     bleibt also erhalten, nur der Betrag wird gedeckelt.
+     Zurueck kommt die begrenzte Richtung (derselbe Vektor). */
+  const _gb1 = new THREE.Vector3(), _gb2 = new THREE.Vector3();
+  function begrenzeGelenk(ziel, glied, maxWinkel) {
+    _gb1.copy(ziel).normalize();
+    _gb2.copy(glied).normalize();
+    const c = clamp(_gb1.dot(_gb2), -1, 1);
+    const w = Math.acos(c);
+    if (w <= maxWinkel) return ziel;
+    /* Achse, um die zurueckgedreht wird. Stehen beide Richtungen genau
+       gegeneinander, taugt das Kreuzprodukt nicht - dann ist jede Achse
+       recht, solange sie senkrecht steht. */
+    const achse = new THREE.Vector3().crossVectors(_gb2, _gb1);
+    if (achse.lengthSq() < 1e-8) {
+      achse.set(_gb2.y, -_gb2.x, 0);
+      if (achse.lengthSq() < 1e-8) achse.set(0, _gb2.z, -_gb2.y);
+    }
+    achse.normalize();
+    return ziel.copy(_gb2).applyAxisAngle(achse, maxWinkel);
+  }
+
   /* Knochen zur Ruhelage ziehen und von dort um kleine Winkel auslenken. */
   /* Einen Knochen auf "Ruhehaltung plus feste Winkel" ziehen.
      Hier stand vorher:
@@ -8037,11 +8066,43 @@ function makeGlbVisual(m) {
            den die Rechnung vorhersagt. */
         const foot = contact(phase + 0.5, point(sign * 0.23, sign > 0 ? -0.52 : -0.60, 0.085), 1, 0.16);
         gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
-          hand, point(sign * 0.45, 0.32, 0.34), w);
+          hand, point(sign * 0.55, 0.10, 0.15), w);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
           foot, point(sign * 0.50, -0.38, 0.40), w);
         const fingers = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
-        setzeHand(side, fingers, normal.clone().negate(), w);
+        /* ---- Das Handgelenk knickt nicht weiter, als es kann ----
+           MESSUNG (Winkel zwischen Unterarm und Hand, also Ellenbogen ->
+           Handwurzel gegen Handwurzel -> Mittelfingergrundgelenk):
+           am Boden 8-19 Grad, beim Klettern 7-92 Grad. Die 92 Grad
+           entstehen, weil setzeHand die Hand auf eine feste WELTrichtung
+           stellt - die Wand hinauf - ganz gleich, wie der Arm gerade
+           steht. Ein Handgelenk streckt sich rueckwaerts hoechstens rund
+           70 Grad, und ein Kletterer haelt es deutlich darunter.
+           Gedeckelt wird auf 55 Grad: die Richtung bleibt, nur der Betrag
+           wird zurueckgenommen. */
+        const pH = ((phase % 1) + 1) % 1;
+        const uH = Math.max(0, (pH - 0.58) / 0.42);
+        const flug = Math.sin(Math.PI * uH) ** 2 * moving;
+        root.updateMatrixWorld(true);
+        const flaecheH = normal.clone().negate();
+        const _ua = knochen[side + 'forearm'], _hd = knochen[side + 'hand'];
+        if (_ua && _hd) {
+          const unterarm = _hd.getWorldPosition(new THREE.Vector3())
+            .sub(_ua.getWorldPosition(new THREE.Vector3()));
+          /* Beim Tragen darf das Gelenk 55 Grad knicken, in der Mitte des
+             freien Zugs nur noch 20 - dort haelt niemand die Hand
+             angewinkelt, sie folgt dem Arm. */
+          if (unterarm.lengthSq() > 1e-8) begrenzeGelenk(fingers, unterarm, 0.96 - 0.61 * flug);
+        }
+        /* Die Handflaeche wird senkrecht zur begrenzten Fingerrichtung
+           gestellt. Ohne das rechnet setzeHand die Finger wieder in die
+           Wandebene zurueck (es haelt _hf senkrecht auf _hp) - die
+           Deckelung ginge damit vollstaendig verloren; gemessen brachte
+           sie so nur 92 -> 84 Grad statt der gewollten 55. */
+        fingers.normalize();
+        flaecheH.addScaledVector(fingers, -flaecheH.dot(fingers));
+        if (flaecheH.lengthSq() > 1e-6) flaecheH.normalize(); else flaecheH.copy(normal).negate();
+        setzeHand(side, fingers, flaecheH, w);
         /* ---- Der Fuss zeigt nach aussen, nicht die Wand hinauf ----
            MESSUNG. Knoechelwinkel = Winkel zwischen Unterschenkel
            (Knie -> Knoechel) und Fuss (Knoechel -> Zehenansatz).
@@ -8086,9 +8147,7 @@ function makeGlbVisual(m) {
            durch die Luft nach oben griff. Jetzt oeffnet sie sich in der
            Flugphase und schliesst sich beim Aufsetzen - dasselbe
            Zeitfenster, das contact() fuer den Bogen benutzt. */
-        const pH = ((phase % 1) + 1) % 1;
-        const uH = Math.max(0, (pH - 0.58) / 0.42);
-        const zu = 1 - Math.sin(Math.PI * uH) ** 2 * moving;
+        const zu = 1 - flug;
         krallen(side, (0.05 + 0.13 * zu) * w);
       }
       /* Der Kopf schaut leicht zu der Hand, die gerade nach oben greift -
