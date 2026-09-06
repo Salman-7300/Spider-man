@@ -7592,7 +7592,12 @@ function makeGlbVisual(m) {
       const rate = 1 - Math.exp(-19.7 * dt);
       innerKipp = lerp(innerKipp, (lauf ? 0.18 : kontakt ? 0 : -Math.PI / 2) * kk, rate);
       inner.rotation.x = innerKipp;
-      const zZ = (kontakt && !lauf ? 0 : (roll || 0)) * kk;
+      /* Frueher wurde die Rollung im Kontaktmodus verworfen: die
+         gerechnete Haltung (poseWandKontakt) bringt ihre Richtung selbst
+         mit. Die Kletterdateien aus hero-4 liegen dagegen quer an der
+         Wand und muessen gerollt werden - deshalb wird die Rollung jetzt
+         immer uebernommen. Wer sie nicht braucht, uebergibt 0. */
+      const zZ = (roll || 0) * kk;
       let dz = zZ - inner.rotation.z;
       while (dz > Math.PI) dz -= Math.PI * 2;
       while (dz < -Math.PI) dz += Math.PI * 2;
@@ -14545,7 +14550,18 @@ function updatePlayer(dt) {
          schnell und die Kletterbewegung 1,6-fach zu langsam. Genau das war
          der Hauptanteil an der hohen Knochengeschwindigkeit beim Klettern. */
       const eigen = player.wandlauf ? GANG_REF.run : (KLETTER_REFS[heroVisual.aktuellerClip] || KLETTER_REF);
-      player.klettertempo = clamp(vSteig / eigen, 0.5, KLETTER_MAX) * (up < 0 ? -1 : 1);
+      /* ---- Rueckwaerts abspielen nur ohne Kletterdatei ----
+         Frueher hing die Figur beim Abstieg weiter mit dem Kopf nach oben
+         und musste rueckwaerts hinabkriechen - dafuer lief die Bewegung
+         rueckwaerts. Die Kletterdatei wird stattdessen GEDREHT: beim
+         Abstieg zeigt der Kopf nach unten, die Figur bewegt sich also
+         vorwaerts. Beides zusammen hob sich auf. Gemessen an der
+         Handgeschwindigkeit im unteren Zehntel (dort greift die Hand,
+         dort muss sie stehen), Koerper 2,6 m/s:
+           rueckwaerts   linke Hand 1,55   rechte Hand 2,20
+           vorwaerts     linke Hand 0,25   rechte Hand 0,72          */
+      const rueck = kletternAusClip() ? 1 : (up < 0 ? -1 : 1);
+      player.klettertempo = clamp(vSteig / eigen, 0.5, KLETTER_MAX) * rueck;
     }
     /* Oben angekommen → über die Kante ziehen. Vorher wurde die Figur
        einfach aufs Dach versetzt und nach oben geschleudert; jetzt läuft
@@ -15937,11 +15953,34 @@ const KLETTER_REF = 0.62;
 let KLETTER_MAX = 2.5;
 const KLETTER_REFS = { climb: 0.985, klettern: 0.980, klettern_frei: 1.032,
                        klettern_seit: 0.584, kriechen: 0.279, wandlauf: 1.970,
-                       haengen_frei: 0.985 };
-/* Stelle im Kriechclip (0..1), an der die Figur an der Wand ruht.
-   Abgetastet: dort liegen beide Haende und beide Fuesse am dichtesten an
-   der Fassade. */
-const WAND_RUHE_T = 0.0;
+                       haengen_frei: 0.985,
+                       /* Die Kletterdateien aus hero-4 im Labor gemessen:
+                          wie schnell wandert ein tragendes Glied im eigenen
+                          System der Figur nach hinten? Genau so schnell kommt
+                          sie mit dieser Bewegung voran. Zur Probe lieferte
+                          dieselbe Messung fuer 'gehen' 1,509 - unabhaengig
+                          davon war GANG_REF.gehen mit 1,55 bestimmt worden.
+                            wandkriech_v 1,085   wandkriech_h 1,789
+                          Mit dem alten Sammelwert 0,62 lief die Bewegung
+                          also 1,75-fach zu schnell und schlug dauerhaft an
+                          die Obergrenze KLETTER_MAX - die Haende konnten
+                          gar nicht greifen. */
+                       wandkriech_v: 1.085, wandkriech_h: 1.789,
+                       wandkriech_l: 0.319, wandkriech_r: 0.345 };
+/* ---- Stelle im Kletterclip (0..1), an der die Figur an der Wand ruht ----
+   Der Abstand zur Fassade taugt zum Aussuchen nicht mehr: seit der Griff
+   (wandGriff) jedes Glied einzeln heranzieht, liegen an JEDER Stelle des
+   Clips alle vier Glieder zwischen 3,7 und 12,4 cm vor der Wand. Was eine
+   Ruhehaltung von einem eingefrorenen Schritt unterscheidet, ist die
+   Symmetrie - stehen die Haende gleich hoch, haelt sich die Figur fest;
+   steht eine oben und eine unten, ist sie mitten im Zug.
+   Abgetastet an 20 Stellen, Hoehenunterschied zwischen links und rechts:
+     Stelle    0,15   0,20   0,25   0,30   0,65   0,75   0,85
+     Haende    0,25   0,02   0,31   0,59   0,05   0,28   0,57
+     Fuesse    0,55   0,43   0,21   0,06   0,40   0,12   0,47
+   0,20 hat die mit Abstand ruhigsten Haende. Die Fuesse bleiben dort
+   versetzt - das ist bei einem Kletterer auch richtig so. */
+let WAND_RUHE_T = 0.20;
 /* 0,16 s auf, 0,22 s ab: das Aufkommen darf zuegig sein (sonst haengt die
    Haltung der Bewegung hinterher), das Abklingen braucht laenger, weil
    dort das Zucken sass. */
@@ -16226,7 +16265,7 @@ function updateHeroVisual(dt) {
   }
   heroVisual.play(player.anim, {
     wandKriechen: player.wandKriechen,
-    wandKontakt: player.wandKriechen,
+    wandKontakt: player.wandKriechen && !kletternAusClip(),
     /* Geht die Figur rueckwaerts (Katapult spannen)? Dann laeuft die
        Gangart rueckwaerts ab - sonst rudern die Beine vorwaerts, waehrend
        der Koerper nach hinten faehrt. */
@@ -16353,7 +16392,26 @@ function updateHeroVisual(dt) {
            im Stand um jede kleine Restbewegung. */
         const wunsch = tempo > 0.9 ? Math.atan2(-vq, vh) : 0;
         player.wandRoll = wunsch;
-        heroVisual.wandKriechen(1, KRIECH_TIEFE, wunsch, player.wandlauf, true, dt);
+        /* ---- Warum die Kletterdatei GEKIPPT wird und die gerechnete
+           Haltung nicht ----
+           Die Dateien aus dem UE4-Projekt sind Kriechbewegungen: die Figur
+           liegt in der Datei flach auf dem Bauch, Kopf in Laufrichtung.
+           Genau dafuer ist die Kippung um -90 Grad gebaut (kontakt =
+           false). Die gerechnete Haltung poseWandKontakt stellt ihre
+           Glieder dagegen selbst an die Fassade und will keine Kippung.
+           Ausgemessen an der Koerperachse Huefte -> Kopf gegen die
+           Senkrechte (0 Grad = Kopf oben), Rollung und Kippung im Kreuz:
+
+                        Rollung 0    +90     -90    180
+             ungekippt      85,3    92,2    88,4   95,4   <- lag quer
+             gekippt        11,0    92,8    88,5  169,1   <- Kopf oben
+
+           Elf Grad ist die Bewegung selbst (die Brust hebt sich beim
+           Kriechen), nicht ein Rest an Schieflage. Die Rollung bleibt
+           deshalb dem Richtungswunsch vorbehalten. */
+        heroVisual.wandKriechen(1, KRIECH_TIEFE,
+                                kletternAusClip() ? wunsch : 0,
+                                player.wandlauf, !kletternAusClip(), dt);
         // Contacts are applied once, after the final body/corner placement.
         player.wandRuhe = clamp((player.wandRuhe || 0) + dt * (player.wandStill ? 5 : -8), 0, 1);
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
@@ -16641,7 +16699,17 @@ let WAND_ZUG_TEMPO = 90;
 let WANDLAUF_CLIP = 'run';
 /* Welche Bewegung an der Wand hochklettert. Umstellbar, damit sich die
    vorhandenen Kandidaten am echten Haus vergleichen lassen. */
-let KLETTER_CLIP = 'kriechen';
+let KLETTER_CLIP = 'wandkriech_v';
+/* ---- Klettern aus der Bewegungsdatei oder aus gerechneter Haltung? ----
+   Seit hero-4 gibt es echte Wandkriechbewegungen (wandkriech_*). Liegen
+   sie vor, fuehrt die DATEI, und die Kontaktkorrektur wandGriff zieht
+   Haende und Fuesse an die Fassade - so war der Weg schon einmal gebaut,
+   nur mit einer umgebogenen Leiterbewegung als Grundlage.
+   Fehlt die Datei, bleibt es bei der gerechneten Haltung
+   (poseWandKontakt). Beide Wege bleiben also erhalten. */
+function kletternAusClip() {
+  return !!(heroVisual && heroVisual.hatClip && heroVisual.hatClip(KLETTER_CLIP));
+}
 /* ---- Wie schnell eine Bodenkampfbewegung verschwindet, wenn die Figur
    AKTIV springt ----
    Ein echter Sprung ist ein anderes Signal als ein verlorener Bordstein;
@@ -16866,7 +16934,8 @@ function wandFreiraum(dt) {
   if (player.wandlauf && !eckHalb && heroVisual.poseWandSprint) {
     heroVisual.poseWandSprint(gf.nx, gf.nz, gf.fl, player.phase, player.wandRoll, 0.9);
     r.updateMatrixWorld(true);
-  } else if (player.wandKriechen && !player.wandlauf && !eckHalb && heroVisual.poseWandKontakt) {
+  } else if (player.wandKriechen && !player.wandlauf && !eckHalb
+             && heroVisual.poseWandKontakt && !kletternAusClip()) {
     heroVisual.poseWandKontakt(gf.nx, gf.nz, gf.fl, player.vel, dtWand, 1);
     r.updateMatrixWorld(true);
   } else if (heroVisual.wandGriff) {
@@ -30366,6 +30435,8 @@ if (window.__WEBHERO_TEST__ === true) {
       return respStarte(e, art || 'polizei', []) ? true : false;
     },
     setzeKletterRef(v) { for (const k in KLETTER_REFS) KLETTER_REFS[k] = v; },
+    setzeKletterRefFuer(k, v) { KLETTER_REFS[k] = v; },
+    setzeWandRuheT(v) { WAND_RUHE_T = v; },
     setzeGriffWeit(v) { WAND_GRIFF_WEIT = v; return WAND_GRIFF_WEIT; },
     setzeBeinEng(quer, fuss) {
       if (quer !== undefined) WANDHALT_KNIE_QUER = quer;

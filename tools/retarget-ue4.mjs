@@ -397,10 +397,18 @@ export function retarget(quellGlb, vorlageGlb) {
      Bewegung als Ganzes und veraendert nichts an der Haltung. */
   const hipSpur = ausgabe.get('Hips');
   if (hipSpur && hipSpur.r.length) {
-    const q0 = hipSpur.r[0];
-    /* Vorwaertsrichtung des Beckens im ersten Bild. */
-    const v = qRot(q0, [0, 0, 1]);
-    const gier = Math.atan2(v[0], v[2]);
+    /* Der Versatz steckt im SKELETT, nicht in der Bewegung: er wird
+       deshalb aus den beiden RUHEHALTUNGEN bestimmt und nicht aus dem
+       ersten Bild. Beim ersten Versuch stand hier das erste Bild - das
+       geht schief, sobald eine Bewegung dort nicht aufrecht ist: bei den
+       Kriechbewegungen liegt das Becken flach, seine Vorwaertsrichtung
+       zeigt fast senkrecht nach unten, und der daraus gerechnete Winkel
+       ist beliebig. Die Figur kroch dann quer ueber die Fassade statt
+       hinauf. In der Ruhehaltung stehen beide Skelette aufrecht, dort ist
+       der Winkel eindeutig. */
+    const vq = qRot(ruheQ.get(hipName), [0, 0, 1]);
+    const vz = qRot(ruheZ.get(hipName), [0, 0, 1]);
+    const gier = Math.atan2(vq[0], vq[2]) - Math.atan2(vz[0], vz[2]);
     if (Math.abs(gier) > 0.002) {
       const zurueck = [0, Math.sin(-gier / 2), 0, Math.cos(-gier / 2)];
       for (let i = 0; i < hipSpur.r.length; i++) hipSpur.r[i] = qMul(zurueck, hipSpur.r[i]);
