@@ -7967,9 +7967,31 @@ function makeGlbVisual(m) {
       if (speed > 0.05) climbMotion.along.lerp(vel.normalize(), 1 - Math.exp(-12 * step)).normalize();
       climbMotion.phase = (climbMotion.phase + speed * step / 1.10) % 1;
       const moving = clamp(climbMotion.speed / 0.7, 0, 1), along = climbMotion.along;
+      /* ---- Gewichtsverlagerung ----
+         Bis hierher stieg der Rumpf schnurgerade und voellig ruhig die
+         Wand hinauf, waehrend nur die vier Glieder arbeiteten - das war
+         der groesste Grund, warum die Bewegung wie ein Fahrstuhl aussah.
+         Ein Kletterer verlagert sein Gewicht auf das Bein, das gerade
+         traegt. Der Standtakt des Beins auf der Seite sign>0 liegt in der
+         Mitte bei Phase 0,29, der des anderen bei 0,79 - genau um diesen
+         Versatz schwingt das Wiegen.
+         Der Versatz wird auf die WURZEL gelegt, nicht auf die Huefte: nur
+         so nimmt er Schultern und Becken gemeinsam mit. Die Kontaktpunkte
+         weiter unten rechnen dafuer mit ruheHuefte, also ohne das Wiegen -
+         sonst wuerden Haende und Fuesse im selben Takt an der Fassade
+         hin- und herrutschen, und der ganze Sinn der stehenden Griffe
+         waere dahin. */
+      const wiegen = Math.cos(2 * Math.PI * (climbMotion.phase - 0.29));
+      const seitVersatz = 0.042 * moving * w * wiegen;
+      const hochVersatz = 0.013 * moving * w * Math.sin(4 * Math.PI * climbMotion.phase);
+      root.position.addScaledVector(right, seitVersatz);
+      root.position.y += hochVersatz;
       // Upright torso faces the wall. Elbows and knees bend away from it.
       drehZuRuhe(knochen.hips, 0, 0, 0, w);
-      const bodyUp = new THREE.Vector3(0, 1, 0).addScaledVector(normal, -0.13).normalize();
+      /* Der Rumpf legt sich zur belasteten Seite - dieselbe Schraege, die
+         auch ein Mensch beim Klettern hat. */
+      const bodyUp = new THREE.Vector3(0, 1, 0).addScaledVector(normal, -0.13)
+        .addScaledVector(right, 0.085 * moving * w * wiegen).normalize();
       for (const [a, b] of [['hips', 'spine'], ['spine', 'spine1'], ['spine1', 'spine2'], ['spine2', 'neck']]) {
         if (knochen[a] && knochen[b]) zieleKnochen(knochen[a], knochen[b],
           knochen[a].getWorldPosition(new THREE.Vector3()).add(bodyUp), w);
@@ -7977,8 +7999,14 @@ function makeGlbVisual(m) {
       for (const side of ['left', 'right']) drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
       root.updateMatrixWorld(true);
       const hip = knochen.hips.getWorldPosition(new THREE.Vector3()), plane = flaeche * (nx || nz);
-      const point = (x, y, depth) => hip.clone().addScaledVector(right, x)
-        .add(new THREE.Vector3(0, y, 0)).addScaledVector(normal, plane + depth - hip.dot(normal));
+      /* Die Huefte OHNE Wiegen - Bezugspunkt aller Kontaktpunkte. Fuer die
+         Seitenbestimmung (sign) bleibt die echte Huefte massgeblich: die
+         Beine stehen nur rund 9 cm auseinander, ein Versatz von 4 cm
+         koennte die Seite sonst kippen. */
+      const ruheHuefte = hip.clone().addScaledVector(right, -seitVersatz);
+      ruheHuefte.y -= hochVersatz;
+      const point = (x, y, depth) => ruheHuefte.clone().addScaledVector(right, x)
+        .add(new THREE.Vector3(0, y, 0)).addScaledVector(normal, plane + depth - ruheHuefte.dot(normal));
       const contact = (phase, base, reach, depth) => {
         const p = ((phase % 1) + 1) % 1, stance = 0.58;
         const u = Math.max(0, (p - stance) / (1 - stance));
@@ -8017,8 +8045,12 @@ function makeGlbVisual(m) {
         setzeFuss(side, fingers, normal.clone().negate(), w);
         krallen(side, 0.12 * w);
       }
+      /* Der Kopf schaut leicht zu der Hand, die gerade nach oben greift -
+         eine gerade nach oben gerichtete Halswirbelsaeule sah aus wie ein
+         Blick ins Leere. */
       if (knochen.neck && knochen.head) zieleKnochen(knochen.neck, knochen.head,
-        knochen.neck.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 1, 0)), w);
+        knochen.neck.getWorldPosition(new THREE.Vector3())
+          .add(new THREE.Vector3(0, 1, 0)).addScaledVector(right, -0.16 * moving * w * wiegen), w);
     },
     poseWandhalt(nx, nz, k, flaeche) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
