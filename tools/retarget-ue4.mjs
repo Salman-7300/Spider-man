@@ -94,7 +94,14 @@ const KARTE_DAZ = {
    Kinn sichtbar nach oben. Ein Gehzyklus braucht keine Kopfbewegung -
    der Kopf bleibt also in der Ruhehaltung des Zielmodells, waehrend der
    Hals seine Achse weiterhin aus dem Kopfknochen bezieht. */
-const NUR_ACHSE = new Set(['Head_J', 'Headtop_J', 'L_Toes_J', 'R_Toes_J']);
+/* 'head' steht hier aus demselben Grund wie Head_J: das UE4-Mannequin hat
+   UNTER dem Kopf keinen weiteren Knochen. Damit gibt es fuer den Kopf
+   keine eigene Achse, er erbt die Korrektur des Halses - und weil der
+   UE4-Kopf anders in Ruhe steht als der Mixamo-Kopf, sass das Gesicht
+   danach verdreht auf dem Hals. Im Bild war das sofort zu sehen (Kriechen
+   nach vorn: der Kopf zeigte nach hinten). Ohne eigene Spur bleibt der
+   Kopf in der Ruhehaltung des Zielmodells und schaut nach vorn. */
+const NUR_ACHSE = new Set(['Head_J', 'Headtop_J', 'L_Toes_J', 'R_Toes_J', 'head']);
 
 const SKELETTE = [['UE4-Mannequin', KARTE_UE4], ['DAZ/Genesis', KARTE_DAZ]];
 let quelleName = '';
