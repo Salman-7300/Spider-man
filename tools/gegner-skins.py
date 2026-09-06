@@ -215,7 +215,7 @@ def kleidungsmaske(im, radius=11):
     return ganz.filter(ImageFilter.GaussianBlur(1.2))
 
 
-def zivilKleidung(im, ton, saettigung=1.0, dunkler=1.0, radius=11, deckel=0.46):
+def zivilKleidung(im, ton, saettigung=1.0, dunkler=1.0, deckel=0.46, radius=11):
     """Kleidung umfaerben und abdunkeln, Haut und Schuhe bleiben.
 
     deckel ist eine Helligkeitsobergrenze. Ohne sie blieben die weissen
@@ -248,9 +248,16 @@ def zivilKleidung(im, ton, saettigung=1.0, dunkler=1.0, radius=11, deckel=0.46):
 Ruestungsrollen und voneinander unterscheiden, vor allem aber vom
 Passanten, aus dem sie gebaut sind."""
 ZIVIL_ROLLEN = {
-    'duellant': {'quelle': 'civilian4', 'ton': 0.50, 'sat': 0.70, 'dunkel': 0.55},  # dunkles Petrol
-    'stuermer': {'quelle': 'civilian5', 'ton': 0.94, 'sat': 0.75, 'dunkel': 0.52},  # Oxblood
+    'duellant': {'quelle': 'civilian4', 'ton': 0.52, 'sat': 2.1, 'dunkel': 0.45,
+                 'deckel': 0.34},   # dunkles Petrol
+    'stuermer': {'quelle': 'civilian5', 'ton': 0.985, 'sat': 2.6, 'dunkel': 0.42,
+                 'deckel': 0.32},   # Oxblood
 }
+"""Die Saettigung wird ANGEHOBEN, nicht gesenkt. Erster Versuch mit 0,70
+und 0,75: der rosa Kapuzenpulli hat nur 0,25 Saettigung, davon 75 % sind
+0,19 - im Spiel kam ein staubiges Altrosa heraus, das sich von einem
+Passanten kaum unterschied (scratchpad/haut_civilian5.png). Mit 2,6 steht
+die Farbe bei 0,65 und der Ton traegt."""
 
 
 if __name__ == '__main__':
@@ -267,7 +274,8 @@ if __name__ == '__main__':
         bericht = {}
         for rolle, cfg in ZIVIL_ROLLEN.items():
             im = quellen[cfg['quelle']]
-            d, maske = zivilKleidung(im, cfg['ton'], cfg['sat'], cfg['dunkel'])
+            d, maske = zivilKleidung(im, cfg['ton'], cfg['sat'], cfg['dunkel'],
+                                      deckel=cfg.get('deckel', 0.46))
             anteil = round(100 * sum(1 for v in maske.getdata() if v > 128)
                            / (im.width * im.height), 1)
             maske.resize((256, 256)).save(os.path.join(ziel, '_' + rolle + '_maske.png'))

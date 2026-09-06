@@ -9315,6 +9315,21 @@ for (const rolle in GEGNER_HAUT) {
        auf dem Kopf. */
     t.flipY = false;
     eintrag.diffuse = t; eintrag.material = null;
+    /* ---- Wer vor dem Laden gebaut wurde, traegt noch das Original ----
+       Das Bild kommt ueber das Netz, die ersten Gegner stehen aber schon.
+       setzeGegnerHaut hat bei ihnen den Zweig "keine eigene Haut da"
+       genommen, das Grundmaterial gesetzt UND hautRolle auf die Rolle -
+       jeder weitere Aufruf sprang danach sofort wieder heraus. Die Figur
+       behielt ihr Aussehen also fuer immer.
+       Im Bild sah man das an einem stuermer, der in seinem rosa
+       Kapuzenpulli herumlief, obwohl die Haut geladen war und
+       visual.hautRolle 'stuermer' meldete (scratchpad/haut_civilian5.png).
+       Deshalb hier gezielt nachziehen. */
+    for (const e of enemies) {
+      if (!e.visual || e.visual.hautRolle !== rolle) continue;
+      e.visual.hautRolle = null;
+      setzeGegnerHaut(e.visual, rolle);
+    }
   });
 }
 /* Das Grundmaterial aus thug.glb. Nur Meshes, die GENAU dieses Material
