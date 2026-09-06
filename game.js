@@ -4667,6 +4667,21 @@ const GANG_REF = {
   schleichen: 2.0,
   ducken: 1.15,
   walk: 1.49,
+  /* Der Gehzyklus aus animation-2, umgerechnet von einem DAZ-artigen Rig
+     (tools/retarget-ue4.mjs). Sein Tempo wurde IM VERHAELTNIS zu walk
+     bestimmt: der Weg des Standfusses gegenueber der Huefte betraegt bei
+     walk 0,205 m und bei gehen 0,148 m, also 0,72-fach - das haette
+     1,49 * 0,72 = 1,08 ergeben. NACHGEMESSEN IM SPIEL war das falsch.
+     Massgeblich ist, wie schnell der aufgesetzte Fuss in der WELT noch
+     wandert (Alt+W, 1,27 m/s, Mittelwert ueber die Bodenkontaktbilder):
+       1,08  ->  1,92 / 1,82 m/s   (rutscht deutlich mehr als walk)
+       1,25  ->  1,86 / 1,83
+       1,45  ->  1,67 / 1,46
+       1,55  ->  1,61 / 1,48   <- gewaehlt
+       1,65  ->  1,58 / 1,49   (kein Gewinn mehr)
+     Der alte walk-Clip liegt bei denselben 1,27 m/s bei 1,60 / 1,42 -
+     mit 1,55 rutscht der neue Clip also genauso wenig wie der alte. */
+  gehen: 1.55,
   /* ---- Nachgemessen, weil die Fuesse im Lauf rutschten ----
      Wie viel Weg ein Gangclip WIRKLICH traegt, laesst sich messen: wie
      weit der Standfuss waehrend seines Bodenkontakts relativ zur Huefte
@@ -4769,6 +4784,9 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   'symgang', 'symkombo',
   /* "Grab and Slam" als Wurfgriff und "Low Crawl" als Kriechen. */
   'wurfgriff', 'kriechen',
+  /* animation-2: ein Gehzyklus von einem fremden Skelett (DAZ-artig,
+     Knochen auf "_J"), umgerechnet mit tools/retarget-ue4.mjs. */
+  'gehen',
   /* hero-3: Seil ziehen (Haltung beim Spannen des Katapults) und
      Aufstampfen (der Tritt im Symbiontenanzug). */
   'ziehen', 'stampfen',
@@ -5584,6 +5602,7 @@ const GLB_CLIP_PATTERNS = {
   sprint: [/^sprint$/i, /sprint(?!_)/i],
   symgang: [/^symgang$/i], symkombo: [/^symkombo$/i],
   wurfgriff: [/^wurfgriff$/i], kriechen: [/^kriechen$/i],
+  gehen: [/^gehen$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
   schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
@@ -8996,7 +9015,11 @@ function makeGlbVisual(m) {
           const kette = gangStufe >= 3 ? ['sprint_lang', 'sprint', 'run', 'walk']
                       : gangStufe === 2 ? ['sprint', 'sprint_lang', 'run', 'walk']
                       : gangStufe === 1 ? ['run', 'sprint', 'walk']
-                      : ['walk', 'run', 'sprint'];
+                      /* "gehen" ist der Gehzyklus des HELDEN (animation-2).
+                         Nur sein Modell hat den Clip; Zivilisten und
+                         Gegner fallen ueber habe() automatisch auf walk
+                         zurueck. */
+                      : ['gehen', 'walk', 'run', 'sprint'];
           for (const n of kette) if (habe(n)) { want = n; break; }
         }
         else if (p.gang && findClip(m.clips, p.gang)) want = p.gang;

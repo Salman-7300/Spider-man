@@ -46,9 +46,15 @@ const fbxBin = path.join(
   os.platform() === 'darwin' ? 'Darwin' : os.platform() === 'win32' ? 'Windows_NT' : 'Linux',
   os.platform() === 'win32' ? 'FBX2glTF.exe' : 'FBX2glTF');
 
-/* UE4-Mannequin -> Mixamo. Die Zwilling-Knochen (twist) und die
-   IK-Hilfsknochen bleiben weg: sie haben in Mixamo kein Gegenstueck. */
-const KARTE = {
+/* ---- Quellskelette ----
+   Die Umrechnung selbst haengt nicht am Skelett, nur die Namenszuordnung.
+   Deshalb steht hier eine Tabelle je bekanntem Quellskelett; welche
+   benutzt wird, entscheidet sich an den Knochennamen der Datei (die mit
+   den meisten Treffern gewinnt). Neue Quelle = neuer Eintrag, sonst
+   nichts.
+   UE4-Mannequin: die Zwilling-Knochen (twist) und die IK-Hilfsknochen
+   bleiben weg, sie haben in Mixamo kein Gegenstueck. */
+const KARTE_UE4 = {
   pelvis: 'Hips',
   spine_01: 'Spine', spine_02: 'Spine1', spine_03: 'Spine2',
   neck_01: 'Neck', head: 'Head',
@@ -59,6 +65,51 @@ const KARTE = {
   thigh_l: 'LeftUpLeg', calf_l: 'LeftLeg', foot_l: 'LeftFoot', ball_l: 'LeftToeBase',
   thigh_r: 'RightUpLeg', calf_r: 'RightLeg', foot_r: 'RightFoot', ball_r: 'RightToeBase',
 };
+
+/* DAZ/Genesis-artiges Rig, wie es Sketchfab-Modelle mitbringen: alle
+   Knochen enden auf "_J". COG_J ist die Wurzel der Bewegung und wird auf
+   Hips gelegt; das darunter haengende Pelvis_J traegt in diesen Dateien
+   keine eigene Spur. Nasen-, Zehen- und Fingerknochen haben in unseren
+   Clips ohnehin keine Wirkung (entferneFinger) und bleiben weg. */
+const KARTE_DAZ = {
+  COG_J: 'Hips',
+  waist_J: 'Spine', Chest_low_J: 'Spine1', Chest_hi_J: 'Spine2',
+  Neck_low_J: 'Neck', Head_J: 'Head',
+  L_clavicle_J: 'LeftShoulder', L_shldr_J: 'LeftArm',
+  L_Elbow_J: 'LeftForeArm', L_wrist_J: 'LeftHand',
+  R_clavicle_J: 'RightShoulder', R_shldr_J: 'RightArm',
+  R_Elbow_J: 'RightForeArm', R_wrist_J: 'RightHand',
+  L_Hip_J: 'LeftUpLeg', L_Knee_J: 'LeftLeg', L_Foot_J: 'LeftFoot', L_Ball_J: 'LeftToeBase',
+  R_Hip_J: 'RightUpLeg', R_Knee_J: 'RightLeg', R_Foot_J: 'RightFoot', R_Ball_J: 'RightToeBase',
+  /* Die Endknochen tragen keine eigene Bewegung, geben dem Kopf und den
+     Zehen aber ihre ACHSE. Ohne sie erbt der Kopf die Korrektur des
+     Halses - und klappte im ersten Versuch sichtbar nach vorn auf die
+     Brust (siehe gangvergleich). */
+  Headtop_J: 'HeadTop_End', L_Toes_J: 'LeftToe_End', R_Toes_J: 'RightToe_End',
+};
+
+/* Knochen, die nur die ACHSE ihres Elters bestimmen, aber selbst keine
+   Spur bekommen sollen. Im DAZ-Rig steht der Kopf in einer anderen
+   Ruhelage als bei Mixamo; uebertraegt man seine Drehung, kippt das
+   Kinn sichtbar nach oben. Ein Gehzyklus braucht keine Kopfbewegung -
+   der Kopf bleibt also in der Ruhehaltung des Zielmodells, waehrend der
+   Hals seine Achse weiterhin aus dem Kopfknochen bezieht. */
+const NUR_ACHSE = new Set(['Head_J', 'Headtop_J', 'L_Toes_J', 'R_Toes_J']);
+
+const SKELETTE = [['UE4-Mannequin', KARTE_UE4], ['DAZ/Genesis', KARTE_DAZ]];
+let quelleName = '';
+
+/* Welche Zuordnung passt zu dieser Datei? Gezaehlt werden die Knochen,
+   die es wirklich gibt. */
+function waehleKarte(namen) {
+  let beste = null, bestZahl = -1;
+  for (const [bez, karte] of SKELETTE) {
+    let n = 0;
+    for (const q of Object.keys(karte)) if (namen.has(q)) n++;
+    if (n > bestZahl) { bestZahl = n; beste = { bez, karte, treffer: n }; }
+  }
+  return beste;
+}
 
 /* ---------- kleine Quaternionen-Werkzeuge ---------- */
 const qMul = (a, b) => [
@@ -156,6 +207,15 @@ export function retarget(quellGlb, vorlageGlb) {
   const q = leseSkelett(quellGlb);
   const z = leseSkelett(vorlageGlb);
 
+  /* Welches Quellskelett liegt hier vor? */
+  const wahl = waehleKarte(new Set(q.knoten.map((k) => k.name)));
+  if (!wahl || wahl.treffer < 8) {
+    throw new Error('kein bekanntes Quellskelett (beste Zuordnung ' +
+      (wahl ? wahl.bez + ' mit ' + wahl.treffer + ' Knochen' : 'keine') + ')');
+  }
+  const KARTE = wahl.karte;
+  quelleName = wahl.bez;
+
   /* Zielknochen finden - die Namen koennen "mixamorig:Hips",
      "mixamorigHips" oder "mixamorig1Hips" lauten. */
   const zielKnochen = new Map();   // Mixamo-Kurzname -> Knoten
@@ -186,8 +246,10 @@ export function retarget(quellGlb, vorlageGlb) {
   }
   const N = zeiten.length;
 
-  /* Hueftenhoehe beider Skelette - fuer den Massstab der Wurzelbewegung. */
-  const qHip = q.nachName.get('pelvis'), zHip = zielKnochen.get('Hips');
+  /* Hueftenhoehe beider Skelette - fuer den Massstab der Wurzelbewegung.
+     Wie die Wurzel in der Quelle heisst, sagt die gewaehlte Zuordnung. */
+  const hipName = Object.keys(KARTE).find((n) => KARTE[n] === 'Hips');
+  const qHip = q.nachName.get(hipName), zHip = zielKnochen.get('Hips');
   if (!qHip || !zHip) throw new Error('Huefte nicht gefunden');
   const massstab = Math.abs(ruhePos(z, zHip)[1]) / Math.max(1e-6, Math.abs(ruhePos(q, qHip)[1]));
 
@@ -199,9 +261,18 @@ export function retarget(quellGlb, vorlageGlb) {
   for (const [ue] of Object.entries(KARTE)) {
     const kq = q.nachName.get(ue);
     if (!kq) continue;
-    for (const ci of kq.kinder) {
+    /* Der abgebildete Nachfahre muss kein direktes Kind sein. Im
+       DAZ-Rig liegt zwischen Neck_low_J und Head_J noch Neck_hi_J, das
+       in Mixamo kein Gegenstueck hat. Wer nur die direkten Kinder
+       ansieht, findet fuer den Hals keine Achse, uebernimmt die
+       Korrektur des Brustkorbs - und der Kopf klappt nach vorn auf die
+       Brust. Deshalb wird in die Tiefe gesucht, breite zuerst. */
+    const warte = kq.kinder.slice();
+    while (warte.length) {
+      const ci = warte.shift();
       const nm = q.knoten[ci].name;
       if (KARTE[nm]) { KIND[ue] = nm; break; }
+      for (const en of q.knoten[ci].kinder) warte.push(en);
     }
   }
   const ruheQ = new Map(), ruheZ = new Map(), korr = new Map();
@@ -233,9 +304,22 @@ export function retarget(quellGlb, vorlageGlb) {
     .filter((n) => ruheQ.has(n))
     .sort((a, b) => tiefe(q, q.nachName.get(a)) - tiefe(q, q.nachName.get(b)));
 
-  /* Je Bild rechnen. */
+  /* Je Bild rechnen.
+     Ausgegeben werden nur Knochen, die in der Quelle WIRKLICH eine
+     Drehspur haben. Fuer die uebrigen (im DAZ-Rig etwa Chest_hi_J und
+     Neck_hi_J) stuende sonst Ruhehaltung mal Achskorrektur in der Datei -
+     also ein gleichbleibender Versatz. Im ersten Versuch lehnte der
+     Oberkoerper dadurch dauerhaft nach vorn. Fuer die Kette werden sie
+     weiter mitgerechnet, nur nicht geschrieben. */
+  const bewegt = new Set();
+  for (const n of reihe) {
+    if (NUR_ACHSE.has(n)) continue;
+    const kq = q.nachName.get(n), sp = spuren.get(kq.i);
+    if (sp && sp.r) bewegt.add(n);
+  }
   const ausgabe = new Map();       // mixamoName -> {r: [...], t?: [...]}
-  for (const n of reihe) ausgabe.set(KARTE[n], { r: [] });
+  for (const n of reihe) if (bewegt.has(n)) ausgabe.set(KARTE[n], { r: [] });
+  if (!ausgabe.has('Hips')) ausgabe.set('Hips', { r: [] });
   ausgabe.get('Hips').t = [];
 
   const globalQ = new Map(), globalZ = new Map();
@@ -254,15 +338,23 @@ export function retarget(quellGlb, vorlageGlb) {
     };
     for (const n of reihe) {
       const kq = q.nachName.get(n);
-      const gQ = globalVon(kq);
-      const gZ = qMul(gQ, korr.get(n));
-      globalZ.set(KARTE[n], gZ);
-      /* Elterndrehung im ZIEL: der naechste abgebildete Vorfahr. */
+      /* Elterndrehung im ZIEL: der naechste abgebildete Vorfahr. Sie wird
+         ZUERST gebraucht - auch fuer die Knochen, die nichts schreiben. */
       let elternG = [0, 0, 0, 1];
       for (let p = kq.eltern; p >= 0; p = q.knoten[p].eltern) {
         const nm = KARTE[q.knoten[p].name];
         if (nm && globalZ.has(nm)) { elternG = globalZ.get(nm); break; }
       }
+      if (!bewegt.has(n)) {
+        /* Unbewegter Knochen: er BLEIBT im Ziel in seiner Ruhehaltung.
+           Genau diese Lage muss dann auch in der Kette stehen, sonst
+           haengen die Kinder um den Unterschied daneben. */
+        const kz = zielKnochen.get(KARTE[n]);
+        globalZ.set(KARTE[n], qMul(elternG, kz ? kz.r : [0, 0, 0, 1]));
+        continue;
+      }
+      const gZ = qMul(globalVon(kq), korr.get(n));
+      globalZ.set(KARTE[n], gZ);
       ausgabe.get(KARTE[n]).r.push(qMul(qInv(elternG), gZ));
     }
     /* Wurzelbewegung: Verschiebung der Huefte, auf Zielgroesse skaliert. */
@@ -324,7 +416,7 @@ for (const f of dateien) {
     const erg = retarget(glb, vorlage);
     const ziel = dateien.length > 1 ? path.join(aus, basis + '.glb') : aus;
     await schreibe(erg, ziel, basis);
-    console.log(`✓ ${basis}: ${erg.ausgabe.size} Knochen, ${erg.zeiten.length} Bilder -> ${path.basename(ziel)}`);
+    console.log(`✓ ${basis} (${quelleName}): ${erg.ausgabe.size} Knochen, ${erg.zeiten.length} Bilder -> ${path.basename(ziel)}`);
   } catch (e) {
     console.warn(`⚠ ${basis}: ${e.message}`);
   }
