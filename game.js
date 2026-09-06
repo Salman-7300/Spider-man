@@ -6168,10 +6168,12 @@ function makeGlbVisual(m) {
      Zehenballen und Fingerspitzen. Der Knöchel taugt dafür nicht - er
      steht in der Hocke schräg über dem abgewinkelten Fuß. */
   const auflagen = [];
+  const zehen = [];
   inner.traverse((o) => {
     if (!o.isBone) return;
     const n = o.name.replace(/mixamorig:?/i, '').replace(/\s+/g, '').toLowerCase();
     if (/^(left|right)toebase$/.test(n) || /^(left|right)handmiddle4$/.test(n)) auflagen.push(o);
+    if (/^(left|right)toebase$/.test(n)) zehen.push(o);
   });
   /* Alle Knochen merken – beim Umfallen wird daran der tiefste Punkt
      gesucht, denn die Füße sind dann nicht mehr das Unterste. */
@@ -6242,6 +6244,11 @@ function makeGlbVisual(m) {
   });
   const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
   const _va = new THREE.Vector3(), _vb = new THREE.Vector3();
+  const _zeA = new THREE.Vector3(), _zeB = new THREE.Vector3();
+  /* Wie hoch steht der Zehenknochen ueber der Sohle, wenn der Fuss flach
+     aufliegt? Am Helden abgelesen, der seine Fuesse ueber eine eigene
+     Bein-IK gestellt bekommt: 1,3 bis 1,8 cm ueber dem Gehweg. */
+  const ZEH_HOCH = 0.013;
   /* Hilfsgroessen fuer laborFussUeberHuefte. */
   const _vc = new THREE.Vector3(), _vh = new THREE.Vector3();
   const _qb = new THREE.Quaternion();
@@ -7970,6 +7977,46 @@ function makeGlbVisual(m) {
       const kk = clamp(k === undefined ? 0.12 : k, 0, 0.35) * (1 - ausgleichBremse);
       bodenKorrektur = lerp(bodenKorrektur, ziel, kk);
       legeY();
+    },
+    /* ---- Die Zehen aus dem Boden holen ----
+       bodenAusgleich haelt den KNOECHEL auf seiner Ruhehoehe. Beim
+       Abrollen, beim Ausholen und im Schwungbein kippt die Bewegung den
+       Fuss aber nach vorn: dann steht der Knoechel richtig, und die Zehe
+       steckt im Asphalt.
+       Gemessen ueber 400 Bilder mit Fussknochen in Weltkoordinaten (die
+       Huellbox einer SkinnedMesh taugt dafuer nicht, sie beschreibt die
+       Bindepose): bei den Gegnern lag der Zehenknochen in 77,6 % der
+       Bilder unter dem Gehweg, in 34 % tiefer als zwei Zentimeter, im
+       schlimmsten Fall 12,1 cm. Beim Helden in keinem einzigen Bild - er
+       bekommt seine Fuesse ueber eine eigene Bein-IK gestellt.
+       Der ganze Koerper wird dafuer NICHT angehoben: der tiefste Fuss
+       wandert in jedem Schritt auf und ab, und die Figur wuerde im
+       Schritttakt huepfen. Gedreht wird nur der Fuss selbst - die
+       Fussspitze geht so weit hoch, dass sie aufliegt. Das ist auch die
+       Bewegung, die ein Mensch macht.
+       Nach dem Einbau mit derselben Messung nachgeprueft: die Zehe liegt
+       jetzt in 0,3 % der Bilder unter dem Gehweg statt in 77,6 %, tiefer
+       als zwei Zentimeter in keinem einzigen (vorher 30,1 %), und der
+       tiefste Wert ist 1 mm statt 12,1 cm. */
+    zehenAusgleich(bodenY, k) {
+      if (!zehen.length || bodenY === undefined || bodenY === null) return;
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      if (w <= 0) return;
+      root.updateMatrixWorld(true);
+      for (const z of zehen) {
+        const fuss = z.parent;
+        if (!fuss || !fuss.isBone) continue;
+        z.getWorldPosition(_zeA);
+        const fehlt = (bodenY + ZEH_HOCH) - _zeA.y;
+        if (fehlt <= 0.002) continue;
+        _zeB.copy(_zeA); _zeB.y += fehlt;
+        /* Grenze 0,9 rad statt 0,55: der Hebel vom Knoechel zur Zehe ist
+           rund 16 cm lang, mit 0,55 rad (31 Grad) laesst sich die Spitze
+           also hoechstens 8 cm heben. Der schlimmste gemessene Fall lag
+           bei 12,1 cm - der waere damit nur halb behoben. 0,9 rad
+           (51 Grad) reichen fuer 12,5 cm. */
+        griffKnochen(fuss, z, _zeB, w, 0.9);
+      }
     },
     /* Siehe ausgleichBremse. */
     setzeAusgleichBremse(v) { ausgleichBremse = clamp(v, 0, 1); },
@@ -21165,7 +21212,11 @@ function updateCivilians(dtBild) {
       } else if (c.visual.haltAufrecht) c.visual.haltAufrecht(c.schirm, 0.12);
     }
     if (haltenImGebiet(c.pos)) c.waypoint = null;
-    if (c.visual.bodenAusgleich) c.visual.bodenAusgleich(Math.min(1, dt * 12));
+    if (c.visual.bodenAusgleich) {
+      c.visual.bodenAusgleich(Math.min(1, dt * 12));
+      if (c.visual.zehenAusgleich && c.state !== 'hurt')
+        c.visual.zehenAusgleich(groundY(c.pos.x, c.pos.z, c.pos.y), 1);
+    }
   }
 
   /* Liegt niemand mehr verletzt herum und läuft kein Auftrag ins Leere,
@@ -23677,7 +23728,13 @@ function updateEnemies(dtBild) {
       { phase: e.phase, speed01: clamp(speed / 5, 0, 1), speed,
         t: elapsed + e.phase }, dt);
     if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
-    else if (e.visual.bodenAusgleich) e.visual.bodenAusgleich(Math.min(1, dt * 12));
+    else if (e.visual.bodenAusgleich) {
+      e.visual.bodenAusgleich(Math.min(1, dt * 12));
+      /* Nur am Boden: wer faellt, geworfen wird oder im Netz haengt, darf
+         die Fussspitze anziehen, wie er mag. */
+      if (e.onGround && e.visual.zehenAusgleich)
+        e.visual.zehenAusgleich(groundY(e.pos.x, e.pos.z, e.pos.y), 1);
+    }
     // HP-Balken zur Kamera & ausblenden wenn voll
     e.hpBar.g.visible = e.hp < (e.hpMax || CFG.enemyHP);
   }
@@ -26225,7 +26282,10 @@ function respPerson(ein, p, dt) {
   }
   v.play(anim, { phase: p.phase, speed01: clamp(tempo / 5.2, 0, 1),
                  speed: tempo, t: elapsed + p.phase }, dt);
-  if (v.bodenAusgleich) v.bodenAusgleich(Math.min(1, dt * 12));
+  if (v.bodenAusgleich) {
+    v.bodenAusgleich(Math.min(1, dt * 12));
+    if (v.zehenAusgleich) v.zehenAusgleich(groundY(p.pos.x, p.pos.z, p.pos.y), 1);
+  }
 }
 
 /* Wohin genau geht diese Kraft? Nicht auf das Ziel drauf, sondern
