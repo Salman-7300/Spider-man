@@ -7057,7 +7057,19 @@ function makeGlbVisual(m) {
          Die Sohle wird über eine eigene Fußbasis gesetzt (wie bei den
          Händen); nur die Richtung zu zielen reicht nicht, weil sich der
          Fuß dabei um seine Längsachse frei verdrehen kann. */
-      _vw3.copy(rein).negate();                    // Sohle zeigt zur Wand
+      /* ---- Vorzeichen ----
+         Hier stand rein.negate(). setzeFuss dreht den Fuss so, dass seine
+         SOHLE in die uebergebene Richtung zeigt (siehe fussBasis: die
+         Sohle wird in der Bindehaltung als "unten" gemessen). rein zeigt
+         zur Fassade, rein.negate() also davon weg - die Figur stand mit
+         dem SPANN an der Wand, der Fuss war um seine Laengsachse
+         umgestuelpt. Genau das war die Frage "was sind das fuer Fuesse
+         beim Wandklettern".
+         Zwei Stellen im selben Block belegen den Fehler: die Haende
+         darunter bekommen rein OHNE negate, und poseWandSprint uebergibt
+         normal.negate(), was ebenfalls rein ist. Auch der Kommentar
+         daneben sagte schon "Sohle zeigt zur Wand". */
+      _vw3.copy(rein);                             // Sohle zeigt zur Wand
       _fh.set(0, -1, 0).addScaledVector(rechts, -0.45);
       setzeFuss('left', _fh, _vw3, k * 0.95);
       _fh.set(0, -1, 0).addScaledVector(rechts, 0.45);
@@ -7126,8 +7138,9 @@ function makeGlbVisual(m) {
       punkt(_vw4, 0.13, 0.16 + g * 0.54, -0.01);
       zieleKnochen(knochen.rightleg, knochen.rightfoot, _vw4, k);
 
-      /* Sohlen flach an der Wand, Zehen nach oben in Laufrichtung. */
-      _vw3.copy(rein).negate();
+      /* Sohlen flach an der Wand, Zehen nach oben in Laufrichtung.
+         Dasselbe falsche Vorzeichen wie beim Kriechen - siehe dort. */
+      _vw3.copy(rein);
       _fh.set(0, 1, 0).addScaledVector(rechts, -0.18);
       setzeFuss('left', _fh, _vw3, k * 0.95);
       _fh.set(0, 1, 0).addScaledVector(rechts, 0.18);
