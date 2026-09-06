@@ -50,7 +50,13 @@ for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         now[name] = p.clone().sub(v.root.position);
         if (previous && i > 30) maxStep = Math.max(maxStep, now[name].distanceTo(previous[name]));
       }
-      assert.ok(pos(v, 'head').y > pos(v, 'hips').y + 0.4);
+      /* Die Koerperachse folgt jetzt der Kletterrichtung (poseWandKontakt):
+         beim Queren und Absteigen steht die Figur bewusst schraeg, wie im
+         Vorbild. Was weiterhin gelten MUSS: sie haengt nie kopfueber. Die
+         Neigung ist auf 60 Grad begrenzt; gemessen liegt der Kopf beim
+         schnellsten Queren (4,4 m/s) noch 0,275 m ueber der Huefte,
+         beim Hochklettern 0,55 m. */
+      assert.ok(pos(v, 'head').y > pos(v, 'hips').y + 0.25);
       previous = now;
     }
     assert.ok(maxStep < 0.19, 'contact reset produces a large step: ' + maxStep);

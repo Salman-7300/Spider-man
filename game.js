@@ -6870,7 +6870,8 @@ function makeGlbVisual(m) {
   const limbOrigin = new THREE.Vector3(), limbMid = new THREE.Vector3();
   const limbEnd = new THREE.Vector3(), limbAxis = new THREE.Vector3();
   const limbPole = new THREE.Vector3(), limbTarget = new THREE.Vector3();
-  const climbMotion = { phase: 0, speed: 0, ruhe: 1, along: new THREE.Vector3(0, 1, 0) };
+  const climbMotion = { phase: 0, speed: 0, ruhe: 1, winkel: 0, along: new THREE.Vector3(0, 1, 0) };
+  const WELT_HOCH = new THREE.Vector3(0, 1, 0);
   const groundContacts = { left: {}, right: {} };
   function gliedZiel(a, b, c, target, pole, weight) {
     if (!a || !b || !c || weight <= 0) return;
@@ -8015,6 +8016,47 @@ function makeGlbVisual(m) {
       if (speed > 0.05) climbMotion.along.lerp(vel.normalize(), 1 - Math.exp(-12 * step)).normalize();
       climbMotion.phase = (climbMotion.phase + speed * step / 1.10) % 1;
       const moving = clamp(climbMotion.speed / 0.7, 0, 1), along = climbMotion.along;
+      /* ---- Die Koerperachse zeigt in die Kletterrichtung ----
+         Bis hierher war die Haltung WELTFEST aufgebaut: der Rumpf stand
+         immer senkrecht, die Haende immer oben, die Fuesse immer unten -
+         auch wenn die Figur seitwaerts an der Wand entlanglief. Im echten
+         Vorbild fuehrt der KOPF: der Koerper dreht sich in die Richtung,
+         in die geklettert wird, und die Glieder greifen entlang dieser
+         Achse nach vorn und hinten.
+         "vor" ist diese Achse (bereits in der Wandebene, aus der
+         geglaetteten Bewegungsrichtung), "seit" steht senkrecht dazu.
+         Beim Klettern GERADE NACH OBEN ist vor = (0,1,0) und alles
+         rechnet wie bisher; beim Queren dreht sich die ganze Haltung
+         mit. */
+      /* Gerechnet wird mit dem WINKEL in der Wandebene, nicht mit dem
+         Vektor. Die Wandnormale liegt waagerecht, also liegt die
+         Weltsenkrechte selbst in der Wandebene; quer dazu steht
+         quer = normal x hoch. In diesem Zweibein hat jede Richtung genau
+         einen Winkel, und der laesst sich sauber begrenzen und glaetten.
+         Mit einer Vektordrehung ging das schief: zeigt die Bewegung genau
+         nach unten, steht sie der Senkrechten gegenueber, und die
+         Drehachse ist dann beliebig - die Haltung klappte in einem Bild
+         auf die andere Seite (gemessener Sprung 1,40 m, Glieder bis
+         0,57 m IN der Wand).
+         Grenze 60 Grad: hoch geklettert steht die Figur senkrecht, quer
+         deutlich schraeg wie im Vorbild, und kopfueber haengt sie nie -
+         beim Queren mit 4,4 m/s liegt der Kopf noch 0,275 m ueber der
+         Huefte. Geglaettet wird der Winkel, nicht die Richtung: so dreht
+         sich der Koerper beim Richtungswechsel durch die Senkrechte
+         hindurch, statt zu springen. Die Drehrate ist gemessen: mit 6 je
+         Sekunde meldete der Regressionstest 0,1923 m groessten Schritt
+         (Grenze 0,19), mit 4 liegt sie darunter - der Koerper dreht sich
+         also in gut einer halben Sekunde in die neue Richtung. */
+      const quer = new THREE.Vector3().crossVectors(normal, WELT_HOCH).normalize();
+      let zielWinkel = 0;
+      if (along.lengthSq() > 1e-6) {
+        zielWinkel = Math.atan2(along.dot(quer), along.dot(WELT_HOCH));
+        zielWinkel = clamp(zielWinkel, -1.047, 1.047);
+      }
+      climbMotion.winkel += (zielWinkel - climbMotion.winkel) * (1 - Math.exp(-4 * step));
+      const vor = WELT_HOCH.clone().multiplyScalar(Math.cos(climbMotion.winkel))
+        .addScaledVector(quer, Math.sin(climbMotion.winkel)).normalize();
+      const seit = new THREE.Vector3().crossVectors(normal, vor).normalize();
       /* Der Wechsel zwischen Kletter- und Ruhehaltung wird EIGENS und
          langsam nachgezogen. Direkt an moving gehaengt sprang die Haltung
          beim Anhalten um 0,274 m in einem Bild - der Regressionstest in
@@ -8042,14 +8084,14 @@ function makeGlbVisual(m) {
       const wiegen = Math.cos(2 * Math.PI * (climbMotion.phase - 0.29));
       const seitVersatz = 0.042 * moving * w * wiegen;
       const hochVersatz = 0.013 * moving * w * Math.sin(4 * Math.PI * climbMotion.phase);
-      root.position.addScaledVector(right, seitVersatz);
-      root.position.y += hochVersatz;
+      root.position.addScaledVector(seit, seitVersatz);
+      root.position.addScaledVector(vor, hochVersatz);
       // Upright torso faces the wall. Elbows and knees bend away from it.
       drehZuRuhe(knochen.hips, 0, 0, 0, w);
       /* Der Rumpf legt sich zur belasteten Seite - dieselbe Schraege, die
          auch ein Mensch beim Klettern hat. */
-      const bodyUp = new THREE.Vector3(0, 1, 0).addScaledVector(normal, -0.13)
-        .addScaledVector(right, 0.085 * moving * w * wiegen).normalize();
+      const bodyUp = vor.clone().addScaledVector(normal, -0.13)
+        .addScaledVector(seit, 0.085 * moving * w * wiegen).normalize();
       for (const [a, b] of [['hips', 'spine'], ['spine', 'spine1'], ['spine1', 'spine2'], ['spine2', 'neck']]) {
         if (knochen[a] && knochen[b]) zieleKnochen(knochen[a], knochen[b],
           knochen[a].getWorldPosition(new THREE.Vector3()).add(bodyUp), w);
@@ -8061,10 +8103,13 @@ function makeGlbVisual(m) {
          Seitenbestimmung (sign) bleibt die echte Huefte massgeblich: die
          Beine stehen nur rund 9 cm auseinander, ein Versatz von 4 cm
          koennte die Seite sonst kippen. */
-      const ruheHuefte = hip.clone().addScaledVector(right, -seitVersatz);
-      ruheHuefte.y -= hochVersatz;
-      const point = (x, y, depth) => ruheHuefte.clone().addScaledVector(right, x)
-        .add(new THREE.Vector3(0, y, 0)).addScaledVector(normal, plane + depth - ruheHuefte.dot(normal));
+      const ruheHuefte = hip.clone().addScaledVector(seit, -seitVersatz)
+        .addScaledVector(vor, -hochVersatz);
+      /* x = quer zur Koerperachse, y = ENTLANG der Koerperachse (also
+         "nach vorn" im Sinne der Kletterrichtung), depth = Abstand zur
+         Fassade. */
+      const point = (x, y, depth) => ruheHuefte.clone().addScaledVector(seit, x)
+        .addScaledVector(vor, y).addScaledVector(normal, plane + depth - ruheHuefte.dot(normal));
       const contact = (phase, base, reach, depth) => {
         const p = ((phase % 1) + 1) % 1, stance = 0.58;
         const u = Math.max(0, (p - stance) / (1 - stance));
@@ -8075,7 +8120,7 @@ function makeGlbVisual(m) {
       };
       for (const side of ['left', 'right']) {
         const upper = knochen[side + 'upleg']; if (!upper) continue;
-        const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(seit) < 0 ? -1 : 1;
         const phase = climbMotion.phase + (sign > 0 ? 0.5 : 0);
         /* ---- Im Stand keine Seesternhaltung ----
            Bei moving = 0 traegt contact() nichts bei: alle vier Glieder
@@ -8111,7 +8156,7 @@ function makeGlbVisual(m) {
           hand, point(sign * 0.55, 0.10, 0.15), w);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
           foot, point(sign * 0.66, -0.24, 0.42), w);
-        const fingers = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
+        const fingers = vor.clone().addScaledVector(seit, sign * 0.12);
         /* ---- Das Handgelenk knickt nicht weiter, als es kann ----
            MESSUNG (Winkel zwischen Unterarm und Hand, also Ellenbogen ->
            Handwurzel gegen Handwurzel -> Mittelfingergrundgelenk):
@@ -8158,7 +8203,7 @@ function makeGlbVisual(m) {
            Jetzt zeigt die Zehe nach aussen und leicht nach unten - die
            Froschhaltung, in der ein Kletterer wirklich steht - und das
            Knie sitzt tiefer und naeher an der Wand. */
-        const zehenAus = new THREE.Vector3(0, -0.26, 0).addScaledVector(right, sign * 0.97).normalize();
+        const zehenAus = vor.clone().multiplyScalar(-0.26).addScaledVector(seit, sign * 0.97).normalize();
         /* ---- Der Fuss rollt ab ----
            MESSUNG: die Sohle stand ueber 120 Bilder im exakt gleichen
            Winkel zur Wand - min und max auf die Nachkommastelle gleich.
@@ -8197,7 +8242,7 @@ function makeGlbVisual(m) {
          Blick ins Leere. */
       if (knochen.neck && knochen.head) zieleKnochen(knochen.neck, knochen.head,
         knochen.neck.getWorldPosition(new THREE.Vector3())
-          .add(new THREE.Vector3(0, 1, 0)).addScaledVector(right, -0.16 * moving * w * wiegen), w);
+          .add(vor).addScaledVector(seit, -0.16 * moving * w * wiegen), w);
     },
     poseWandhalt(nx, nz, k, flaeche) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
