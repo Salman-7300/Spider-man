@@ -47,7 +47,11 @@ test('Windows reveal a recessed room; roof, footprint and closed world collision
   for (let kind = 0; kind < 4; kind++) {
     const tower = r.look.createTower(18, 90, 22, kind); tower.updateMatrixWorld(true);
     const glass = tower.getObjectByName('Glazing');
-    assert.ok(glass.material.transparent && glass.material.opacity < 0.3 && !glass.material.depthWrite);
+    /* Grenze war 0,3. Bei 0,23 verschwanden die Scheiben aus der Naehe so
+       weit, dass die kletternde Figur in einem Loch zu haengen schien; jetzt
+       0,42. Durchsichtig bleiben muss die Scheibe - der Raum dahinter ist
+       genau das, was dieser Test schuetzt. */
+    assert.ok(glass.material.transparent && glass.material.opacity < 0.5 && !glass.material.depthWrite);
     const cols = Math.floor(17.5 / (kind === 1 ? 2.9 : 2.5)), step = 17.5 / cols;
     const x = -8.75 + (Math.floor(cols / 2) + 0.5) * step;
     const ray = new THREE.Raycaster(V(x, 5.65, 12), V(0, 0, -1));

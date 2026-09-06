@@ -12,8 +12,14 @@
   const up = new THREE.Vector3(0, 1, 0);
   const materials = {
     stone: new THREE.MeshLambertMaterial({ vertexColors: true }),
+    /* Deckkraft 0,23 liess die Scheiben aus der Naehe verschwinden: beim
+       Klettern hing die Figur scheinbar in einem schwarzen Loch statt an
+       einer Fensterfront - im hochgeladenen Spielvideo war das der
+       staerkste unrealistische Eindruck. Mit 0,42 lesen sich die Scheiben
+       als Glas, der Raum dahinter bleibt aber sichtbar (Moebel, Lampen,
+       Jalousien); der Regressionstest prueft genau das weiter. */
     glass: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 95, specular: 0xb6ceda,
-      transparent: true, opacity: 0.23, depthWrite: false, side: THREE.DoubleSide }),
+      transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide }),
     trim: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 32, specular: 0x596370 }),
     windows: new THREE.MeshPhongMaterial({ color: 0x718b99, transparent: true,
       opacity: 0.25, depthWrite: false, shininess: 45 }),
