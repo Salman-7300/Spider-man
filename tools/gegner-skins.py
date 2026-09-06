@@ -171,7 +171,18 @@ einer Insel zur naechsten springen.
 HAUT_VON, HAUT_BIS = 0.955, 0.105       # Farbtonfenster der Haut (laeuft ueber 0)
 
 
-def istHaut(h):
+def istHaut(h, sat=0.0):
+    """Alles im Farbtonfenster bleibt stehen - Haut, Lippen, Augen.
+
+    VERSUCH UND RUECKNAHME: die rosa Schuhe von civilian4 liegen bei
+    Farbton 0,98 und damit im Hautfenster; im Spiel laeuft der duellant
+    deshalb in rosa Pumps herum. Der Versuch, sie ueber die Saettigung
+    herauszutrennen (Schuhe 0,57, angebliche Hautobergrenze 0,45), ist
+    gescheitert: im Gesicht liegen Wangen und Schatten ebenfalls ueber
+    0,50, und die Maske faerbte das halbe Gesicht tuerkis
+    (scratchpad/zivilskins3/duellant_diffuse.jpg). Die Schuhe bleiben
+    lieber rosa als das Gesicht blau - der Parameter sat wird deshalb
+    nicht mehr ausgewertet."""
     return h >= HAUT_VON or h <= HAUT_BIS
 
 
@@ -193,7 +204,7 @@ def kleidungsmaske(im, radius=11):
                 continue
             sat = (mx - mn) / mx
             hh = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)[0]
-            if sat >= 0.16 and not istHaut(hh):
+            if sat >= 0.16 and not istHaut(hh, sat):
                 kp[x, y] = 255
             elif sat < 0.16:
                 bp[x, y] = 255

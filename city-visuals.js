@@ -18,10 +18,16 @@
     windows: new THREE.MeshPhongMaterial({ color: 0x718b99, transparent: true,
       opacity: 0.25, depthWrite: false, shininess: 45 }),
     light: new THREE.MeshBasicMaterial({ vertexColors: true }),
-    /* Ausruestung an Figuren - Rucksaecke, Westen, Gurte. Sieht aus wie
-       stone, ist aber bewusst ein eigenes Material: sobald stone eine
-       Fassadentextur bekommt, haetten sonst alle Rucksaecke Mauerwerk. */
-    figur: new THREE.MeshLambertMaterial({ vertexColors: true }),
+    /* Ausruestung an Figuren - Rucksaecke, Westen, Gurte. Bewusst ein
+       eigenes Material: sobald stone eine Fassadentextur bekommt,
+       haetten sonst alle Rucksaecke Mauerwerk.
+       Phong statt Lambert, mit schwachem Glanz. Ein voellig mattes
+       Material neben dem lackierten Anzug der Figuren las sich als
+       Papier - das war der zweite Grund fuer den Karton-Eindruck. Ein
+       Plattentraeger aus Ballistiknylon glaenzt schwach, nicht wie
+       Metall; deshalb shininess 16 und ein dunkles Specular. */
+    figur: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 13,
+      specular: 0x232830 }),
   };
 
   /* Wie viele Meter eine Kachel der Oberflaechentextur abdeckt. Die UVs
@@ -695,16 +701,79 @@
   ];
   let civilianSerial = 0;
   const accessoryCache = new Map();
+  /* Die Akzentfarben waren Sandbraun und Beige (0xb69454, 0xe0a05b,
+     0x947250) - die Farbe von Packpapier. Zusammen mit den flachen
+     Kloetzen ergab das den Eindruck "Pappkarton". Jetzt eine
+     Einsatzpalette: dunkle Traeger, gesaettigte Akzente je Rolle.
+     Die Breiten sind kleiner; 0,50 m war breiter als die Schultern der
+     Figur und verdeckte den ganzen Anzug. */
+  /* Kein neutrales Grau. Im Bild las sich 0x2b3038 unter der Sonne als
+     helles Pappgrau, waehrend der gleich dunkle, aber blau getoente
+     Traeger des Waechters (0x232d3a) sofort nach Material aussah - ein
+     Farbstich entscheidet hier mehr als die Helligkeit. Jede Rolle
+     bekommt deshalb einen getoenten, dunklen Traeger. */
   const ENEMIES = {
-    schlaeger: { color: 0x894b47, plate: 0x3d434b, width: 0.39 },
-    brecher: { color: 0x947250, plate: 0x393d43, width: 0.5 },
-    flink: { color: 0x718887, plate: 0x303d42, width: 0.34 },
-    waechter: { color: 0x647e99, plate: 0x283747, width: 0.46 },
-    werfer: { color: 0xb69454, plate: 0x504a39, width: 0.38 },
-    duellant: { color: 0x70acb3, plate: 0x273b45, width: 0.32 },
-    stuermer: { color: 0xe0a05b, plate: 0x593c32, width: 0.37 },
-    enforcer: { color: 0xa95845, plate: 0x292f38, width: 0.52 },
+    schlaeger: { color: 0x7a2823, plate: 0x1e2028, width: 0.355 },
+    brecher: { color: 0x7b4d1c, plate: 0x22201d, width: 0.40 },
+    flink: { color: 0x246e77, plate: 0x172429, width: 0.315 },
+    waechter: { color: 0x2f5680, plate: 0x1a222e, width: 0.375 },
+    werfer: { color: 0x615d24, plate: 0x1f2229, width: 0.35 },
+    duellant: { color: 0x277b77, plate: 0x162328, width: 0.315 },
+    stuermer: { color: 0x853a1d, plate: 0x261c1b, width: 0.345 },
+    enforcer: { color: 0x8c2e23, plate: 0x191c22, width: 0.415 },
   };
+  /* ---- Rollenausruestung ----
+     Vorher war das je Rolle eine flache Platte von bis zu 0,5 m Breite
+     vor der Brust, dazu zwei helle Bloecke neben dem Hals und beim
+     Werfer ein beigefarbener Wuerfel am Ruecken. Im Bild sah das aus wie
+     ein Paket, das der Figur umgeschnallt wurde - genau die Beschwerde
+     ("Pappkartons"). Drei Gruende dafuer, alle behoben:
+       - eine EINZELNE flache Scheibe: sie stand vor der Brust wie ein
+         Schild und folgte dem Koerper nicht,
+       - Beige und Sandbraun als Akzent - die Farbe von Packpapier,
+       - kein Glanz (MeshLambert) neben einem glaenzenden Anzug: die
+         Ausruestung sah aus wie Karton neben lackiertem Metall.
+     Jetzt ist es ein Plattentraeger: eine dreiteilige Platte, die sich um
+     den Brustkorb legt, ein Bauchgurt, Schultergurte ueber die Schulter
+     nach hinten, Gurtband quer und Schnallen aus Metall. */
+  const RIG_GURT = 0x14181d;        // Gurtband, fast schwarz
+  const RIG_METALL = 0x666e79;      // Schnallen und Karabiner
+  const RIG_NAHT = 0x0e1116;        // Fugen und Kanten
+  /* Eine Platte, die sich um den Brustkorb legt: Mittelstueck plus zwei
+     abgewinkelte Seitenteile. Eine einzelne Scheibe steht immer vor der
+     Figur, egal wie duenn sie ist. */
+  function rigPlatte(b, breite, hoch, y, z, farbe, tiefe) {
+    const t = tiefe === undefined ? 0.045 : tiefe;
+    const mb = breite * 0.54;
+    b.box(mb, hoch, t, 0, y, z, farbe);
+    for (const sx of [-1, 1]) {
+      /* Die Seitenteile lagen bei z - 0,021 und lasen sich von vorn als
+         eine einzige flache Flaeche. Mit 4,5 cm Versatz und mehr Winkel
+         sieht man die Woelbung. */
+      b.box(breite * 0.30, hoch * 0.93, t * 0.92,
+            sx * (mb / 2 + breite * 0.125), y, z - 0.045, farbe, sx * 0.80);
+    }
+  }
+  /* Gurtband quer ueber die Platte - das, was einen Plattentraeger als
+     solchen lesbar macht. */
+  function rigWebbing(b, breite, y0, y1, z, reihen) {
+    const n = reihen === undefined ? 3 : reihen;
+    for (let i = 0; i < n; i++) {
+      const y = y0 + (y1 - y0) * (n === 1 ? 0.5 : i / (n - 1));
+      b.box(breite * 0.50, 0.022, 0.014, 0, y, z, RIG_GURT);
+    }
+  }
+  function rigSchnalle(b, x, y, z) {
+    b.box(0.042, 0.052, 0.020, x, y, z, RIG_METALL);
+    b.box(0.030, 0.014, 0.024, x, y, z, RIG_NAHT);
+  }
+  /* Eine Tasche mit Deckel - nicht ein Wuerfel, sondern etwas, das man
+     oeffnen koennte. */
+  function rigTasche(b, w, h, d, x, y, z, farbe) {
+    b.softBox(w, h, d, x, y, z, farbe);
+    b.box(w * 0.96, 0.026, d * 0.62, x, y + h / 2 - 0.008, z + d * 0.16, RIG_NAHT);
+    b.box(w * 0.34, 0.018, 0.012, x, y + h / 2 - 0.03, z + d / 2, RIG_METALL);
+  }
   function accessory(kind) {
     if (accessoryCache.has(kind)) return accessoryCache.get(kind);
     const b = new Batch();
@@ -717,24 +786,96 @@
       b.beam([-0.13, 1.49, 0.14], [0.22, 0.99, 0.12], 0.035, 0.022, 0x574638);
     } else {
       const e = ENEMIES[kind];
-      b.softBox(e.width, kind === 'flink' ? 0.19 : 0.33, 0.06, 0, 1.3, 0.145, e.plate);
-      b.box(e.width * 0.74, 0.045, 0.071, 0, 1.36, 0.15, e.color);
-      for (const sx of [-1, 1]) b.box(0.055, 0.4, 0.035, sx * e.width * 0.35, 1.29, 0.18, e.color);
-      if (kind === 'brecher' || kind === 'enforcer') {
-        for (const sx of [-1, 1]) b.softBox(0.15, 0.12, 0.24, sx * 0.26, 1.49, 0.01, e.plate);
+      /* Schmaler als vorher. Die alte Platte war bis zu 0,50 m breit und
+         damit breiter als die Schultern der Figur; sie verdeckte den
+         ganzen Anzug. */
+      const w = e.width, hoch = kind === 'flink' ? 0.20 : 0.265, y = 1.315;
+      const zP = 0.122;                       // Vorderkante der Platte
+      rigPlatte(b, w, hoch, y, zP, e.plate);
+      /* Halsband oben, damit die Platte nicht als Brett endet. Schmal -
+         ein breites Band unter dem Kinn sieht aus wie eine Halskrause. */
+      b.box(w * 0.34, 0.026, 0.046, 0, y + hoch / 2 + 0.010, zP - 0.006, RIG_GURT);
+      /* ---- Schultergurte ----
+         Sie liefen zuerst bis y + hoch/2 + 0,20, also auf 1,65 - das ist
+         Kopfhoehe, und im Bild standen links und rechts vom Kopf zwei
+         dunkle Streben wie eine Kopfstuetze. Das Schultergelenk der Figur
+         liegt bei x rund 0,19 und y 1,45 (an der Bindepose abgelesen).
+         Der Gurt geht deshalb jetzt nach AUSSEN ueber die Schulter, nicht
+         nach oben am Hals vorbei. */
+      const schX = Math.max(w * 0.30, 0.100), schHoch = y + hoch / 2 + 0.055;
+      for (const sx of [-1, 1]) {
+        b.beam([sx * schX, y + hoch / 2 - 0.02, zP - 0.012],
+               [sx * (schX + 0.055), schHoch, 0.020], 0.044, 0.024, RIG_GURT);
+        b.beam([sx * (schX + 0.055), schHoch, 0.020],
+               [sx * (schX - 0.005), y - 0.02, -0.112], 0.042, 0.022, RIG_GURT);
+        rigSchnalle(b, sx * schX, y + hoch / 2 - 0.055, zP + 0.020);
       }
-      if (kind === 'waechter') for (const y of [1.18, 1.26, 1.43]) b.box(0.4, 0.046, 0.035, 0, y, 0.19, e.color);
+      /* Bauchgurt - er schliesst den Traeger nach unten ab. */
+      rigPlatte(b, w * 0.94, 0.085, y - hoch / 2 - 0.052, zP - 0.006, RIG_GURT, 0.052);
+      rigSchnalle(b, 0, y - hoch / 2 - 0.052, zP + 0.022);
+      /* Gurtband quer ueber der Platte. */
+      rigWebbing(b, w, y - hoch * 0.28, y + hoch * 0.30, zP + 0.026,
+                 kind === 'flink' ? 2 : 3);
+      /* Rueckenplatte - ohne sie endet der Traeger an den Seiten im Nichts. */
+      rigPlatte(b, w * 0.92, hoch * 0.92, y, -0.118, e.plate, 0.038);
+
+      if (kind === 'brecher' || kind === 'enforcer') {
+        /* Schulterpanzer, der wirklich AUF der Schulter sitzt und ihrer
+           Rundung folgt - vorher zwei freischwebende Wuerfel neben dem
+           Hals. */
+        /* Die Panzer sassen bei y + 0,235 (also 1,55) und reichten in x bis
+           0,29. Die Schulter der Figur liegt bei rund y 1,50 und x 0,19:
+           sie schwebten also ueber und neben ihr. Jetzt sitzen sie auf
+           der Schulter und ragen nur wenig darueber hinaus. */
+        for (const sx of [-1, 1]) {
+          b.softBox(0.140, 0.068, 0.185, sx * 0.180, y + 0.172, 0.004, e.plate);
+          b.softBox(0.120, 0.050, 0.158, sx * 0.205, y + 0.122, 0.004, e.color);
+          b.box(0.026, 0.026, 0.026, sx * 0.180, y + 0.206, 0.004, RIG_METALL);
+        }
+        rigTasche(b, 0.115, 0.115, 0.075, 0, y - hoch / 2 - 0.13, zP - 0.006, e.color);
+      }
+      if (kind === 'waechter') {
+        /* Drei Magazintaschen nebeneinander statt drei gemalter Striche. */
+        for (const sx of [-1, 0, 1])
+          rigTasche(b, 0.088, 0.135, 0.062, sx * 0.098, y - 0.030, zP + 0.032, e.color);
+      }
+      if (kind === 'schlaeger') {
+        rigTasche(b, 0.10, 0.115, 0.066, -0.115, y - 0.045, zP + 0.030, e.color);
+        b.box(0.030, 0.115, 0.030, 0.125, y - 0.040, zP + 0.030, RIG_METALL);
+      }
+      if (kind === 'flink') {
+        /* Leichtes Rig: nur ein schmales Band und ein Funkgeraet. */
+        b.box(0.062, 0.088, 0.042, -0.098, y + 0.012, zP + 0.026, e.color);
+        b.box(0.014, 0.075, 0.014, -0.098, y + 0.088, zP + 0.026, RIG_METALL);
+      }
       if (kind === 'duellant') {
-        b.beam([-0.17, 1.5, 0.19], [0.18, 1.13, 0.19], 0.07, 0.025, e.color);
-        b.softBox(0.18, 0.19, 0.10, -0.22, 1.42, -0.01, e.plate);
+        /* Schrägriemen quer ueber die Brust, dazu die Scheide am Ruecken. */
+        b.beam([-w * 0.34, y + hoch / 2 + 0.03, zP + 0.030],
+               [w * 0.36, y - hoch / 2 - 0.02, zP + 0.024], 0.058, 0.022, e.color);
+        rigSchnalle(b, w * 0.10, y - 0.02, zP + 0.044);
+        b.softBox(0.055, 0.42, 0.048, -0.145, y - 0.02, -0.155, e.plate);
+        b.box(0.042, 0.055, 0.038, -0.145, y + 0.185, -0.155, RIG_METALL);
       }
       if (kind === 'stuermer') {
-        b.softBox(0.30, 0.29, 0.13, 0, 1.36, -0.21, e.plate);
-        for (const x of [-0.09, 0.09]) b.box(0.035, 0.35, 0.02, x, 1.29, 0.20, e.color);
+        /* Sturmrucksack mit Deckel und zwei Spanngurten - kein Kasten. */
+        b.softBox(0.245, 0.285, 0.135, 0, y + 0.045, -0.205, e.plate);
+        b.softBox(0.225, 0.075, 0.115, 0, y + 0.196, -0.205, e.color);
+        for (const sx of [-1, 1])
+          b.beam([sx * 0.085, y + 0.175, -0.272], [sx * 0.085, y - 0.085, -0.272], 0.030, 0.016, RIG_GURT);
+        b.box(0.055, 0.030, 0.026, 0, y + 0.150, -0.276, RIG_METALL);
       }
       if (kind === 'werfer') {
-        b.box(0.22, 0.22, 0.13, 0.17, 1.03, -0.17, e.color);
-        for (const x of [-0.09, 0.09]) b.box(0.065, 0.27, 0.11, x, 1.3, -0.2, 0x8e927b);
+        /* Bandolier mit Wurfkoerpern statt eines beigen Wuerfels am
+           Ruecken - man soll sehen, WOMIT er wirft. */
+        b.beam([-w * 0.36, y + hoch / 2 + 0.02, zP + 0.028],
+               [w * 0.30, y - hoch / 2 - 0.06, zP + 0.020], 0.070, 0.024, e.color);
+        for (let i = 0; i < 4; i++) {
+          const t = i / 3;
+          const x = -w * 0.30 + t * (w * 0.55), yy = y + hoch / 2 - 0.03 - t * (hoch + 0.03);
+          b.softBox(0.045, 0.070, 0.045, x, yy, zP + 0.052, 0x3d4a35);
+          b.box(0.020, 0.018, 0.020, x, yy + 0.043, zP + 0.052, RIG_METALL);
+        }
+        rigTasche(b, 0.115, 0.130, 0.085, 0.155, y - 0.155, -0.140, e.plate);
       }
     }
     const geo = b.finish(); accessoryCache.set(kind, geo); return geo;
