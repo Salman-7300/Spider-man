@@ -158,6 +158,9 @@ test('Tree templates share immutable geometry and park paths stay open around th
 for (const [nx, nz] of [[1, 0], [0, -1]]) {
   test(`Klettern aus der Bewegungsdatei haelt die Glieder vor der Fassade (${nx},${nz})`, () => {
     const r = runtime(), v = r.makeVisual(['idle', 'kriechen', 'run', 'wandkriech_v']);
+    /* Welche Datei an der Wand fuehrt, steht in game.js und wird von der
+       Testumgebung dort gelesen - nicht hier abgeschrieben. */
+    const datei = r.env.KLETTER_CLIP;
     const plane = -63, normal = V(nx, 0, nz), right = V(-nz, 0, nx);
     v.root.rotation.y = Math.atan2(-nx, -nz);
     v.root.position.set(nx ? plane + nx * 0.26 : 0, 20, nz ? plane + nz * 0.26 : 0);
@@ -182,8 +185,8 @@ for (const [nx, nz] of [[1, 0], [0, -1]]) {
       v.root.position.addScaledVector(v3, 1 / 60);
       r.env.player.pos.copy(v.root.position);
       v.play('climb', { wandModus: 'kriechen', wandKriechen: true, wandKontakt: false,
-                        tempo: tempo === 0 ? 0 : 2.4, speed: 0 }, 1 / 60);
-      assert.equal(v.aktuellerClip, 'wandkriech_v', 'die Datei muss fuehren');
+                        tempo: tempo === 0 ? 0 : r.env.KLETTER_MAX, speed: 0 }, 1 / 60);
+      assert.equal(v.aktuellerClip, datei, 'die Datei muss fuehren');
       v.wandKriechen(1, 0.3, roll, false, false, 1 / 60);
       v.root.position.addScaledVector(normal, plane * (nx || nz) + 0.26 - pos(v, 'hips').dot(normal));
       v.wandGriff(nx, nz, plane, 0.9, null, false);

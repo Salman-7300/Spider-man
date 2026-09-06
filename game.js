@@ -8365,8 +8365,15 @@ function makeGlbVisual(m) {
        nur - die Gliedlaenge bleibt, es kann also nichts ausleiern. */
     /* kraft = je Glied 1 (Stuetzphase) bis GRIFF_SCHWUNG (setzt um).
        Siehe die Erklaerung an der Messstelle in wandFreiraum(). */
-    wandGriff(nx, nz, flaeche, k, kraft, nurFuesse) {
+    /* weit = ab welchem Abstand der Griff ueberhaupt zufasst. Ohne
+       Angabe gilt WAND_GRIFF_WEIT (0,60 m) - so weit greift der
+       Wandlauf und die gerechnete Haltung. Fuehrt dagegen eine
+       Kriechbewegung, muss das Band ENG sein: sonst zieht der Griff
+       auch die gerade nach vorn greifende Hand an die Fassade und
+       macht aus dem Zug ein Wischen. Siehe WAND_GRIFF_KLETTER. */
+    wandGriff(nx, nz, flaeche, k, kraft, nurFuesse, weit) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
+      const griffWeit = weit === undefined ? WAND_GRIFF_WEIT : weit;
       /* Welchem Kontaktglied gehoert dieses Knochenpaar? */
       const gliedVon = (eltern, spitze) => {
         const s = spitze.startsWith('left') ? 'left' : 'right';
@@ -8422,7 +8429,7 @@ function makeGlbVisual(m) {
            und die Fussspitze sprang dabei in einem Bild um 86 Zentimeter.
            Jetzt blendet der Griff ueber die letzten zwanzig Zentimeter aus:
            bei 25 cm haelt er ganz, bei 45 gar nicht mehr. */
-        const nah = clamp((WAND_GRIFF_WEIT - d) / WAND_GRIFF_BAND, 0, 1);
+        const nah = clamp((griffWeit - d) / WAND_GRIFF_BAND, 0, 1);
         /* In BEIDE Richtungen: der Griff hat frueher nur herangezogen, nie
            herausgeschoben. Gemessen steckten die Fuesse dabei bis zu 52 cm
            IN der Fassade - genau die Fuesse, die im Haus verschwanden. */
@@ -15921,6 +15928,48 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
 /* Wie weit der Setzpunkt der Figur beim Wandkriechen von der Wand weg
    liegt. Wird unten nachgemessen. */
 let KRIECH_TIEFE = 0.30;
+/* ---- Wie weit die Huefte beim Klettern vor der Fassade sitzt ----
+   Hier stand 0,26 - eine Schaetzung ("so wie bei einem Kletterer"). Sie
+   ist der Grund, warum die Kriechbewegung an der Wand nicht so aussah wie
+   am Boden: die Bewegung ist fuer eine Flaeche in einem BESTIMMTEN
+   Abstand gebaut. Im Labor gemessen liegt das Becken beim Kriechen genau
+   0,368 m ueber der Flaeche, auf der Haende und Zehen aufliegen (der
+   Wert ist ueber den ganzen Takt konstant - die Hueftspur wird beim Laden
+   entfernt). Sass die Figur naeher an der Wand, steckten die Glieder
+   darin und der Griff musste sie herausziehen; genau das verbog die
+   Haltung. Nachgemessen, Abweichung der Glieder von der reinen
+   Kriechbewegung im System des Beckens (Median, Zentimeter):
+
+     Huefte    Hand li  Hand re  Knie li  Knie re  Fuss li  Fuss re
+     0,20        24,1     27,3     23,9     27,9     10,0     10,3
+     0,26        16,4     15,5     15,8     21,7      5,5      8,4
+     0,32        11,3     12,6     13,5     16,1      8,4      9,8
+     0,368        9,5     11,9     12,3     12,6     11,2     13,3   <- Summe am kleinsten
+     0,42        10,9     15,0      9,4     11,1     14,4     16,9
+     0,48        10,9     14,3     10,5     10,8     15,1     17,4
+
+   Der gemessene Wert ist also auch der beste. */
+let WAND_HUEFT_KRIECH = 0.368;
+/* ---- Und wie eng der Griff dabei zufassen darf ----
+   Mit dem Standardband von 0,60 m greift die Korrektur nach JEDEM Glied,
+   auch nach der Hand, die gerade nach vorn ausholt - die Kriechbewegung
+   wurde damit flachgebuegelt. Sitzt die Huefte richtig, braucht es das
+   nicht mehr: die Bewegung legt ihre Glieder von selbst an die Fassade.
+   Bei richtiger Huefte, dieselbe Abweichung wie oben:
+
+     Band     Hand li  Hand re  Knie li  Knie re  Fuss li  Fuss re  tiefstes Glied
+     0,60         9,0     13,1     13,5     13,6     11,4     13,6   3,4 cm IN der Wand
+     0,45         9,8     11,0     10,5     11,8     11,2     13,2   5,6 cm in der Wand
+     0,30         7,1      6,6      6,1     11,1     10,8     18,1   3,0 cm davor
+     0,20         3,1      2,1      4,2      6,9      3,6      8,2   3,8 cm davor
+     0,12         1,7      1,0      0,2      1,2      0,2      1,9   2,7 cm davor
+
+   Bei 0,12 ist die Haltung an der Wand also bis auf ein bis zwei
+   Zentimeter dieselbe wie am Boden, und kein Glied steckt in der
+   Fassade. Nur fuer den Kletterclip - Wandlauf und gerechnete Haltung
+   behalten die 0,60, dort schwingt das Bein weit und muss gehalten
+   werden. */
+const WAND_GRIFF_KLETTER = 0.12;
 /* ---- Seitliches Mass der Kletterhaltung im Stand ----
    Vorher standen die Knie 0,42 m und die Fuesse 0,30 m seitlich neben der
    Huefte - gemessen 0,94 m Knieabstand und 0,68 m Fussabstand. Das ist
@@ -15957,9 +16006,36 @@ const KLETTER_REF = 0.62;
    die Haende gleiten an dieser Fassade ohnehin durchgehend, weil eine
    Bodenkriechbewegung keine Greifphasen an einer senkrechten Wand hat.
    Die ruhigere Bewegung ist also ohne Gegenwert zu haben. */
-let KLETTER_MAX = 2.5;
+/* ---- Nachgemessen, nachdem die Huefte richtig sitzt ----
+   Die Tabelle oben entstand, als die Figur 0,26 m vor der Fassade hing
+   und der Griff jedes Glied heranzerren musste; dort war jede
+   Beschleunigung nur Hektik. Mit richtigem Abstand (WAND_HUEFT_KRIECH)
+   traegt die Bewegung wieder, und dann lohnt sich das schnellere
+   Abspielen. Handgeschwindigkeit im unteren Zehntel (dort greift die
+   Hand, dort muss sie stehen) gegen die groesste Knochendrehung je Bild,
+   Koerper 2,6 m/s:
+
+     Grenze   Hand li  Hand re  Fuss li  Fuss re   Drehung Median
+     2,5         0,81     1,15     1,43     1,13       12,3 Grad
+     3,0         0,49     0,66     1,24     0,91       15,1
+     3,3         0,38     0,75     1,09     0,83       16,6
+     3,5         0,34     0,60     1,06     0,79       16,5   <- genommen
+     3,8         0,41     0,53     1,00     0,77       17,7
+     4,2         0,60     0,53     0,97     0,82       20,6
+
+   Der Wandlauf ist davon nicht betroffen: der laeuft bei 4,22 m/s mit
+   Faktor 1,91 und haengt gar nicht am Anschlag. */
+let KLETTER_MAX = 3.5;
 const KLETTER_REFS = { climb: 0.985, klettern: 0.980, klettern_frei: 1.032,
-                       klettern_seit: 0.584, kriechen: 0.279, wandlauf: 1.970,
+                       klettern_seit: 0.584,
+                       /* Neu gemessen mit demselben Verfahren wie 'gehen'
+                          (dort 1,509 gegen den unabhaengig bestimmten Wert
+                          1,55): wie schnell ein tragendes Glied im eigenen
+                          System der Figur nach hinten wandert. Der alte
+                          Wert 0,279 stammt aus einer Zeit, in der die
+                          Kriechbewegung an der Wand ueberhaupt nicht lief
+                          (wandKontakt erzwang 'idle'). */
+                       kriechen: 0.554, wandlauf: 1.970,
                        haengen_frei: 0.985,
                        /* Die Kletterdateien aus hero-4 im Labor gemessen:
                           wie schnell wandert ein tragendes Glied im eigenen
@@ -15981,13 +16057,14 @@ const KLETTER_REFS = { climb: 0.985, klettern: 0.980, klettern_frei: 1.032,
    Ruhehaltung von einem eingefrorenen Schritt unterscheidet, ist die
    Symmetrie - stehen die Haende gleich hoch, haelt sich die Figur fest;
    steht eine oben und eine unten, ist sie mitten im Zug.
-   Abgetastet an 20 Stellen, Hoehenunterschied zwischen links und rechts:
+   Abgetastet an 20 Stellen, Hoehenunterschied zwischen links und rechts
+   (die Kriechbewegung, die an der Wand fuehrt):
      Stelle    0,15   0,20   0,25   0,30   0,65   0,75   0,85
-     Haende    0,25   0,02   0,31   0,59   0,05   0,28   0,57
-     Fuesse    0,55   0,43   0,21   0,06   0,40   0,12   0,47
-   0,20 hat die mit Abstand ruhigsten Haende. Die Fuesse bleiben dort
+     Haende    0,38   0,12   0,27   0,66   0,01   0,35   0,74
+     Fuesse    0,48   0,35   0,16   0,06   0,41   0,18   0,35
+   0,65 hat die mit Abstand ruhigsten Haende. Die Fuesse bleiben dort
    versetzt - das ist bei einem Kletterer auch richtig so. */
-let WAND_RUHE_T = 0.20;
+let WAND_RUHE_T = 0.65;
 /* 0,16 s auf, 0,22 s ab: das Aufkommen darf zuegig sein (sonst haengt die
    Haltung der Bewegung hinterher), das Abklingen braucht laenger, weil
    dort das Zucken sass. */
@@ -16685,11 +16762,23 @@ const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
      1,6 rad/s    0,212
    Der Boden liegt bei 0,188: so weit wandert eine greifende Hand in der
    Bewegung selbst, wenn gar nicht gerollt wird. Unter diesen Wert kommt
-   man also nicht. 3 rad/s dreht die Figur in einer knappen Sekunde ganz
-   herum und bleibt nah am Boden; langsamer wird sie traege, ohne noch
-   viel zu gewinnen. */
+   man also nicht.
+   NACHGEMESSEN, nachdem die Huefte richtig sitzt (WAND_HUEFT_KRIECH) und
+   die Bodenkriechbewegung an der Wand fuehrt - dieselbe Messung, alle
+   Zahlen sind kleiner geworden, weil der Griff die Glieder nicht mehr
+   herumzerren muss:
+     ohne Grenze  0,752
+     6 rad/s      0,186
+     4 rad/s      0,143   <- genommen
+     3 rad/s      0,130
+     1,6 rad/s    0,118
+     gar nicht    0,113   <- der Boden, die Bewegung selbst
+   Bei 4 rad/s liegt der groesste Schritt schon nicht mehr am
+   Richtungswechsel, sondern mitten in der Bewegung (Bild 31 statt Bild
+   410) - schneller zu drehen bringt also nichts mehr, langsamer spart
+   auch nichts. 180 Grad dauern damit 0,79 s. */
 let WAND_ROLL_TEMPO = 9;
-let WAND_ROLL_MAX = 3;
+let WAND_ROLL_MAX = 4;
 /* Wie lange das Eckenfenster dauert - siehe player.eckT. */
 const WAND_ECK_ZEIT = 0.45;
 /* So lange gilt das Anlegen an eine Wand als Uebergang, siehe oben. */
@@ -16728,7 +16817,7 @@ let WAND_ZUG_TEMPO = 90;
 let WANDLAUF_CLIP = 'run';
 /* Welche Bewegung an der Wand hochklettert. Umstellbar, damit sich die
    vorhandenen Kandidaten am echten Haus vergleichen lassen. */
-let KLETTER_CLIP = 'wandkriech_v';
+let KLETTER_CLIP = 'kriechen';
 /* ---- Klettern aus der Bewegungsdatei oder aus gerechneter Haltung? ----
    Seit hero-4 gibt es echte Wandkriechbewegungen (wandkriech_*). Liegen
    sie vor, fuehrt die DATEI, und die Kontaktkorrektur wandGriff zieht
@@ -16857,7 +16946,7 @@ function wandFreiraum(dt) {
   else {
     const raus = Math.max(0, WAND_LUFT - min);        // aus der Wand heraus
     const rein = Math.min(0, WAND_TIEF_MAX - min);    // so weit hoechstens hinein
-    ziel = clamp((player.wandlauf ? 0.52 : player.wandKriechen ? 0.26 : HUEFT_ZIEL) - huefte, rein, raus);
+    ziel = clamp((player.wandlauf ? 0.52 : player.wandKriechen ? WAND_HUEFT_KRIECH : HUEFT_ZIEL) - huefte, rein, raus);
     /* Geprueft und VERWORFEN: den Koerper zusaetzlich herauszuschieben,
        sobald ein Glied tiefer als WAND_TIEF_MAX steckt. Waehrend des
        Kletterschritts taucht das Schwungbein regelmaessig kurz ein - die
@@ -16970,7 +17059,9 @@ function wandFreiraum(dt) {
   } else if (heroVisual.wandGriff) {
     /* Waehrend der Ecke schwaecher, aber nicht aus. */
     heroVisual.wandGriff(gf.nx, gf.nz, gf.fl, eckHalb ? 0.45 : 0.9,
-                         player.gliedKraft, player.wandlauf);
+                         player.gliedKraft, player.wandlauf,
+                         (kletternAusClip() && !player.wandlauf)
+                           ? WAND_GRIFF_KLETTER : undefined);
     r.updateMatrixWorld(true);
   }
   /* Und zum Schluss die harte Zusage: kein Glied steckt tief im Haus.
@@ -30221,6 +30312,7 @@ if (window.__WEBHERO_TEST__ === true) {
        ist fuer den Netzschwung aber Pflicht. */
     taste(code, an) { keys[code] = !!an; },
     setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
+    setzeHueftKriech(v) { WAND_HUEFT_KRIECH = v; },
     /* Siehe WAND_AB_AN - nur fuer den Vorher/Nachher-Vergleich. */
     setzeWandAbgang(v) { WAND_AB_AN = !!v; },
     setzeWandAbZeit(v) { WAND_AB_ZEIT = v; },

@@ -99,6 +99,7 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     WAND_LUFT: Number(lies(/const WAND_LUFT = ([\d.]+)/, '0.07')),
     WAND_ROLL_TEMPO: Number(lies(/let WAND_ROLL_TEMPO = ([\d.]+)/, '9')),
     WAND_ROLL_MAX: Number(lies(/let WAND_ROLL_MAX = ([\d.]+)/, '3')),
+    KLETTER_MAX: Number(lies(/let KLETTER_MAX = ([\d.]+)/, '2.5')),
     EINST: { maus: 100, autokam: 'aus' }, mouseDX: 0, mouseDY: 0, touchAktiv: false,
     KAT: { aktiv: false }, groundY: () => 0, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(),
     camera: new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1000),
