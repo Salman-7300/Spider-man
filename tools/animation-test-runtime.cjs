@@ -80,13 +80,25 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     if (a < 0 || b < 0) throw new Error('Testausschnitt fehlt: ' + start);
     return source.slice(a, b);
   }
+  const lies = (re, ersatz) => { const t = source.match(re); return t ? t[1] : ersatz; };
   const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), onGround: false, state: 'air' };
   const env = {
     THREE, console, Math, Set, Map, player,
     clamp: (v, a, b) => Math.min(b, Math.max(a, v)), lerp: (a, b, t) => a + (b - a) * t,
     V3: (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z),
-    CFG: { sprintSpeed: 11 }, dist2: 0, WAND_RUHE_T: 0, LOD_WEITE: 130, ZIELE_ALT: false,
-    WANDLAUF_CLIP: 'run', KLETTER_CLIP: 'kriechen',
+    CFG: { sprintSpeed: 11 }, dist2: 0, LOD_WEITE: 130, ZIELE_ALT: false,
+    /* Aus dem Spiel GELESEN, nicht abgeschrieben: welche Datei an der
+       Wand laeuft und an welcher Stelle sie im Stillstand steht, sind
+       Einstellungen, die sich aendern. Abgeschrieben stand hier noch
+       'kriechen', als das Spiel laengst die Kletterdatei aus hero-4
+       benutzte - der Test prueft dann eine Fassung, die es nicht mehr
+       gibt. */
+    WANDLAUF_CLIP: lies(/let WANDLAUF_CLIP = '([^']+)'/, 'run'),
+    KLETTER_CLIP: lies(/let KLETTER_CLIP = '([^']+)'/, 'kriechen'),
+    WAND_RUHE_T: Number(lies(/let WAND_RUHE_T = ([\d.]+)/, '0')),
+    WAND_LUFT: Number(lies(/const WAND_LUFT = ([\d.]+)/, '0.07')),
+    WAND_ROLL_TEMPO: Number(lies(/let WAND_ROLL_TEMPO = ([\d.]+)/, '9')),
+    WAND_ROLL_MAX: Number(lies(/let WAND_ROLL_MAX = ([\d.]+)/, '3')),
     EINST: { maus: 100, autokam: 'aus' }, mouseDX: 0, mouseDY: 0, touchAktiv: false,
     KAT: { aktiv: false }, groundY: () => 0, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(),
     camera: new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1000),

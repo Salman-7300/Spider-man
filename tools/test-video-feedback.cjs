@@ -145,3 +145,74 @@ test('Tree templates share immutable geometry and park paths stay open around th
     assert.ok(Math.min(Math.abs(c.z0), Math.abs(c.z1)) > 1.8);
   }
 });
+
+/* ---- Klettern AUS DER BEWEGUNGSDATEI ----
+   Der Test darueber prueft den gerechneten Weg (poseWandKontakt), der
+   einspringt, wenn keine Wandkriechdatei da ist. Liegt sie vor, laeuft im
+   Spiel ein voellig anderer Weg: die DATEI fuehrt, die Figur wird um -90
+   Grad gekippt (weil sie in der Datei flach auf dem Bauch liegt), um die
+   Wandnormale in die Laufrichtung gerollt, und nur der Griff (wandGriff)
+   zieht die Glieder an die Fassade. Genau dieser Weg wird hier gefahren.
+   Ohne die Kippung stand die Koerperachse gemessen 85,3 Grad zur
+   Senkrechten - die Figur lag quer an der Wand. */
+for (const [nx, nz] of [[1, 0], [0, -1]]) {
+  test(`Klettern aus der Bewegungsdatei haelt die Glieder vor der Fassade (${nx},${nz})`, () => {
+    const r = runtime(), v = r.makeVisual(['idle', 'kriechen', 'run', 'wandkriech_v']);
+    const plane = -63, normal = V(nx, 0, nz), right = V(-nz, 0, nx);
+    v.root.rotation.y = Math.atan2(-nx, -nz);
+    v.root.position.set(nx ? plane + nx * 0.26 : 0, 20, nz ? plane + nz * 0.26 : 0);
+    /* Die Wand als Kollisionskoerper - dieselbe Form, die gliederAusHaus
+       im Spiel bekommt. Sie reicht von der Ebene aus nach hinten. */
+    const kasten = { x0: nx > 0 ? -1e3 : plane, x1: nx > 0 ? plane : 1e3,
+                     z0: nz > 0 ? -1e3 : plane, z1: nz > 0 ? plane : 1e3, y0: 0, h: 1e3 };
+    if (!nx) { kasten.x0 = -1e3; kasten.x1 = 1e3; }
+    if (!nz) { kasten.z0 = -1e3; kasten.z1 = 1e3; }
+    const drin = (p) => (p.x > kasten.x0 && p.x < kasten.x1 &&
+                         p.z > kasten.z0 && p.z < kasten.z1) ? kasten : null;
+    let vorher = null, groessterSchritt = 0;
+    for (let i = 0; i < 420; i++) {
+      /* hinauf - stehen - quer - hinunter, wie im Spiel. */
+      const v3 = i < 120 ? V(0, 2.6, 0) : i < 180 ? V()
+               : i < 300 ? right.clone().multiplyScalar(4.4) : V(0, -2.6, 0);
+      const tempo = v3.length();
+      /* Die Rollung, die updateHeroVisual rechnet: der Kopf zeigt in die
+         Fahrtrichtung. */
+      const quer = -v3.x * nz + v3.z * nx;
+      const roll = tempo > 0.9 ? Math.atan2(-quer, v3.y) : 0;
+      v.root.position.addScaledVector(v3, 1 / 60);
+      r.env.player.pos.copy(v.root.position);
+      v.play('climb', { wandModus: 'kriechen', wandKriechen: true, wandKontakt: false,
+                        tempo: tempo === 0 ? 0 : 2.4, speed: 0 }, 1 / 60);
+      assert.equal(v.aktuellerClip, 'wandkriech_v', 'die Datei muss fuehren');
+      v.wandKriechen(1, 0.3, roll, false, false, 1 / 60);
+      v.root.position.addScaledVector(normal, plane * (nx || nz) + 0.26 - pos(v, 'hips').dot(normal));
+      v.wandGriff(nx, nz, plane, 0.9, null, false);
+      v.ausHaus(drin, 0.05);
+      const jetzt = {};
+      for (const name of ['lefthand', 'righthand', 'leftfoot', 'rightfoot', 'head', 'hips']) {
+        const p = pos(v, name), tiefe = p.dot(normal) - plane * (nx || nz);
+        assert.ok(Number.isFinite(p.length()), name + ' ist keine Zahl');
+        assert.ok(tiefe > -0.06 && tiefe < 0.9, name + ' bei ' + tiefe.toFixed(3));
+        jetzt[name] = p.clone().sub(v.root.position);
+        if (vorher && i > 30 && i !== 120 && i !== 180 && i !== 300) {
+          groessterSchritt = Math.max(groessterSchritt, jetzt[name].distanceTo(vorher[name]));
+        }
+      }
+      /* Der Kopf zeigt in die Fahrtrichtung: hinauf ueber der Huefte,
+         hinunter darunter. Waehrend der Rollung (rund 0,4 s) darf er
+         dazwischen stehen. */
+      if (i > 60 && i < 120) assert.ok(jetzt.head.y > jetzt.hips.y + 0.2, 'hinauf: Kopf oben');
+      if (i > 360) assert.ok(jetzt.head.y < jetzt.hips.y - 0.2, 'hinunter: Kopf unten');
+      vorher = jetzt;
+    }
+    /* Die Grenze ist eine andere als beim gerechneten Weg (dort 0,19).
+       Der setzt seine Griffe an feste Weltpunkte und hat deshalb gar
+       keine Eigenbewegung; hier laeuft eine echte Bewegungsdatei mit
+       Faktor 2,4. Allein ihre greifende Hand legt bei ganz festgehaltener
+       Rollung schon 0,188 m je Bild zurueck - das ist der Boden. Im Spiel
+       gemessen (hinauf, stehen, quer, stehen, hinunter mit echten
+       Tastenwechseln) sind es mit der begrenzten Rollung 0,245; im
+       Pruefstand hier, wo das Tempo ohne Anlauf umspringt, 0,229. */
+    assert.ok(groessterSchritt < 0.26, 'Sprung in der Haltung: ' + groessterSchritt.toFixed(3));
+  });
+}

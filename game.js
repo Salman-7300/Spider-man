@@ -7601,7 +7601,14 @@ function makeGlbVisual(m) {
       let dz = zZ - inner.rotation.z;
       while (dz > Math.PI) dz -= Math.PI * 2;
       while (dz < -Math.PI) dz += Math.PI * 2;
-      inner.rotation.z += dz * (1 - Math.exp(-9 * dt));
+      /* Nicht nur weich, sondern auch BEGRENZT: eine reine
+         Exponentialglaettung ist am Anfang am schnellsten, und beim
+         Wechsel von "quer" auf "hinunter" dreht sich die Figur um 180
+         Grad. Der Fuss legte dabei in einem einzigen Bild bis zu 0,774 m
+         zurueck. Die Obergrenze verteilt die Drehung gleichmaessig. */
+      const schritt = clamp(dz * (1 - Math.exp(-WAND_ROLL_TEMPO * dt)),
+                            -WAND_ROLL_MAX * dt, WAND_ROLL_MAX * dt);
+      inner.rotation.z += schritt;
       /* Solange gekippt wird, liegt "unter der Figur" die Wand. Die
          Bodenkorrektur (inner.position.y) wuerde sie an der Wand
          entlangschieben - sie wird deshalb ausgeblendet. */
@@ -16661,6 +16668,28 @@ const WAND_KNOCHEN = ['leftfoot', 'rightfoot', 'lefttoebase', 'righttoebase',
                       'leftleg', 'rightleg', 'lefthand', 'righthand',
                       'leftforearm', 'rightforearm', 'head', 'hips'];
 const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
+/* ---- Wie schnell die Figur sich an der Wand in die Laufrichtung dreht ----
+   Die Figur rollt um die Wandnormale, damit ihr Kopf dorthin zeigt, wohin
+   sie klettert. Beim Wechsel von "quer" auf "hinunter" sind das 180 Grad
+   auf einmal. Mit reiner Exponentialglaettung (die am Anfang am
+   schnellsten ist) legte der Fuss dabei in EINEM Bild 0,774 m zurueck -
+   ein sichtbarer Ruck.
+   Gemessen an einem Durchgang hinauf - stehen - quer - stehen - hinunter
+   mit echten Tastenwechseln, groesster Weg eines Gliedes je Bild gegen
+   die Wurzel gerechnet:
+     ohne Grenze  0,774        <- Ruck beim Umdrehen
+     6 rad/s      0,318
+     4 rad/s      0,269
+     3 rad/s      0,245
+     2,2 rad/s    0,226
+     1,6 rad/s    0,212
+   Der Boden liegt bei 0,188: so weit wandert eine greifende Hand in der
+   Bewegung selbst, wenn gar nicht gerollt wird. Unter diesen Wert kommt
+   man also nicht. 3 rad/s dreht die Figur in einer knappen Sekunde ganz
+   herum und bleibt nah am Boden; langsamer wird sie traege, ohne noch
+   viel zu gewinnen. */
+let WAND_ROLL_TEMPO = 9;
+let WAND_ROLL_MAX = 3;
 /* Wie lange das Eckenfenster dauert - siehe player.eckT. */
 const WAND_ECK_ZEIT = 0.45;
 /* So lange gilt das Anlegen an eine Wand als Uebergang, siehe oben. */
@@ -30437,6 +30466,8 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeKletterRef(v) { for (const k in KLETTER_REFS) KLETTER_REFS[k] = v; },
     setzeKletterRefFuer(k, v) { KLETTER_REFS[k] = v; },
     setzeWandRuheT(v) { WAND_RUHE_T = v; },
+    setzeRollTempo(v) { WAND_ROLL_TEMPO = v; },
+    setzeRollMax(v) { WAND_ROLL_MAX = v; },
     setzeGriffWeit(v) { WAND_GRIFF_WEIT = v; return WAND_GRIFF_WEIT; },
     setzeBeinEng(quer, fuss) {
       if (quer !== undefined) WANDHALT_KNIE_QUER = quer;
