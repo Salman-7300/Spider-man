@@ -56,3 +56,57 @@ GLTFLoader wartet dann im Browser ewig auf ein Bild, das er nie dekodieren
 kann - die Datei wird nie fertig geladen, ohne Fehlermeldung. Wer eine
 solche Datei nur anschauen will, entfernt vorher `images`, `textures` und
 `samplers` aus dem JSON-Teil der GLB.
+
+## Beispiel: Release `hero-4` - Laufen und Rennen (September 2026)
+
+Das Unreal-Projekt "SpiderMan Traversal Project" bringt 145 Bewegungen mit,
+darunter `Running`, `Running1`, `Jog_Forward1`, `Jog_Forward2`. Der Wunsch
+war, damit das Laufen im Spiel zu ersetzen. Geprueft mit demselben Ablauf -
+und **nichts davon uebernommen**. Warum, mit Zahlen:
+
+**Frage 3 zuerst: sind es ueberhaupt verschiedene Dateien?**
+`Jog_Forward1` und `Jog_Forward2` sind identisch (2,8 Grad Mittel),
+`Running` und `Running1` unterscheiden sich nur an der rechten Hand
+(31,8 Grad dort, sonst unter 12). Aus vier Dateien werden also zwei.
+
+**Die Eigengeschwindigkeit.** Gemessen als Rueckwaertsgeschwindigkeit des
+Standfusses gegenueber der Huefte, gemittelt ueber den Bodenkontakt. Zur
+Probe liefert dasselbe Verfahren fuer `walk` 1,486 m/s, waehrend
+`GANG_REF.walk` unabhaengig davon seit langem auf 1,49 steht:
+
+    walk 1,486   gehen 1,367   run 2,840   sprint 3,466   sprint_lang 6,879
+    Running 4,281   Jog_Forward 1,672
+
+**Fuellen sie eine Luecke?** Nein. Die Gangartenkette hat vier Stufen, und
+jede laeuft schon mit einem Zeitfaktor zwischen 1,3 und 1,9 - keine haengt
+am Anschlag. Gemessen wurde das Netto-Rutschen: wie weit ein Fuss waehrend
+EINES ganzen Bodenkontakts wandert, im Verhaeltnis zum Weg der Figur:
+
+    2,8 m/s   gehen         Faktor 1,81   Rutschen 20,5 %
+    3,2 m/s   run           Faktor 1,45    8,3 %
+    4,7 m/s   sprint        Faktor 1,47    8,8 %
+    7,0 m/s   sprint_lang   Faktor 1,27   10,1 %
+    11  m/s   sprint_lang   Faktor 1,65   14,8 %
+
+**Der eine schwache Punkt** ist der Gehschritt bei 2,8 m/s (20,5 %). Genau
+dort waere ein Jog die richtige Gangart - `Jog_Forward` wurde deshalb
+eingesetzt und ueber fuenf Bezugstempi durchgemessen:
+
+    Bezug 1,0   Faktor 2,80   Rutschen 42,9 %
+    Bezug 1,2   Faktor 2,33   61,2 %
+    Bezug 1,4   Faktor 2,00   68,6 %
+    Bezug 1,672 Faktor 1,67   49,8 %
+    Bezug 2,0   Faktor 1,40   44,9 %
+
+Bei JEDEM Wert rutscht der Jog mehr als doppelt so stark wie der
+vorhandene Gehschritt. Seine Fusskontakte tragen nicht - daran aendert
+kein Bezugstempo etwas.
+
+**Und `Running`?** Mechanisch brauchbar (4,281 m/s liegt zwischen `sprint`
+und `sprint_lang`), aber es gibt keine Stufe, die darauf wartet. Im
+Bildvergleich ueber sechs Stellen des Takts wirkt der vorhandene `sprint`
+sogar dynamischer: mehr Vorlage, Arme hoeher gefuehrt; `Running` schwingt
+die Arme tief nach hinten.
+
+Ergebnis: aus `hero-4` kommen die Kletterbewegungen ins Spiel, das Laufen
+nicht. Das ist kein Versaeumnis, sondern das Ergebnis der Messung.
