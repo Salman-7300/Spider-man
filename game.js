@@ -6773,6 +6773,24 @@ function makeGlbVisual(m) {
     _q2.invert().multiply(_q);
     hand.quaternion.slerp(_q2, clamp(k, 0, 1));
   }
+  /* ---- Einen Knochen um eine WELTachse nachdrehen ----
+     Fuer die Verwindung des Rumpfes: Becken und Brustkorb drehen
+     gegeneinander um die Koerperachse. three.rotateOnWorldAxis setzt
+     einen unverdrehten Elternknoten voraus - an einem Knochen mitten in
+     der Kette stimmt das nie. Deshalb wird die gewuenschte WELTdrehung
+     gebildet und anschliessend in den Elternraum zurueckgerechnet. */
+  const _dqA = new THREE.Quaternion(), _dqB = new THREE.Quaternion(), _dqC = new THREE.Quaternion();
+  function drehUmWeltachse(bone, achse, winkel) {
+    if (!bone || Math.abs(winkel) < 1e-4) return;
+    bone.updateMatrixWorld(true);
+    _dqA.setFromAxisAngle(achse, winkel);
+    bone.getWorldQuaternion(_dqB);
+    _dqA.multiply(_dqB);                       // erst der Knochen, dann die Drehung
+    bone.parent.getWorldQuaternion(_dqC);
+    bone.quaternion.copy(_dqC.invert().multiply(_dqA));
+    bone.updateMatrixWorld(true);
+  }
+
   /* ---- Ein Gelenk darf nicht weiter knicken, als es kann ----
      setzeHand und setzeFuss richten Hand bzw. Fuss auf eine WELTrichtung
      aus, ganz gleich, wo der Unterarm oder der Unterschenkel gerade
@@ -8097,6 +8115,20 @@ function makeGlbVisual(m) {
           knochen[a].getWorldPosition(new THREE.Vector3()).add(bodyUp), w);
       }
       for (const side of ['left', 'right']) drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
+      /* ---- Der Rumpf windet sich ----
+         Im Vorbild stehen Schultern und Becken NICHT parallel: die
+         Schulter der greifenden Seite kommt nach vorn, das Becken dreht
+         gegen. Bei uns stand beides starr in einer Ebene, und das ist
+         einer der Gruende, warum die Bewegung wie ein Scherenschnitt
+         aussah.
+         Gedreht wird um die KOERPERACHSE - dadurch bleibt die Richtung,
+         in die der Rumpf zeigt, unveraendert, nur die Verwindung kommt
+         dazu. Becken und Brustkorb bekommen die halbe Drehung in je
+         entgegengesetzter Richtung, zusammen also 2 * 0,17 rad = knapp
+         20 Grad bei voller Fahrt. */
+      const drall = 0.17 * moving * w * Math.sin(2 * Math.PI * (climbMotion.phase - 0.29));
+      drehUmWeltachse(knochen.hips, vor, -drall);
+      drehUmWeltachse(knochen.spine2 || knochen.spine1, vor, 2 * drall);
       root.updateMatrixWorld(true);
       const hip = knochen.hips.getWorldPosition(new THREE.Vector3()), plane = flaeche * (nx || nz);
       /* Die Huefte OHNE Wiegen - Bezugspunkt aller Kontaktpunkte. Fuer die
@@ -8164,8 +8196,27 @@ function makeGlbVisual(m) {
           (sign > 0 ? -0.40 : -0.46) + ruhe * (sign > 0 ? 0.13 : -0.03), 0.085), 1, 0.16);
         gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
           hand, point(sign * 0.55, 0.10, 0.15), w);
+        /* ---- Das angezogene Knie kommt hoch zum Ellenbogen ----
+           Der Kniepol bestimmt, WOHIN das Knie ausweicht. Er stand fest
+           tief und aussen; das Schwungbein zog deshalb flach unten
+           durch, statt sich wie im Vorbild an den Koerper zu falten.
+           In der Flugphase wandert der Pol jetzt nach aussen, nach oben
+           und weiter von der Wand weg - das Knie folgt und kommt hoch
+           und seitlich heraus, statt flach unten durchzuziehen.
+           Die Betraege sind gemessen, nicht geschaetzt: wandert der Pol
+           zu weit nach oben, laeuft er durch die Verbindungslinie
+           Huefte-Fuss, und dann KIPPT die Kniekehle auf die andere Seite.
+           Der Regressionstest meldet genau das als Sprung:
+             +0,46 -> 0,253 m   +0,30 -> 0,233 m   +0,20 -> 0,207 m
+             +0,14 -> unter der Grenze von 0,19 m.
+           Genommen: 0,14 nach oben, dafuer 0,18 nach aussen und 0,10 von
+           der Wand weg - das faltet das Bein sichtbar, ohne den Pol
+           durch die Singularitaet zu schieben. */
+        const pF = (((phase + 0.5) % 1) + 1) % 1;
+        const uF = Math.max(0, (pF - 0.58) / 0.42);
+        const flugBein = Math.sin(Math.PI * uF) ** 2 * moving;
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
-          foot, point(sign * 0.66, -0.24, 0.42), w);
+          foot, point(sign * (0.66 + 0.18 * flugBein), -0.24 + 0.14 * flugBein, 0.42 + 0.10 * flugBein), w);
         const fingers = vor.clone().addScaledVector(seit, sign * 0.12);
         /* ---- Das Handgelenk knickt nicht weiter, als es kann ----
            MESSUNG (Winkel zwischen Unterarm und Hand, also Ellenbogen ->
@@ -8226,7 +8277,7 @@ function makeGlbVisual(m) {
            moving: im Stand bleibt die Sohle flach. */
         const sohleAus = normal.clone().negate();
         const querAchse = new THREE.Vector3().crossVectors(sohleAus, zehenAus).normalize();
-        const pF = (((phase + 0.5) % 1) + 1) % 1;
+        /* pF/uF stehen schon oben beim Kniepol zur Verfuegung. */
         let roll;
         if (pF < 0.42) roll = 0;                              // voll tragend, flach
         else if (pF < 0.58) roll = (pF - 0.42) / 0.16 * 0.55; // Abstoss ueber die Zehen
