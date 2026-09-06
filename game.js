@@ -8131,10 +8131,20 @@ function makeGlbVisual(m) {
            Je ruhiger die Figur, desto staerker wird die Haltung deshalb
            versetzt: eine Hand hoch am Griff, die andere auf Brusthoehe,
            ein Knie angezogen, das andere tiefer. Beim Klettern (moving 1)
-           bleibt alles wie gemessen. */
+           bleibt alles wie gemessen.
+           ---- Warum die Hand nur 0,50 ueber der Huefte greift ----
+           Hier stand 0,74. contact() traegt den Griff um bis zu 0,32 m
+           nach vorn, der hoechste Punkt lag also 1,06 m ueber der Huefte -
+           weit ausserhalb dessen, was der Arm erreicht (Oberarm 0,218 +
+           Unterarm 0,265). gliedZiel deckelt dann auf 98,5 % Streckung,
+           und genau das sah man: gemessen stand der linke Ellenbogen 40 %
+           der Bilder am Anschlag, also stocksteif durchgestreckt.
+           Gemessen mit derselben Zaehlung: 0,74 -> 40 %, 0,60 -> 19 %,
+           0,55 -> 13 %, 0,50 -> 3 %, 0,46 -> 1 %. Genommen: 0,50, dort
+           bleibt der Zug noch weit und der Arm trotzdem gebeugt. */
         const ruhe = climbMotion.ruhe;
         const hand = contact(phase, point(sign * (0.28 - ruhe * 0.05),
-          (sign > 0 ? 0.74 : 0.66) + ruhe * (sign > 0 ? 0.12 : -0.22), 0.068), 1, 0.14);
+          (sign > 0 ? 0.50 : 0.44) + ruhe * (sign > 0 ? 0.12 : -0.22), 0.068), 1, 0.14);
         /* ---- Der Fuss muss dieselbe Reichweite haben wie die Hand ----
            Hier stand 0,86. contact() laesst den Kontaktpunkt waehrend der
            Standphase um travel * 1,10 * stance * reach nach hinten
