@@ -94,14 +94,7 @@ const KARTE_DAZ = {
    Kinn sichtbar nach oben. Ein Gehzyklus braucht keine Kopfbewegung -
    der Kopf bleibt also in der Ruhehaltung des Zielmodells, waehrend der
    Hals seine Achse weiterhin aus dem Kopfknochen bezieht. */
-/* 'head' steht hier aus demselben Grund wie Head_J: das UE4-Mannequin hat
-   UNTER dem Kopf keinen weiteren Knochen. Damit gibt es fuer den Kopf
-   keine eigene Achse, er erbt die Korrektur des Halses - und weil der
-   UE4-Kopf anders in Ruhe steht als der Mixamo-Kopf, sass das Gesicht
-   danach verdreht auf dem Hals. Im Bild war das sofort zu sehen (Kriechen
-   nach vorn: der Kopf zeigte nach hinten). Ohne eigene Spur bleibt der
-   Kopf in der Ruhehaltung des Zielmodells und schaut nach vorn. */
-const NUR_ACHSE = new Set(['Head_J', 'Headtop_J', 'L_Toes_J', 'R_Toes_J', 'head']);
+const NUR_ACHSE = new Set(['Head_J', 'Headtop_J', 'L_Toes_J', 'R_Toes_J']);
 
 const SKELETTE = [['UE4-Mannequin', KARTE_UE4], ['DAZ/Genesis', KARTE_DAZ]];
 let quelleName = '';
@@ -294,14 +287,25 @@ export function retarget(quellGlb, vorlageGlb) {
     if (!kqK || !kzK) continue;
     korr.set(ueName, qVon(einheit(kzK.t), einheit(kqK.t)));
   }
-  /* Knochen ohne Kind: Korrektur vom Elter erben. */
+  /* ---- Knochen ohne abgebildetes Kind ----
+     Fuer sie gibt es keine Achse, an der man die beiden Skelette
+     ausrichten koennte. Frueher erbten sie die Korrektur ihres Elters -
+     das richtet zwar die RICHTUNG des Elters aus, sagt aber nichts
+     ueber die Drehung des Knochens um seine eigene Achse. Beim Kopf war
+     genau das der Fehler: das Gesicht sass verdreht auf dem Hals, weil
+     der UE4-Kopf anders in Ruhe steht als der Mixamo-Kopf.
+     Diese Knochen bekommen deshalb die klassische Uebertragung: nicht
+     die Weltrichtung, sondern die BEWEGUNG GEGENUEBER DER EIGENEN
+     RUHEHALTUNG.
+        R_ziel_lokal(t) = R_ziel_ruhe · R_quelle_ruhe⁻¹ · R_quelle_lokal(t)
+     Der Kopf dreht sich damit relativ zum Hals genauso wie in der
+     Quelle, und in Ruhe steht er dort, wo das Zielmodell ihn hat. */
+  const relativ = new Set();
   for (const [ueName] of Object.entries(KARTE)) {
-    if (korr.has(ueName) || !q.nachName.get(ueName)) continue;
-    for (let p = q.nachName.get(ueName).eltern; p >= 0; p = q.knoten[p].eltern) {
-      const nm = q.knoten[p].name;
-      if (korr.has(nm)) { korr.set(ueName, korr.get(nm)); break; }
-    }
-    if (!korr.has(ueName)) korr.set(ueName, [0, 0, 0, 1]);
+    const kq = q.nachName.get(ueName), kz = zielKnochen.get(KARTE[ueName]);
+    if (korr.has(ueName) || !kq || !kz) continue;
+    relativ.add(ueName);
+    korr.set(ueName, [0, 0, 0, 1]);
   }
 
   /* Reihenfolge: Eltern vor Kindern (die Karte ist schon so sortiert,
@@ -358,6 +362,16 @@ export function retarget(quellGlb, vorlageGlb) {
            haengen die Kinder um den Unterschied daneben. */
         const kz = zielKnochen.get(KARTE[n]);
         globalZ.set(KARTE[n], qMul(elternG, kz ? kz.r : [0, 0, 0, 1]));
+        continue;
+      }
+      if (relativ.has(n)) {
+        /* Endknochen: eigene Bewegung gegenueber der Ruhehaltung. */
+        const kz = zielKnochen.get(KARTE[n]);
+        const sp = spuren.get(kq.i);
+        const lokalQ = sp && sp.r ? sp.r[Math.min(f, sp.r.length - 1)] : kq.r;
+        const lokalZ = qMul(qMul(kz.r, qInv(kq.r)), lokalQ);
+        globalZ.set(KARTE[n], qMul(elternG, lokalZ));
+        ausgabe.get(KARTE[n]).r.push(lokalZ);
         continue;
       }
       const gZ = qMul(globalVon(kq), korr.get(n));
