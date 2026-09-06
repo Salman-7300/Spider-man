@@ -8039,10 +8039,47 @@ function makeGlbVisual(m) {
         gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
           hand, point(sign * 0.45, 0.32, 0.34), w);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
-          foot, point(sign * 0.43, -0.16, 0.50), w);
+          foot, point(sign * 0.50, -0.38, 0.40), w);
         const fingers = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
         setzeHand(side, fingers, normal.clone().negate(), w);
-        setzeFuss(side, fingers, normal.clone().negate(), w);
+        /* ---- Der Fuss zeigt nach aussen, nicht die Wand hinauf ----
+           MESSUNG. Knoechelwinkel = Winkel zwischen Unterschenkel
+           (Knie -> Knoechel) und Fuss (Knoechel -> Zehenansatz).
+           Dieselbe Figur erreicht am Boden: Stehen 62-72 Grad, Laufen
+           13-94 Grad. Beim Klettern stand er bei 97-166 Grad, im Mittel
+           bei 133 - der Fuss war also um bis zu 70 Grad weiter
+           zurueckgeklappt, als das Modell am Boden je geht. Grund: die
+           Zehe wurde wie die Hand die WAND HINAUF gerichtet, waehrend der
+           Unterschenkel vom hoch abgespreizten Knie nach unten kam. Beides
+           zusammen faltet den Fuss an das Schienbein.
+           Jetzt zeigt die Zehe nach aussen und leicht nach unten - die
+           Froschhaltung, in der ein Kletterer wirklich steht - und das
+           Knie sitzt tiefer und naeher an der Wand. */
+        const zehenAus = new THREE.Vector3(0, -0.60, 0).addScaledVector(right, sign * 0.80).normalize();
+        /* ---- Der Fuss rollt ab ----
+           MESSUNG: die Sohle stand ueber 120 Bilder im exakt gleichen
+           Winkel zur Wand - min und max auf die Nachkommastelle gleich.
+           Der Fuss war also ein starrer Block, der im Flug genauso stand
+           wie beim Tragen. Ein echter Fuss loest sich ueber die Zehen
+           (Ferse hebt zuerst), haengt im Flug nach und kommt mit
+           angehobener Zehe wieder auf.
+           Gedreht wird um die Querachse des Fusses, also um dieselbe
+           Achse, um die ein Knoechel beugt. Der Betrag haengt an
+           moving: im Stand bleibt die Sohle flach. */
+        const sohleAus = normal.clone().negate();
+        const querAchse = new THREE.Vector3().crossVectors(sohleAus, zehenAus).normalize();
+        const pF = (((phase + 0.5) % 1) + 1) % 1;
+        let roll;
+        if (pF < 0.42) roll = 0;                              // voll tragend, flach
+        else if (pF < 0.58) roll = (pF - 0.42) / 0.16 * 0.55; // Abstoss ueber die Zehen
+        else if (pF < 0.82) roll = 0.55 - (pF - 0.58) / 0.24 * 0.80; // nachhaengen, dann Zehe hoch
+        else roll = -0.25 + (pF - 0.82) / 0.18 * 0.25;        // vor dem Aufsetzen flach werden
+        roll *= moving * w;
+        if (Math.abs(roll) > 1e-4) {
+          zehenAus.applyAxisAngle(querAchse, roll);
+          sohleAus.applyAxisAngle(querAchse, roll);
+        }
+        setzeFuss(side, zehenAus, sohleAus, w);
         /* ---- Die Hand oeffnet sich beim Greifen ----
            Die Kralle war eine feste Zahl: die Finger standen waehrend des
            ganzen Takts gleich stark gekruemmt, auch waehrend die Hand frei
