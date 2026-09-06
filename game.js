@@ -2721,8 +2721,19 @@ function baueBEbene(sx, sch) {
      der Boden dunkler als die Wand, immer. */
   ubBodenMuster(r.x0 + 0.15, r.x1 - 0.15, r.z0 + 0.15, r.z1 - 0.15, u0,
                 0x4b5158, 0x585f66);
-  ubSchild('U' + ubLinienNummer() + ' · ' + ubStationsname(sx), 'Bahnsteige · Tickets · Ausgang',
-    mx, u1 - 0.62, vorn(0.65), weg > 0 ? Math.PI : 0, Math.min(4.4, lx - 1), 0.68);
+  /* Das Hallenschild hing 65 cm vor der Aussenwand und lag damit genau
+     ueber der Ladenzeile: im Bild deckte es die Schilder von zwei Laeden
+     zu (scratchpad/be_laeden.png). Es haengt jetzt frei unter der Decke,
+     ein Stueck vor den Laeden, mit Aufhaengung - so wie ein Wegweiser in
+     einer Station wirklich haengt. */
+  {
+    const hz = tief(lz * 0.72), hb = Math.min(4.4, lx - 1);
+    ubDeko(hb + 0.24, 0.80, 0.12, mx, u1 - 0.62, hz, 0x161b22);
+    ubSchild('U' + ubLinienNummer() + ' · ' + ubStationsname(sx), 'Bahnsteige · Tickets · Ausgang',
+      mx, u1 - 0.62, hz - weg * 0.07, weg > 0 ? 0 : Math.PI, hb, 0.68);
+    for (const s2 of [-hb / 2, hb / 2])
+      ubDeko(0.06, 0.40, 0.06, mx + s2, u1 - 0.16, hz, 0x8d99a6);
+  }
   /* ---- Huelle ---- */
   /* Zur Schachtseite hin KEIN Ueberstand: dort liegt schon der Boden der
      Zwischenebene, und zwei Boeden auf derselben Hoehe flackern. */
