@@ -3779,8 +3779,29 @@ function baueZuege() {
 /* Alles unter der Erde nur zeichnen, wenn man auch unten ist. Von der
    Strasse aus ist davon nichts zu sehen; es kostete trotzdem jedes Bild
    eine halbe Million Dreiecke und ein paar Dutzend Zeichenaufrufe. */
+/* Die Bedingung war player.pos.y < SLAB_H + 3 - also drei Meter UEBER
+   dem Gehweg. Damit war das Untergrund-Mesh waehrend des gesamten
+   Strassenspiels sichtbar, und genau das sollte sie verhindern.
+   Gemessen traegt es jetzt 266000 Dreiecke (die Stadt ueber Tage 124000);
+   die neue Zwischenebene hat rund die Haelfte davon dazugebracht.
+   Zu sehen ist davon auf der Strasse nur, was in einem offenen Schacht
+   liegt. Deshalb jetzt: wirklich unter dem Gehweg - oder nahe genug an
+   einem Schacht, um hineinzusehen. Der Radius ist grosszuegig (25 m),
+   damit beim Hinabsteigen nichts aufpoppt. */
+const UB_SICHT_NAH = 25;
+let ubLoecherOben = null;
+function nahAmSchacht(x, z) {
+  if (!ubLoecherOben) ubLoecherOben = ubahnLoecher();
+  for (const l of ubLoecherOben) {
+    const dx = Math.max(l.x0 - x, 0, x - l.x1);
+    const dz = Math.max(l.z0 - z, 0, z - l.z1);
+    if (dx < UB_SICHT_NAH && dz < UB_SICHT_NAH) return true;
+  }
+  return false;
+}
 function updateUnterwelt() {
-  const unten = player.pos.y < SLAB_H + 3;
+  const unten = player.pos.y < SLAB_H - 0.05 ||
+                nahAmSchacht(player.pos.x, player.pos.z);
   if (ubahnMesh && ubahnMesh.visible !== unten) ubahnMesh.visible = unten;
   ubSchilder.visible = unten;
   for (const a of AUFZUEGE) {
