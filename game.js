@@ -7992,7 +7992,22 @@ function makeGlbVisual(m) {
         const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
         const phase = climbMotion.phase + (sign > 0 ? 0.5 : 0);
         const hand = contact(phase, point(sign * 0.28, sign > 0 ? 0.74 : 0.66, 0.068), 1, 0.14);
-        const foot = contact(phase + 0.5, point(sign * 0.23, sign > 0 ? -0.52 : -0.60, 0.085), 0.86, 0.16);
+        /* ---- Der Fuss muss dieselbe Reichweite haben wie die Hand ----
+           Hier stand 0,86. contact() laesst den Kontaktpunkt waehrend der
+           Standphase um travel * 1,10 * stance * reach nach hinten
+           wandern - genau so weit, wie der Koerper in derselben Zeit nach
+           vorn kommt. Nur dann steht der Griff in der WELT still, und
+           genau das ist der Unterschied zwischen Klettern und Gleiten.
+           Mit 0,86 wanderte der Fuss nur 0,549 m zurueck, waehrend der
+           Koerper 0,638 m stieg. Die Differenz von 0,089 m verteilt sich
+           auf die 0,247 s der Standphase - macht 0,36 m/s, mit denen der
+           Fuss dauernd an der Fassade entlangrutschte.
+           Nachgemessen im eingefrorenen Bild mit festem Zeitschritt: die
+           HAENDE (reach 1) standen exakt still (0,000 m/s, 38 % der
+           Bilder, bis zu 0,20 s am Stueck), die Fuesse wurden nie
+           langsamer als 0,360 m/s - auf drei Nachkommastellen der Wert,
+           den die Rechnung vorhersagt. */
+        const foot = contact(phase + 0.5, point(sign * 0.23, sign > 0 ? -0.52 : -0.60, 0.085), 1, 0.16);
         gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
           hand, point(sign * 0.45, 0.32, 0.34), w);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
