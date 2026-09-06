@@ -26,10 +26,25 @@ const CFG = {
      greifende Hand bleibt dabei an der Fassade stehen. Ein Haus von 28 m
      dauert damit elf Sekunden statt sechs. */
   climbSpeed: 2.6,
-  /* Seitwaerts geht es schneller als hinauf. Hinauf zieht man sich Hand
-     ueber Hand hoch, quer haengelt man - und mit demselben Tempo wie beim
-     Steigen fuehlte sich das Ausweichen an der Fassade zaeh an. */
-  climbSpeedSeit: 4.4,
+  /* ---- Seitwaerts genauso schnell wie hinauf ----
+     Hier standen 4,4 m/s: seitwaerts sollte es zuegiger gehen als beim
+     Steigen. Das war eine Rechnung ohne die Bewegung. An der Wand laeuft
+     die Kriechbewegung, und die traegt bei ihrem besten Zeitfaktor rund
+     2,6 m/s - genau das Tempo, mit dem es hinauf sauber aussieht.
+     Seitwaerts musste sie also den 1,7-fachen Weg tragen, und der Rest
+     war Rutschen. Gemessen, Handgeschwindigkeit im unteren Zehntel (dort
+     greift die Hand, dort muss sie stehen):
+
+       Tempo   Zeitfaktor   Hand li   Hand re   Knochendrehung je Bild
+       4,4        3,5          1,87      2,48         17,4 Grad
+       4,4        5,0          0,89      1,59         23,2
+       4,4        7,0          0,97      0,81         31,9
+       3,4        3,5          0,90      1,49         17,0
+       2,6        3,5          0,34      0,60         16,4   <- genommen
+
+     Den Weg ueber ein schnelleres Abspielen gibt es also auch (4,4 mit
+     Faktor 7), er kostet aber die doppelte Gliedgeschwindigkeit. */
+  climbSpeedSeit: 2.6,
   /* Abstand der Körpermitte zur Wand beim Klettern. Vorher wurde der volle
      Kollisionsradius (0,45 m) benutzt – dadurch schwebte die Figur sichtbar
      vor dem Haus, statt daran zu kleben. */
