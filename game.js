@@ -21426,6 +21426,23 @@ const cocoonMat = new THREE.MeshLambertMaterial({
   color: 0xdfe6ee,
 });
 const bandMat = new THREE.MeshLambertMaterial({ color: 0xf4f8fc });
+/* Der Faden der Wickel. Etwas gebrochen, nicht reinweiss - reinweisse
+   Schlaeuche auf dunkler Ruestung sahen aus wie Kunststoffrohre. */
+const wickelMat = new THREE.MeshLambertMaterial({ color: 0xe4ebf3 });
+/* Der Netzfleck auf der Brust: das Kreuzmuster der Huelle, halbdurch-
+   sichtig, von beiden Seiten sichtbar (man sieht bei einer offenen
+   Zylinderschale immer auch die Innenseite). */
+/* Eigene Kopie der Huellentextur mit GROESSERER Kachel: auf einer Flaeche
+   von 30 x 35 cm sind die Faeden der Kokonhuelle (Wiederholung 2 x 3) so
+   fein, dass sie auf dunkler Ruestung im Bild verschwinden. */
+const fleckTex2 = huelleTex.clone();
+fleckTex2.needsUpdate = true;
+fleckTex2.wrapS = fleckTex2.wrapT = THREE.RepeatWrapping;
+fleckTex2.repeat.set(1, 1);
+const fleckSchaleMat = new THREE.MeshBasicMaterial({
+  map: fleckTex2, transparent: true, alphaTest: 0.06, depthWrite: false,
+  side: THREE.DoubleSide, opacity: 0.95, color: 0xffffff,
+});
 const fleckMat = new THREE.MeshBasicMaterial({
   map: fleckTex, transparent: true, alphaTest: 0.08, depthWrite: false,
   side: THREE.DoubleSide, opacity: 0.92,
@@ -21479,15 +21496,94 @@ const bandGeos = [
   wickelGeo(6.5, 4.0, 0.70, 0.245),
   wickelGeo(11, 1.0, 0.62, 0.215),
 ];
+/* fadenGeo traegt nur noch die Faeden, die den Kokon an eine Wand
+   heften. Die 22 Faeden AM Koerper sind weg - siehe makeCocoon.
+   fleckGeo (eine flache 55er Karte) gibt es nicht mehr: der Netzfleck
+   ist jetzt eine gekruemmte Schale am Brustknochen. */
 const fadenGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.34, 3);
-const fleckGeo = new THREE.PlaneGeometry(0.55, 0.55);
 
 /* Der Kokon wächst mit der Anzahl der Treffer:
    Stufe 1 = ein paar Fäden quer über den Körper,
    Stufe 2 = deutlich mehr Wicklungen,
    Stufe 3 = komplett eingesponnen. Ein einzelner Schuss wickelt also
    niemanden mehr vollständig ein. */
-function makeCocoon() {
+/* ---- Netzwickel an den Knochen ----
+   Bis hierher war der Kokon eine starre Gruppe an der Wurzel der Figur.
+   Im Bild (scratchpad/kok1_nah.png, kok3_nah.png) sah man daran drei
+   Dinge, und der Nutzer hat zu Recht gefragt, ob das realistisch aussieht:
+     - die Spiralen liefen als weisse Reifen durch die LUFT neben Armen
+       und Beinen; sie hatten mit dem Koerper keinen Kontakt,
+     - der Netzfleck schwebte als flache Scheibe 26 cm vor dem Bauch,
+     - die 22 geraden Faeden staken wie weisse Nadeln durch Kopf, Huefte
+       und Schulter.
+   Nichts davon lag auf der Figur, und nichts folgte ihrer Bewegung.
+   Jetzt haengt jeder Wickel an dem Knochen, den er umschliesst: er liegt
+   damit auf dem Koerper und macht jede Bewegung mit.
+   Die Masse stammen aus einer Messung am Modell (thug.glb, Knochen in
+   Metern, lokale +Y-Achse zeigt zum Kindknochen): Oberarm 0,218 m,
+   Unterarm 0,265, Oberschenkel 0,412, Unterschenkel 0,375, Brustwirbel
+   0,140, Becken 0,105. Die Radien sind die halben Umfangsmasse eines
+   Menschen von 1,79 m Groesse. */
+const NETZ_SITZE = [
+  /* Knochen, Kindknochen, von/bis als Anteil der Knochenlaenge,
+     Radius in Metern, Windungen, ab welcher Stufe sichtbar */
+  /* Der erste Treffer haengt an der HUEFTE, nicht an der Brust. Grund
+     ist die Rollenausruestung: dressEnemy haengt jeder Rolle eine
+     Brustplatte an den Brustwirbel, und die verdeckt die Brust
+     vollstaendig - ein Wickel dort war im Bild nicht zu sehen. Um die
+     Huefte herum ist frei. */
+  { k: 'hips',         c: 'spine',        t0: -0.3, t1: 1.5, r: 0.150, w: 2.3, ab: 1 },
+  { k: 'spine1',       c: 'spine2',       t0: -0.7, t1: 2.1, r: 0.163, w: 3.4, ab: 2 },
+  { k: 'leftarm',      c: 'leftforearm',  t0: 0.18, t1: 0.96, r: 0.062, w: 2.0, ab: 2 },
+  { k: 'rightarm',     c: 'rightforearm', t0: 0.18, t1: 0.96, r: 0.062, w: 2.0, ab: 2 },
+  { k: 'leftforearm',  c: 'lefthand',     t0: 0.12, t1: 0.86, r: 0.052, w: 1.9, ab: 3 },
+  { k: 'rightforearm', c: 'righthand',    t0: 0.12, t1: 0.86, r: 0.052, w: 1.9, ab: 3 },
+  { k: 'leftupleg',    c: 'leftleg',      t0: 0.20, t1: 0.82, r: 0.088, w: 2.5, ab: 3 },
+  { k: 'rightupleg',   c: 'rightleg',     t0: 0.20, t1: 0.82, r: 0.088, w: 2.5, ab: 3 },
+  { k: 'leftleg',      c: 'leftfoot',     t0: 0.16, t1: 0.80, r: 0.062, w: 2.2, ab: 3 },
+  { k: 'rightleg',     c: 'rightfoot',    t0: 0.16, t1: 0.80, r: 0.062, w: 2.2, ab: 3 },
+];
+/* Eine Spirale um die eigene Y-Achse, in echten Metern gebaut. Sie wird
+   NICHT skaliert an den Knochen gehaengt: eine ungleiche Skalierung
+   zerdrueckt den Querschnitt des Schlauchs, und dann ist der Faden am
+   Oberschenkel dreimal so dick wie am Unterarm. Stattdessen wird je
+   Groesse eine eigene Geometrie gebaut und geteilt - bei sieben Rollen
+   und drei Modellen sind das rund dreissig Stueck fuer die ganze Stadt. */
+const netzWickelCache = new Map();
+function netzWickelGeo(radius, hoehe, windungen) {
+  const key = radius.toFixed(3) + '|' + hoehe.toFixed(3) + '|' + windungen;
+  let g = netzWickelCache.get(key);
+  if (g) return g;
+  const punkte = [];
+  const n = 56;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const a = t * Math.PI * 2 * windungen;
+    /* Ein von Hand gewickelter Faden liegt nie gleichmaessig an. */
+    const r = radius * (1 + Math.sin(t * 17 + windungen * 2) * 0.075
+                          + Math.sin(t * 41) * 0.03);
+    punkte.push(new THREE.Vector3(Math.cos(a) * r, t * hoehe, Math.sin(a) * r));
+  }
+  /* Fadenstaerke 11 mm statt 7,5. Am Bild abgelesen: mit 7,5 mm las sich
+     der Wickel als einzelner Draht, nicht als ein Buendel Netz. */
+  g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(punkte), 78, 0.011, 3, false);
+  netzWickelCache.set(key, g);
+  return g;
+}
+/* Der Netzfleck: eine gekruemmte Schale, die auf dem Brustkorb aufliegt -
+   keine flache Karte davor. Ein offener Zylinderausschnitt legt sich um
+   den Knochen, egal in welche Richtung die Brust gerade zeigt. */
+const netzFleckCache = new Map();
+function netzFleckGeo(radius, hoehe, bogen) {
+  const key = radius.toFixed(3) + '|' + hoehe.toFixed(3) + '|' + bogen.toFixed(2);
+  let g = netzFleckCache.get(key);
+  if (g) return g;
+  g = new THREE.CylinderGeometry(radius, radius * 0.94, hoehe, 14, 1, true, 0, bogen);
+  netzFleckCache.set(key, g);
+  return g;
+}
+
+function makeCocoon(visual) {
   const g = new THREE.Group();
   const koerper = new THREE.Mesh(cocoonKoerperGeo, cocoonMat);
   koerper.castShadow = true;
@@ -21501,23 +21597,9 @@ function makeCocoon() {
   huelle.renderOrder = 2;
   g.add(huelle);
 
-  /* Netzflecken: dort, wo das Netz auftrifft, klebt ein Stück Spinnennetz
-     am Körper. Das ist der erste sichtbare Treffer – vorher schwebten
-     stattdessen sofort weiße Reifen um die Beine. */
-  const flecken = [];
-  for (let i = 0; i < 4; i++) {
-    const f = new THREE.Mesh(fleckGeo, fleckMat);
-    const a = rand(0, Math.PI * 2);
-    const y = rand(-0.30, 0.52);          // Rumpf, nicht der Kopf
-    f.position.set(Math.cos(a) * 0.26, y, Math.sin(a) * 0.20);
-    f.lookAt(Math.cos(a) * 3, y, Math.sin(a) * 3);
-    f.rotation.z = rand(0, Math.PI);
-    f.scale.setScalar(rand(0.75, 1.15));
-    f.visible = false;
-    g.add(f); flecken.push(f);
-  }
-
-  /* Wicklungen: spiralig um den Körper laufende Fäden. */
+  /* Die Spiralen um die WURZEL bleiben - aber nur fuer den geschlossenen
+     Kokon an der Wand. Dort umschliessen sie wirklich ein Buendel, und
+     dort sassen sie auch vorher schon richtig. */
   const baender = [];
   for (let i = 0; i < bandGeos.length; i++) {
     const b = new THREE.Mesh(bandGeos[i], bandMat);
@@ -21528,21 +21610,48 @@ function makeCocoon() {
     g.add(b); baender.push(b);
   }
 
-  /* Fäden, die AM Körper anliegen. Vorher standen sie in zufälligen
-     Richtungen ab und sahen aus wie weiße Nadeln, die durch die Figur
-     gestochen sind. Jetzt liegen sie tangential auf der Körperoberfläche
-     und laufen schräg darüber. */
-  const faeden = [];
-  for (let i = 0; i < 22; i++) {
-    const f = new THREE.Mesh(fadenGeo, bandMat);
-    const a = rand(0, Math.PI * 2);
-    const y = rand(-0.7, 0.8);
-    f.position.set(Math.cos(a) * 0.22, y, Math.sin(a) * 0.17);
-    f.rotation.y = -a;                       // Achse tangential zur Hülle
-    f.rotation.z = Math.PI / 2 + rand(-0.65, 0.65);
-    f.scale.set(1, rand(0.7, 1.5), 1);
-    f.visible = false;
-    g.add(f); faeden.push(f);
+  /* ---- Wickel an den Knochen ----
+     Die frueheren 22 geraden Faeden und die vier Spiralen um die WURZEL
+     der Figur sind ersatzlos weg. Sie hingen in der Luft: die Spiralen
+     als Reifen neben Armen und Beinen, die Faeden als Nadeln durch Kopf
+     und Huefte. Was jetzt hier haengt, sitzt an dem Knochen, den es
+     umschliesst - es liegt auf dem Koerper und bewegt sich mit ihm. */
+  const wickel = [];
+  const kn = visual && visual.knochen;
+  if (kn) {
+    for (const st of NETZ_SITZE) {
+      const b = kn[st.k], c = kn[st.c];
+      if (!b || !c) continue;
+      const lang = c.position.length();
+      if (!(lang > 0.02)) continue;
+      const von = st.t0 * lang, bis = st.t1 * lang;
+      if (bis - von < 0.03) continue;
+      const m = new THREE.Mesh(netzWickelGeo(st.r, bis - von, st.w), wickelMat);
+      m.position.y = von;
+      m.rotation.y = rand(0, Math.PI * 2);
+      m.visible = false;
+      /* Ein Wickel ist Teil der Figur; er hat keine eigene sinnvolle
+         Huellkugel, sobald der Knochen sich dreht. */
+      m.frustumCulled = false;
+      b.add(m);
+      wickel.push({ m, ab: st.ab });
+    }
+    /* Der erste sichtbare Treffer: ein Stueck Netz klebt auf der Brust.
+       Als gekruemmte Schale um den Wirbel, nicht als flache Karte davor -
+       damit liegt es auf, egal wohin die Brust gerade zeigt. */
+    const brust = kn.spine1 || kn.spine || kn.hips;
+    if (brust) {
+      for (const [dy, bogen, rad] of [[0.05, 2.5, 0.176], [-0.02, 1.7, 0.170]]) {
+        const f = new THREE.Mesh(netzFleckGeo(rad, 0.30, bogen), fleckSchaleMat);
+        f.position.y = dy;
+        f.rotation.y = rand(0, Math.PI * 2);
+        f.visible = false;
+        f.frustumCulled = false;
+        f.renderOrder = 2;
+        brust.add(f);
+        wickel.push({ m: f, ab: dy > 0 ? 1 : 2 });
+      }
+    }
   }
 
   /* Wird der Gegner an eine Wand geheftet, spannen ein paar Fäden vom
@@ -21559,23 +21668,23 @@ function makeCocoon() {
     g.add(f); wandFaeden.push(f);
   }
   g.userData.setzeWand = (an) => { wandFaeden.forEach((f) => { f.visible = an; }); };
+  /* Stufe 0 = nichts, 1 = ein Netzfleck auf der Brust (der Gegner kann
+     noch laufen), 2 = Brustwickel und beide Oberarme, 3 = alles.
+     Der komplette Kokon ist nur das Ergebnis, wenn jemand an eine Wand
+     geheftet wird - mitten auf der Strasse wird ein Gegner kraeftig
+     eingewickelt und ist bewegungsunfaehig, aber kein Buendel. */
   g.userData.setzeStufe = (stufe) => {
-    /* Stufe 1: ein Netzfleck und ein paar Fäden – der Gegner kann noch
-       laufen. Stufe 2: erste Wicklungen. Stufe 3: komplett eingesponnen. */
-    const fl = stufe >= 3 ? 4 : (stufe === 2 ? 3 : 2);
-    flecken.forEach((f, i) => { f.visible = i < fl; });
-    /* Bei Stufe 3 trägt der Kokon selbst das Wickelmuster. Alle neun Ringe
-       zusätzlich anzuzeigen sah aus, als schwebten Reifen um das Bündel –
-       es bleiben ein paar wenige, die stramm anliegen. */
-    baender.forEach((b, i) => { b.visible = stufe >= 3 || (stufe === 2 && i < 2); });
-    const fAnzahl = stufe >= 3 ? 18 : (stufe === 2 ? 11 : 5);
-    faeden.forEach((f, i) => { f.visible = i < fAnzahl; });
-    /* Der komplette Kokon ist nur noch das Ergebnis, wenn jemand an eine
-       Wand geheftet wird. Mitten auf der Straße wird ein Gegner kräftig
-       eingewickelt und ist bewegungsunfähig – aber kein Bündel. So kämpft
-       das Vorbild auch. */
+    for (const w of wickel) w.m.visible = stufe >= w.ab;
+    baender.forEach((b) => { b.visible = false; });
     koerper.visible = false;
     huelle.visible = false;
+  };
+  /* Die Wickel haengen an Knochen, nicht an dieser Gruppe - sie folgen
+     deshalb NICHT deren Sichtbarkeit. cocoon.visible wird an acht Stellen
+     gesetzt; damit keine davon vergessen wird, zieht updateEnemies die
+     Wickel einmal je Bild ueber diesen Aufruf nach. */
+  g.userData.zeigeWickel = (stufe) => {
+    for (const w of wickel) w.m.visible = stufe >= w.ab;
   };
   g.userData.setzeKokon = (an) => {
     koerper.visible = an;
@@ -21811,7 +21920,7 @@ function spawnGang(cx, cz, n, quelle) {
     visual.root.add(hpBar.g);
     const warn = makeWarnzeichen(); visual.root.add(warn);
     const blockZ = makeBlockzeichen(); visual.root.add(blockZ);
-    const cocoon = makeCocoon();
+    const cocoon = makeCocoon(visual);
     cocoon.position.y = 0.98;
     cocoon.visible = false;
     visual.root.add(cocoon);
@@ -22675,6 +22784,12 @@ function updateEnemies(dtBild) {
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, e.boss ? 'enforcer' : e.typ.art);
+    /* Siehe zeigeWickel: die Netzwickel haengen an den Knochen und
+       folgen der Sichtbarkeit der Kokongruppe nicht von selbst. Hier
+       oben, vor jedem continue - sonst bliebe ein Wickel an einem
+       Gegner stehen, der weit weg nur jedes dritte Bild gerechnet wird. */
+    if (e.cocoon && e.cocoon.userData.zeigeWickel)
+      e.cocoon.userData.zeigeWickel(e.cocoon.visible && !e.dead ? (e.webStufe || 0) : 0);
     /* Ganoven weit weg vom Helden ebenfalls nur jedes dritte Bild. Wer
        gerade ausholt oder zuschlägt, wird immer gerechnet – sonst
        verschiebt sich die Vorwarnzeit und der Konter passt nicht mehr. */
