@@ -4787,6 +4787,14 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
   /* animation-2: ein Gehzyklus von einem fremden Skelett (DAZ-artig,
      Knochen auf "_J"), umgerechnet mit tools/retarget-ue4.mjs. */
   'gehen',
+  /* hero-4, aus dem Unreal-Projekt "SpiderMan Traversal Project" ueber
+     tools/uasset-zu-glb.mjs und tools/retarget-ue4.mjs: der vollstaendige
+     Satz Wandkriechbewegungen (acht Richtungen) und die Ruhehaltung an
+     der Wand. Das sind echte Kletteranimationen, keine umgebogene
+     Leiterbewegung. */
+  'wandkriech_v', 'wandkriech_h', 'wandkriech_l', 'wandkriech_r',
+  'wandkriech_vl', 'wandkriech_vr', 'wandkriech_hl', 'wandkriech_hr',
+  'wandruhe',
   /* hero-3: Seil ziehen (Haltung beim Spannen des Katapults) und
      Aufstampfen (der Tritt im Symbiontenanzug). */
   'ziehen', 'stampfen',
@@ -5603,6 +5611,12 @@ const GLB_CLIP_PATTERNS = {
   symgang: [/^symgang$/i], symkombo: [/^symkombo$/i],
   wurfgriff: [/^wurfgriff$/i], kriechen: [/^kriechen$/i],
   gehen: [/^gehen$/i],
+  /* Die genaueren Regeln zuerst - findClip nimmt den ersten Treffer. */
+  wandkriech_vl: [/^wandkriech_vl$/i], wandkriech_vr: [/^wandkriech_vr$/i],
+  wandkriech_hl: [/^wandkriech_hl$/i], wandkriech_hr: [/^wandkriech_hr$/i],
+  wandkriech_v: [/^wandkriech_v$/i], wandkriech_h: [/^wandkriech_h$/i],
+  wandkriech_l: [/^wandkriech_l$/i], wandkriech_r: [/^wandkriech_r$/i],
+  wandruhe: [/^wandruhe$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
   schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
