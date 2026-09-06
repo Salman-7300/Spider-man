@@ -30202,7 +30202,15 @@ if (window.__WEBHERO_TEST__ === true) {
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     setzeKamYaw(v) { camYaw = v; },
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
-    schritt(dt, n) { for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60); },
+    schritt(dt, n) {
+      for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60);
+      /* Die Schattenkarte wird sonst nur in animate() aufgefrischt. Bei
+         eingefrorener Schleife wandert die Sonne mit dem Spieler mit, die
+         Karte bleibt aber auf dem Stand des Einfrierens - dann liegt die
+         ganze Umgebung im Schatten einer laengst verlassenen Stelle. Eine
+         Kletteraufnahme kam so fast schwarz heraus. */
+      if (sun && sun.shadow && !sun.shadow.autoUpdate) sun.shadow.needsUpdate = true;
+    },
     /* Nur die Kamera rechnen – so lässt sich das Mitziehen an einem
        vorgegebenen Flug messen, ohne dass die Spielphysik dazwischenfunkt. */
     kamSchritt(dt) { updateCamera(dt || 1 / 60); },
