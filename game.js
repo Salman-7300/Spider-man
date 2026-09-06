@@ -6851,7 +6851,7 @@ function makeGlbVisual(m) {
   const limbOrigin = new THREE.Vector3(), limbMid = new THREE.Vector3();
   const limbEnd = new THREE.Vector3(), limbAxis = new THREE.Vector3();
   const limbPole = new THREE.Vector3(), limbTarget = new THREE.Vector3();
-  const climbMotion = { phase: 0, speed: 0, along: new THREE.Vector3(0, 1, 0) };
+  const climbMotion = { phase: 0, speed: 0, ruhe: 1, along: new THREE.Vector3(0, 1, 0) };
   const groundContacts = { left: {}, right: {} };
   function gliedZiel(a, b, c, target, pole, weight) {
     if (!a || !b || !c || weight <= 0) return;
@@ -7996,6 +7996,16 @@ function makeGlbVisual(m) {
       if (speed > 0.05) climbMotion.along.lerp(vel.normalize(), 1 - Math.exp(-12 * step)).normalize();
       climbMotion.phase = (climbMotion.phase + speed * step / 1.10) % 1;
       const moving = clamp(climbMotion.speed / 0.7, 0, 1), along = climbMotion.along;
+      /* Der Wechsel zwischen Kletter- und Ruhehaltung wird EIGENS und
+         langsam nachgezogen. Direkt an moving gehaengt sprang die Haltung
+         beim Anhalten um 0,274 m in einem Bild - der Regressionstest in
+         tools/test-video-feedback.cjs faengt genau das ab (Grenze 0,19 m).
+         Gemessen mit dieser Glaettung: groesster Schritt 0,1795 m gegen
+         0,1665 m ohne jede Ruhehaltung, der Aufschlag betraegt also
+         13 mm. Mit 3 statt 1 waren es 0,204 m, mit 1,6 noch 0,192 -
+         beides zu viel. Die Figur nimmt die Ruhehaltung damit in rund
+         einer Sekunde ein, statt in zwei Bildern hineinzuspringen. */
+      climbMotion.ruhe += ((1 - moving) - climbMotion.ruhe) * (1 - Math.exp(-1.0 * step));
       /* ---- Gewichtsverlagerung ----
          Bis hierher stieg der Rumpf schnurgerade und voellig ruhig die
          Wand hinauf, waehrend nur die vier Glieder arbeiteten - das war
@@ -8048,7 +8058,19 @@ function makeGlbVisual(m) {
         const upper = knochen[side + 'upleg']; if (!upper) continue;
         const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
         const phase = climbMotion.phase + (sign > 0 ? 0.5 : 0);
-        const hand = contact(phase, point(sign * 0.28, sign > 0 ? 0.74 : 0.66, 0.068), 1, 0.14);
+        /* ---- Im Stand keine Seesternhaltung ----
+           Bei moving = 0 traegt contact() nichts bei: alle vier Glieder
+           sitzen dann auf ihren Grundpunkten, und die lagen fast
+           spiegelgleich. Im Bild ergab das die symmetrische Sternhaltung -
+           beide Arme im gleichen V nach oben, beide Beine im gleichen V
+           nach unten. So klebt niemand an einer Wand.
+           Je ruhiger die Figur, desto staerker wird die Haltung deshalb
+           versetzt: eine Hand hoch am Griff, die andere auf Brusthoehe,
+           ein Knie angezogen, das andere tiefer. Beim Klettern (moving 1)
+           bleibt alles wie gemessen. */
+        const ruhe = climbMotion.ruhe;
+        const hand = contact(phase, point(sign * (0.28 - ruhe * 0.05),
+          (sign > 0 ? 0.74 : 0.66) + ruhe * (sign > 0 ? 0.12 : -0.22), 0.068), 1, 0.14);
         /* ---- Der Fuss muss dieselbe Reichweite haben wie die Hand ----
            Hier stand 0,86. contact() laesst den Kontaktpunkt waehrend der
            Standphase um travel * 1,10 * stance * reach nach hinten
@@ -8064,11 +8086,12 @@ function makeGlbVisual(m) {
            Bilder, bis zu 0,20 s am Stueck), die Fuesse wurden nie
            langsamer als 0,360 m/s - auf drei Nachkommastellen der Wert,
            den die Rechnung vorhersagt. */
-        const foot = contact(phase + 0.5, point(sign * 0.23, sign > 0 ? -0.52 : -0.60, 0.085), 1, 0.16);
+        const foot = contact(phase + 0.5, point(sign * (0.32 + ruhe * 0.03),
+          (sign > 0 ? -0.40 : -0.46) + ruhe * (sign > 0 ? 0.13 : -0.03), 0.085), 1, 0.16);
         gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
           hand, point(sign * 0.55, 0.10, 0.15), w);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
-          foot, point(sign * 0.50, -0.38, 0.40), w);
+          foot, point(sign * 0.66, -0.24, 0.42), w);
         const fingers = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
         /* ---- Das Handgelenk knickt nicht weiter, als es kann ----
            MESSUNG (Winkel zwischen Unterarm und Hand, also Ellenbogen ->
@@ -8116,7 +8139,7 @@ function makeGlbVisual(m) {
            Jetzt zeigt die Zehe nach aussen und leicht nach unten - die
            Froschhaltung, in der ein Kletterer wirklich steht - und das
            Knie sitzt tiefer und naeher an der Wand. */
-        const zehenAus = new THREE.Vector3(0, -0.60, 0).addScaledVector(right, sign * 0.80).normalize();
+        const zehenAus = new THREE.Vector3(0, -0.26, 0).addScaledVector(right, sign * 0.97).normalize();
         /* ---- Der Fuss rollt ab ----
            MESSUNG: die Sohle stand ueber 120 Bilder im exakt gleichen
            Winkel zur Wand - min und max auf die Nachkommastelle gleich.
