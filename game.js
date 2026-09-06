@@ -4792,6 +4792,9 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
      (siehe tools/extract-anims.mjs). Endlich ein richtiger Schwung statt
      einer festgehaltenen Haltung. */
   'schwung', 'schwungland', 'schwunghang',
+  /* Der Netzschwung als BOGEN aus zwei Haltungen des UE4-Projekts,
+     zusammengesetzt mit tools/posen-zu-bogen.mjs. Siehe dort. */
+  'schwungbogen',
   /* animation-1, aus dem Symbiontenmodell: der schwere Gang und der
      fliegende Kniestoss fuer den Symbiontenmodus. "Grab and Slam" und
      "Low Crawl" sind zwar auch brauchbar, haben aber noch keinen Platz im
@@ -5632,6 +5635,7 @@ const GLB_CLIP_PATTERNS = {
   wandkriech_v: [/^wandkriech_v$/i], wandkriech_h: [/^wandkriech_h$/i],
   wandkriech_l: [/^wandkriech_l$/i], wandkriech_r: [/^wandkriech_r$/i],
   wandruhe: [/^wandruhe$/i],
+  schwungbogen: [/^schwungbogen$/i],
   schwung: [/^schwung$/i], schwungland: [/^schwungland$/i],
   schwunghang: [/^schwunghang$/i],
   schwungpose: [/^schwungpose$/i],
@@ -7165,7 +7169,8 @@ function makeGlbVisual(m) {
          selbstgesetzten Winkel legen sich dann nur noch leicht darueber
          und bringen die Last im Bogen hinein. Kleine Folgebewegungen
          begleiten den Schwung, ohne die Beine staendig zappeln zu lassen. */
-      const k = (findClip(m.clips, 'schwung2') ? 0.58
+      const k = (findClip(m.clips, 'schwungbogen') ? 0.58
+              : findClip(m.clips, 'schwung2') ? 0.58
               : findClip(m.clips, 'schwung') ? 0.42
               : findClip(m.clips, 'schwungpose') ? 0.35 : 0.9) * _sk;
       /* lage: -1 = es geht abwärts in den Bogen hinein, +1 = es geht wieder
@@ -9055,8 +9060,17 @@ function makeGlbVisual(m) {
          ("ApexTwist"): eine Hand am Faden ueber dem Kopf, der Koerper
          pendelt darunter. Sie ist fuer genau diesen Bogen gemacht und hat
          deshalb Vorrang. */
+      /* ---- Der Netzschwung als Bogen aus zwei Haltungen ----
+         'schwung2' (ApexTwist) ist eine einmalige Figur, keine Schleife:
+         ihr letztes linkes Knie steht 149 Grad anders als ihr erstes.
+         Benutzbar war deshalb nur ihr Anfang - 1,5 bis 12 Prozent des
+         Clips, also praktisch eine festgehaltene Haltung.
+         'schwungbogen' ist genau fuer diese Stelle gebaut: zwei echte
+         Flughaltungen aus dem UE4-Projekt, dazwischen wird geblendet,
+         und die Lage im Bogen sucht die Stelle aus. */
       if (key === 'swing') {
-        if (findClip(m.clips, 'schwung2')) want = 'schwung2';
+        if (findClip(m.clips, 'schwungbogen')) want = 'schwungbogen';
+        else if (findClip(m.clips, 'schwung2')) want = 'schwung2';
         else if (findClip(m.clips, 'schwung')) want = 'schwung';
         else if (findClip(m.clips, 'schwungpose')) want = 'schwungpose';
       }
@@ -9256,6 +9270,16 @@ function makeGlbVisual(m) {
            gleich tief auf dem Boden. */
         current.timeScale = 0;
         current.time = DUCK_STAND_T;
+      } else if (current && want === 'schwungbogen') {
+        /* Der Clip laeuft nicht ab - seine Stelle IST die Lage im Bogen:
+           0 unten im Tiefpunkt, 1 oben im Scheitel. Geglaettet mit
+           derselben Zeitkonstante wie beim alten Weg, sonst zuckt die
+           Haltung mit jedem Schwanken der Steiggeschwindigkeit. */
+        current.timeScale = 0;
+        const roh = clamp(p.bogen === undefined ? 0 : p.bogen, 0, 1);
+        if (want !== letzterKey) bogenGlatt = roh;
+        bogenGlatt += (roh - bogenGlatt) * (1 - Math.exp(-dt * 4.5));
+        current.time = clamp(bogenGlatt, 0, 0.999) * (current.getClip().duration || 1);
       } else if (current && want === 'schwung2') {
         // ApexTwist is a one-off flourish, NOT a loop: its final left knee
         // differs from its first by 149 degrees. Use only the stable opening
