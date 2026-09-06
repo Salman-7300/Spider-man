@@ -384,6 +384,36 @@ export function retarget(quellGlb, vorlageGlb) {
     ausgabe.get('Hips').t.push([tH[0] * massstab, tH[1] * massstab, tH[2] * massstab]);
   }
 
+  /* ---- Blickrichtung auf null drehen ----
+     Das UE4-Mannequin steht in seiner Ruhehaltung anders im Raum als das
+     Mixamo-Skelett. Die Achsenkorrektur richtet zwar jeden Knochen aus,
+     laesst aber die Drehung des BECKENS um die Hochachse stehen: gemessen
+     startete jede umgerechnete Datei mit -110,6 Grad Gier, die Figur stand
+     im Spiel also quer zu ihrer Laufrichtung. (Die frueher von Hand
+     importierten Dateien haben 0 Grad - dort wurde das offenbar
+     nachtraeglich geradegedreht.)
+     Hier wird die ganze Bewegung um die Welt-Hochachse zurueckgedreht,
+     bis das Becken im ERSTEN Bild geradeaus schaut. Das dreht die
+     Bewegung als Ganzes und veraendert nichts an der Haltung. */
+  const hipSpur = ausgabe.get('Hips');
+  if (hipSpur && hipSpur.r.length) {
+    const q0 = hipSpur.r[0];
+    /* Vorwaertsrichtung des Beckens im ersten Bild. */
+    const v = qRot(q0, [0, 0, 1]);
+    const gier = Math.atan2(v[0], v[2]);
+    if (Math.abs(gier) > 0.002) {
+      const zurueck = [0, Math.sin(-gier / 2), 0, Math.cos(-gier / 2)];
+      for (let i = 0; i < hipSpur.r.length; i++) hipSpur.r[i] = qMul(zurueck, hipSpur.r[i]);
+      if (hipSpur.t) {
+        for (let i = 0; i < hipSpur.t.length; i++) {
+          const t = hipSpur.t[i];
+          const c = Math.cos(-gier), sn = Math.sin(-gier);
+          hipSpur.t[i] = [t[0] * c + t[2] * sn, t[1], -t[0] * sn + t[2] * c];
+        }
+      }
+    }
+  }
+
   return { zeiten, ausgabe, praefix: 'mixamorig:' };
 }
 
