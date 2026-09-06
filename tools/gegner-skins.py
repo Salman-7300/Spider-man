@@ -144,10 +144,141 @@ ROLLEN = {
 }
 
 
+"""---- Die zwei restlichen Rollen ----
+duellant und stuermer benutzen nicht thug.glb, sondern civilian4 und
+civilian5 - dieselben Modelle, die auch als Passanten durch die Stadt
+laufen. Ein Gegner im minzgestreiften Polohemd ist von einem Passanten
+nicht zu unterscheiden; genau das ist hier das Problem, nicht die
+Buntheit.
+
+Der Kopf wird hier NICHT ueber die Flutfuellung ausgespart. Die beiden
+Atlanten trennen Haut und Kleidung sauber im FARBTON: gemessen liegen
+Haut, Haende und Gesicht bei 0,00 bis 0,083 (civilian4 39 %, civilian5
+29 % der gesaettigten Flaeche), die Kleidung dagegen bei 0,44/0,58
+(Minzhemd, Jeans) beziehungsweise 0,86/0,92 (rosa Kapuzenpulli). Rot bis
+Rosa oberhalb von 0,97 sind Schuhe, Lippen und Augen - die bleiben
+ebenfalls stehen. Deshalb genuegt ein Farbtonfenster, und es kann nichts
+ins Gesicht laufen.
+
+Die weissen Streifen des Hemdes und die weissen Turnschuhe sind zu
+blass fuer das Fenster. Sie werden ueber die UMGEBUNG erfasst: wo im
+Umkreis von zwoelf Pixeln ueberwiegend Kleidung liegt, gehoert auch der
+blasse Punkt zur Kleidung. Das ist ein oertlicher Test, keine
+Flutfuellung - er kann nicht ueber den dunklen Atlashintergrund von
+einer Insel zur naechsten springen.
+"""
+
+HAUT_VON, HAUT_BIS = 0.955, 0.105       # Farbtonfenster der Haut (laeuft ueber 0)
+
+
+def istHaut(h):
+    return h >= HAUT_VON or h <= HAUT_BIS
+
+
+def kleidungsmaske(im, radius=11):
+    """Wo liegt Kleidung? Gesaettigte Nicht-Haut-Toene, plus blasse
+    Stellen, die von Kleidung umgeben sind."""
+    import colorsys
+    w, h = im.size
+    px = im.load()
+    kern = Image.new('L', (w, h), 0)
+    kp = kern.load()
+    blass = Image.new('L', (w, h), 0)
+    bp = blass.load()
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+            mx, mn = max(r, g, b), min(r, g, b)
+            if mx == 0:
+                continue
+            sat = (mx - mn) / mx
+            hh = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)[0]
+            if sat >= 0.16 and not istHaut(hh):
+                kp[x, y] = 255
+            elif sat < 0.16:
+                bp[x, y] = 255
+    """Umgebung: der Kleidungskern wird um radius Pixel AUFGEWEITET.
+    Eine blasse Stelle, die danach im aufgeweiteten Bereich liegt, ist von
+    Kleidung umgeben und zaehlt mit - so kommen die weissen Streifen des
+    Hemdes und die hellen Sohlen dazu.
+    Erst mit dem Weichzeichner probiert: bei acht Pixel breiten Streifen
+    liegt der Anteil im Umkreis genau an der Schwelle, und die Maske kam
+    als Streifenmuster heraus - die weissen Streifen blieben weiss. Die
+    Aufweitung entscheidet dagegen eindeutig."""
+    umgebung = kern.filter(ImageFilter.MaxFilter(2 * radius + 1)).load()
+    ganz = kern.copy()
+    gp = ganz.load()
+    for y in range(h):
+        for x in range(w):
+            if bp[x, y] and umgebung[x, y] > 128:
+                gp[x, y] = 255
+    return ganz.filter(ImageFilter.GaussianBlur(1.2))
+
+
+def zivilKleidung(im, ton, saettigung=1.0, dunkler=1.0, radius=11, deckel=0.46):
+    """Kleidung umfaerben und abdunkeln, Haut und Schuhe bleiben.
+
+    deckel ist eine Helligkeitsobergrenze. Ohne sie blieben die weissen
+    Streifen des Hemdes weiss, auch wenn sie in der Maske liegen - und ein
+    weiss-tuerkis gestreiftes Polohemd ist wieder ein Passant."""
+    import colorsys
+    w, h = im.size
+    maske = kleidungsmaske(im, radius)
+    mp = maske.load()
+    aus = im.copy()
+    ap = aus.load()
+    px = im.load()
+    for y in range(h):
+        for x in range(w):
+            k = mp[x, y] / 255
+            if k < 0.02:
+                continue
+            r, g, b = px[x, y]
+            hh, ll, ss = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+            nl = max(0.0, min(deckel, ll * dunkler))
+            ns = min(1.0, max(ss, 0.12) * saettigung)
+            nr, ng, nb = colorsys.hls_to_rgb(ton, nl, ns)
+            ap[x, y] = (round(r + (nr * 255 - r) * k),
+                        round(g + (ng * 255 - g) * k),
+                        round(b + (nb * 255 - b) * k))
+    return aus, maske
+
+
+"""Zwei dunkle Strassenfarben. Sie muessen sich von den fuenf
+Ruestungsrollen und voneinander unterscheiden, vor allem aber vom
+Passanten, aus dem sie gebaut sind."""
+ZIVIL_ROLLEN = {
+    'duellant': {'quelle': 'civilian4', 'ton': 0.50, 'sat': 0.70, 'dunkel': 0.55},  # dunkles Petrol
+    'stuermer': {'quelle': 'civilian5', 'ton': 0.94, 'sat': 0.75, 'dunkel': 0.52},  # Oxblood
+}
+
+
 if __name__ == '__main__':
     import json, os
-    quelle, glutquelle, ziel = sys.argv[1], sys.argv[2], sys.argv[3]
-    kante = int(sys.argv[4]) if len(sys.argv) > 4 else 512
+    """Zwei Betriebsarten:
+         ruestung <diffuse> <glut> <ziel> [kante]   - die fuenf thug-Rollen
+         zivil <c4-diffuse> <c5-diffuse> <ziel> [kante] - duellant/stuermer"""
+    if sys.argv[1] == 'zivil':
+        c4, c5, ziel = sys.argv[2], sys.argv[3], sys.argv[4]
+        kante = int(sys.argv[5]) if len(sys.argv) > 5 else 512
+        os.makedirs(ziel, exist_ok=True)
+        quellen = {'civilian4': Image.open(c4).convert('RGB'),
+                   'civilian5': Image.open(c5).convert('RGB')}
+        bericht = {}
+        for rolle, cfg in ZIVIL_ROLLEN.items():
+            im = quellen[cfg['quelle']]
+            d, maske = zivilKleidung(im, cfg['ton'], cfg['sat'], cfg['dunkel'])
+            anteil = round(100 * sum(1 for v in maske.getdata() if v > 128)
+                           / (im.width * im.height), 1)
+            maske.resize((256, 256)).save(os.path.join(ziel, '_' + rolle + '_maske.png'))
+            dp = os.path.join(ziel, rolle + '_diffuse.jpg')
+            d.resize((kante, kante), Image.LANCZOS).save(dp, quality=88, optimize=True)
+            bericht[rolle] = {'quelle': cfg['quelle'], 'kleidungProzent': anteil,
+                              'diffuse': os.path.getsize(dp)}
+        print(json.dumps(bericht, indent=1))
+        sys.exit(0)
+    quelle, glutquelle, ziel = sys.argv[2], sys.argv[3], sys.argv[4]
+    kante = int(sys.argv[5]) if len(sys.argv) > 5 else 512
     im = Image.open(quelle).convert('RGB')
     glut = Image.open(glutquelle).convert('RGB')
     maske = kopfmaske(im)

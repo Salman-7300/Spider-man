@@ -8955,6 +8955,12 @@ function makeCharacterVisual(kind, cfg) {
      wichtig: dieselbe Bewegungsdatei kann auf zwei Modellen voellig
      verschieden aussehen, wenn ihre Ruhehaltungen abweichen. */
   v.art = kind;
+  /* Welche GLB-Datei traegt diese Figur wirklich? Die Rolle allein sagt
+     das nicht: evSetzeRollen kann einem fertigen Koerper eine andere
+     Rolle geben, und dann darf ihm nicht die Haut eines fremden Modells
+     aufgezogen werden. */
+  v.modell = (kind === 'thug' && cfg && cfg.model) ? cfg.model
+           : (m ? (Object.keys(glbModels).find((k) => glbModels[k] === m) || kind) : null);
   v.quelle = m ? (m.__quelle || null) : 'prozedural';
   scene.add(v.root);
   return v;
@@ -9006,9 +9012,19 @@ function faerbeKleidung(v) {
    SkeletonUtils.clone teilt Materialien zwischen allen Figuren. Je Rolle
    wird deshalb genau EINE Kopie angelegt und wiederverwendet; ohne das
    wuerde eine Umfaerbung alle Gegner auf einmal treffen. */
+/* Jede Rolle nennt das Modell, aus dem sie gebaut wird - fuenf Rollen
+   teilen sich thug.glb, duellant und stuermer benutzen civilian4 und
+   civilian5. Bei den beiden letzten ist das nicht nur Abwechslung: es
+   sind DIESELBEN Modelle, die auch als Passanten durch die Stadt laufen,
+   und ein Gegner im minzgestreiften Polohemd war von einem Passanten
+   nicht zu unterscheiden. */
 const GEGNER_HAUT = {
-  brecher:  { ton: 'rostbraun' }, flink: { ton: 'stahlblau' },
-  waechter: { ton: 'oliv' },      werfer: { ton: 'violett' },
+  brecher:  { modell: 'thug', ton: 'rostbraun' },
+  flink:    { modell: 'thug', ton: 'stahlblau' },
+  waechter: { modell: 'thug', ton: 'oliv' },
+  werfer:   { modell: 'thug', ton: 'violett' },
+  duellant: { modell: 'civilian4', ton: 'petrol' },
+  stuermer: { modell: 'civilian5', ton: 'oxblood' },
 };
 for (const rolle in GEGNER_HAUT) {
   const eintrag = GEGNER_HAUT[rolle];
@@ -9026,21 +9042,49 @@ for (const rolle in GEGNER_HAUT) {
    auch die Ausruestung, die dressEnemy an den Brustknochen haengt - dann
    traegt eine Weste die Ruestungstextur oder, schlimmer, die einer
    anderen Rolle. Genau das ist beim ersten Versuch passiert. */
-let thugGrundMat = null;
-function thugMaterial() {
-  if (thugGrundMat) return thugGrundMat;
-  const m = glbModels.thug && glbModels.thug.scene;
+const GRUND_MAT = {};
+function grundMaterial(modell) {
+  if (GRUND_MAT[modell] !== undefined) return GRUND_MAT[modell];
+  const m = glbModels[modell] && glbModels[modell].scene;
   if (!m) return null;
+  /* Bei civilian4 und civilian5 gibt es ZWEI Materialien mit Bild:
+     Koerper und Haare (Ch26_body/Ch26_hair, Ch38_body/Ch37_hair, am GLB
+     abgelesen). Umgefaerbt wird nur der Koerper - eine tuerkise Frisur
+     war nicht gemeint. */
+  let treffer = null, ersatz = null;
   m.traverse((o) => {
-    if (!thugGrundMat && o.isSkinnedMesh && o.material && o.material.map) thugGrundMat = o.material;
+    if (!o.isSkinnedMesh || !o.material || !o.material.map) return;
+    if (!ersatz) ersatz = o.material;
+    if (!treffer && !/hair|haar/i.test(o.material.name || '')) treffer = o.material;
   });
-  return thugGrundMat;
+  GRUND_MAT[modell] = treffer || ersatz || null;
+  return GRUND_MAT[modell];
+}
+/* Welche Haut gehoert zu welchem fremden Modell? Fuer den Fall, dass
+   Rolle und Koerper nicht zusammenpassen. */
+const HAUT_JE_MODELL = {};
+for (const r in GEGNER_HAUT) {
+  const m = GEGNER_HAUT[r].modell;
+  if (m !== 'thug' && !HAUT_JE_MODELL[m]) HAUT_JE_MODELL[m] = r;
 }
 function setzeGegnerHaut(v, art) {
   if (!v || !v.root) return false;
-  const grund = thugMaterial();
+  /* Die Haut gehoert zum MODELL, nicht zur Rolle. evSetzeRollen gibt
+     einem fertigen Koerper eine andere Rolle, und EV_ROLLEN kennt nur
+     die fuenf thug-Rollen: ein aus civilian4 gebauter Gegner wurde dort
+     also zum Schlaeger und bekam damit seine ZIVILE Originaltextur
+     zurueck - das minzgestreifte Polohemd, mitten in einer Gang.
+     Deshalb entscheidet bei fremdem Modell das Modell ueber die Haut. */
+  const modell = v.modell || 'thug';
+  let e = GEGNER_HAUT[art];
+  if (HAUT_JE_MODELL[modell] && (!e || e.modell !== modell)) {
+    art = HAUT_JE_MODELL[modell];
+    e = GEGNER_HAUT[art];
+  } else if (e && e.modell !== modell) {
+    return false;                 // thug-Haut auf einem fremden Koerper
+  }
+  const grund = grundMaterial(modell);
   if (!grund) return false;
-  const e = GEGNER_HAUT[art];
   const ziel = e && e.diffuse ? null : grund;   // ohne eigene Haut: zurueck aufs Original
   if (v.hautRolle === art) return false;
   let getauscht = 0;
