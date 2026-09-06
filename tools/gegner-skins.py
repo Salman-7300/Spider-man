@@ -171,18 +171,41 @@ einer Insel zur naechsten springen.
 HAUT_VON, HAUT_BIS = 0.955, 0.105       # Farbtonfenster der Haut (laeuft ueber 0)
 
 
-def istHaut(h, sat=0.0):
-    """Alles im Farbtonfenster bleibt stehen - Haut, Lippen, Augen.
+"""---- Die rosa Schuhe ----
+Sie liegen im Farbtonfenster der Haut und blieben deshalb erst stehen -
+der duellant lief in rosa Pumps herum. Der erste Versuch, sie ueber die
+Saettigung allein herauszutrennen (>= 0,50), hat das halbe Gesicht
+tuerkis gefaerbt: Wangen und Schatten liegen dort ebenfalls darueber.
 
-    VERSUCH UND RUECKNAHME: die rosa Schuhe von civilian4 liegen bei
-    Farbton 0,98 und damit im Hautfenster; im Spiel laeuft der duellant
-    deshalb in rosa Pumps herum. Der Versuch, sie ueber die Saettigung
-    herauszutrennen (Schuhe 0,57, angebliche Hautobergrenze 0,45), ist
-    gescheitert: im Gesicht liegen Wangen und Schatten ebenfalls ueber
-    0,50, und die Maske faerbte das halbe Gesicht tuerkis
-    (scratchpad/zivilskins3/duellant_diffuse.jpg). Die Schuhe bleiben
-    lieber rosa als das Gesicht blau - der Parameter sat wird deshalb
-    nicht mehr ausgewertet."""
+Danach an den Atlanten AUSGEMESSEN, je Region Farbton, Saettigung und
+Helligkeit im Median:
+
+  Gesicht      Farbton 0,065   Saettigung 0,36   Helligkeit 0,45
+  Haende       Farbton 0,042   Saettigung 0,32   Helligkeit 0,45
+  Augen/Mund   Farbton 0,042   Saettigung 0,28   Helligkeit 0,35
+  Arme         Farbton 0,050   Saettigung 0,25   Helligkeit 0,44
+  Schuhe       Farbton 0,977   Saettigung 0,55   Helligkeit 0,55
+
+Haut liegt also auf der ORANGEN Seite von Rot, die Schuhe auf der
+magentafarbenen - und sie sind kraeftiger und heller. Erst alle drei
+Bedingungen zusammen trennen sauber. Nachgezaehlt: von 20209 Punkten im
+Gesicht trifft die Regel 0, von 16759 an den Haenden 0, von 5025 an
+Augen und Mund 0, von 4384 an den Armen 0 - und von 10783 im
+Schuhbereich 5762. Bei civilian5 (weisse Turnschuhe) trifft sie fast
+nichts; die hellen Sohlen kommen dort ueber die Umgebungsregel dazu."""
+SCHUH_VON, SCHUH_BIS = 0.940, 0.999
+SCHUH_SAT, SCHUH_HELL = 0.45, 0.42
+
+
+def istSchuh(h, l, s):
+    return SCHUH_VON <= h < SCHUH_BIS and s >= SCHUH_SAT and l >= SCHUH_HELL
+
+
+def istHaut(h, l=0.5, s=0.0):
+    """Was im Farbtonfenster stehen bleibt: Haut, Lippen, Augen - aber
+    nicht die kraeftig rosa Schuhe, siehe oben."""
+    if istSchuh(h, l, s):
+        return False
     return h >= HAUT_VON or h <= HAUT_BIS
 
 
@@ -203,15 +226,18 @@ def kleidungsmaske(im, radius=11):
             if mx == 0:
                 continue
             sat = (mx - mn) / mx
-            hh = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)[0]
-            if sat >= 0.16 and not istHaut(hh, sat):
+            hh, ll, ss = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+            if sat >= 0.16 and not istHaut(hh, ll, ss):
                 kp[x, y] = 255
-            elif sat < 0.16:
+            elif sat < 0.16 and (r + g + b) / 765 > 0.30:
+                # Hell genug, um Stoff zu sein. Der dunkle Hintergrund des
+                # Atlas ist ebenfalls unbunt und wuerde sonst als eine
+                # einzige riesige Insel alles miteinander verbinden.
                 bp[x, y] = 255
     """Umgebung: der Kleidungskern wird um radius Pixel AUFGEWEITET.
     Eine blasse Stelle, die danach im aufgeweiteten Bereich liegt, ist von
     Kleidung umgeben und zaehlt mit - so kommen die weissen Streifen des
-    Hemdes und die hellen Sohlen dazu.
+    Hemdes dazu.
     Erst mit dem Weichzeichner probiert: bei acht Pixel breiten Streifen
     liegt der Anteil im Umkreis genau an der Schwelle, und die Maske kam
     als Streifenmuster heraus - die weissen Streifen blieben weiss. Die
@@ -223,7 +249,59 @@ def kleidungsmaske(im, radius=11):
         for x in range(w):
             if bp[x, y] and umgebung[x, y] > 128:
                 gp[x, y] = 255
+    inselnDazu(ganz, blass, w, h)
     return ganz.filter(ImageFilter.GaussianBlur(1.2))
+
+
+def inselnDazu(ganz, blass, w, h, schritt=2):
+    """Grosse helle Inseln, die an Kleidung GRENZEN, gehoeren dazu.
+
+    Die weissen Turnschuhe von civilian5 sind breiter als die Aufweitung
+    von elf Pixeln; in ihrer Mitte liegt keine Kleidung im Umkreis, und
+    sie blieben deshalb strahlend weiss - im Spiel lief der stuermer in
+    weissen Sneakern herum. Ueber Zusammenhangskomponenten geht es: eine
+    helle Flaeche, die irgendwo an Kleidung stoesst, ist Kleidung. Das
+    Augenweiss grenzt nur an Haut und bleibt damit draussen, der dunkle
+    Hintergrund des Atlas ist nicht hell genug, um ueberhaupt mitzuzaehlen."""
+    from collections import deque
+    gp = ganz.load()
+    bp = blass.load()
+    gesehen = [[False] * ((h + schritt - 1) // schritt) for _ in range((w + schritt - 1) // schritt)]
+    nx, ny = len(gesehen), len(gesehen[0])
+    for sy in range(ny):
+        for sx in range(nx):
+            if gesehen[sx][sy]:
+                continue
+            x0, y0 = sx * schritt, sy * schritt
+            if not bp[x0, y0] or gp[x0, y0]:
+                gesehen[sx][sy] = True
+                continue
+            q, teil, beruehrt = deque([(sx, sy)]), [], False
+            gesehen[sx][sy] = True
+            while q:
+                cx, cy = q.popleft()
+                teil.append((cx, cy))
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ax, ay = cx + dx, cy + dy
+                    if not (0 <= ax < nx and 0 <= ay < ny):
+                        continue
+                    px_, py_ = ax * schritt, ay * schritt
+                    if gp[px_, py_]:
+                        beruehrt = True
+                        continue
+                    if gesehen[ax][ay] or not bp[px_, py_]:
+                        continue
+                    gesehen[ax][ay] = True
+                    q.append((ax, ay))
+            # Nur wirklich grosse Inseln - ein paar Pixel Augenweiss
+            # sollen nicht ueber einen Zufallskontakt hereinrutschen.
+            if beruehrt and len(teil) * schritt * schritt > 900:
+                for cx, cy in teil:
+                    for ox in range(schritt):
+                        for oy in range(schritt):
+                            px_, py_ = cx * schritt + ox, cy * schritt + oy
+                            if px_ < w and py_ < h and bp[px_, py_]:
+                                gp[px_, py_] = 255
 
 
 def zivilKleidung(im, ton, saettigung=1.0, dunkler=1.0, deckel=0.46, radius=11):
@@ -259,10 +337,10 @@ def zivilKleidung(im, ton, saettigung=1.0, dunkler=1.0, deckel=0.46, radius=11):
 Ruestungsrollen und voneinander unterscheiden, vor allem aber vom
 Passanten, aus dem sie gebaut sind."""
 ZIVIL_ROLLEN = {
-    'duellant': {'quelle': 'civilian4', 'ton': 0.52, 'sat': 2.1, 'dunkel': 0.45,
-                 'deckel': 0.34},   # dunkles Petrol
-    'stuermer': {'quelle': 'civilian5', 'ton': 0.985, 'sat': 2.6, 'dunkel': 0.42,
-                 'deckel': 0.32},   # Oxblood
+    'duellant': {'quelle': 'civilian4', 'ton': 0.52, 'sat': 2.1, 'dunkel': 0.42,
+                 'deckel': 0.285},  # dunkles Petrol
+    'stuermer': {'quelle': 'civilian5', 'ton': 0.985, 'sat': 2.6, 'dunkel': 0.40,
+                 'deckel': 0.265},  # Oxblood
 }
 """Die Saettigung wird ANGEHOBEN, nicht gesenkt. Erster Versuch mit 0,70
 und 0,75: der rosa Kapuzenpulli hat nur 0,25 Saettigung, davon 75 % sind
