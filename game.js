@@ -8043,7 +8043,16 @@ function makeGlbVisual(m) {
         const fingers = new THREE.Vector3(0, 1, 0).addScaledVector(right, sign * 0.12);
         setzeHand(side, fingers, normal.clone().negate(), w);
         setzeFuss(side, fingers, normal.clone().negate(), w);
-        krallen(side, 0.12 * w);
+        /* ---- Die Hand oeffnet sich beim Greifen ----
+           Die Kralle war eine feste Zahl: die Finger standen waehrend des
+           ganzen Takts gleich stark gekruemmt, auch waehrend die Hand frei
+           durch die Luft nach oben griff. Jetzt oeffnet sie sich in der
+           Flugphase und schliesst sich beim Aufsetzen - dasselbe
+           Zeitfenster, das contact() fuer den Bogen benutzt. */
+        const pH = ((phase % 1) + 1) % 1;
+        const uH = Math.max(0, (pH - 0.58) / 0.42);
+        const zu = 1 - Math.sin(Math.PI * uH) ** 2 * moving;
+        krallen(side, (0.05 + 0.13 * zu) * w);
       }
       /* Der Kopf schaut leicht zu der Hand, die gerade nach oben greift -
          eine gerade nach oben gerichtete Halswirbelsaeule sah aus wie ein
