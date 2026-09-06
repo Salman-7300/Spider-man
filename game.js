@@ -1599,8 +1599,8 @@ let UB_DZ = 0;
    1,33 Millionen. Die U-Bahn bekommt deshalb ihr eigenes Mesh, das nur
    sichtbar ist, wenn man wirklich unten ist. */
 const ubDekoTeile = [];
-function ubDeko(w, h, d, x, y, z, farbe, ry, rz) {
-  const t = { w, h, d, x, y, z: z + UB_DZ, farbe, ry: ry || 0, rz: rz || 0 };
+function ubDeko(w, h, d, x, y, z, farbe, ry, rz, rx) {
+  const t = { w, h, d, x, y, z: z + UB_DZ, farbe, ry: ry || 0, rz: rz || 0, rx: rx || 0 };
   /* ---- Was oben steht, gehoert nach oben ----
      Alles, was ueber ubDeko gebaut wird, landete im Untergrund-Mesh. Das
      wird oberirdisch ausgeblendet (sonst zeichnet man eine halbe Million
@@ -1655,13 +1655,15 @@ function ubSchild(titel, untertitel, x, y, z, ry, breite, hoehe) {
   lod.position.set(x, y, z + UB_DZ);
   (y > SLAB_H ? cityGroup : ubSchilder).add(lod);
 }
-function ubBodenMuster(x0, x1, z0, z1, y) {
+function ubBodenMuster(x0, x1, z0, z1, y, dunkel, hell) {
   const step = 1.4;
+  const a = dunkel === undefined ? 0x717a7b : dunkel;
+  const b = hell === undefined ? 0x939992 : hell;
   for (let x = x0 + step / 2; x < x1; x += step) for (let z = z0 + step / 2; z < z1; z += step) {
     const w = Math.min(step - 0.025, (x1 - x) * 2), d = Math.min(step - 0.025, (z1 - z) * 2);
     if (w < 0.05 || d < 0.05) continue;
     ubDeko(w, 0.012, d, x, y + 0.009, z,
-      (Math.round(x / step) + Math.round(z / step)) % 5 === 0 ? 0x717a7b : 0x939992);
+      (Math.round(x / step) + Math.round(z / step)) % 5 === 0 ? a : b);
   }
 }
 function ubCollider(c) {
@@ -1735,7 +1737,13 @@ const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
 /* Die Halle war 10 x 15 m bei 3 m Hoehe - fuer eine B-Ebene mit Laeden zu
    klein, man stand nach zwei Schritten wieder an der Wand. Jetzt 15 m
    tief, 3,6 m hoch und bis dicht an die Schachtenden. */
-const UB_BE_TIEF = 15.0;                  // Tiefe der Halle neben dem Schacht
+/* Die Halle war 15 m tief. Zwischen Treppe und Ladenzeile blieb damit
+   kein Platz fuer eine Sperrenlinie - und ohne Drehkreuze sieht keine
+   Zwischenebene nach Bahnhof aus, sondern nach Ladenpassage. Mit 18,5 m
+   passt die Sperre dazwischen und es entstehen zwei getrennte Bereiche,
+   wie in einer echten Station: davor Automaten und Baenke, dahinter
+   Laeden und der Weg zum Bahnsteig. */
+const UB_BE_TIEF = 18.5;                  // Tiefe der Halle neben dem Schacht
 const UB_BE_HOCH = 3.6;                   // lichte Hoehe
 const UB_BE_RAND = 0.3;                   // Abstand zu den Schachtenden
 function ubBEbene(sx, sch, dz) {
@@ -2042,7 +2050,10 @@ function verschmelzeBoxen(teile) {
   const v = new THREE.Vector3(), farbe = new THREE.Color();
   let vo = 0, io = 0;
   for (const t of teile) {
-    eul.set(0, t.ry || 0, t.rz || 0);
+    /* rx kam spaeter dazu: die Arme eines Drehkreuzes schwingen um eine
+       waagerechte Achse quer zur Durchgangsrichtung, und laeuft der
+       Durchgang laengs z, braucht das eine Drehung um x. */
+    eul.set(t.rx || 0, t.ry || 0, t.rz || 0);
     m.compose(pos.set(t.x, t.y, t.z), quat.setFromEuler(eul), skal.set(t.w, t.h, t.d));
     nm.getNormalMatrix(m);
     farbe.set(t.farbe);
@@ -2551,6 +2562,143 @@ function bauePark(cx, cz, size) {
    die Schachtwand selbst, dort sitzt der Durchgang. Dazu das, was so eine
    Ebene erst zu einer macht: eine Reihe Laeden hinter Theken,
    Fahrkartenautomaten, Saeulen, Baenke, Werbetafeln und ein Wegweiser. */
+/* ---- Bausteine einer New Yorker Zwischenebene ----
+   Die Halle war ein grauer Kasten mit vier bunten Ladenfronten. Was eine
+   echte Zwischenebene ausmacht, fehlte: die weisse Kachelwand mit
+   farbigem Band, die Sperrenlinie mit Drehkreuzen, die gestrichenen
+   Stahlsaeulen und die Beschilderung mit farbiger Linienscheibe. */
+
+/* Weisse Kachelwand mit farbigem Band und dunklem Sockel.
+   Einzelne Kacheln waeren zu teuer: eine 18 m lange Wand haette bei 30 cm
+   Kachelmass 720 Kloetze, mal vier Waende, mal zwei Schaechte, mal drei
+   Linien sind das ueber 200000 Dreiecke fuer Flaechen, die man immer nur
+   von einer Seite sieht. Deshalb grosse Flaechen fuer Feld, Band und
+   Sockel und duenne Leisten als Fugen - rund 40 Kloetze je Wand statt
+   720, im Bild derselbe Eindruck. */
+const UB_KACHEL_FELD = 0xe9e7df;     // gebrochenes Weiss, kein Reinweiss
+const UB_KACHEL_FUGE = 0xc2bfb4;
+const UB_KACHEL_SOCKEL = 0x39404a;
+function ubKachelwand(a0, a1, quer, dicke, u0, hoch, nach, band, laengsX) {
+  const lang = a1 - a0, mitte = (a0 + a1) / 2;
+  /* laengsX: die Wand liegt laengs der x-Achse (Normale in z), sonst
+     umgekehrt. Damit muessen Breite und Tiefe nur einmal getauscht
+     werden statt in jeder Zeile. */
+  const kl = (breite, hh, tiefe, laengs, y, tief, farbe) => laengsX
+    ? ubDeko(breite, hh, tiefe, laengs, y, tief, farbe)
+    : ubDeko(tiefe, hh, breite, tief, y, laengs, farbe);
+  const flaeche = quer + nach * dicke / 2;
+  const vorn = quer + nach * (dicke + 0.012);      // knapp vor der Wand
+  kl(lang, hoch, dicke, mitte, u0 + hoch / 2, flaeche, UB_KACHEL_FELD);
+  /* Sockel: unten laeuft in jeder Station ein dunkles Band, sonst sieht
+     man jeden Schmutzrand. */
+  kl(lang, 0.62, 0.03, mitte, u0 + 0.31, vorn, UB_KACHEL_SOCKEL);
+  /* Farbiges Band auf Augenhoehe, oben und unten von einer dunklen
+     Leiste gefasst - das ist das Erkennungszeichen der Station. */
+  kl(lang, 0.30, 0.03, mitte, u0 + 2.02, vorn, band);
+  for (const dy of [-0.19, 0.19])
+    kl(lang, 0.07, 0.035, mitte, u0 + 2.02 + dy, vorn, 0x2b323c);
+  /* Fugen: waagerecht alle 36 cm, senkrecht alle 72 cm. Sie liegen einen
+     Zentimeter vor der Flaeche, damit sie nicht mit ihr um dieselbe
+     Ebene kaempfen. */
+  for (let y = u0 + 0.98; y < u0 + hoch - 0.05; y += 0.36) {
+    if (Math.abs(y - (u0 + 2.02)) < 0.28) continue;   // nicht durchs Band
+    kl(lang, 0.014, 0.02, mitte, y, vorn, UB_KACHEL_FUGE);
+  }
+  for (let a = a0 + 0.72; a < a1 - 0.1; a += 0.72) {
+    kl(0.014, hoch - 1.05, 0.02, a, u0 + 0.62 + (hoch - 1.05) / 2, vorn, UB_KACHEL_FUGE);
+  }
+}
+
+/* Drehkreuz. Der Koerper ist ein gebuerstetes Stahlgehaeuse, darin drei
+   Arme. Sie stehen fest - eine Drehung waere Bewegung ohne Wirkung. */
+function ubDrehkreuz(x, y, z, quer) {
+  const [bw, bd] = quer ? [0.34, 1.05] : [1.05, 0.34];
+  ubDeko(bw, 0.98, bd, x, y + 0.49, z, 0x9aa3ad);
+  ubDeko(bw + 0.04, 0.06, bd + 0.04, x, y + 1.00, z, 0x5d666f);
+  /* Leseflaeche mit gruener Lampe - dort haelt man die Karte hin. */
+  ubDeko(bw * 0.5, 0.05, bd * 0.5, x, y + 1.04, z, 0x1d232b);
+  ubDeko(bw * 0.22, 0.03, bd * 0.22, x, y + 1.07, z, 0x46d17a);
+  /* ---- Die drei Arme ----
+     Sie schwingen um eine waagerechte Achse QUER zur Gehrichtung. Beim
+     ersten Versuch lagen sie in der Gehrichtung und steckten damit
+     vollstaendig im 1,05 m langen Gehaeuse - im Bild waren die
+     Drehkreuze nackte graue Kloetze. Jede Stange geht deshalb jetzt
+     vom Nabenpunkt schraeg nach aussen, und die Nabe sitzt an der
+     Seite des Gehaeuses, wo der Fahrgast steht. */
+  /* Die Nabe sitzt am ENDE des Gehaeuses, dort wo der Fahrgast steht -
+     nicht in seiner Mitte. Bei einer Nabe in der Mitte steckten zwei der
+     drei Stangen im Gehaeuse und die dritte stand senkrecht nach oben:
+     im Bild ein weisser Pfosten, kein Drehkreuz. */
+  const nabe = y + 0.88;
+  const nx2 = quer ? 0 : -0.42, nz2 = quer ? -0.42 : 0;
+  for (const w of [0, 2.094, 4.189]) {
+    const auf = Math.sin(w) * 0.26, hin = Math.cos(w) * 0.26;
+    if (quer) {
+      /* Durchgang laengs z: die Stange liegt in der z-y-Ebene. Eine
+         Drehung um x bildet (0,0,1) auf (0,-sin,cos) ab - fuer die
+         Richtung (0,sin,cos) ist der Winkel also NEGATIV. */
+      ubDeko(0.055, 0.055, 0.50, x, nabe + auf, z + nz2 + hin, 0x9099a3, 0, 0, -w);
+    } else {
+      /* Durchgang laengs x: (1,0,0) um z gedreht ergibt (cos,sin,0). */
+      ubDeko(0.50, 0.055, 0.055, x + nx2 + hin, nabe + auf, z, 0x9099a3, 0, w, 0);
+    }
+  }
+  ubDeko(0.15, 0.15, 0.15, x + nx2, nabe, z + nz2, 0x6f7982);
+  ubCollider({ x0: x - bw / 2, x1: x + bw / 2, z0: z - bd / 2, z1: z + bd / 2,
+                h: y + 1.0, y0: y - 0.1, klein: true });
+}
+
+/* Gestrichene Stahlsaeule mit Nietenreihe und Fussplatte - so stehen sie
+   in jeder aelteren New Yorker Station. */
+function ubSaeuleNY(x, u0, z, hoch, farbe) {
+  const f = farbe === undefined ? 0x2f5a44 : farbe;   // Verkehrsgruen
+  ubDeko(0.34, hoch, 0.34, x, u0 + hoch / 2, z, f);
+  ubDeko(0.52, 0.14, 0.52, x, u0 + 0.07, z, 0x262c34);       // Fussplatte
+  ubDeko(0.48, 0.12, 0.48, x, u0 + hoch - 0.06, z, f);       // Kopfplatte
+  /* Nieten: zwei senkrechte Reihen an den Sichtseiten. */
+  for (let y = u0 + 0.5; y < u0 + hoch - 0.3; y += 0.42) {
+    for (const s of [-1, 1]) ubDeko(0.05, 0.05, 0.05, x + s * 0.18, y, z, 0x6d8a7b);
+  }
+  ubCollider({ x0: x - 0.2, x1: x + 0.2, z0: z - 0.2, z1: z + 0.2,
+                h: u0 + hoch, y0: u0 - 0.1 });
+}
+
+/* Farbige Linienscheibe mit der Nummer - das Zeichen, an dem man eine
+   Linie erkennt, noch bevor man die Schrift liest. */
+const ubScheibeMat = new Map();
+const UB_LINIENFARBE = ['#1c6ee0', '#e08a17', '#3aa03a'];
+function ubLinienScheibe(nummer, x, y, z, ry, gross) {
+  const key = 'L' + nummer;
+  let material = ubScheibeMat.get(key);
+  if (!material) {
+    const texture = canvasTex(128, 128, (ctx, w, h) => {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = UB_LINIENFARBE[(nummer - 1) % UB_LINIENFARBE.length];
+      ctx.beginPath(); ctx.arc(w / 2, h / 2, w * 0.46, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 78px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('U' + nummer, w / 2, h / 2 + 3);
+    });
+    material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+    ubScheibeMat.set(key, material);
+  }
+  const s = gross || 0.42;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(s, s), material);
+  mesh.rotation.y = ry || 0;
+  const lod = new THREE.LOD(); lod.addLevel(mesh, 0); lod.addLevel(new THREE.Group(), 55);
+  lod.position.set(x, y, z + UB_DZ);
+  ubSchilder.add(lod);
+}
+
+/* Muelleimer aus Streckmetall - steht an jeder Saeule. */
+function ubMuelleimer(x, u0, z) {
+  ubDeko(0.46, 0.78, 0.46, x, u0 + 0.39, z, 0x39434e);
+  ubDeko(0.52, 0.06, 0.52, x, u0 + 0.80, z, 0x1f262e);
+  ubCollider({ x0: x - 0.24, x1: x + 0.24, z0: z - 0.24, z1: z + 0.24,
+                h: u0 + 0.8, y0: u0 - 0.1, klein: true });
+}
+
 const UB_LADEN_WAND = [0xb8863c, 0x2f6ea8, 0x3f8a52, 0xa8443c];
 const UB_LADEN_SCHILD = [0xffe2a6, 0xc0dcf6, 0xcaeecb, 0xf8ccc4];
 function baueBEbene(sx, sch) {
@@ -2565,7 +2713,14 @@ function baueBEbene(sx, sch) {
   const tief = (d) => zIn + weg * d;
   const vorn = (d) => zAus - weg * d;       // Abstand von der Aussenwand
 
-  ubBodenMuster(r.x0 + 0.15, r.x1 - 0.15, r.z0 + 0.15, r.z1 - 0.15, u0);
+  /* Das Band der Linie - es zieht sich durch die ganze Station. Steht
+     hier oben, weil schon die Schachtwand es braucht. */
+  const bandFarbe = [0x1c6ee0, 0xe08a17, 0x3aa03a][(ubLinienNummer() - 1) % 3];
+  /* Der Hallenboden war so hell wie das Kachelfeld der Waende - im Bild
+     eine einzige weisse Flaeche ohne Boden und ohne Wand. Unter Tage ist
+     der Boden dunkler als die Wand, immer. */
+  ubBodenMuster(r.x0 + 0.15, r.x1 - 0.15, r.z0 + 0.15, r.z1 - 0.15, u0,
+                0x4b5158, 0x585f66);
   ubSchild('U' + ubLinienNummer() + ' · ' + ubStationsname(sx), 'Bahnsteige · Tickets · Ausgang',
     mx, u1 - 0.62, vorn(0.65), weg > 0 ? Math.PI : 0, Math.min(4.4, lx - 1), 0.68);
   /* ---- Huelle ---- */
@@ -2592,6 +2747,15 @@ function baueBEbene(sx, sch) {
   wand(lx + 0.9, 0.4, mx, vorn(-0.2), 0x77818e);                      // Aussenwand
   wand(0.4, lz + 0.5, r.x0 - 0.2, mz, 0x77818e);                      // Stirnwaende
   wand(0.4, lz + 0.5, r.x1 + 0.2, mz, 0x77818e);
+  /* ---- Kachelverkleidung ----
+     Der rohe Grauton war das, was die Halle nach Spielzeug aussehen
+     liess: drei nackte Flaechen ohne Massstab. Die Kacheln geben ihr
+     einen - eine 30er Kachel sagt dem Auge sofort, wie gross der Raum
+     ist -, und das farbige Band macht die Station wiedererkennbar. */
+  ubKachelwand(r.x0, r.x1, vorn(0), 0.06, u0, UB_BE_HOCH, -weg, bandFarbe, true);
+  for (const [px, nach] of [[r.x0, 1], [r.x1, -1]])
+    ubKachelwand(Math.min(r.z0, r.z1), Math.max(r.z0, r.z1), px, 0.06,
+                 u0, UB_BE_HOCH, nach, bandFarbe, false);
   /* Heller Laufstreifen im Boden - er zeigt, wo es langgeht. */
   ubDeko(lx - 0.6, 0.06, 1.6, mx, u0 - 0.02, tief(lz * 0.55), 0x6f7783);
 
@@ -2603,14 +2767,22 @@ function baueBEbene(sx, sch) {
   const dgA = ubDurchgang(sx, sch);
   for (const [a, b] of [[r.x0 - 0.4, dgA.x0], [dgA.x1, r.x1 + 0.4]]) {
     if (b - a < 0.3) continue;
-    ubDeko(b - a, 2.30, 0.12, (a + b) / 2, u0 + 1.35, tief(0.10), 0xb9c2cc);
-    ubDeko(b - a, 0.30, 0.14, (a + b) / 2, u0 + 0.15, tief(0.10), 0x4d545c);
+    /* Auch gekachelt. Vorher war das eine 2,30 m hohe helle Platte, und
+       darueber blieb bis zur Decke rohe Schachtwand stehen - im Bild ein
+       grosses graues Feld genau dort, wohin man blickt, wenn man sich in
+       der Halle umdreht. */
+    /* An die INNENFLAECHE der Schachtwand, nicht in sie hinein: die Wand
+       ist 0,5 m dick und steht von tief(-0,03) bis tief(0,47). Die alte
+       Verkleidung lag bei tief(0,10) und steckte damit vollstaendig
+       darin - deshalb blickte man von der Halle aus auf ein grosses
+       nacktes graues Feld. */
+    ubKachelwand(a, b, tief(0.47), 0.06, u0, UB_BE_HOCH, weg, bandFarbe, true);
   }
   /* Nur zwei schmale Kanten als Laibung - kein Sturz. Ein Sturz haette
      die Oeffnung wieder auf Tuerhoehe gebracht; sie soll bis unter die
      Decke offen sein. */
   for (const px of [dgA.x0, dgA.x1])
-    ubDeko(0.20, UB_BE_HOCH, 0.5, px, u0 + UB_BE_HOCH / 2, tief(0.25), 0xb9c2cc);
+    ubDeko(0.20, UB_BE_HOCH, 0.62, px, u0 + UB_BE_HOCH / 2, tief(0.22), 0xb9c2cc);
 
   /* ---- Laeden an der Aussenwand ---- */
   const nL = 4, bw = (lx - 0.6) / nL;
@@ -2665,15 +2837,70 @@ function baueBEbene(sx, sch) {
     if (i === 1) merkeInnenPlatz(ax, u0, tief(1.25), weg > 0 ? Math.PI : 0);
   }
 
-  /* ---- Saeulen in der Halle ---- */
-  for (let i = 0; i < 4; i++) {
-    const px = lerp(r.x0 + 1.8, r.x1 - 1.8, i / 3);
-    const pz = vorn(3.0);
-    ubDeko(0.55, UB_BE_HOCH, 0.55, px, u0 + UB_BE_HOCH / 2, pz, 0x9aa4b0);
-    ubDeko(0.78, 0.18, 0.78, px, u1 - 0.09, pz, 0x7d8794);
-    ubCollider({ x0: px - 0.3, x1: px + 0.3, z0: pz - 0.3, z1: pz + 0.3,
-                  h: u1, y0: u0 - 0.1 });
+  /* ---- Sperrenlinie ----
+     Das Stueck, an dem man eine Zwischenebene sofort erkennt: eine Reihe
+     Drehkreuze quer durch die Halle, daneben ein breiter Durchgang fuer
+     Gepaeck und Kinderwagen, an einem Ende das Kabaeuschen der Aufsicht.
+     Sie teilt die Halle in davor (Automaten, Baenke) und dahinter
+     (Laeden, Weg zum Bahnsteig) - vorher war beides derselbe Raum. */
+  {
+    const sz = tief(6.4);
+    /* Sockelschiene, auf der die Sperren stehen. */
+    ubDeko(lx - 0.4, 0.10, 1.30, mx, u0 + 0.05, sz, 0x4a525c);
+    const anzahl = Math.max(3, Math.floor((lx - 4.6) / 1.35));
+    const breit = anzahl * 1.35;
+    const links = mx - breit / 2 + 0.675;
+    for (let i = 0; i < anzahl; i++) ubDrehkreuz(links + i * 1.35, u0 + 0.1, sz, weg > 0);
+    /* Breiter Durchgang am rechten Rand, mit Gelaender abgeteilt. */
+    const gx = mx + breit / 2 + 0.95;
+    if (gx < r.x1 - 1.0) {
+      for (const s2 of [-0.62, 0.62]) {
+        ubDeko(0.10, 1.05, 0.10, gx + s2, u0 + 0.525, sz, 0x8d99a6);
+        ubDeko(0.10, 0.08, 1.20, gx + s2, u0 + 1.02, sz, 0xb4bcc6);
+      }
+    }
+    /* Aufsicht: Kabine mit Glasfront und beleuchtetem Schild. */
+    const kx = mx - breit / 2 - 1.55;
+    if (kx > r.x0 + 1.2) {
+      const kz = tief(5.9);
+      ubDeko(2.20, 2.45, 1.90, kx, u0 + 1.225, kz, 0x5c6570);
+      ubDeko(1.86, 1.05, 0.10, kx, u0 + 1.42, tief(4.98), 0xbfe3f2);   // Scheibe
+      ubDeko(1.86, 0.10, 0.12, kx, u0 + 0.87, tief(4.96), 0x2a313a);   // Ablage
+      ubDeko(2.34, 0.16, 2.04, kx, u0 + 2.53, kz, 0x323942);
+      ubSchild('Aufsicht', 'Auskunft · Fundsachen', kx, u0 + 2.02,
+        tief(4.90), weg > 0 ? 0 : Math.PI, 1.9, 0.42);
+      ubCollider({ x0: kx - 1.1, x1: kx + 1.1,
+                    z0: Math.min(kz - 0.95, kz + 0.95), z1: Math.max(kz - 0.95, kz + 0.95),
+                    h: u0 + 2.45, y0: u0 - 0.1 });
+      merkeInnenPlatz(kx, u0, kz, weg > 0 ? 0 : Math.PI);
+    }
+    /* Ueber der Sperre haengt das Schild mit der Linienscheibe. */
+    ubDeko(lx - 1.6, 0.62, 0.14, mx, u1 - 0.75, tief(5.55), 0x161b22);
+    /* Die Schrift sitzt auf einer 1024 x 192 grossen Zeichenflaeche. Ein
+       12 m breites Feld zerrt sie so weit auseinander, dass ein einziges
+       Wort das ganze Bild fuellt - im ersten Versuch stand da nur
+       "Bahnsteigen" quer ueber die halbe Halle. Vier Meter passen. */
+    ubSchild('Zu den Bahnsteigen', 'Gleis 1 · Gleis 2 · Aufzug', mx + 0.55, u1 - 0.75,
+      tief(5.47), weg > 0 ? Math.PI : 0, 4.3, 0.46);
+    ubLinienScheibe(ubLinienNummer(), mx - 1.95, u1 - 0.75,
+      tief(5.46), weg > 0 ? Math.PI : 0, 0.46);
+    for (const s2 of [-(lx - 1.6) / 2 + 0.2, (lx - 1.6) / 2 - 0.2])
+      ubDeko(0.06, 0.42, 0.06, mx + s2, u1 - 0.35, tief(5.55), 0x8d99a6);
   }
+
+  /* ---- Saeulen in der Halle ----
+     Zwei Reihen gestrichener Stahlsaeulen statt vier grauer Kloetze. Sie
+     tragen die Decke sichtbar, und sie geben dem Raum eine Tiefe: man
+     sieht an ihnen, wie weit die Halle reicht. */
+  for (const [d, farbe] of [[3.2, 0x2f5a44], [11.6, 0x2f5a44]]) {
+    for (let i = 0; i < 4; i++) {
+      const px = lerp(r.x0 + 1.7, r.x1 - 1.7, i / 3);
+      ubSaeuleNY(px, u0, tief(d), UB_BE_HOCH, farbe);
+    }
+  }
+  /* An zwei Saeulen steht ein Muelleimer. */
+  ubMuelleimer(lerp(r.x0 + 1.7, r.x1 - 1.7, 0) + 0.55, u0, tief(3.2));
+  ubMuelleimer(lerp(r.x0 + 1.7, r.x1 - 1.7, 1) - 0.55, u0, tief(11.6));
 
   /* ---- Baenke ---- */
   for (const f of [0.28, 0.72]) {
@@ -2707,11 +2934,57 @@ function baueBEbene(sx, sch) {
       ubDeko(0.06, 0.33, 0.06, wx + s2, u1 - 0.16, wz, 0x8d99a6);
   }
 
-  /* ---- Deckenleuchten ---- */
-  for (const d of [1.6, lz - 1.6]) {
-    const pz = tief(d);
-    ubDeko(lx - 1.0, 0.20, 0.50, mx, u1 - 0.12, pz, 0x363b42);
-    ubDeko(lx - 1.3, 0.10, 0.34, mx, u1 - 0.27, pz, 0xf6f4e8);
+  /* ---- Deckenleuchten ----
+     Zwei Leuchtkaesten ueber 18 m Halle waren zwei Inseln in einem
+     dunklen Raum. Jetzt laufen zwei durchgehende Baender in Laengs-
+     richtung ueber die ganze Tiefe - so ist eine Zwischenebene
+     beleuchtet, und der Raum bekommt Richtung. */
+  for (const s2 of [-0.26, 0.26]) {
+    const px = mx + s2 * lx;
+    const zM2 = tief(lz / 2), zL = lz - 1.6;
+    ubDeko(0.46, 0.18, zL, px, u1 - 0.10, zM2, 0x2f353d);
+    ubDeko(0.30, 0.09, zL - 0.3, px, u1 - 0.23, zM2, 0xf7f5ea);
+    /* Aufhaengungen, sonst schwebt das Band. */
+    for (let d = 1.4; d < lz - 1.0; d += 3.6)
+      ubDeko(0.05, 0.16, 0.05, px, u1 - 0.02, tief(d), 0x4b535d);
+  }
+  /* Kabeltrasse quer unter der Decke - das erste, was man in einer
+     echten Station ueber sich sieht. */
+  for (const dz2 of [4.4, 9.6, 14.8]) {
+    ubDeko(lx - 0.8, 0.10, 0.16, mx, u1 - 0.34, tief(dz2), 0x2a3038);
+    ubDeko(lx - 0.8, 0.07, 0.07, mx, u1 - 0.44, tief(dz2), 0x1d232a);
+  }
+
+  /* ---- Mosaikschild mit dem Stationsnamen ----
+     In New York steht der Name in einem Mosaikfeld mit gemustertem
+     Rahmen, nicht auf einem aufgeschraubten Blechschild. Der Rahmen ist
+     hier aus kurzen Stuecken in zwei Toenen gesetzt - aus zwei Metern
+     Abstand liest sich das als Mosaikborte. */
+  {
+    /* Die Tafel haengt an der Schachtwand, nicht an der Aussenwand: dort
+       stehen die Laeden, und das Feld staende ihnen vor der Nase. An der
+       Schachtwand sieht man sie, sobald man sich in der Halle umdreht -
+       genau dort steht sie auch in einer echten Station. */
+    const wLinks = dgA.x0 - r.x0, wRechts = r.x1 - dgA.x1;
+    const platz = Math.max(wLinks, wRechts);
+    const nMitte = wLinks > wRechts ? (r.x0 + dgA.x0) / 2 : (dgA.x1 + r.x1) / 2;
+    const nz = tief(0.53), bw2 = Math.min(4.2, platz - 0.8), bh = 1.30;
+    if (bw2 > 1.4) {
+    const mx = nMitte;
+    ubDeko(bw2, bh, 0.05, mx, u0 + 1.72, nz, 0x1a3f6e);
+    ubDeko(bw2 - 0.34, bh - 0.34, 0.06, mx, u0 + 1.72, nz, 0xe7e1cf);
+    /* Borte: abwechselnd zwei Toene, oben und unten. */
+    const nSt = Math.round((bw2 - 0.34) / 0.22);
+    for (let i = 0; i < nSt; i++) {
+      const bx2 = mx - (bw2 - 0.34) / 2 + (i + 0.5) * ((bw2 - 0.34) / nSt);
+      for (const dy of [-(bh - 0.34) / 2 + 0.08, (bh - 0.34) / 2 - 0.08])
+        ubDeko((bw2 - 0.34) / nSt - 0.03, 0.14, 0.07, bx2, u0 + 1.72 + dy, nz,
+               i % 2 ? 0xc8a44a : 0x1a3f6e);
+    }
+    ubSchild(ubStationsname(sx).toUpperCase(), 'U' + ubLinienNummer() + '  ·  Central Transit',
+      mx, u0 + 1.72, nz + weg * 0.04, weg > 0 ? 0 : Math.PI,
+      bw2 - 0.7, 0.62);
+    }
   }
 }
 
@@ -2934,6 +3207,13 @@ function baueUBahn(x) {
         /* Zur B-Ebene hin bleibt die Seite offen - dort geht man hinueber. */
         if (s3 === weg) continue;
         const wz = s3 < 0 ? sch.z0 - 0.22 : sch.z1 + 0.22;
+        /* Diese Wand ist das, was man von der Halle aus durch den
+           Durchgang sieht. Als glatte Platte war sie ein grosses graues
+           Feld mitten im Bild; sie bekommt dieselben Kacheln wie die
+           Halle nebenan. */
+        ubKachelwand(mx - ml / 2, mx + ml / 2, wz - s3 * 0.08, 0.06,
+                     UB_MITTE, hM, -s3,
+                     [0x1c6ee0, 0xe08a17, 0x3aa03a][(ubLinienNummer() - 1) % 3], true);
         ubDeko(ml, hM, 0.16, mx, UB_MITTE + hM / 2, wz, 0x8d99a6);
         /* Ein durchgehendes gruenes Band ueber fuenf Meter Wand sah aus
            wie eine Plane. Jetzt zwei kurze Wegweiser im Blau der Linie. */
