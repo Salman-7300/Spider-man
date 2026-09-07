@@ -180,3 +180,49 @@ test('Jedes Stadtmoebel hat eine Ersatzform, falls die Datei fehlt', () => {
   assert.ok(/for \(const r of LATERNE_ROH\) r\.visible = false/.test(quelle), 'Laterne ohne Ersatzform');
   assert.ok(/versteckeTeil\(BEET_ERSATZ\)/.test(quelle), 'Beet ohne Ersatzform');
 });
+
+/* ---- Moebel der Zwischenebene ---- */
+const UB_MOEBEL = (() => {
+  const roh = lies(/const UB_MOEBEL = \{([\s\S]*?)\n\};/, 'UB_MOEBEL');
+  const aus = {};
+  for (const z of roh.split('\n')) {
+    const t = z.match(/(\w+):\s*\{\s*modell:\s*'([^']+)',\s*hoch:\s*([\d.]+)/);
+    if (t) aus[t[1]] = { modell: t[2], hoch: parseFloat(t[3]) };
+  }
+  return aus;
+})();
+
+test('Zwischenebene: die Moebelmasse stimmen mit den Modellen ueberein', async () => {
+  const io = new NodeIO();
+  const dateien = await Promise.all(['stadtmoebel.glb', 'bahnhofmoebel.glb']
+    .map((d) => io.read(path.join(wurzel, 'assets', d))));
+  const arten = Object.entries(UB_MOEBEL);
+  assert.ok(arten.length >= 4, 'zu wenige Moebelarten gefunden: ' + arten.length);
+  for (const [art, a] of arten) {
+    let mesh = null;
+    for (const doc of dateien) {
+      const t = doc.getRoot().listMeshes().find((m) => m.getName() === a.modell);
+      if (t) mesh = t;
+    }
+    assert.ok(mesh, art + ': Modell ' + a.modell + ' fehlt in beiden Moebeldateien');
+    const pos = mesh.listPrimitives()[0].getAttribute('POSITION');
+    const p = [0, 0, 0];
+    let ymin = 1e9, ymax = -1e9;
+    for (let i = 0; i < pos.getCount(); i++) {
+      pos.getElement(i, p);
+      ymin = Math.min(ymin, p[1]); ymax = Math.max(ymax, p[1]);
+    }
+    const hoch = ymax - ymin;
+    assert.ok(Math.abs(hoch - a.hoch) < 0.03,
+      art + ': Modell ist ' + hoch.toFixed(2) + ' m hoch, das Spiel rechnet mit ' + a.hoch);
+  }
+});
+
+test('Zwischenebene: jede ersetzte Moebelart hat eine Ersatzform', () => {
+  /* Ersetzte Arten (Muelleimer, Bank) muessen eine Kistenform haben,
+     damit die Halle auch ohne die Moebeldatei moebliert ist. Kiosk und
+     Uhr kommen nur dazu und brauchen keine. */
+  for (const art of ['muell', 'bank'])
+    assert.ok(new RegExp("ubRohDeko\\('" + art + "'").test(quelle),
+      art + ' hat keine Ersatzform');
+});

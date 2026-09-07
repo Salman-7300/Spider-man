@@ -1632,6 +1632,55 @@ function ubDeko(w, h, d, x, y, z, farbe, ry, rz, rx) {
   if (y - h / 2 > SLAB_H - 0.15) dekoTeile.push(t); else ubDekoTeile.push(t);
   DEKO_KOPIE.push(t);
 }
+/* ---- Moebel der Zwischenebene ----
+   Muelleimer, Baenke, Kiosk, Wegweiser und Uhr kommen aus fertigen
+   Modellen (assets/bahnhofmoebel.glb und stadtmoebel.glb, beide aus dem
+   Katalog von Higgsfield). Bis die Datei da ist, stehen Ersatzkisten -
+   nach Art getrennt, damit sich genau die Art ausblenden laesst, fuer
+   die ein Modell angekommen ist. Alles haengt in EINER Gruppe, die
+   zusammen mit dem uebrigen Untergrund ein- und ausgeblendet wird. */
+const UB_MOEBEL_GRUPPE = new THREE.Group();
+const UB_ROH_TEILE = new Map();
+const UB_ROH_MESH = new Map();
+function ubRohDeko(art, w, h, d, x, y, z, farbe) {
+  if (!UB_ROH_TEILE.has(art)) UB_ROH_TEILE.set(art, []);
+  UB_ROH_TEILE.get(art).push({ w, h, d, x, y, z: z + UB_DZ, farbe, ry: 0, rz: 0, rx: 0 });
+}
+function baueUBahnMoebelMesh() {
+  for (const [art, teile] of UB_ROH_TEILE) {
+    if (!teile.length) continue;
+    const m = new THREE.Mesh(verschmelzeBoxen(teile),
+                             new THREE.MeshLambertMaterial({ vertexColors: true }));
+    m.receiveShadow = true; m.frustumCulled = false;
+    UB_MOEBEL_GRUPPE.add(m);
+    UB_ROH_MESH.set(art, m);
+  }
+  UB_ROH_TEILE.clear();
+  cityGroup.add(UB_MOEBEL_GRUPPE);
+}
+/* Modellname, Hoehe (am Modell gemessen) und die gemerkten Stellen.
+   Die beiden Moebeldateien kommen unabhaengig voneinander an, deshalb
+   setzt setzeBahnhofmoebel() jede Art einzeln, sobald ihr Modell da
+   ist. */
+const UB_MOEBEL = {
+  muell: { modell: 'trash_bin_01', hoch: 0.90, stellen: [], gesetzt: false },
+  bank: { modell: 'plaza_bench_01', hoch: 0.95, stellen: [], gesetzt: false },
+  kiosk: { modell: 'info_kiosk_01', hoch: 2.46, stellen: [], gesetzt: false },
+  uhr: { modell: 'station_clock', hoch: 2.61, stellen: [], gesetzt: false },
+};
+function setzeBahnhofmoebel() {
+  for (const [art, a] of Object.entries(UB_MOEBEL)) {
+    if (a.gesetzt || !a.stellen.length) continue;
+    const modell = MOEBEL[a.modell];
+    if (!modell) continue;
+    setzeMoebelFeld(moebelAufHoehe(moebelGeometrie(modell), a.hoch),
+                    modell.material, a.stellen, UB_MOEBEL_GRUPPE);
+    a.gesetzt = true;
+    const roh = UB_ROH_MESH.get(art);
+    if (roh) roh.visible = false;
+  }
+}
+
 let ubahnMesh = null;
 function baueUBahnMesh() {
   if (!ubDekoTeile.length) return;
@@ -2539,6 +2588,7 @@ function buildCity() {
   baueWassertuerme();
   baueDekoMesh();
   baueUBahnMesh();
+  baueUBahnMoebelMesh();
   baueZuege();
 }
 
@@ -2773,12 +2823,15 @@ function ubLinienScheibe(nummer, x, y, z, ry, gross) {
   ubSchilder.add(lod);
 }
 
-/* Muelleimer aus Streckmetall - steht an jeder Saeule. */
+/* Muelleimer - steht an jeder Saeule. Das Modell ist 0,84 m breit und
+   0,90 m hoch; die Ersatzkiste hat dieselben Masse, damit der Anstosser
+   in beiden Faellen passt. */
 function ubMuelleimer(x, u0, z) {
-  ubDeko(0.46, 0.78, 0.46, x, u0 + 0.39, z, 0x39434e);
-  ubDeko(0.52, 0.06, 0.52, x, u0 + 0.80, z, 0x1f262e);
-  ubCollider({ x0: x - 0.24, x1: x + 0.24, z0: z - 0.24, z1: z + 0.24,
-                h: u0 + 0.8, y0: u0 - 0.1, klein: true });
+  UB_MOEBEL.muell.stellen.push([x, u0, z + UB_DZ, 0]);
+  ubRohDeko('muell', 0.76, 0.84, 0.68, x, u0 + 0.42, z, 0x39434e);
+  ubRohDeko('muell', 0.84, 0.06, 0.74, x, u0 + 0.87, z, 0x1f262e);
+  ubCollider({ x0: x - 0.40, x1: x + 0.40, z0: z - 0.35, z1: z + 0.35,
+                h: u0 + 0.90, y0: u0 - 0.1, klein: true });
 }
 
 const UB_LADEN_WAND = [0xb8863c, 0x2f6ea8, 0x3f8a52, 0xa8443c];
@@ -2995,16 +3048,40 @@ function baueBEbene(sx, sch) {
   ubMuelleimer(lerp(r.x0 + 1.7, r.x1 - 1.7, 0) + 0.55, u0, tief(3.2));
   ubMuelleimer(lerp(r.x0 + 1.7, r.x1 - 1.7, 1) - 0.55, u0, tief(11.6));
 
-  /* ---- Baenke ---- */
+  /* ---- Baenke ----
+     Das Modell ist 1,50 m lang und hat die Lehne auf der -z-Seite;
+     gedreht steht sie damit zur Schachtwand, wie eine Wartebank in einer
+     Station wirklich steht. */
   for (const f of [0.28, 0.72]) {
     const px = lerp(r.x0 + 1.8, r.x1 - 1.8, f);
     const pz = tief(2.1);
-    ubDeko(1.80, 0.12, 0.50, px, u0 + 0.45, pz, 0x8a6a44);
-    ubDeko(1.80, 0.50, 0.10, px, u0 + 0.72, tief(1.86), 0x8a6a44);
-    for (const s2 of [-0.76, 0.76])
-      ubDeko(0.12, 0.44, 0.46, px + s2, u0 + 0.22, pz, 0x4a4f57);
+    UB_MOEBEL.bank.stellen.push([px, u0, pz + UB_DZ, weg > 0 ? 0 : Math.PI]);
+    ubRohDeko('bank', 1.50, 0.12, 0.50, px, u0 + 0.45, pz, 0x8a6a44);
+    ubRohDeko('bank', 1.50, 0.50, 0.10, px, u0 + 0.72, tief(1.86), 0x8a6a44);
+    for (const s2 of [-0.64, 0.64])
+      ubRohDeko('bank', 0.12, 0.44, 0.46, px + s2, u0 + 0.22, pz, 0x4a4f57);
     /* Auf jeder Bank sitzt jemand und schaut in die Halle. */
     merkeInnenPlatz(px + 0.45, u0, pz, weg > 0 ? 0 : Math.PI, u0 + 0.51);
+  }
+
+  /* ---- Auskunftskiosk und Bahnhofsuhr ----
+     Sie stehen im freien Streifen zwischen der Sperrenlinie (Tiefe
+     6,4 m samt Sockel) und der zweiten Saeulenreihe (11,6 m). Beide gibt
+     es nur als Modell; kommt die Datei nicht an, sieht die Halle aus wie
+     vorher - sie ersetzen nichts, sie kommen dazu. */
+  {
+    const dreh = weg > 0 ? 0 : Math.PI;
+    UB_MOEBEL.kiosk.stellen.push([mx - 4.0, u0, tief(9.2) + UB_DZ, dreh]);
+    UB_MOEBEL.uhr.stellen.push([mx, u0, tief(14.0) + UB_DZ, dreh]);
+    ubCollider({ x0: mx - 5.0, x1: mx - 3.0,
+                  z0: Math.min(tief(8.5), tief(9.9)) + UB_DZ,
+                  z1: Math.max(tief(8.5), tief(9.9)) + UB_DZ,
+                  h: u0 + 2.46, y0: u0 - 0.1, klein: true });
+    /* Der Uhrenmast ist duenn, aber er steht mitten im Weg - ohne
+       Anstosser laeuft man mittendurch. */
+    ubCollider({ x0: mx - 0.22, x1: mx + 0.22,
+                  z0: tief(14.0) + UB_DZ - 0.22, z1: tief(14.0) + UB_DZ + 0.22,
+                  h: u0 + 2.61, y0: u0 - 0.1, klein: true });
   }
 
   /* ---- Werbetafeln an den Stirnwaenden ---- */
@@ -3896,6 +3973,7 @@ function updateUnterwelt() {
   const unten = player.pos.y < SLAB_H - 0.05 ||
                 nahAmSchacht(player.pos.x, player.pos.z);
   if (ubahnMesh && ubahnMesh.visible !== unten) ubahnMesh.visible = unten;
+  if (UB_MOEBEL_GRUPPE.visible !== unten) UB_MOEBEL_GRUPPE.visible = unten;
   ubSchilder.visible = unten;
   for (const a of AUFZUEGE) {
     if (a.mesh.visible !== unten) a.mesh.visible = unten;
@@ -18966,8 +19044,11 @@ function setzeAmpelLichter() {
    Netz, alte Zwischenablage), sieht die Stadt aus wie vorher - nur eben
    kantiger. */
 const MOEBEL = {};
-function ladeStadtmoebel(loader) {
-  loader.load('assets/stadtmoebel.glb', (gltf) => {
+/* Eine Moebeldatei laden und ihre Meshes unter ihrem Namen ablegen.
+   Beide Dateien kommen unabhaengig voneinander an; was sie mitbringen,
+   wird danach gesetzt. */
+function ladeMoebelDatei(loader, datei, danach) {
+  loader.load(datei, (gltf) => {
     try {
       gltf.scene.updateMatrixWorld(true);
       gltf.scene.traverse((o) => {
@@ -18982,11 +19063,19 @@ function ladeStadtmoebel(loader) {
         });
         o.castShadow = true; o.receiveShadow = true;
       });
-      setzeAmpelModelle();
-      setzeLaterneModelle();
-      setzeBeetModelle();
-    } catch (e) { window.__moebelFehler = String(e && e.message || e); }
-  }, undefined, (e) => { window.__moebelFehler = 'laden: ' + String(e && e.message || e); });
+      danach();
+    } catch (e) { window.__moebelFehler = datei + ': ' + String(e && e.message || e); }
+  }, undefined, (e) => { window.__moebelFehler = 'laden ' + datei + ': ' + String(e && e.message || e); });
+}
+
+function ladeStadtmoebel(loader) {
+  ladeMoebelDatei(loader, 'assets/stadtmoebel.glb', () => {
+    setzeAmpelModelle();
+    setzeLaterneModelle();
+    setzeBeetModelle();
+    setzeBahnhofmoebel();          // die Bank der Zwischenebene steckt hier drin
+  });
+  ladeMoebelDatei(loader, 'assets/bahnhofmoebel.glb', setzeBahnhofmoebel);
 }
 
 /* Die Geometrie eines Stadtmoebels so herrichten, dass sie sich an eine
@@ -19022,7 +19111,7 @@ function moebelAufHoehe(geo, hoch) {
    [x, y, z, drehung]. Alles in EINEM InstancedMesh: als einzelne Kopien
    waeren es hunderte Zeichenaufrufe, mehr als die ganze uebrige Stadt
    zusammen. */
-function setzeMoebelFeld(geo, werkstoff, plaetze) {
+function setzeMoebelFeld(geo, werkstoff, plaetze, wohin) {
   const netz = new THREE.InstancedMesh(geo, werkstoff, plaetze.length);
   netz.castShadow = true; netz.receiveShadow = true;
   /* Ueber die ganze Stadt verteilt - ein gemeinsamer Umkreis waere
@@ -19036,7 +19125,7 @@ function setzeMoebelFeld(geo, werkstoff, plaetze) {
     netz.setMatrixAt(i, m);
   });
   netz.instanceMatrix.needsUpdate = true;
-  cityGroup.add(netz);
+  (wohin || cityGroup).add(netz);
   return netz;
 }
 
