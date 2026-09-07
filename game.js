@@ -4665,10 +4665,38 @@ function buildRiverAndBridge() {
     deko(BR_X1 - BR_X0, 0.34, 2.4, (BR_X0 + BR_X1) / 2, BR_HOCH - 0.17,
          BRIDGE_Z + s * (BRIDGE_HW + 0.2), 0x7a3232);
   }
+  /* ---- Quertraeger unter der Fahrbahn ----
+     Von der Seite und von unten war die Bruecke eine schwebende Platte:
+     0,6 m Deck, darunter nichts. Eine Haengebruecke haengt aber an einem
+     Versteifungstraeger, und der besteht aus den beiden Randtraegern und
+     den Quertraegern dazwischen. Alle 6 m einer - von unten, wo man beim
+     Schwingen durchfliegt, ist das der Unterschied zwischen Bauwerk und
+     Brett. */
+  for (let x = BR_X0 + 3; x < BR_X1 - 2; x += 6) {
+    deko(0.9, 0.46, SEIL_Z * 2, x, BR_HOCH - 0.52, BRIDGE_Z, 0x6b2c2c);
+  }
+  /* Laengsrippe in der Mitte, damit die Quertraeger nicht frei enden. */
+  deko(BR_X1 - BR_X0, 0.30, 1.1, (BR_X0 + BR_X1) / 2, BR_HOCH - 0.60, BRIDGE_Z, 0x6b2c2c);
+
   // Pylonen
   const pylMat = new THREE.MeshLambertMaterial({ color: 0x8e3b3b });
   const PYL_X = [225, 285], PYL_TOP = 44;
   for (const px of PYL_X) {
+    /* ---- Pfeiler ----
+       Die Pylonen standen ohne alles im Wasser - die roten Beine
+       verschwanden einfach in der Oberflaeche. Ein Pylon steht auf einem
+       Betonpfeiler, der aus dem Wasser ragt und die Beine traegt.
+       Unterkante 8 m unter Wasser, Oberkante knapp ueber der Fahrbahn. */
+    /* Der Pfeiler endet UNTER der Fahrbahn - im ersten Versuch stand er
+       4 m ueber ihr und lief als graue Mauer quer ueber die Bruecke. */
+    const pfOben = BR_HOCH - 0.35, pfUnten = WATER_Y - 6.0;
+    const pfH = pfOben - pfUnten, pfTief = SEIL_Z * 2 + 1;
+    deko(10.4, 1.2, pfTief + 1.6, px, pfUnten - 0.6, BRIDGE_Z, 0x6d7178);      // Fundament
+    deko(8.4, pfH, pfTief, px, (pfOben + pfUnten) / 2, BRIDGE_Z, 0x878c93);    // Schaft
+    deko(9.2, 0.5, pfTief + 0.7, px, pfOben - 0.25, BRIDGE_Z, 0x9aa0a8);       // Kranz
+    addCollider({ x0: px - 4.6, x1: px + 4.6, z0: BRIDGE_Z - pfTief / 2,
+                  z1: BRIDGE_Z + pfTief / 2, h: pfOben, y0: pfUnten - 1.2,
+                  keinKlettern: true });
     for (const s of [-1, 1]) {
       const py = new THREE.Mesh(new THREE.BoxGeometry(3, 46, 3), pylMat);
       py.position.set(px, PYL_TOP - 23, BRIDGE_Z + s * SEIL_Z);
@@ -4677,9 +4705,15 @@ function buildRiverAndBridge() {
       addCollider({ x0: px - 1.5, x1: px + 1.5, z0: py.position.z - 1.5,
                     z1: py.position.z + 1.5, h: PYL_TOP });
     }
-    const cross = new THREE.Mesh(new THREE.BoxGeometry(3, 3, SEIL_Z * 2 + 3), pylMat);
-    cross.position.set(px, 40, BRIDGE_Z);
-    cityGroup.add(cross);
+    /* Drei Querstreben statt einer. Ein Pylon mit nur einem Riegel ganz
+       oben sieht aus wie ein Tuerrahmen; die beiden unteren geben ihm
+       erst das Fachwerk, an dem man die Hoehe abliest. */
+    for (const [hy, hoch] of [[40, 3.0], [26, 1.8], [13, 1.8]]) {
+      const cross = new THREE.Mesh(new THREE.BoxGeometry(hoch, hoch, SEIL_Z * 2 + 3), pylMat);
+      cross.position.set(px, hy, BRIDGE_Z);
+      cross.castShadow = true;
+      cityGroup.add(cross);
+    }
   }
   /* ---- Tragseile ----
      Die alte Formel rechnete zwischen den Pylonen
@@ -4716,6 +4750,31 @@ function buildRiverAndBridge() {
       const y = seilY(x);
       if (y < BR_HOCH + 2.2) continue;
       deko(0.16, y - BR_HOCH, 0.16, x, (BR_HOCH + y) / 2, zc, 0x2c3038);
+    }
+    /* ---- Verankerung ----
+       Am Ufer lief das Tragseil einfach ins Nichts aus. Ein Tragseil
+       endet in einem Ankerblock, der die ganze Zugkraft in den Boden
+       leitet - ohne ihn sieht das Seil aus, als sei es abgeschnitten. */
+    for (const [ax, dir] of [[BR_X0, -1], [BR_X1, 1]]) {
+      /* Der Block steht auf dem Brueckenende, nicht davor: 1,8 m weiter
+         aussen laege er auf der Uferstrasse. Und er sitzt neben dem
+         Gelaender (9,85 m von der Mitte), nicht darum herum. */
+      const bx = ax - dir * 2.2, bz = BRIDGE_Z + s * (SEIL_Z + 0.4);
+      deko(4.4, 4.0, 1.8, bx, BR_HOCH + 1.2, bz, 0x8d9198);
+      deko(5.0, 0.6, 2.4, bx, BR_HOCH + 3.4, bz, 0x777c83);
+      addCollider({ x0: bx - 2.2, x1: bx + 2.2, z0: bz - 0.9, z1: bz + 0.9,
+                    h: BR_HOCH + 3.7, y0: BR_HOCH - 1.0 });
+    }
+  }
+
+  /* ---- Beleuchtung der Bruecke ----
+     Nachts war die Bruecke der einzige unbeleuchtete Weg der Stadt.
+     Die Masten stehen auf den Gehwegen, der Ausleger zeigt zur Fahrbahn
+     - dieselbe Laterne wie an jeder Strasse. */
+  for (const s of [-1, 1]) {
+    const zl = BRIDGE_Z + s * ((BR_GEH_INNEN + BR_GEH_AUSSEN) / 2);
+    for (let x = BR_X0 + 14; x < BR_X1 - 10; x += 30) {
+      addLamp(x, zl, s > 0 ? Math.PI / 2 : -Math.PI / 2);
     }
   }
 }
