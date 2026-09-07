@@ -226,3 +226,38 @@ test('Zwischenebene: jede ersetzte Moebelart hat eine Ersatzform', () => {
     assert.ok(new RegExp("ubRohDeko\\('" + art + "'").test(quelle),
       art + ' hat keine Ersatzform');
 });
+
+/* ---- Baenke auf dem Bahnsteig ---- */
+test('Bahnsteigbaenke stehen an der Wand, nicht im Treppenloch', () => {
+  /* Die Wand laeuft nur auf der Seite, auf der KEIN Treppenschacht
+     liegt - auf der anderen ist die Decke offen und die Treppe kommt
+     herunter. Vorher stand je Bahnsteig eine der beiden Baenke bei
+     x +/- 8 genau dort. */
+  const env = { Math };
+  const hx = zahl(/const UB_HALLE_X = ([\d.]+)/, 'UB_HALLE_X');
+  const werte = vm.runInNewContext(
+    lies(/(const UB_SCHAECHTE = \[[\s\S]*?\n\];)/, 'UB_SCHAECHTE') + '\n' +
+    lies(/(const UB_BANK_ABSTAND = \[[^\]]*\];)/, 'UB_BANK_ABSTAND') +
+    '\n({ schaechte: UB_SCHAECHTE, abstaende: UB_BANK_ABSTAND })');
+  const schaechte = werte.schaechte, abstaende = werte.abstaende;
+  vm.runInNewContext(lies(/(function ubWandSeite\(sch\) \{[^}]*\})/, 'ubWandSeite') +
+    '\nglobalThis.ubWandSeite = ubWandSeite;', env);
+  const L = 2.2;                                   // Laenge einer Bank
+  for (const sch of schaechte) {
+    const seite = env.ubWandSeite(sch);
+    const lochA = Math.min(sch.xFuss, sch.xKopf), lochE = Math.max(sch.xFuss, sch.xKopf);
+    /* Gewandete Strecke: von der Hallenkante bis an das Treppenloch. */
+    const wandA = seite < 0 ? -hx / 2 : lochE, wandE = seite < 0 ? lochA : hx / 2;
+    for (const a of abstaende) {
+      const bx = seite * a;
+      assert.ok(bx - L / 2 > wandA && bx + L / 2 < wandE,
+        sch.steig + ': Bank bei x=' + bx + ' liegt nicht auf der Wandstrecke ' +
+        wandA + '..' + wandE);
+      assert.ok(bx + L / 2 < lochA || bx - L / 2 > lochE,
+        sch.steig + ': Bank bei x=' + bx + ' steht im Treppenloch ' + lochA + '..' + lochE);
+    }
+  }
+  /* Und die Namenstafel in der Mitte (3,8 m breit) bleibt frei. */
+  for (const a of abstaende) assert.ok(a - L / 2 > 1.9,
+    'Bank bei ' + a + ' m steht vor der Namenstafel');
+});

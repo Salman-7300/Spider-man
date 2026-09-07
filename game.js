@@ -1518,7 +1518,11 @@ function inWater(x, z) {
    einzelne Kiste und sahen aus wie ein hingelegter Balken.
    richtung: 0 = Bank steht quer zur x-Achse (Sitzfläche lang in x),
              1 = lang in z. */
+/* Alle gebauten Baenke - fuer die Pruefung, ob eine an einer Stelle
+   steht, an der keine stehen darf (Fahrbahn, Wasser, Bruecke). */
+const BANK_STELLEN = [];
 function baueBank(x, y, z, laengsZ, holz, rueck) {
+  BANK_STELLEN.push({ x, y, z, laengsZ: !!laengsZ });
   /* rueck = +1 dreht die Lehne auf die andere Seite. Auf dem Bahnsteig
      standen die Baenke sonst mit der Lehne zum Gleis und dem Gesicht zur
      Wand - genau das sah verkehrt herum aus. */
@@ -1786,6 +1790,15 @@ const UB_SCHAECHTE = [
   { z0: 31.8, z1: 34.4, xFuss: 2.0, xKopf: 18.0, steig: 'nord' },
   { z0: 15.6, z1: 18.2, xFuss: -2.0, xKopf: -18.0, steig: 'sued' },
 ];
+/* Auf welcher Seite der Bahnsteigmitte steht die durchgehende Wand?
+   Der Treppenschacht nimmt die andere Seite ein - dort ist die Decke
+   offen, es gibt keine Wandverkleidung, und dorthin gehoert nichts, was
+   an einer Wand stehen soll. */
+function ubWandSeite(sch) { return Math.min(sch.xFuss, sch.xKopf) > 0 ? -1 : 1; }
+/* Abstand der beiden Bahnsteigbaenke von der Hallenmitte, auf der
+   Wandseite. Bei 4 m bleibt die Namenstafel (3,8 m breit, in der Mitte)
+   frei. */
+const UB_BANK_ABSTAND = [4, 10];
 const UB_TREPPE = UB_ABGANG;
 const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
 
@@ -3530,7 +3543,8 @@ function baueUBahn(x) {
   }
 
   /* Beleuchtung, Schilder, Baenke - auf beiden Bahnsteigen. */
-  for (const [zm, zw, rueck] of [[steigA, UB_STEIG_Z1, 1], [steigB, UB_STEIG2_Z0, -1]]) {
+  for (const [zm, zw, rueck, sch] of [[steigA, UB_STEIG_Z1, 1, UB_SCHAECHTE[0]],
+                                      [steigB, UB_STEIG2_Z0, -1, UB_SCHAECHTE[1]]]) {
     /* Hier lagen drei durchgehende, reinweisse Baender von 24 m Laenge und
        60 cm Breite je Bahnsteig - zusammen mit dem warmen Licht unter Tage
        sahen sie aus wie beige Landebahnen quer ueber die ganze Decke.
@@ -3552,8 +3566,14 @@ function baueUBahn(x) {
     ubSchild('U' + ubLinienNummer() + ' · ' + ubStationsname(x),
       'Gleis ' + (rueck > 0 ? '1' : '2') + '     Ausgang über die Treppe',
       x, UB_TIEF + 2.65, sz - rueck * 0.075, rueck > 0 ? Math.PI : 0, 3.65, 0.63);
-    for (const s2 of [-1, 1])
-      baueBank(x + s2 * 8, UB_TIEF, zw - rueck * 1.5, false, undefined, rueck);
+    /* Die Baenke gehoeren an die Wand - und Wand gibt es nur auf der
+       Seite, auf der KEIN Treppenschacht liegt. Vorher stand je Bahnsteig
+       eine der beiden Baenke bei x +/- 8 mitten im Treppenloch: hinter ihr
+       war keine Wand, ueber ihr das offene Schachtdach, und die Leute
+       liefen die Treppe genau dort herunter. */
+    const seite = ubWandSeite(sch);
+    for (const abstand of UB_BANK_ABSTAND)
+      baueBank(x + seite * abstand, UB_TIEF, zw - rueck * 1.5, false, undefined, rueck);
   }
   /* Ueber dem GLEIS haengen keine Deckenleuchten mehr. Dort faehrt der
      Zug; in einer echten Station ist ueber dem Gleistrog nichts ausser
@@ -30868,6 +30888,7 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeKletterClip(v) { KLETTER_CLIP = v; },
     ampelStellen() { return AMPEL_STELLEN; },
     laterneStellen() { return LATERNE_STELLEN; },
+    bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     /* Schaltphase von aussen setzen - sonst muesste ein Bildtest
        elf Sekunden warten, um Gelb oder Gruen zu sehen. */
