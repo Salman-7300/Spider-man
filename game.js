@@ -2040,6 +2040,38 @@ function groundY(x, z, yRef) {
 }
 
 const cityGroup = new THREE.Group();
+/* Wo Ampeln stehen und welche Kisten sie ersatzweise darstellen - beides
+   wird gemerkt, damit ladeStadtmoebel() spaeter das richtige Modell
+   daruebersetzen und die Kisten ausblenden kann. Die Liste steht HIER
+   oben, weil buildCity() sie fuellt und das laeuft lange vor der Stelle,
+   an der die Ampeln sonst beschrieben sind. */
+const AMPEL_STELLEN = [];
+let ampelRoh = null;
+/* Masse des Ampelmodells aus assets/stadtmoebel.glb. Alle Zahlen sind an
+   den Eckpunkten des Modells gemessen (tools, gltf-transform), nicht
+   geschaetzt: Der Mast ist 4,30 m hoch, ab 4,24 m geht ein Ausleger
+   1,35 m weit ueber die Fahrbahn, daran haengt der Signalkopf. Seine
+   drei Linsen sitzen 0,28 m vor der Mastachse auf 3,343 / 3,653 /
+   3,963 m. Ersatzkisten, Leuchtkugeln und Haltepunkt benutzen dieselben
+   Werte - so sieht die Kreuzung gleich aus, ob das Modell geladen wurde
+   oder nicht. */
+const AMPEL_HOCH = 4.30;
+const AMPEL_ARM = 1.345;
+const AMPEL_VOR = 0.28;
+const AMPEL_LINSE = { gruen: 3.343, gelb: 3.653, rot: 3.963 };
+/* Hoehenband jeder Linse am Modell - danach werden sie abgedunkelt. */
+const AMPEL_LINSE_BAND = [[3.26, 3.43], [3.57, 3.74], [3.88, 4.05]];
+/* Schaltzustand. Steht HIER oben und nicht bei baueAmpeln(), weil
+   die Stadt frueher gebaut wird als jene Zeile steht - und schon
+   beim Bauen muss feststehen, welche Linse brennt. */
+const AMPEL = { phase: 0, t: 0, gruenDauer: 9, gelbDauer: 2 };
+let ampelLichtStand = '';
+/* Die beiden Leuchtkugel-Felder. Sie standen frueher weiter unten
+   bei baueAmpeln(), angelegt mit var. Weil buildCity() FRUEHER laeuft
+   als jene Zeile, setzte sie die gerade gebauten Felder gleich wieder
+   auf null; updateAmpeln() stieg danach in jedem Bild sofort aus und
+   keine Ampel hat je umgeschaltet. */
+let ampelX = null, ampelZ = null;
 scene.add(cityGroup);
 
 /* ---------- Stadt-Details ----------
@@ -5001,6 +5033,7 @@ function loadGlbAssets(done) {
         ladeFertigMelden(); verteileZiviBewegungen();
         teileBewegungen(); ergaenzeSpiegelungen();
         ladeStadtteile(loader);
+        ladeStadtmoebel(loader);
         ladeHaeuser(loader);
         done();
       }
@@ -18780,45 +18813,187 @@ function makeFahrzeugMesh(typ, farbe) {
    Ost-West-Straßen Grün, dann die Nord-Süd-Straßen. Dazwischen Gelb.
    Die Lampenköpfe liegen in zwei InstancedMesh – dadurch kosten alle
    Ampeln zusammen nur zwei Zeichenaufrufe statt hunderte. */
-/* var, weil die Stadt weiter oben gebaut wird als diese Zeile steht. */
-var AMPEL = { phase: 0, t: 0, gruenDauer: 9, gelbDauer: 2 };
-var ampelX = null, ampelZ = null;
+
+/* Ort eines Punktes am Ampelmodell in Weltkoordinaten.
+   lx zeigt am unverdrehten Modell den Ausleger entlang, lz nach vorn zu
+   den Linsen. dreh ist die Drehung des Mastes um die Hochachse. */
+function ampelOrt(px, pz, dreh, lx, ly, lz, out) {
+  const c = Math.cos(dreh), s = Math.sin(dreh);
+  return (out || new THREE.Vector3())
+    .set(px + lx * c + lz * s, SLAB_H + ly, pz - lx * s + lz * c);
+}
 
 function baueAmpeln() {
-  const stellen = [];
+  const stellen = AMPEL_STELLEN;
+  const ampelKisten = [];
+  const _o = new THREE.Vector3();
   for (let i = 0; i <= BLOCKS; i++) {
     for (let j = 0; j <= BLOCKS; j++) {
       const x = ORIGIN + i * PITCH, z = ORIGIN + j * PITCH;
       if (x > RIVER_X0 - 20) continue;                 // nicht im Fluss
       for (const [sx, sz] of [[1, 1], [-1, -1]]) {
         const px = x + sx * (ROAD_HALF + 1.2), pz = z + sz * (ROAD_HALF + 1.2);
-        stellen.push([px, pz]);
-        /* Oben auf dem Signalkopf, nicht am Mast: der Kopf reicht bis
-           SLAB_H + 6,2, der Mast nur bis 5,45. Mit 4,6 stand die Figur
-           85 cm im Mast und schwebte scheinbar neben der Ampel. */
-        ziehFestPunkt(px + 0.45, SLAB_H + 6.2, pz, 0.28);
-        deko(0.22, 5.2, 0.22, px, SLAB_H + 2.6, pz, 0x2c3037);          // Mast
-        /* Zwei getrennte Signalköpfe: einer für die Ost-West-Richtung,
-           einer für Nord-Süd. Vorher saßen beide an derselben Stelle und
-           es sah aus, als leuchte eine Ampel gleichzeitig rot und grün. */
-        deko(0.46, 1.2, 0.46, px + 0.45, SLAB_H + 5.6, pz, 0x23262b);
-        deko(0.46, 1.2, 0.46, px, SLAB_H + 4.2, pz + 0.45, 0x23262b);
+        /* Zwei Ausleger je Mast, einer fuer jede Fahrtrichtung. Der
+           Ausleger muss ueber SEINE Fahrbahn reichen, also zur
+           Kreuzungsmitte hin - steht der Mast in der Ecke +x/+z, zeigt
+           der Arm fuer den Laengsverkehr nach -x und der fuer den
+           Querverkehr nach -z. */
+        const drehZ = sx > 0 ? Math.PI : 0;            // regelt Verkehr laengs z
+        const drehX = sx > 0 ? Math.PI / 2 : -Math.PI / 2;  // laengs x
+        stellen.push([px, pz, drehX, drehZ]);
+        /* Der Haltepunkt sitzt oben auf dem Ausleger, dort wo er
+           waagerecht ueber der Fahrbahn liegt (4,30 m). Vorher stand die
+           Figur einen Meter ueber der Ampel in der Luft, weil der Wert
+           noch von den alten Kisten (6,20 m) stammte. */
+        ampelOrt(px, pz, drehZ, 0.90, AMPEL_HOCH, 0, _o);
+        ziehFestPunkt(_o.x, _o.y, _o.z, 0.28);
+        /* ---- Die Kisten stehen jetzt in EINER eigenen Flaeche ----
+           Vorher gingen sie ueber deko() in die grosse Sammelgeometrie
+           der Stadt. Die laesst sich hinterher nicht mehr einzeln
+           ausblenden - und genau das braucht es, wenn spaeter das
+           richtige Ampelmodell nachgeladen wird (stadtmoebel.glb kommt
+           erst nach buildCity, wie die Hausmodelle auch). */
+        ampelKisten.push({ w: 0.22, h: AMPEL_HOCH, d: 0.22, x: px, y: SLAB_H + AMPEL_HOCH / 2, z: pz,
+                           farbe: 0x2c3037, ry: 0, rz: 0 });                    // Mast
+        for (const dreh of [drehX, drehZ]) {
+          /* Laengs oder quer? Der Ausleger steht immer auf einer
+             Rasterachse, deshalb reicht es, Breite und Tiefe der Kiste
+             zu tauschen - eine Drehung braucht es nicht. */
+          const laengs = Math.abs(Math.cos(dreh)) > 0.5;
+          ampelOrt(px, pz, dreh, 0.85, AMPEL_HOCH - 0.06, 0, _o);
+          ampelKisten.push({ w: laengs ? 1.3 : 0.12, h: 0.12, d: laengs ? 0.12 : 1.3,
+                             x: _o.x, y: _o.y, z: _o.z, farbe: 0x2c3037, ry: 0, rz: 0 });
+          ampelOrt(px, pz, dreh, AMPEL_ARM, AMPEL_LINSE.gelb, 0.12, _o);
+          ampelKisten.push({ w: laengs ? 0.3 : 0.28, h: 1.0, d: laengs ? 0.28 : 0.3,
+                             x: _o.x, y: _o.y, z: _o.z, farbe: 0x23262b, ry: 0, rz: 0 });
+        }
       }
     }
   }
-  const geo = new THREE.SphereGeometry(0.17, 8, 6);
+  /* Die brennende Linse. Sie ist so gross wie die Linse am Modell
+     (13 cm) und sitzt genau davor - vorher schwebten zwei 34-cm-Kugeln
+     neben der Ampel in der Luft. */
+  const geo = new THREE.SphereGeometry(0.08, 8, 6);
   ampelX = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0x22c55e }), stellen.length);
   ampelZ = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color: 0xef4444 }), stellen.length);
-  const m = new THREE.Matrix4();
-  stellen.forEach(([px, pz], i) => {
-    m.makeTranslation(px + 0.45, SLAB_H + 5.6, pz + 0.26);
-    ampelX.setMatrixAt(i, m);
-    m.makeTranslation(px + 0.26, SLAB_H + 4.2, pz + 0.45);
-    ampelZ.setMatrixAt(i, m);
+  ampelX.frustumCulled = false; ampelZ.frustumCulled = false;
+  cityGroup.add(ampelX); cityGroup.add(ampelZ);
+  setzeAmpelLichter();
+  if (ampelKisten.length) {
+    ampelRoh = new THREE.Mesh(verschmelzeBoxen(ampelKisten),
+                              new THREE.MeshLambertMaterial({ vertexColors: true }));
+    ampelRoh.castShadow = true; ampelRoh.receiveShadow = true;
+    cityGroup.add(ampelRoh);
+  }
+}
+
+/* Die Leuchtkugeln auf die Linse setzen, die gerade brennt. Rot sitzt
+   oben, gelb in der Mitte, gruen unten - wie an einer echten Ampel.
+   Wird nur bei einem Phasenwechsel aufgerufen, nicht jedes Bild. */
+function setzeAmpelLichter() {
+  if (!ampelX) return;
+  const zx = ampelFuer('x'), zz = ampelFuer('z');
+  if (zx + '|' + zz === ampelLichtStand) return;
+  ampelLichtStand = zx + '|' + zz;
+  const m = new THREE.Matrix4(), o = new THREE.Vector3();
+  AMPEL_STELLEN.forEach(([px, pz, drehX, drehZ], i) => {
+    ampelOrt(px, pz, drehX, AMPEL_ARM, AMPEL_LINSE[zx], AMPEL_VOR, o);
+    ampelX.setMatrixAt(i, m.makeTranslation(o.x, o.y, o.z));
+    ampelOrt(px, pz, drehZ, AMPEL_ARM, AMPEL_LINSE[zz], AMPEL_VOR, o);
+    ampelZ.setMatrixAt(i, m.makeTranslation(o.x, o.y, o.z));
   });
   ampelX.instanceMatrix.needsUpdate = true;
   ampelZ.instanceMatrix.needsUpdate = true;
-  cityGroup.add(ampelX); cityGroup.add(ampelZ);
+}
+
+/* ---- Stadtmoebel aus fertigen Modellen ----
+   assets/stadtmoebel.glb kommt aus dem Modellkatalog von Higgsfield
+   (3D Jutsu). Es sind Low-Poly-Modelle in echten Massen - die Ampel ist
+   2,01 x 1,34 x 4,30 m gross und hat 3424 Flaechen, also ungefaehr so
+   viel wie ein Haus in der Ferne. Sie werden geladen wie die
+   Hausmodelle: erst baut buildCity() Kisten, dann kommt das Modell und
+   setzt sich darueber.
+   Die Kisten bleiben als Rueckfall stehen. Kommt das Modell nicht (kein
+   Netz, alte Zwischenablage), sieht die Stadt aus wie vorher - nur eben
+   kantiger. */
+const MOEBEL = {};
+function ladeStadtmoebel(loader) {
+  loader.load('assets/stadtmoebel.glb', (gltf) => {
+    try {
+      gltf.scene.updateMatrixWorld(true);
+      gltf.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        MOEBEL[o.name] = o;
+        /* Auf die Zeichenart des Spiels bringen - die Stadt ist matt,
+           ohne Glanzlichter. */
+        const alt = o.material;
+        o.material = new THREE.MeshLambertMaterial({
+          color: alt && alt.color ? alt.color.clone() : new THREE.Color(0x8a9099),
+          vertexColors: !!(o.geometry && o.geometry.attributes.color),
+        });
+        o.castShadow = true; o.receiveShadow = true;
+      });
+      setzeAmpelModelle();
+    } catch (e) { window.__moebelFehler = String(e && e.message || e); }
+  }, undefined, (e) => { window.__moebelFehler = 'laden: ' + String(e && e.message || e); });
+}
+
+/* Das Ampelmodell an jede gemerkte Stelle setzen - zwei Ausleger je
+   Mast. Alle 256 Ausleger liegen in EINEM InstancedMesh: als einzelne
+   Kopien waeren es 256 Zeichenaufrufe, mehr als die ganze uebrige
+   Stadt zusammen. */
+function setzeAmpelModelle() {
+  const modell = MOEBEL['traffic_light_01'];
+  if (!modell || !AMPEL_STELLEN.length) return;
+  /* Der Knoten im Modell ist um (-0,67 | -2,15 | 0,20) verschoben. Wird
+     das nicht herausgerechnet, steht der Mast einen halben Meter neben
+     der Stelle, an der Ersatzkiste, Haltepunkt und Leuchtkugeln sitzen -
+     genau so schwebten die Kugeln beim ersten Versuch neben dem Kopf.
+     Nach dem Abziehen liegt die Mastachse auf (0|0) und der Fuss auf
+     y = 0, also genau so, wie die Masse oben gemessen sind. */
+  modell.updateWorldMatrix(true, false);
+  const welt = modell.getWorldPosition(new THREE.Vector3());
+  const geo = modell.geometry.clone()
+    .applyMatrix4(modell.matrixWorld)
+    .translate(-welt.x, -welt.y, -welt.z);
+  /* Alle drei Linsen sind im Modell fest eingefaerbt - die Ampel sieht
+     aus, als brenne sie rot, gelb und gruen zugleich. Hier werden sie
+     abgedunkelt; hell ist nur noch die Leuchtkugel der Farbe, die
+     wirklich geschaltet ist. Die Masse stimmen mit den Werten oben
+     ueberein, weil beide an denselben Eckpunkten gemessen sind. */
+  const linsen = geo.attributes.color, orte = geo.attributes.position;
+  if (linsen) {
+    for (let i = 0; i < orte.count; i++) {
+      if (orte.getX(i) < 0.9) continue;                  // nur der Signalkopf
+      const y = orte.getY(i);
+      if (!AMPEL_LINSE_BAND.some(([u, o]) => y > u && y < o)) continue;
+      linsen.setXYZ(i, linsen.getX(i) * 0.16, linsen.getY(i) * 0.16, linsen.getZ(i) * 0.16);
+    }
+    linsen.needsUpdate = true;
+  }
+  geo.computeBoundingBox();
+  const kasten = geo.boundingBox;
+  /* Auf AMPEL_HOCH bringen - das ist die Hoehe, auf die Haltepunkt,
+     Signallichter und Ersatzkisten abgestimmt sind. Das Modell ist von
+     sich aus schon 4,30 m hoch, der Faktor liegt also bei 1. */
+  const skal = AMPEL_HOCH / (kasten.max.y - kasten.min.y);
+  geo.scale(skal, skal, skal);
+  geo.translate(0, -kasten.min.y * skal, 0);
+  const netz = new THREE.InstancedMesh(geo, modell.material, AMPEL_STELLEN.length * 2);
+  netz.castShadow = true; netz.receiveShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+  const p = new THREE.Vector3(), eins = new THREE.Vector3(1, 1, 1);
+  const achse = new THREE.Vector3(0, 1, 0);
+  let n = 0;
+  for (const [px, pz, drehX, drehZ] of AMPEL_STELLEN) {
+    for (const dreh of [drehX, drehZ]) {
+      m.compose(p.set(px, SLAB_H, pz), q.setFromAxisAngle(achse, dreh), eins);
+      netz.setMatrixAt(n++, m);
+    }
+  }
+  netz.instanceMatrix.needsUpdate = true;
+  cityGroup.add(netz);
+  if (ampelRoh) ampelRoh.visible = false;
 }
 
 /* Farbe der Ampel für eine Fahrtrichtung: 'gruen' | 'gelb' | 'rot' */
@@ -18839,6 +19014,9 @@ function updateAmpeln(dt) {
   };
   ampelX.material.color.setHex(farbe('x'));
   ampelZ.material.color.setHex(farbe('z'));
+  /* Die Kugel wandert mit: rot brennt oben, gelb in der Mitte, gruen
+     unten. Setzt nur bei einem Phasenwechsel Matrizen um. */
+  setzeAmpelLichter();
 }
 
 /* Nächste Kreuzung vor dem Fahrzeug (Abstand entlang der Fahrtrichtung). */
@@ -30507,6 +30685,10 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeHueftZiel(v) { HUEFT_ZIEL = v; },
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     setzeKletterClip(v) { KLETTER_CLIP = v; },
+    ampelStellen() { return AMPEL_STELLEN; },
+    /* Schaltphase von aussen setzen - sonst muesste ein Bildtest
+       elf Sekunden warten, um Gelb oder Gruen zu sehen. */
+    ampelPhase(phase, t) { AMPEL.phase = phase; AMPEL.t = t || 0; updateAmpeln(0); },
     /* ---- Einsatzkraefte: Zugaenge fuer die Tests ---- */
     get resp() { return RESP; },
     respListe() {
