@@ -414,3 +414,90 @@ test('Eine Mausbewegung hat an der Wand sofort Vorrang', () => {
   assert.ok(winkelAb(r.run('camYaw'), nachMaus) < 0.01,
     'die Kamera zieht sofort nach der Maus wieder weg');
 });
+
+/* ---- KI: um das Haus herum statt hinein ----
+   "Die rennen auf Haus obwohl die umherum laufen sollen."
+   Gemessen in der laufenden Stadt (40 s, 53 Zivilisten, 16 Gegner,
+   gleicher Startwert): ohne Vorausschau drueckten sie zusammen 87,0 s
+   (Zivilisten) und 76,0 s (Gegner) gegen Waende, mit Vorausschau 1,5 s
+   und 13,4 s. Diese Tests pruefen die Vorausschau an einer bekannten
+   Wand nach - ohne Browser. */
+const fsA = require('node:fs');
+const vmA = require('node:vm');
+const pathA = require('node:path');
+const wurzelA = pathA.resolve(__dirname, '..');
+function ausweichRuntime() {
+  const quelle = fsA.readFileSync(pathA.join(wurzelA, 'game.js'), 'utf8');
+  const a = quelle.indexOf('/* ---- Vorausschauen statt anrennen ----');
+  const b = quelle.indexOf('/* Weit genug weg, dass ein Versetzen nicht auffaellt? */');
+  assert.ok(a > 0 && b > a, 'der Ausweich-Abschnitt fehlt in game.js');
+  const env = { Math, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(), console };
+  vmA.createContext(env);
+  vmA.runInContext(quelle.slice(a, b), env);
+  env.setzeKlotz = (c) => {
+    for (let i = Math.floor((c.x0 - env.ORIGIN) / env.PITCH);
+         i <= Math.floor((c.x1 - env.ORIGIN) / env.PITCH); i++)
+      for (let j = Math.floor((c.z0 - env.ORIGIN) / env.PITCH);
+           j <= Math.floor((c.z1 - env.ORIGIN) / env.PITCH); j++) {
+        const k = i + ',' + j;
+        env.colliderGrid.set(k, [...(env.colliderGrid.get(k) || []), c]);
+      }
+  };
+  return env;
+}
+
+test('Die Vorausschau misst die freie Strecke bis zur Wand', () => {
+  const e = ausweichRuntime();
+  e.setzeKlotz({ x0: -10, x1: 10, z0: 2, z1: 20, h: 30 });
+  /* Von (0,0) nach +z: die Wand steht bei z = 2, der Laeufer ist
+     0,4 m breit, also bleiben 1,6 m. */
+  const frei = e.freieStrecke(0, 0, 0, 0, 1, 3.6, 0.4);
+  assert.ok(Math.abs(frei - 1.6) < 0.05, 'freie Strecke ' + frei.toFixed(2) + ' statt 1,6');
+  assert.equal(e.freieStrecke(0, 0, 0, 0, -1, 3.6, 0.4), 3.6, 'nach hinten ist frei');
+  /* Ein Bordstein (h = 0,25) steht einem Laeufer nicht im Weg. */
+  const e2 = ausweichRuntime();
+  e2.setzeKlotz({ x0: -10, x1: 10, z0: 2, z1: 20, h: 0.25 });
+  assert.equal(e2.freieStrecke(0, 0.3, 0, 0, 1, 3.6, 0.4), 3.6,
+    'ein Bordstein wird als Hindernis gerechnet');
+});
+
+test('Vor einer Wand dreht die Vorausschau zur offenen Seite', () => {
+  const e = ausweichRuntime();
+  /* Eine Wand quer vor der Nase, die bei x = -2 endet. */
+  e.setzeKlotz({ x0: -2, x1: 40, z0: 2, z1: 20, h: 30 });
+  const a = { pos: { x: 0, y: 0, z: 0 } };
+  const w = e.ausweichWinkel(a, 0, 1, 0.4, 1);
+  assert.ok(w !== 0, 'die Vorausschau sieht die Wand nicht');
+  /* Die Drehung macht aus (0,1) die Richtung (-sin w, cos w) - offen
+     ist es bei -x, also muss w positiv sein. */
+  assert.ok(w > 0, 'er dreht auf die geschlossene Seite: ' + w.toFixed(2));
+  const frei = e.freieStrecke(0, 0, 0, -Math.sin(w), Math.cos(w), 3.6, 0.4);
+  assert.ok(frei > 2.4, 'die gewaehlte Richtung ist auch nicht frei: ' + frei.toFixed(2));
+});
+
+test('Ist der Weg frei, aendert die Vorausschau nichts', () => {
+  const e = ausweichRuntime();
+  e.setzeKlotz({ x0: -10, x1: 10, z0: -40, z1: -20, h: 30 });
+  assert.equal(e.ausweichWinkel({ pos: { x: 0, y: 0, z: 0 } }, 0, 1, 0.4, 1), 0);
+});
+
+test('Die Ausweichseite bleibt stehen und zappelt nicht', () => {
+  const e = ausweichRuntime();
+  e.setzeKlotz({ x0: -20, x1: 20, z0: 3, z1: 20, h: 30 });
+  const a = { pos: { x: 0, y: 0, z: 0 } };
+  const w1 = e.ausweichWinkel(a, 0, 1, 0.4, 1);
+  assert.ok(w1 !== 0);
+  /* Neu gerechnet wird nur zehnmal je Sekunde. */
+  assert.equal(e.ausweichWinkel(a, 0, 1, 0.4, 1 / 60), w1);
+  for (let i = 0; i < 20; i++)
+    assert.equal(Math.sign(e.ausweichWinkel(a, 0, 1, 0.4, 1)), Math.sign(w1),
+      'die Seite kippt hin und her');
+});
+
+test('Steckt einer schon im Klotz, nagelt die Vorausschau ihn nicht fest', () => {
+  const e = ausweichRuntime();
+  e.setzeKlotz({ x0: -5, x1: 5, z0: -5, z1: 5, h: 30 });
+  /* Herausdruecken ist Sache von collideBody. Wuerde die Vorausschau
+     hier 0 liefern, bliebe der Steckengebliebene fuer immer stehen. */
+  assert.equal(e.freieStrecke(0, 0, 0, 1, 0, 3.6, 0.4), 3.6);
+});

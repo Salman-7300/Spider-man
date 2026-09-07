@@ -22570,7 +22570,23 @@ function updateCivilians(dtBild) {
       if (c.fleeMessT > 0.6) {
         c.fleeMessT = 0;
         if (c.fleeAlt && Math.hypot(c.pos.x - c.fleeAlt.x, c.pos.z - c.fleeAlt.z) < 0.9) {
-          c.fleeDreh = (c.fleeDreh || 0) + (Math.random() < 0.5 ? 1.25 : -1.25);
+          /* Nicht mehr wuerfeln, welche Richtung: die freiere nehmen.
+             Der Wuerfel schickte den Fliehenden in der Haelfte der
+             Faelle noch tiefer in die Ecke, in der er schon steckte. */
+          const rr = c.radius || 0.38;
+          /* Als Ausgangsrichtung dient die Geschwindigkeit vom letzten
+             Bild - also die Richtung, in die er GERADE zu laufen
+             versucht. (Der Weg seit fleeAlt taugt nicht: die Abfrage
+             darueber sagt ja gerade, dass er sich kaum bewegt hat.) */
+          const vl = Math.hypot(c.vel.x, c.vel.z) || 1;
+          const w0 = Math.atan2(c.vel.x / vl, c.vel.z / vl);
+          const li = freieStrecke(c.pos.x, c.pos.y, c.pos.z,
+                                  Math.sin(w0 + 1.25), Math.cos(w0 + 1.25),
+                                  AUSWEICH_SICHT, rr);
+          const re = freieStrecke(c.pos.x, c.pos.y, c.pos.z,
+                                  Math.sin(w0 - 1.25), Math.cos(w0 - 1.25),
+                                  AUSWEICH_SICHT, rr);
+          c.fleeDreh = (c.fleeDreh || 0) + (li >= re ? 1.25 : -1.25);
         }
         c.fleeAlt = { x: c.pos.x, z: c.pos.z };
       }
@@ -22678,6 +22694,14 @@ function updateCivilians(dtBild) {
     if (c.handy.visible && !c.filmt &&
         (RUHE_POSEN_HAENDE.includes(c.ruhePose) || (ruf > 45 && c.jubelt && c.gafft)))
       c.handy.visible = false;
+    /* ---- Um das Hindernis herum, bevor er dagegen laeuft ----
+       Gilt fuer jeden Zivilisten, der wirklich unterwegs ist: auf der
+       Route, auf der Flucht, beim Ausweichen vor einem Auto. Wer steht,
+       redet oder gafft, laeuft nirgends hin und braucht es nicht. */
+    if (speed > 1.0 && (dirX || dirZ) && !c.gafft && !c.sozialPartner) {
+      const a2 = ausweichRichtung(c, dirX, dirZ, c.radius || 0.38, dt);
+      dirX = a2.x; dirZ = a2.z;
+    }
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
     /* ---- Die Lage VOR dem Schritt merken ----
        collideBody entscheidet damit, auf welcher Seite eines Klotzes die
@@ -24277,6 +24301,117 @@ function festStufe(a, willLaufen, dt) {
   else { a.festAlt.x = a.pos.x; a.festAlt.z = a.pos.z; }
   return a.festStufeN;
 }
+/* ---- Vorausschauen statt anrennen ----
+   Bisher merkte ein Laeufer erst, dass ein Haus im Weg steht, wenn er
+   schon dagegen drueckte: der Gegner nach 0,35 s, der fliehende Passant
+   nach 0,6 s. Und beide wichen dann auf eine ZUFAELLIG gewaehlte Seite
+   aus - in der Haelfte der Faelle die falsche, dann lief er ein bis zwei
+   Sekunden an der Fassade entlang, weg vom Ziel. Von aussen sieht beides
+   gleich aus: er rennt ins Haus.
+   Gemessen ueber 40 Sekunden Stadt: 43 Zivilisten und 3 Gegner drueckten
+   laenger als eine halbe Sekunde am Stueck gegen etwas.
+   Jetzt wird der Weg VORHER abgetastet. Ist er frei, aendert sich nichts
+   (das ist der Normalfall und kostet einen einzigen Strahl). Ist er
+   versperrt, wird ein Faecher von Richtungen geprueft und die genommen,
+   die am weitesten fuehrt, bei moeglichst kleiner Drehung. */
+/* Nur fuer die Messung abschaltbar: so laesst sich im SELBEN Durchlauf
+   und mit derselben Stadt vergleichen, wie es vorher war. */
+let AUSWEICH_AN = true;
+const AUSWEICH_SICHT = 3.6;        // so weit schaut ein Laeufer voraus
+const AUSWEICH_TAKT = 0.1;         // zehnmal je Sekunde neu entscheiden
+/* Erst kleine Drehungen, dann groessere. Bis knapp ueber 90 Grad - wer
+   mehr drehen muesste, steht in einer Sackgasse, und dafuer gibt es die
+   alten Stufen (festStufe). */
+const AUSWEICH_FAECHER = [0.34, -0.34, 0.68, -0.68, 1.02, -1.02,
+                          1.36, -1.36, 1.70, -1.70];
+
+/* Wie weit kommt eine Scheibe vom Radius r bei (x,z) in Richtung
+   (dx,dz), bevor sie an einen Klotz stoesst? Hoechstens `weit`.
+   Nur Kloetze, die in der Hoehe wirklich im Weg stehen - unter einem
+   Vordach und ueber einem Bordstein laeuft niemand dagegen. Dieselbe
+   Hoehenregel wie in collideBody. */
+function freieStrecke(x, y, z, dx, dz, weit, r) {
+  let best = weit;
+  const ex = x + dx * weit, ez = z + dz * weit;
+  const i0 = Math.floor((Math.min(x, ex) - r - ORIGIN) / PITCH);
+  const i1 = Math.floor((Math.max(x, ex) + r - ORIGIN) / PITCH);
+  const j0 = Math.floor((Math.min(z, ez) - r - ORIGIN) / PITCH);
+  const j1 = Math.floor((Math.max(z, ez) + r - ORIGIN) / PITCH);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const zellen = colliderGrid.get(i + ',' + j);
+    if (!zellen) continue;
+    for (const c of zellen) {
+      if (c.h <= y + 0.15) continue;                       // zu niedrig
+      const unten = c.y0 === undefined ? -50 : c.y0;
+      if (unten >= y + 1.7) continue;                      // zu hoch
+      const x0 = c.x0 - r, x1 = c.x1 + r, z0 = c.z0 - r, z1 = c.z1 + r;
+      /* Steckt der Startpunkt schon im Kasten, wuerde jeder Strahl 0
+         liefern und der Laeufer bliebe stehen. Herausdruecken ist dann
+         Sache von collideBody, nicht dieser Vorausschau. */
+      if (x > x0 && x < x1 && z > z0 && z < z1) continue;
+      /* Strahl gegen den aufgeblasenen Kasten, nur in x und z. */
+      let ein = 0, aus = best;
+      let raus = false;
+      for (const [start, richtung, min, max] of
+           [[x, dx, x0, x1], [z, dz, z0, z1]]) {
+        if (Math.abs(richtung) < 1e-9) {
+          if (start < min || start > max) { raus = true; break; }
+        } else {
+          let a = (min - start) / richtung, b2 = (max - start) / richtung;
+          if (a > b2) { const t = a; a = b2; b2 = t; }
+          if (a > ein) ein = a;
+          if (b2 < aus) aus = b2;
+          if (ein > aus) { raus = true; break; }
+        }
+      }
+      if (!raus && ein < best) best = Math.max(0, ein);
+    }
+  }
+  return best;
+}
+
+/* Der Drehwinkel, mit dem ein Laeufer am Hindernis vorbeikommt.
+   0 = geradeaus ist frei. Der Winkel gilt RELATIV zur gewollten
+   Richtung, deshalb bleibt er auch dann richtig, wenn sich das Ziel
+   bewegt; neu gerechnet wird nur zehnmal je Sekunde. */
+function ausweichWinkel(a, dx, dz, r, dt) {
+  if (!AUSWEICH_AN) return 0;
+  a.ausweichT = (a.ausweichT || 0) - dt;
+  if (a.ausweichT > 0) return a.ausweichW || 0;
+  a.ausweichT = AUSWEICH_TAKT;
+  const gerade = freieStrecke(a.pos.x, a.pos.y, a.pos.z, dx, dz, AUSWEICH_SICHT, r);
+  if (gerade >= AUSWEICH_SICHT - 0.01) {
+    a.ausweichW = 0; a.ausweichSeite = 0;
+    return 0;
+  }
+  let bestWert = gerade, bestW = 0;
+  for (const w of AUSWEICH_FAECHER) {
+    const co = Math.cos(w), si = Math.sin(w);
+    const qx = dx * co - dz * si, qz = dx * si + dz * co;
+    const frei = freieStrecke(a.pos.x, a.pos.y, a.pos.z, qx, qz, AUSWEICH_SICHT, r);
+    /* Bewertung: freie Strecke, minus Strafe fuer die Drehung, plus ein
+       Bonus fuer die Seite von eben. Ohne den Bonus zappelt einer vor
+       einer Hausecke zwischen links und rechts hin und her. */
+    const wert = frei - Math.abs(w) * 0.75
+               + (a.ausweichSeite && Math.sign(w) === a.ausweichSeite ? 0.5 : 0);
+    if (wert > bestWert) { bestWert = wert; bestW = w; }
+  }
+  a.ausweichW = bestW;
+  if (bestW) a.ausweichSeite = Math.sign(bestW);
+  return bestW;
+}
+
+/* Bequemer Aufruf: gewollte Richtung rein, ausweichende raus. */
+const _ausw = { x: 0, z: 0 };
+function ausweichRichtung(a, dx, dz, r, dt) {
+  const w = ausweichWinkel(a, dx, dz, r, dt);
+  if (!w) { _ausw.x = dx; _ausw.z = dz; return _ausw; }
+  const co = Math.cos(w), si = Math.sin(w);
+  _ausw.x = dx * co - dz * si;
+  _ausw.z = dx * si + dz * co;
+  return _ausw;
+}
+
 /* Weit genug weg, dass ein Versetzen nicht auffaellt? */
 function ausserSicht(pos) {
   const d = Math.hypot(pos.x - player.pos.x, pos.z - player.pos.z);
@@ -25537,9 +25672,20 @@ function updateEnemies(dtBild) {
     }
 
     if (e.webT > 0) speed *= 0.35;      // im Netz zappelnd, kaum vorwärts
-    /* Blockiert eine Hauswand den direkten Weg, wird eine Weile seitlich
-       daran entlanggelaufen. Vorher rannten die Ganoven stur gegen die
-       Fassade – von außen sah es aus, als liefen sie ins Haus hinein. */
+    /* ---- Um das Haus herum, bevor er dagegen laeuft ----
+       Vorher rannten die Ganoven stur gegen die Fassade und wichen erst
+       aus, wenn sie 0,35 s lang gedrueckt hatten - und dann auf eine
+       zufaellige Seite. Jetzt wird der Weg vorher abgetastet.
+       Nur wer wirklich laeuft: wer im Ring um den Helden steht oder
+       gerade zuschlaegt, soll nicht um Kleinigkeiten herumtaenzeln. */
+    if (speed > 1.2 && !e.attack && (e.staggerT || 0) <= 0 && !e.gepackt &&
+        (moveX || moveZ)) {
+      const a2 = ausweichRichtung(e, moveX, moveZ, e.radius || 0.42, dt);
+      moveX = a2.x; moveZ = a2.z;
+    }
+    /* Der alte Umweg bleibt als zweite Stufe: er greift, wenn etwas im
+       Weg steht, das die Vorausschau nicht kennt - ein anderer Ganove,
+       ein Auto, der Spieler selbst. */
     if (e.umwegT > 0) {
       e.umwegT -= dt;
       const qx = -moveZ * e.umwegSeite, qz = moveX * e.umwegSeite;
@@ -25583,7 +25729,16 @@ function updateEnemies(dtBild) {
       e.blockiertT = echt < gewollt * 0.45 ? (e.blockiertT || 0) + dt : 0;
       if (e.blockiertT > 0.35) {
         e.umwegT = rand(1.2, 2.2);
-        e.umwegSeite = Math.random() < 0.5 ? 1 : -1;
+        /* Nicht mehr wuerfeln: die Seite nehmen, auf der mehr Platz ist.
+           Die gewuerfelte war in der Haelfte der Faelle die falsche, und
+           dann lief er zwei Sekunden lang in die Sackgasse hinein. */
+        const rr = e.radius || 0.42;
+        const li = freieStrecke(e.pos.x, e.pos.y, e.pos.z, -moveZ, moveX,
+                                AUSWEICH_SICHT, rr);
+        const re = freieStrecke(e.pos.x, e.pos.y, e.pos.z, moveZ, -moveX,
+                                AUSWEICH_SICHT, rr);
+        e.umwegSeite = li > re + 0.2 ? 1 : re > li + 0.2 ? -1
+                     : (Math.random() < 0.5 ? 1 : -1);
         e.blockiertT = 0;
       }
     }
@@ -31248,6 +31403,9 @@ if (window.__WEBHERO_TEST__ === true) {
     bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     beetStellen() { return BEET_STELLEN; },
+    /* Fuer die KI-Messung: wie weit ist der Weg vor einem Laeufer frei? */
+    freieStrecke, ausweichWinkel,
+    setzeAusweichen(an) { AUSWEICH_AN = !!an; },
     /* Alles, was auf dem Gehweg steht, in EINER Liste mit Grundkreis.
        Damit laesst sich pruefen, ob zwei Gegenstaende ineinander stecken
        oder einer auf der Fahrbahn steht - ohne jede Sorte einzeln
