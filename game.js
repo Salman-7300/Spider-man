@@ -1395,6 +1395,10 @@ const KIT_BLOCKS = [
    Stadtbau stehen: gesammelt wird beim Bauen, gesetzt erst, wenn die
    Datei geladen ist (siehe ladeStadtteile weiter unten). */
 const TEIL_STELLEN = {};       // teilname -> [{x,y,z,ry,s}]
+/* Die daraus gebauten InstancedMeshes, teilname -> [mesh]. Nur damit
+   sich ein Bausatzteil ausblenden laesst, wenn spaeter ein besseres
+   Modell dafuer nachgeladen wird (das Beet zum Beispiel). */
+const TEIL_NETZE = {};
 function merkeTeil(name, x, y, z, ry, s) {
   if (!TEIL_STELLEN[name]) TEIL_STELLEN[name] = [];
   TEIL_STELLEN[name].push({ x, y, z, ry: ry || 0, s: s === undefined ? 1 : s });
@@ -2061,6 +2065,21 @@ const AMPEL_VOR = 0.28;
 const AMPEL_LINSE = { gruen: 3.343, gelb: 3.653, rot: 3.963 };
 /* Hoehenband jeder Linse am Modell - danach werden sie abgedunkelt. */
 const AMPEL_LINSE_BAND = [[3.26, 3.43], [3.57, 3.74], [3.88, 4.05]];
+/* Masse der Laterne, ebenfalls am Modell gemessen: 4,10 m hoher Mast,
+   der Ausleger traegt den Leuchtenkopf 1,18 m daneben, die Leuchtflaeche
+   liegt auf 3,72 m. */
+const LATERNE_HOCH = 4.10;
+const LATERNE_ARM = 1.18;
+const LATERNE_LICHT = 3.72;
+const LATERNE_STELLEN = [];
+const LATERNE_ROH = [];
+/* Das Pflanzbeet am Bordstein: 1,37 x 0,60 m Grundflaeche, 0,73 m hoch,
+   mit Bepflanzung. Vorher stand dort eine leere Betonwanne aus dem
+   Bausatz - Erde drin, aber nichts, was waechst. */
+const BEET_HOCH = 0.73;
+const BEET_STELLEN = [];
+const BEET_ERSATZ = 'Prop_Planter_Single';
+let beetModellDa = false;
 /* Schaltzustand. Steht HIER oben und nicht bei baueAmpeln(), weil
    die Stadt frueher gebaut wird als jene Zeile steht - und schon
    beim Bauen muss feststehen, welche Linse brennt. */
@@ -2438,7 +2457,12 @@ function buildCity() {
         if (loecher.some((l) => px0 > l.x0 - 2.5 && px0 < l.x1 + 2.5 &&
                                 pz0 > l.z0 - 2.5 && pz0 < l.z1 + 2.5)) continue;
         if ((bi * 3 + bj + ex + ez) % 3 === 0) {
-          merkeTeil('Prop_Planter_Single', px0 - ex * 0.6, SLAB_H, pz0 - ez * 0.6, 0, 0.8);
+          /* Das Beet ist laenglich; es steht laengs der naeheren
+             Bordsteinkante, nicht quer ueber den Gehweg. */
+          const bx = px0 - ex * 0.6, bz = pz0 - ez * 0.6;
+          const bdreh = ex === ez ? 0 : Math.PI / 2;
+          BEET_STELLEN.push([bx, bz, bdreh]);
+          merkeTeil(BEET_ERSATZ, bx, SLAB_H, bz, bdreh, 0.8);
         } else {
           for (let k = -1; k <= 1; k++) {
             merkeTeil('Prop_Bollard', px0 + (ex ? 0 : k * 1.6), SLAB_H,
@@ -4347,18 +4371,32 @@ function ziehFestPunkt(x, y, z, r) {
   addCollider({ x0: x - h, x1: x + h, z0: z - h, z1: z + h,
                 h: y, y0: y - 0.6, klein: true, keinKlettern: true });
 }
-function addLamp(x, z) {
-  /* Oberkante der Leuchtkugel: Mast 4,4 m plus 0,22 m Kugelradius.
-     Mit 4,0 stand die Figur 62 cm TIEF im Lampenkopf. */
-  ziehFestPunkt(x, SLAB_H + 4.62, z, 0.3);
+function addLamp(x, z, dreh) {
+  /* Der Ausleger zeigt zur Strasse. Alle Laternen stehen an der
+     Westkante ihres Blocks, der Fahrbahn also nach -x zugewandt. */
+  const d = dreh === undefined ? Math.PI : dreh;
+  LATERNE_STELLEN.push([x, z, d]);
+  /* Oben auf dem Leuchtenkopf laesst sich stehen. Frueher sass der
+     Haltepunkt auf dem Mast (4,62 m) - der Mast der neuen Laterne endet
+     aber schon bei 3,9 m und der Kopf haengt daneben am Ausleger. */
+  const halt = moebelOrt(x, z, d, LATERNE_ARM, LATERNE_HOCH, 0, new THREE.Vector3());
+  ziehFestPunkt(halt.x, halt.y, halt.z, 0.26);
   const g = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 4.4, 6),
-    new THREE.MeshLambertMaterial({ color: 0x2c2f33 }));
-  pole.position.y = 2.2; g.add(pole);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6),
+  /* Ersatzform fuer den Fall, dass stadtmoebel.glb nicht geladen wird.
+     Sie hat dieselben Masse wie das Modell, damit Haltepunkt und
+     Lichtkugel in beiden Faellen passen. */
+  const roh = new THREE.Mesh(verschmelzeBoxen([
+    { w: 0.18, h: 3.90, d: 0.18, x: 0, y: 1.95, z: 0, farbe: 0x2c2f33 },
+    { w: LATERNE_ARM, h: 0.12, d: 0.12, x: LATERNE_ARM / 2, y: 3.90, z: 0, farbe: 0x2c2f33 },
+    { w: 0.42, h: 0.24, d: 0.30, x: LATERNE_ARM, y: 3.92, z: 0, farbe: 0x2c2f33 },
+  ]), new THREE.MeshLambertMaterial({ vertexColors: true }));
+  roh.castShadow = true; g.add(roh); LATERNE_ROH.push(roh);
+  /* Das Leuchtmittel. Es bleibt auch mit Modell sichtbar - das Modell
+     selbst leuchtet nicht, es ist nur Blech. */
+  const kopf = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6),
     new THREE.MeshBasicMaterial({ color: 0xfff1b8 }));
-  head.position.y = 4.4; g.add(head);
-  g.position.set(x, SLAB_H, z);
+  kopf.position.set(LATERNE_ARM, LATERNE_LICHT, 0); g.add(kopf);
+  g.position.set(x, SLAB_H, z); g.rotation.y = d;
   cityGroup.add(g);
 }
 
@@ -5270,8 +5308,18 @@ function setzeStadtteile(szene) {
       }
       inst.instanceMatrix.needsUpdate = true;
       cityGroup.add(inst);
+      if (!TEIL_NETZE[name]) TEIL_NETZE[name] = [];
+      TEIL_NETZE[name].push(inst);
     }
   }
+  /* Das Beetmodell kann frueher fertig sein als der Bausatz - dann muss
+     der Ersatz gleich hier verschwinden. */
+  if (beetModellDa) versteckeTeil(BEET_ERSATZ);
+}
+
+/* Alle Instanzen eines Bausatzteils ausblenden. */
+function versteckeTeil(name) {
+  for (const m of TEIL_NETZE[name] || []) m.visible = false;
 }
 
 /* Name eines Knotens so schreiben, wie ihn die Animationsspuren ansprechen. */
@@ -18814,10 +18862,11 @@ function makeFahrzeugMesh(typ, farbe) {
    Die Lampenköpfe liegen in zwei InstancedMesh – dadurch kosten alle
    Ampeln zusammen nur zwei Zeichenaufrufe statt hunderte. */
 
-/* Ort eines Punktes am Ampelmodell in Weltkoordinaten.
+/* Ort eines Punktes an einem Stadtmoebel in Weltkoordinaten.
    lx zeigt am unverdrehten Modell den Ausleger entlang, lz nach vorn zu
-   den Linsen. dreh ist die Drehung des Mastes um die Hochachse. */
-function ampelOrt(px, pz, dreh, lx, ly, lz, out) {
+   den Linsen. dreh ist die Drehung des Mastes um die Hochachse - und
+   zwar dieselbe Drehung, die THREE bei rotation.y anwendet. */
+function moebelOrt(px, pz, dreh, lx, ly, lz, out) {
   const c = Math.cos(dreh), s = Math.sin(dreh);
   return (out || new THREE.Vector3())
     .set(px + lx * c + lz * s, SLAB_H + ly, pz - lx * s + lz * c);
@@ -18845,7 +18894,7 @@ function baueAmpeln() {
            waagerecht ueber der Fahrbahn liegt (4,30 m). Vorher stand die
            Figur einen Meter ueber der Ampel in der Luft, weil der Wert
            noch von den alten Kisten (6,20 m) stammte. */
-        ampelOrt(px, pz, drehZ, 0.90, AMPEL_HOCH, 0, _o);
+        moebelOrt(px, pz, drehZ, 0.90, AMPEL_HOCH, 0, _o);
         ziehFestPunkt(_o.x, _o.y, _o.z, 0.28);
         /* ---- Die Kisten stehen jetzt in EINER eigenen Flaeche ----
            Vorher gingen sie ueber deko() in die grosse Sammelgeometrie
@@ -18860,10 +18909,10 @@ function baueAmpeln() {
              Rasterachse, deshalb reicht es, Breite und Tiefe der Kiste
              zu tauschen - eine Drehung braucht es nicht. */
           const laengs = Math.abs(Math.cos(dreh)) > 0.5;
-          ampelOrt(px, pz, dreh, 0.85, AMPEL_HOCH - 0.06, 0, _o);
+          moebelOrt(px, pz, dreh, 0.85, AMPEL_HOCH - 0.06, 0, _o);
           ampelKisten.push({ w: laengs ? 1.3 : 0.12, h: 0.12, d: laengs ? 0.12 : 1.3,
                              x: _o.x, y: _o.y, z: _o.z, farbe: 0x2c3037, ry: 0, rz: 0 });
-          ampelOrt(px, pz, dreh, AMPEL_ARM, AMPEL_LINSE.gelb, 0.12, _o);
+          moebelOrt(px, pz, dreh, AMPEL_ARM, AMPEL_LINSE.gelb, 0.12, _o);
           ampelKisten.push({ w: laengs ? 0.3 : 0.28, h: 1.0, d: laengs ? 0.28 : 0.3,
                              x: _o.x, y: _o.y, z: _o.z, farbe: 0x23262b, ry: 0, rz: 0 });
         }
@@ -18897,9 +18946,9 @@ function setzeAmpelLichter() {
   ampelLichtStand = zx + '|' + zz;
   const m = new THREE.Matrix4(), o = new THREE.Vector3();
   AMPEL_STELLEN.forEach(([px, pz, drehX, drehZ], i) => {
-    ampelOrt(px, pz, drehX, AMPEL_ARM, AMPEL_LINSE[zx], AMPEL_VOR, o);
+    moebelOrt(px, pz, drehX, AMPEL_ARM, AMPEL_LINSE[zx], AMPEL_VOR, o);
     ampelX.setMatrixAt(i, m.makeTranslation(o.x, o.y, o.z));
-    ampelOrt(px, pz, drehZ, AMPEL_ARM, AMPEL_LINSE[zz], AMPEL_VOR, o);
+    moebelOrt(px, pz, drehZ, AMPEL_ARM, AMPEL_LINSE[zz], AMPEL_VOR, o);
     ampelZ.setMatrixAt(i, m.makeTranslation(o.x, o.y, o.z));
   });
   ampelX.instanceMatrix.needsUpdate = true;
@@ -18934,28 +18983,89 @@ function ladeStadtmoebel(loader) {
         o.castShadow = true; o.receiveShadow = true;
       });
       setzeAmpelModelle();
+      setzeLaterneModelle();
+      setzeBeetModelle();
     } catch (e) { window.__moebelFehler = String(e && e.message || e); }
   }, undefined, (e) => { window.__moebelFehler = 'laden: ' + String(e && e.message || e); });
 }
 
-/* Das Ampelmodell an jede gemerkte Stelle setzen - zwei Ausleger je
-   Mast. Alle 256 Ausleger liegen in EINEM InstancedMesh: als einzelne
-   Kopien waeren es 256 Zeichenaufrufe, mehr als die ganze uebrige
-   Stadt zusammen. */
-function setzeAmpelModelle() {
-  const modell = MOEBEL['traffic_light_01'];
-  if (!modell || !AMPEL_STELLEN.length) return;
-  /* Der Knoten im Modell ist um (-0,67 | -2,15 | 0,20) verschoben. Wird
-     das nicht herausgerechnet, steht der Mast einen halben Meter neben
-     der Stelle, an der Ersatzkiste, Haltepunkt und Leuchtkugeln sitzen -
-     genau so schwebten die Kugeln beim ersten Versuch neben dem Kopf.
-     Nach dem Abziehen liegt die Mastachse auf (0|0) und der Fuss auf
-     y = 0, also genau so, wie die Masse oben gemessen sind. */
+/* Die Geometrie eines Stadtmoebels so herrichten, dass sie sich an eine
+   Stelle im Raster setzen laesst: Mastachse auf (0|0), Fuss auf y = 0,
+   Hoehe genau 'hoch'.
+   Die Knoten im Modell sind verschoben (der Ampelknoten um
+   -0,67 | -2,15 | 0,20). Wird das nicht herausgerechnet, steht der Mast
+   einen halben Meter neben der Stelle, an der Ersatzform, Haltepunkt und
+   Leuchtkugeln sitzen - genau so schwebten die Kugeln beim ersten
+   Versuch neben dem Ampelkopf. */
+function moebelGeometrie(modell) {
   modell.updateWorldMatrix(true, false);
   const welt = modell.getWorldPosition(new THREE.Vector3());
   const geo = modell.geometry.clone()
     .applyMatrix4(modell.matrixWorld)
     .translate(-welt.x, -welt.y, -welt.z);
+  return geo;
+}
+
+/* Auf die Zielhoehe bringen und den Fuss auf y = 0 legen. Getrennt von
+   moebelGeometrie(), weil die Ampel dazwischen noch ihre Linsen
+   abdunkelt - und das geht nur mit den gemessenen Rohmassen. */
+function moebelAufHoehe(geo, hoch) {
+  geo.computeBoundingBox();
+  const kasten = geo.boundingBox;
+  const skal = hoch / (kasten.max.y - kasten.min.y);
+  geo.scale(skal, skal, skal);
+  geo.translate(0, -kasten.min.y * skal, 0);
+  return geo;
+}
+
+/* Ein Feld gleicher Modelle an gemerkte Plaetze setzen; ein Platz ist
+   [x, y, z, drehung]. Alles in EINEM InstancedMesh: als einzelne Kopien
+   waeren es hunderte Zeichenaufrufe, mehr als die ganze uebrige Stadt
+   zusammen. */
+function setzeMoebelFeld(geo, werkstoff, plaetze) {
+  const netz = new THREE.InstancedMesh(geo, werkstoff, plaetze.length);
+  netz.castShadow = true; netz.receiveShadow = true;
+  /* Ueber die ganze Stadt verteilt - ein gemeinsamer Umkreis waere
+     riesig und wuerde nie weggeschnitten. */
+  netz.frustumCulled = false;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+  const p = new THREE.Vector3(), eins = new THREE.Vector3(1, 1, 1);
+  const achse = new THREE.Vector3(0, 1, 0);
+  plaetze.forEach(([x, y, z, dreh], i) => {
+    m.compose(p.set(x, y, z), q.setFromAxisAngle(achse, dreh), eins);
+    netz.setMatrixAt(i, m);
+  });
+  netz.instanceMatrix.needsUpdate = true;
+  cityGroup.add(netz);
+  return netz;
+}
+
+/* Die Laternen: ein Ausleger je Mast, Kopf zur Fahrbahn. */
+function setzeLaterneModelle() {
+  const modell = MOEBEL['street_lamp_01'];
+  if (!modell || !LATERNE_STELLEN.length) return;
+  setzeMoebelFeld(moebelAufHoehe(moebelGeometrie(modell), LATERNE_HOCH), modell.material,
+                  LATERNE_STELLEN.map(([x, z, d]) => [x, SLAB_H, z, d]));
+  for (const r of LATERNE_ROH) r.visible = false;
+}
+
+/* Die Pflanzbeete am Bordstein. Der Bausatz hatte dort nur eine leere
+   Betonwanne stehen; sobald das Modell da ist, verschwindet sie. */
+function setzeBeetModelle() {
+  const modell = MOEBEL['plaza_planter_01'];
+  if (!modell || !BEET_STELLEN.length) return;
+  setzeMoebelFeld(moebelAufHoehe(moebelGeometrie(modell), BEET_HOCH), modell.material,
+                  BEET_STELLEN.map(([x, z, d]) => [x, SLAB_H, z, d]));
+  beetModellDa = true;
+  versteckeTeil(BEET_ERSATZ);
+}
+
+/* Das Ampelmodell an jede gemerkte Stelle setzen - zwei Ausleger je
+   Mast, einer fuer jede Fahrtrichtung. */
+function setzeAmpelModelle() {
+  const modell = MOEBEL['traffic_light_01'];
+  if (!modell || !AMPEL_STELLEN.length) return;
+  const geo = moebelGeometrie(modell);
   /* Alle drei Linsen sind im Modell fest eingefaerbt - die Ampel sieht
      aus, als brenne sie rot, gelb und gruen zugleich. Hier werden sie
      abgedunkelt; hell ist nur noch die Leuchtkugel der Farbe, die
@@ -18971,28 +19081,10 @@ function setzeAmpelModelle() {
     }
     linsen.needsUpdate = true;
   }
-  geo.computeBoundingBox();
-  const kasten = geo.boundingBox;
-  /* Auf AMPEL_HOCH bringen - das ist die Hoehe, auf die Haltepunkt,
-     Signallichter und Ersatzkisten abgestimmt sind. Das Modell ist von
-     sich aus schon 4,30 m hoch, der Faktor liegt also bei 1. */
-  const skal = AMPEL_HOCH / (kasten.max.y - kasten.min.y);
-  geo.scale(skal, skal, skal);
-  geo.translate(0, -kasten.min.y * skal, 0);
-  const netz = new THREE.InstancedMesh(geo, modell.material, AMPEL_STELLEN.length * 2);
-  netz.castShadow = true; netz.receiveShadow = true;
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
-  const p = new THREE.Vector3(), eins = new THREE.Vector3(1, 1, 1);
-  const achse = new THREE.Vector3(0, 1, 0);
-  let n = 0;
-  for (const [px, pz, drehX, drehZ] of AMPEL_STELLEN) {
-    for (const dreh of [drehX, drehZ]) {
-      m.compose(p.set(px, SLAB_H, pz), q.setFromAxisAngle(achse, dreh), eins);
-      netz.setMatrixAt(n++, m);
-    }
-  }
-  netz.instanceMatrix.needsUpdate = true;
-  cityGroup.add(netz);
+  const plaetze = [];
+  for (const [px, pz, drehX, drehZ] of AMPEL_STELLEN)
+    for (const dreh of [drehX, drehZ]) plaetze.push([px, SLAB_H, pz, dreh]);
+  setzeMoebelFeld(moebelAufHoehe(geo, AMPEL_HOCH), modell.material, plaetze);
   if (ampelRoh) ampelRoh.visible = false;
 }
 
@@ -30686,6 +30778,8 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     setzeKletterClip(v) { KLETTER_CLIP = v; },
     ampelStellen() { return AMPEL_STELLEN; },
+    laterneStellen() { return LATERNE_STELLEN; },
+    teilStellen(name) { return TEIL_STELLEN[name] || []; },
     /* Schaltphase von aussen setzen - sonst muesste ein Bildtest
        elf Sekunden warten, um Gelb oder Gruen zu sehen. */
     ampelPhase(phase, t) { AMPEL.phase = phase; AMPEL.t = t || 0; updateAmpeln(0); },

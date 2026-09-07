@@ -99,15 +99,15 @@ test('Ampel: die abgedunkelten Baender decken genau die drei Linsen', async () =
     'die Baender ueberlappen sich - dann wuerde eine Linse doppelt abgedunkelt');
 });
 
-test('ampelOrt setzt den Signalkopf ueber die richtige Fahrbahn', () => {
+test('moebelOrt setzt den Signalkopf ueber die richtige Fahrbahn', () => {
   const env = { THREE: require('../lib/three.min.js'), SLAB_H: 0.25, Math };
-  vm.runInNewContext(quelle.slice(quelle.indexOf('function ampelOrt('),
-    quelle.indexOf('function baueAmpeln(')) + '\nglobalThis.ampelOrt = ampelOrt;', env);
-  const o = env.ampelOrt(10, 20, Math.PI, AMPEL_ARM, AMPEL_LINSE.rot, AMPEL_VOR);
+  vm.runInNewContext(quelle.slice(quelle.indexOf('function moebelOrt('),
+    quelle.indexOf('function baueAmpeln(')) + '\nglobalThis.moebelOrt = moebelOrt;', env);
+  const o = env.moebelOrt(10, 20, Math.PI, AMPEL_ARM, AMPEL_LINSE.rot, AMPEL_VOR);
   assert.ok(Math.abs(o.x - (10 - AMPEL_ARM)) < 1e-6, 'Arm zeigt nicht nach -x');
   assert.ok(Math.abs(o.z - (20 - AMPEL_VOR)) < 1e-6, 'Kopf schaut nicht nach -z');
   assert.ok(Math.abs(o.y - (0.25 + AMPEL_LINSE.rot)) < 1e-6, 'falsche Hoehe');
-  const q = env.ampelOrt(10, 20, Math.PI / 2, AMPEL_ARM, 0, 0);
+  const q = env.moebelOrt(10, 20, Math.PI / 2, AMPEL_ARM, 0, 0);
   assert.ok(Math.abs(q.z - (20 - AMPEL_ARM)) < 1e-6, 'Querarm zeigt nicht nach -z');
 });
 
@@ -124,4 +124,59 @@ test('Die Leuchtfelder der Ampel entstehen vor dem Stadtbau', () => {
   assert.ok(anlegen < bauen,
     'ampelX/ampelZ werden erst nach baueAmpeln() angelegt - die Ampeln schalten dann nie');
   assert.ok(!varAmpel.test(quelle), 'ampelX ist wieder ein var - das ueberschreibt sich selbst');
+});
+
+const LATERNE_HOCH = zahl(/const LATERNE_HOCH = ([\d.]+)/, 'LATERNE_HOCH');
+const LATERNE_ARM = zahl(/const LATERNE_ARM = ([\d.]+)/, 'LATERNE_ARM');
+const LATERNE_LICHT = zahl(/const LATERNE_LICHT = ([\d.]+)/, 'LATERNE_LICHT');
+const BEET_HOCH = zahl(/const BEET_HOCH = ([\d.]+)/, 'BEET_HOCH');
+
+/* Rohmasse eines Modells: Kasten und, falls gewuenscht, die hellen
+   Punkte (bei der Laterne die Leuchtflaeche unter dem Kopf). */
+async function modellMasse(name) {
+  const doc = await new NodeIO().read(path.join(wurzel, 'assets', 'stadtmoebel.glb'));
+  const mesh = doc.getRoot().listMeshes().find((m) => m.getName() === name);
+  assert.ok(mesh, name + ' fehlt in stadtmoebel.glb');
+  const prim = mesh.listPrimitives()[0];
+  const pos = prim.getAttribute('POSITION'), col = prim.getAttribute('COLOR_0');
+  const p = [0, 0, 0], c = [0, 0, 0, 1];
+  const k = { mn: [1e9, 1e9, 1e9], mx: [-1e9, -1e9, -1e9] };
+  const hell = { mn: [1e9, 1e9, 1e9], mx: [-1e9, -1e9, -1e9], n: 0 };
+  for (let i = 0; i < pos.getCount(); i++) {
+    pos.getElement(i, p);
+    for (let a = 0; a < 3; a++) { k.mn[a] = Math.min(k.mn[a], p[a]); k.mx[a] = Math.max(k.mx[a], p[a]); }
+    if (!col) continue;
+    col.getElement(i, c);
+    if ((c[0] + c[1] + c[2]) / 3 < 0.55 || p[1] < 3) continue;   // nur der Leuchtenkopf
+    hell.n++;
+    for (let a = 0; a < 3; a++) { hell.mn[a] = Math.min(hell.mn[a], p[a]); hell.mx[a] = Math.max(hell.mx[a], p[a]); }
+  }
+  return { kasten: k, hell, hoch: k.mx[1] - k.mn[1] };
+}
+
+test('Laterne: Hoehe, Ausleger und Leuchtmittel stimmen mit dem Modell', async () => {
+  const m = await modellMasse('street_lamp_01');
+  assert.ok(Math.abs(m.hoch - LATERNE_HOCH) < 0.02,
+    'Modell ist ' + m.hoch.toFixed(2) + ' m hoch, das Spiel rechnet mit ' + LATERNE_HOCH);
+  assert.ok(m.hell.n > 20, 'keine Leuchtflaeche im Modell gefunden');
+  assert.ok(LATERNE_ARM > m.hell.mn[0] && LATERNE_ARM < m.hell.mx[0],
+    'LATERNE_ARM ' + LATERNE_ARM + ' liegt nicht unter dem Leuchtenkopf (' +
+    m.hell.mn[0].toFixed(2) + '..' + m.hell.mx[0].toFixed(2) + ')');
+  /* Die Kugel sitzt knapp UNTER der Leuchtflaeche, sonst steckt sie im Blech. */
+  const unten = m.hell.mn[1];
+  assert.ok(LATERNE_LICHT <= unten && LATERNE_LICHT > unten - 0.12,
+    'LATERNE_LICHT ' + LATERNE_LICHT + ' passt nicht zur Leuchtflaeche auf ' + unten.toFixed(2));
+});
+
+test('Beet: Hoehe stimmt mit dem Modell', async () => {
+  const m = await modellMasse('plaza_planter_01');
+  assert.ok(Math.abs(m.hoch - BEET_HOCH) < 0.02,
+    'Modell ist ' + m.hoch.toFixed(2) + ' m hoch, das Spiel rechnet mit ' + BEET_HOCH);
+});
+
+test('Jedes Stadtmoebel hat eine Ersatzform, falls die Datei fehlt', () => {
+  /* Kommt stadtmoebel.glb nicht an, darf die Stadt nicht kahl sein. */
+  assert.ok(/ampelRoh\.visible = false/.test(quelle), 'Ampel ohne Ersatzform');
+  assert.ok(/for \(const r of LATERNE_ROH\) r\.visible = false/.test(quelle), 'Laterne ohne Ersatzform');
+  assert.ok(/versteckeTeil\(BEET_ERSATZ\)/.test(quelle), 'Beet ohne Ersatzform');
 });
