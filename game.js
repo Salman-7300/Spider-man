@@ -7252,9 +7252,10 @@ function makeGlbVisual(m) {
          Gegendrehung verteilt sich auf Kopf, Hals und obere Wirbelsäule –
          auf einen Knochen allein sähe sie verrenkt aus. */
       const gegen = -(neigung || 0);
-      drehZuRuhe(knochen.head, gegen * 0.55, 0, 0, 0.85 * _sk);
-      drehZuRuhe(knochen.neck, gegen * 0.3, 0, 0, 0.8 * _sk);
-      drehe(knochen.spine2, gegen * 0.22, 0, 0, 0.55 * _sk);
+      drehZuRuhe(knochen.head, gegen * SCHWUNG_KOPF[0], 0, 0, 0.85 * _sk);
+      drehZuRuhe(knochen.neck, gegen * SCHWUNG_KOPF[1], 0, 0, 0.8 * _sk);
+      drehe(knochen.spine2, gegen * SCHWUNG_KOPF[2], 0, 0, 0.55 * _sk);
+      drehe(knochen.spine1, gegen * SCHWUNG_KOPF[3], 0, 0, 0.5 * _sk);
       // Solve the arm AFTER the torso correction; otherwise the shoulder
       // moves again after aiming and the wrist no longer follows the web.
       netzArm('left', zielWelt, schwungLinks * _sk);
@@ -7529,14 +7530,34 @@ function makeGlbVisual(m) {
          Beine, die Arme pendeln wie beim Laufen: Ellbogen angewinkelt,
          Haende vor dem Koerper, abwechselnd hoch und runter.
          Negative Tiefe heisst WEG von der Wand. */
-      punkt(_vw3, -0.26, 1.30 + g * 0.14, -0.16);            // linker Ellbogen
-      zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
-      punkt(_vw3, -0.20, 1.62 + g * 0.34, -0.36);            // linke Hand
-      zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
-      punkt(_vw4, 0.26, 1.30 - g * 0.14, -0.16);
-      zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
-      punkt(_vw4, 0.20, 1.62 - g * 0.34, -0.36);
-      zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
+      /* ---- Die Armziele haengen an der SCHULTER, nicht am Boden ----
+         Sie standen als feste Weltpunkte ueber der Wurzel (1,30 m
+         Ellbogen, 1,62 m Hand). Solange die Figur senkrecht stand, sass
+         das; sobald sie sich von der Fassade weglehnt, wandert die
+         Schulter nach unten und hinten, die Zielpunkte bleiben aber
+         stehen - und beide Arme zeigten steil nach oben, gleichzeitig.
+         Jetzt liegen die Ziele RELATIV zur Schulter, die Arme kippen also
+         mit dem Koerper mit und greifen abwechselnd die Wand hinauf: der
+         eine holt aus, waehrend der andere nach unten abdrueckt. */
+      const armZiel = (out, schulter, hoch, quer, tief) => {
+        schulter.getWorldPosition(out);
+        out.y += hoch;
+        return out.addScaledVector(rechts, quer).addScaledVector(rein, tief);
+      };
+      if (knochen.leftarm && knochen.rightarm) {
+        armZiel(_vw3, knochen.leftarm, WANDLAUF_ARM[0] + g * WANDLAUF_ARM[1],
+                -WANDLAUF_ARM[4], WANDLAUF_ARM[5]);
+        zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
+        armZiel(_vw3, knochen.leftarm, WANDLAUF_ARM[2] + g * WANDLAUF_ARM[3],
+                -WANDLAUF_ARM[6], WANDLAUF_ARM[7]);
+        zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
+        armZiel(_vw4, knochen.rightarm, WANDLAUF_ARM[0] - g * WANDLAUF_ARM[1],
+                WANDLAUF_ARM[4], WANDLAUF_ARM[5]);
+        zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
+        armZiel(_vw4, knochen.rightarm, WANDLAUF_ARM[2] - g * WANDLAUF_ARM[3],
+                WANDLAUF_ARM[6], WANDLAUF_ARM[7]);
+        zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
+      }
 
       /* ---- Beine: lange Schritte ----
          Der Schritt geht ueber gut einen halben Meter Hoehenunterschied -
@@ -7610,7 +7631,7 @@ function makeGlbVisual(m) {
     wandKriechen(k, tiefe, roll, lauf, kontakt, dt = 1 / 60) {
       const kk = clamp(k === undefined ? 1 : k, 0, 1);
       const rate = 1 - Math.exp(-19.7 * dt);
-      innerKipp = lerp(innerKipp, (lauf ? 0.18 : kontakt ? 0 : -Math.PI / 2) * kk, rate);
+      innerKipp = lerp(innerKipp, (lauf ? WANDLAUF_KIPP : kontakt ? 0 : -Math.PI / 2) * kk, rate);
       inner.rotation.x = innerKipp;
       /* Frueher wurde die Rollung im Kontaktmodus verworfen: die
          gerechnete Haltung (poseWandKontakt) bringt ihre Richtung selbst
@@ -15990,8 +16011,55 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
    am Anschlag und der Fuss bleibt kurz davor stehen. 0,60 mit 0,18 Hub
    haelt den Schritt zwischen 0,42 und 0,78 m - also von "Knie hoch" bis
    "Bein gestreckt", ohne je an den Anschlag zu kommen. */
+/* ---- Wie weit sich die Figur beim Wandlauf von der Fassade weglehnt ----
+   Hier stand +0,18. Das Vorzeichen kippt die Figur IN die Fassade: der
+   Kopf lag gemessen 29 cm naeher an der Wand als die Huefte, die
+   Koerperachse 33,7 Grad zur Senkrechten. Genau das ist der Eindruck
+   "er rennt auf der Wand wie auf dem Boden" - ein vorgebeugter Sprint,
+   nur senkrecht gestellt. Ein Wandlauf lehnt sich WEG von der Wand, das
+   Gewicht haengt daran.
+   Gemessen ueber 138 Wandlaufbilder (Kopf minus Huefte im Abstand zur
+   Fassade, positiv heisst weggelehnt):
+
+     Kippung   Achse zur Senkrechten   Kopf weiter weg   Fuss vor Wand
+     +0,18          33,7 Grad              -0,29 m           0,08 m
+     +0,60          57,6                   -0,44             0,12
+     -0,20          12,4                   -0,11             0,11
+     -0,45           6,0                    0,02             0,14
+     -0,70          17,8                    0,15             0,17   <- genommen
+     -0,95          31,7                    0,27             0,10
+
+   Bei -0,70 steht die Figur aufrecht an der Fassade und lehnt sich
+   sichtbar davon weg. Weiter (-0,95) sieht aus wie Zurueckfallen. */
+let WANDLAUF_KIPP = -0.70;
+/* Armziele beim Wandlauf, relativ zur Schulter:
+   [0]=Ellbogen hoch, [1]=Ellbogen Hub, [2]=Hand hoch, [3]=Hand Hub,
+   [4]=Ellbogen quer, [5]=Ellbogen zur Wand, [6]=Hand quer, [7]=Hand zur Wand.
+   Werte gemessen - siehe die Messstelle. */
+let WANDLAUF_ARM = [0.02, 0.16, 0.34, 0.40, 0.16, 0.06, 0.12, 0.12];
 let WANDLAUF_REICH = 0.60;
 let WANDLAUF_HUB = 0.18;
+/* ---- Wie sich die Gegendrehung des Blicks beim Schwingen verteilt ----
+   Beim Schwingen liegt der Koerper weit vorn; der Blick wird dagegen
+   zurueckgenommen, sonst schaut die Figur senkrecht auf die Strasse.
+   Diese Gegendrehung lag zu mehr als der Haelfte auf dem KOPF (0,55 von
+   0,55+0,30+0,22). Gemessen knickte der Kopf dadurch dauerhaft 37,9 Grad
+   gegen den Hals ab - beim Menschen sind rund 30 Grad das Aeusserste,
+   und zwar kurz, nicht die ganze Zeit. Das ist der Eindruck "als haette
+   er keinen Nacken mit Knochen".
+   Die Drehung verteilt sich jetzt auf vier Glieder statt drei. Gemessen
+   ueber 317 Schwungbilder, Median:
+
+     Verteilung                 Kopf/Hals  Hals/Brust  Blick zur Flugbahn
+     0,55 / 0,30 / 0,22 / -       37,9        31,7           38,0 Grad
+     0,34 / 0,30 / 0,30 / 0,18    24,1        31,7           34,9
+     0,26 / 0,26 / 0,32 / 0,24    18,8        29,3           34,3   <- genommen
+     0,20 / 0,24 / 0,34 / 0,28    15,0        28,1           34,1
+
+   Der Blick wird dabei sogar besser, nicht schlechter: die Gegendrehung
+   bleibt insgesamt gleich gross, sie liegt nur nicht mehr fast ganz im
+   Genick. */
+let SCHWUNG_KOPF = [0.26, 0.26, 0.32, 0.24];
 let KRIECH_TIEFE = 0.30;
 /* ---- Wie weit die Huefte beim Klettern vor der Fassade sitzt ----
    Hier stand 0,26 - eine Schaetzung ("so wie bei einem Kletterer"). Sie
@@ -30392,6 +30460,9 @@ if (window.__WEBHERO_TEST__ === true) {
     taste(code, an) { keys[code] = !!an; },
     setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
     setzeWandlaufBein(r, h) { WANDLAUF_REICH = r; if (h !== undefined) WANDLAUF_HUB = h; },
+    setzeSchwungKopf(a) { SCHWUNG_KOPF = a; },
+    setzeWandlaufKipp(v) { WANDLAUF_KIPP = v; },
+    setzeWandlaufArm(a) { WANDLAUF_ARM = a; },
     setzeHueftKriech(v) { WAND_HUEFT_KRIECH = v; },
     /* Siehe WAND_AB_AN - nur fuer den Vorher/Nachher-Vergleich. */
     setzeWandAbgang(v) { WAND_AB_AN = !!v; },
