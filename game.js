@@ -1758,8 +1758,19 @@ const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
    passt die Sperre dazwischen und es entstehen zwei getrennte Bereiche,
    wie in einer echten Station: davor Automaten und Baenke, dahinter
    Laeden und der Weg zum Bahnsteig. */
-const UB_BE_TIEF = 18.5;                  // Tiefe der Halle neben dem Schacht
-const UB_BE_HOCH = 3.6;                   // lichte Hoehe
+/* ---- Und noch einmal groesser ----
+   18,5 x 15,4 m bei 3,6 m Hoehe war fuer das, was drinsteht, zu wenig:
+   Sperrenlinie, Ladenzeile, Automaten, Saeulen, Baenke, Werbetafeln und
+   der Wegweiser standen dicht an dicht, und man kam kaum an ihnen
+   vorbei. Die Halle liegt unter dem Gehweg NEBEN der Bahnsteigroehre und
+   waechst von ihr weg - in die Tiefe ist dort Platz, in die Breite nicht
+   (dort stehen die Schachtenden). Nord reicht sie damit von z 34,4 bis
+   60,4, Sued von 15,6 bis -10,4; die Roehre endet bei 34,5 bzw. 15,5,
+   die beiden Hallen einer Station beruehren sich also nicht.
+   Die lichte Hoehe geht von 3,6 auf 4,2 m - eine Bahnhofshalle ist
+   hoeher als ein Wohnzimmer, und die Werbetafeln haengen jetzt frei. */
+const UB_BE_TIEF = 26.0;                  // Tiefe der Halle neben dem Schacht
+const UB_BE_HOCH = 4.2;                   // lichte Hoehe
 const UB_BE_RAND = 0.3;                   // Abstand zu den Schachtenden
 function ubBEbene(sx, sch, dz) {
   const v = dz || 0;
