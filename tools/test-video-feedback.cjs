@@ -7,7 +7,51 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const pos = (v, n) => v.knochen[n].getWorldPosition(V());
 
 for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-  test(`Wall running contacts translated facades, not just the origin (${nx},${nz})`, () => {
+  test(`Wandlauf: der Bodenlauf fuehrt, die Fuesse bleiben an der Fassade (${nx},${nz})`, () => {
+    /* Seit dem Umbau fuehrt die LAUFDATEI vom Boden den Wandlauf; die
+       gerechneten Haltungen (poseWandlauf/poseWandSprint) sind nur noch
+       Rueckfall. Geprueft wird deshalb genau das, was im Spiel laeuft:
+       Laufclip + Wandkippung + Griff. */
+    const r = runtime(), v = r.makeVisual(['idle', 'run', 'kriechen']);
+    const plane = -42, normal = V(nx, 0, nz);
+    v.root.rotation.y = Math.atan2(-nx, -nz);
+    v.root.position.set(nx ? plane + nx * 0.45 : 19, 20, nz ? plane + nz * 0.45 : -17);
+    let langsterSchritt = 0, kopfVorHuefte = 0, bilder = 0;
+    for (let i = 0; i < 150; i++) {
+      r.env.player.pos.copy(v.root.position);
+      v.play('climb', { wandModus: 'lauf', wandKriechen: true, wandKontakt: true,
+                        tempo: 5.4, speed: 5.4 }, 1 / 60);
+      assert.equal(v.aktuellerClip, r.env.WANDLAUF_CLIP,
+        'der Wandlauf muss aus der Laufdatei kommen');
+      v.wandKriechen(1, 0.3, 0, true, true, 1 / 60);
+      v.root.position.addScaledVector(normal, plane * (nx || nz) + 0.45 - pos(v, 'hips').dot(normal));
+      v.wandGriff(nx, nz, plane, 0.9, undefined, true);
+      if (i < 60) continue;
+      bilder++;
+      const tiefe = (n) => pos(v, n).dot(normal) - plane * (nx || nz);
+      /* Kein Glied steckt in der Fassade. */
+      for (const n of ['leftfoot', 'rightfoot', 'lefthand', 'righthand',
+                       'leftleg', 'rightleg', 'head', 'hips'])
+        assert.ok(tiefe(n) > 0.01, n + ' steckt in der Wand: ' + tiefe(n).toFixed(3));
+      /* Ein Fuss steht immer an der Wand ... */
+      assert.ok(Math.min(tiefe('leftfoot'), tiefe('rightfoot')) < 0.24,
+        'kein Fuss an der Fassade');
+      /* ... die Haende bleiben frei - Wandlaufen geht ohne Haende. */
+      assert.ok(Math.min(tiefe('lefthand'), tiefe('righthand')) > 0.05,
+        'die Haende kleben an der Wand');
+      /* Der Laufschritt streckt das Bein wirklich. */
+      const hueft = pos(v, 'hips');
+      langsterSchritt = Math.max(langsterSchritt,
+        Math.max(hueft.distanceTo(pos(v, 'leftfoot')), hueft.distanceTo(pos(v, 'rightfoot'))));
+      /* Vorlage: der Kopf ist naeher an der Fassade als die Huefte. */
+      kopfVorHuefte += tiefe('hips') - tiefe('head');
+    }
+    assert.ok(langsterSchritt > 0.62,
+      'das Bein streckt sich nicht: ' + langsterSchritt.toFixed(2) + ' m');
+    assert.ok(kopfVorHuefte / bilder > 0.02,
+      'die Figur lehnt sich nicht in die Wand: ' + (kopfVorHuefte / bilder).toFixed(3));
+  });
+  test(`Rueckfall ohne Laufdatei: poseWandSprint haelt die Fuesse an der Fassade (${nx},${nz})`, () => {
     for (const plane of [-125, -42, 37, 148]) {
       const r = runtime(), v = r.makeVisual(['idle', 'run', 'kriechen']);
       v.root.rotation.y = Math.atan2(-nx, -nz);

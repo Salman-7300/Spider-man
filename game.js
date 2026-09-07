@@ -16368,7 +16368,29 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
 
    Bei -0,70 steht die Figur aufrecht an der Fassade und lehnt sich
    sichtbar davon weg. Weiter (-0,95) sieht aus wie Zurueckfallen. */
-let WANDLAUF_KIPP = -0.70;
+/* ---- Kippung beim Wandlauf ----
+   Sie legt den Laufschritt vom Boden auf die Wand: die Wand wird sein
+   Boden, der Koerper steht senkrecht auf ihr, die Fuesse darauf.
+   Ausgemessen an der Koerperachse Huefte -> Kopf, einmal gegen die
+   Wandnormale (0 Grad = Kopf zeigt gerade von der Wand weg) und einmal
+   gegen die Senkrechte (90 Grad = Koerper waagerecht):
+
+     Kippung   zur Wand   zur Senkrechten
+       0,00      110,7           21,2   <- Brust klebt an der Fassade
+      -0,15      105,0           15,4   <- Laufschritt, leichte Vorlage
+      -0,30       97,4            8,3   <- schon aufrecht
+      -0,70       73,1           17,7   <- legt sich zurueck
+      -1,10       48,6           41,6
+      -1,90        5,9           85,2   <- steht waagerecht von der Wand ab
+
+   Ueber 90 Grad "zur Wand" heisst: der Kopf ist naeher an der Fassade
+   als die Huefte, die Figur lehnt sich also in die Wand hinein - genau
+   das macht ein Laeufer. Bei -1,90 waere die Wand sein Boden und er
+   staende waagerecht davon ab; das sieht aus, als liege er auf dem
+   Ruecken in der Luft (nachgesehen, verworfen).
+   -0,15 laesst 15 Grad Vorlage stehen und zeigt den Laufschritt sauber:
+   Knie hoch, anderes Bein gestreckt nach hinten, Arme pendeln frei. */
+let WANDLAUF_KIPP = -0.15;
 /* ---- Armziele beim Wandlauf ----
    Wandlaufen macht man MIT DEN BEINEN. Die Haende fassen nichts an, die
    Arme pendeln vor dem Koerper wie beim Laufen - deshalb liegen beide
@@ -16982,14 +17004,14 @@ function updateHeroVisual(dt) {
            rohe Laufclip mit haengenden Armen und gesenktem Kopf.
            Die BEINE stellt danach weiter poseWandSprint() in
            wandFreiraum(); die ueberschreibt sie ohnehin. */
-        if (player.wandlauf && w && heroVisual.poseWandlauf) {
+        if (player.wandlauf && w && heroVisual.poseWandlauf && !wandlaufAusClip()) {
           MISCH.wunsch = 'wandlauf';
           MISCH.wandlaufArg = [w.nx, w.nz, player.phase, 0.9];
         }
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
         MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
-      } else if (w && player.wandlauf && heroVisual.poseWandlauf) {
+      } else if (w && player.wandlauf && heroVisual.poseWandlauf && !wandlaufAusClip()) {
         MISCH.wunsch = 'wandlauf';
         MISCH.wandlaufArg = [w.nx, w.nz, player.phase, 0.9];
       }
@@ -17316,6 +17338,18 @@ let KLETTER_CLIP = 'kriechen';
 function kletternAusClip() {
   return !!(heroVisual && heroVisual.hatClip && heroVisual.hatClip(KLETTER_CLIP));
 }
+/* ---- Wandlaufen kommt aus dem BODENLAUF ----
+   Genau wie beim Klettern: die Bewegungsdatei laeuft unveraendert, und
+   nur der KOERPER wird an die Wand gedreht. Vorher lief zwar auch der
+   Laufclip, aber danach haben zwei gerechnete Haltungen fast alles
+   wieder ueberschrieben - poseWandlauf() Arme und Kopf, poseWandSprint()
+   die Beine. Uebrig blieb vom Laufschritt nichts als der Takt, und genau
+   das sah nicht nach Laufen aus.
+   Die gerechneten Haltungen bleiben als Rueckfall stehen, falls die
+   Laufdatei einmal fehlt. */
+function wandlaufAusClip() {
+  return !!(heroVisual && heroVisual.hatClip && heroVisual.hatClip(WANDLAUF_CLIP));
+}
 /* ---- Wie schnell eine Bodenkampfbewegung verschwindet, wenn die Figur
    AKTIV springt ----
    Ein echter Sprung ist ein anderes Signal als ein verlorener Bordstein;
@@ -17537,7 +17571,7 @@ function wandFreiraum(dt) {
   const eckHalb = (player.eckT || 0) > WAND_ECK_ZEIT * 0.5;
   if (!eckHalb) player.griffFlaeche = neueFl;
   const gf = player.griffFlaeche;
-  if (player.wandlauf && !eckHalb && heroVisual.poseWandSprint) {
+  if (player.wandlauf && !eckHalb && heroVisual.poseWandSprint && !wandlaufAusClip()) {
     heroVisual.poseWandSprint(gf.nx, gf.nz, gf.fl, player.phase, player.wandRoll, 0.9);
     r.updateMatrixWorld(true);
   } else if (player.wandKriechen && !player.wandlauf && !eckHalb
