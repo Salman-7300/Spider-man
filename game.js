@@ -7539,24 +7539,32 @@ function makeGlbVisual(m) {
          Jetzt liegen die Ziele RELATIV zur Schulter, die Arme kippen also
          mit dem Koerper mit und greifen abwechselnd die Wand hinauf: der
          eine holt aus, waehrend der andere nach unten abdrueckt. */
-      const armZiel = (out, schulter, hoch, quer, tief) => {
-        schulter.getWorldPosition(out);
+      /* Jedes Ziel haengt an dem Knochen, der DARAUF ZEIGT: der
+         Ellbogen an der Schulter, die Hand am Ellbogen. Beim ersten
+         Versuch hing auch das Handziel an der Schulter - der Unterarm
+         zielte dann von unten auf einen Punkt weit ueber der Schulter
+         und stand in JEDER Taktlage steil nach oben. Von der Seite fiel
+         das nicht auf, von hinten sofort: beide Arme oben, wie ein
+         Frosch an der Scheibe. */
+      const armZiel = (out, ab, hoch, quer, tief) => {
+        ab.getWorldPosition(out);
         out.y += hoch;
         return out.addScaledVector(rechts, quer).addScaledVector(rein, tief);
       };
-      if (knochen.leftarm && knochen.rightarm) {
-        armZiel(_vw3, knochen.leftarm, WANDLAUF_ARM[0] + g * WANDLAUF_ARM[1],
-                -WANDLAUF_ARM[4], WANDLAUF_ARM[5]);
-        zieleKnochen(knochen.leftarm, knochen.leftforearm, _vw3, k);
-        armZiel(_vw3, knochen.leftarm, WANDLAUF_ARM[2] + g * WANDLAUF_ARM[3],
-                -WANDLAUF_ARM[6], WANDLAUF_ARM[7]);
-        zieleKnochen(knochen.leftforearm, knochen.lefthand, _vw3, k);
-        armZiel(_vw4, knochen.rightarm, WANDLAUF_ARM[0] - g * WANDLAUF_ARM[1],
-                WANDLAUF_ARM[4], WANDLAUF_ARM[5]);
-        zieleKnochen(knochen.rightarm, knochen.rightforearm, _vw4, k);
-        armZiel(_vw4, knochen.rightarm, WANDLAUF_ARM[2] - g * WANDLAUF_ARM[3],
-                WANDLAUF_ARM[6], WANDLAUF_ARM[7]);
-        zieleKnochen(knochen.rightforearm, knochen.righthand, _vw4, k);
+      for (const [seite, vz] of [['left', -1], ['right', 1]]) {
+        const schulter = knochen[seite + 'arm'], ellbogen = knochen[seite + 'forearm'];
+        if (!schulter || !ellbogen) continue;
+        const t = g * vz * -1;               // links auf +g, rechts gegenlaeufig
+        /* Die Ziele liegen immer ein Stueck VON DER WAND WEG (negatives
+           rein). Wandlaufen macht man mit Beinen und Fuessen; die Haende
+           fassen nichts an, sie pendeln vor dem Koerper wie beim Laufen. */
+        armZiel(_vw3, schulter, t * WANDLAUF_ARM[0], vz * WANDLAUF_ARM[1],
+                -WANDLAUF_ARM[2]);
+        zieleKnochen(schulter, ellbogen, _vw3, k);
+        root.updateMatrixWorld(true);        // der Ellbogen ist jetzt woanders
+        armZiel(_vw4, ellbogen, t * WANDLAUF_ARM[3], vz * WANDLAUF_ARM[4],
+                -WANDLAUF_ARM[5]);
+        zieleKnochen(ellbogen, knochen[seite + 'hand'], _vw4, k);
       }
 
       /* ---- Beine: lange Schritte ----
@@ -16032,11 +16040,15 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
    Bei -0,70 steht die Figur aufrecht an der Fassade und lehnt sich
    sichtbar davon weg. Weiter (-0,95) sieht aus wie Zurueckfallen. */
 let WANDLAUF_KIPP = -0.70;
-/* Armziele beim Wandlauf, relativ zur Schulter:
-   [0]=Ellbogen hoch, [1]=Ellbogen Hub, [2]=Hand hoch, [3]=Hand Hub,
-   [4]=Ellbogen quer, [5]=Ellbogen zur Wand, [6]=Hand quer, [7]=Hand zur Wand.
-   Werte gemessen - siehe die Messstelle. */
-let WANDLAUF_ARM = [0.02, 0.16, 0.34, 0.40, 0.16, 0.06, 0.12, 0.12];
+/* ---- Armziele beim Wandlauf ----
+   Wandlaufen macht man MIT DEN BEINEN. Die Haende fassen nichts an, die
+   Arme pendeln vor dem Koerper wie beim Laufen - deshalb liegen beide
+   Ziele ein festes Stueck von der Fassade WEG, und nur die Hoehe folgt
+   dem Takt. Der Ellbogen haengt an der Schulter, die Hand am Ellbogen;
+   Werte in Metern, der Takt g laeuft von -1 bis +1:
+     [0] Ellbogen hoch je Takt   [1] Ellbogen quer   [2] Ellbogen von der Wand weg
+     [3] Hand hoch je Takt       [4] Hand quer       [5] Hand von der Wand weg */
+let WANDLAUF_ARM = [0.12, 0.10, 0.12, 0.20, 0.03, 0.22];
 let WANDLAUF_REICH = 0.60;
 let WANDLAUF_HUB = 0.18;
 /* ---- Wie sich die Gegendrehung des Blicks beim Schwingen verteilt ----
