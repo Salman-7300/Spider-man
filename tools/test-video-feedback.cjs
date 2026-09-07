@@ -274,3 +274,23 @@ for (const [nx, nz] of [[1, 0], [0, -1]]) {
     assert.ok(groessterSchritt < 0.26, 'Sprung in der Haltung: ' + groessterSchritt.toFixed(3));
   });
 }
+
+test('Freier Fall benutzt die Fallbewegung, nicht die Gleithaltung', () => {
+  /* Ueber dem freien Fall lag frueher dieselbe gerechnete Haltung wie im
+     Gleitflug: Arme weit zur Seite, Beine gespreizt, Koerper waagerecht.
+     Wer einfach herunterfiel, sah aus wie ein Fallschirmspringer.
+     Die Figur hat eine eigene Fallbewegung; sie fuehrt jetzt allein. */
+  const quelle = require('node:fs').readFileSync(
+    require('node:path').resolve(__dirname, '..', 'game.js'), 'utf8');
+  assert.ok(!/freiFallMisch/.test(quelle),
+    'die Gleithaltung liegt wieder ueber dem freien Fall');
+  /* Und die Fallbewegung muss ueberhaupt gesucht werden. */
+  assert.match(quelle, /air: \[\/\^fall\$\/i/,
+    'der freie Fall sucht keine eigene Fallbewegung mehr');
+  /* poseGleiten darf nur noch ueber den Mischer laufen, also aus dem
+     Gleitflug heraus - nicht mehr direkt aus einem Fallzweig. */
+  const direkt = quelle.split('\n')
+    .filter((z) => /heroVisual\.poseGleiten\(/.test(z) && !/a\[0\]/.test(z));
+  assert.equal(direkt.length, 0,
+    'poseGleiten wird ausserhalb des Gleitflugs gesetzt: ' + direkt.join(' | '));
+});

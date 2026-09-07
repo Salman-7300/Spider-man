@@ -11075,7 +11075,7 @@ const player = {
   gleitNase: 0, gleitKurve: 0, gleitT: 0,
   attackCd: 0,
   dodgeT: 0, iFrames: 0, rollT: 0, landT: 0, hitT: 0, landArt: 'weich',
-  schussT: 0, schussZiel: V3(0, 0, 0), wurfT: 0, freiFallMisch: 0,
+  schussT: 0, schussZiel: V3(0, 0, 0), wurfT: 0,
   haeltObjekt: null,
   hurtCd: 0, regenCd: 0,
   platform: null,
@@ -16109,22 +16109,15 @@ function updatePlayer(dt) {
      stehen - und die Figur lief mit weit ausgebreiteten Armen und
      gespreizten Beinen ueber die Strasse. Genau das war der Fehler nach
      dem Doppelsprung. */
-  /* Die Fallhaltung wird EIN- UND AUSGEBLENDET, nicht hart gesetzt -
-     sonst verschwaende sie in dem Bild, in dem der Netzschwung beginnt,
-     und die weit ausgebreiteten Arme spraengen in die Wurfhaltung.
-     (Nachtrag: der grosse Ruck beim Anschwingen - 87 cm Handweg in einem
-     Bild - kam NICHT von hier. Nachgemessen mit abgeschalteter
-     Fallhaltung blieb er unveraendert; seine Ursache lag im Mischer,
-     siehe blendeAus/blendeEin.)
-     Herein kommt sie mit 3,5 je Sekunde, also in knapp drei Zehnteln. Mit
-     6 war es zu schnell: direkt nach einem Kunststueck legte sie sich so
-     zuegig ueber die noch auslaufende Bewegung, dass die Fussspitze in
-     einem Bild um 79 Zentimeter sprang. */
-  player.freiFallMisch = clamp((player.freiFallMisch || 0) +
-    dt * (player.freiFall ? 3.5 : -7), 0, 1);
-  player.freiFall = !player.onGround && player.state === 'air' &&
-                    player.vel.y < -14 && player.luftSalto <= 0 &&
-                    !player.attack && player.rollT <= 0 && !player.gleiten;
+  /* ---- Freier Fall: die Fallbewegung, nicht die Gleithaltung ----
+     Hier lag frueher eine gerechnete Haltung ueber dem freien Fall:
+     dieselbe wie im Gleitflug (poseGleiten), Arme weit zur Seite, Beine
+     gespreizt, Koerper waagerecht. Ab 14 m/s Sinken legte sie sich ueber
+     alles - wer einfach nur herunterfiel, sah aus wie ein
+     Fallschirmspringer im freien Fall, nicht wie jemand, der faellt.
+     Die Figur hat eine eigene Fallbewegung (anim 'air' -> Datei "fall"),
+     und die fuehrt jetzt allein - dasselbe Vorgehen wie beim Klettern und
+     beim Wandlaufen. */
 
   if (KAT.aktiv) player.anim = hSpeed > 0.5 ? 'run' : 'idle';
   else if (player.rollT > 0) player.anim = 'roll';
@@ -16892,11 +16885,6 @@ function updateHeroVisual(dt) {
       const beideHaende = !!(keys['KeyW'] || keys['ArrowUp'] || (stick.z || 0) > 0.4 ||
                              player.vel.y < -2);
       player.beideAmFaden = beideHaende;
-      /* Kommt man aus dem freien Fall in den Bogen, laeuft die Fallhaltung
-         hier noch kurz aus - sonst springt sie in einem Bild weg. */
-      if (player.freiFallMisch > 0.02 && heroVisual.poseGleiten) {
-        heroVisual.poseGleiten(0, 0, elapsed, 0.85 * player.freiFallMisch);
-      }
       /* ---- Der Start des Bogens ----
          In den ersten Zehnteln laeuft der Netzwurf: der Arm holt aus und
          schiesst den Faden. Gleichzeitig legte sich bisher schon die
@@ -16928,10 +16916,6 @@ function updateHeroVisual(dt) {
                                player.dreiPunktSeite || 'R');
       /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
       heroVisual.bodenAusgleich(Math.min(1, dt * 16));
-    } else if (player.freiFallMisch > 0.02 && heroVisual.poseGleiten) {
-      /* Arme weit zur Seite, Beine leicht gespreizt - dieselbe Haltung wie
-         im Gleitflug, nur ohne Netzhaut (die haengt an player.gleiten). */
-      heroVisual.poseGleiten(0, 0, elapsed, 0.85 * player.freiFallMisch);
     } else if (player.gleiten && player.luftSalto <= 0 && !player.sturzflug) {
       /* Im Sturzflug fuehrt die Bewegungsdatei allein - die Gleithaltung
          wuerde ihr die Arme wieder zur Seite reissen. */
