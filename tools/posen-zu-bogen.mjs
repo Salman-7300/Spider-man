@@ -68,7 +68,16 @@ function drehungen(g) {
    Mit --ohne-becken liefert die Datei nur die GLIEDER, und die Koerperlage
    bleibt beim Spiel. */
 const ohneBecken = process.argv.includes('--ohne-becken');
-const [ziel, name, ...quellen] = process.argv.slice(2).filter((a) => a !== '--ohne-becken');
+/* --ohne=head,neck : diese Knochen bleiben ganz aus der Datei heraus.
+   Wozu: das Spiel fuehrt manche Knochen selbst. Beim Netzschwung etwa
+   dreht es Kopf und Hals gegen die Vorlage des Koerpers, damit der Blick
+   nach vorn geht und nicht auf den Asphalt (siehe poseSchwung). Was die
+   Datei dort noch beitraegt, ist nur ein Rest - der aber ueber den Bogen
+   wandert und den Kopf wackeln laesst. */
+const ohneListe = (process.argv.find((a) => a.startsWith('--ohne=')) || '')
+  .slice(7).split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
+const [ziel, name, ...quellen] = process.argv.slice(2)
+  .filter((a) => a !== '--ohne-becken' && !a.startsWith('--ohne='));
 if (!ziel || !name || quellen.length < 2) {
   console.error('Aufruf: node tools/posen-zu-bogen.mjs <ziel.glb> <name> <pose0.glb> <pose1.glb> [...]');
   process.exit(1);
@@ -81,9 +90,11 @@ const vorlage = posen[0];
 /* Nur Knochen nehmen, die in ALLEN Haltungen vorkommen - sonst spraenge
    der fehlende in seine Ruhelage, und zwar mitten in der Bewegung. */
 const istBecken = (n) => /(^|:)hips$/i.test(n || '');
+const schlicht = (n) => (n || '').replace(/^mixamorig:?/i, '').toLowerCase();
 const gemeinsam = [...satz[0].keys()]
   .filter((n) => satz.every((s) => s.has(n)))
-  .filter((n) => !(ohneBecken && istBecken(n)));
+  .filter((n) => !(ohneBecken && istBecken(n)))
+  .filter((n) => !ohneListe.includes(schlicht(n)));
 const fehlend = [...satz[0].keys()].filter((n) => !gemeinsam.includes(n));
 
 const doc = {
@@ -145,3 +156,4 @@ fs.writeFileSync(ziel, out);
 if (out.length < 1024) throw new Error('Datei verdaechtig klein: ' + out.length + ' Bytes');
 console.log('✓', ziel, '-', gemeinsam.length, 'Knochen,', n, 'Stellen,', out.length, 'Bytes');
 if (fehlend.length) console.log('  nicht in allen Haltungen, weggelassen:', fehlend.join(', '));
+if (ohneListe.length) console.log('  auf Wunsch weggelassen:', ohneListe.join(', '));

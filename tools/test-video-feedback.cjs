@@ -20,11 +20,22 @@ for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         v.root.position.addScaledVector(normal, plane * (nx || nz) + 0.52 - pos(v, 'hips').dot(normal));
         v.poseWandSprint(nx, nz, plane, i * 0.10, 0, 1);
         if (i < 25) continue;
+        let tiefster = 0;
         for (const side of ['left', 'right']) {
           const distance = pos(v, side + 'foot').dot(normal) - plane * (nx || nz);
           assert.ok(distance > 0.03 && distance < 0.27, 'foot contact distance ' + distance);
           assert.ok(pos(v, side + 'foot').y < pos(v, 'hips').y - 0.10, 'legs do not extend sideways at hip height');
+          tiefster = Math.max(tiefster, pos(v, 'hips').y - pos(v, side + 'foot').y);
         }
+        /* ---- Der Standfuss muss WEIT unter der Huefte stehen ----
+           Die alte Grenze (0,10 m) war erfuellt, obwohl die Figur die
+           Wand hinaufkroch statt sie hinaufzulaufen: der Zielpunkt lag
+           nur 0,14 bis 0,62 m unter der Huefte, bei 0,787 m Beinlaenge.
+           Im Spiel gemessen lag der Abstand Huefte -> tieferer Fuss im
+           Mittel bei 0,23 m - ein Bein, das sich nie streckt. Mit
+           WANDLAUF_REICH 0,60 und Hub 0,18 sind es 0,33 bis 0,67.
+           Diese Grenze haelt den Laufschritt fest. */
+        assert.ok(tiefster > 0.30, 'Standbein bleibt zusammengefaltet: ' + tiefster.toFixed(2));
       }
     }
   });

@@ -7651,7 +7651,7 @@ function makeGlbVisual(m) {
         const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
         const stride = Math.sin((phase || 0) + (sign < 0 ? Math.PI : 0));
         const target = hip.clone().addScaledVector(right, sign * 0.15)
-          .addScaledVector(along, -0.38 + stride * 0.24);
+          .addScaledVector(along, -WANDLAUF_REICH + stride * WANDLAUF_HUB);
         target.addScaledVector(normal, plane * (nx || nz) + 0.075 + Math.max(0, stride) * 0.14 - target.dot(normal));
         const pole = hip.clone().addScaledVector(along, 0.15).addScaledVector(right, sign * 0.21).addScaledVector(normal, 0.2);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'], target, pole, w);
@@ -15966,6 +15966,32 @@ const MISCH = {
 const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
 /* Wie weit der Setzpunkt der Figur beim Wandkriechen von der Wand weg
    liegt. Wird unten nachgemessen. */
+/* ---- Wie weit der Fuss beim Wandlauf unter der Huefte aufsetzt ----
+   Hier stand 0,38 mit 0,24 Hub, der Fuss landete also 0,14 bis 0,62 m
+   unter der Huefte. Ein Bein ist 0,787 m lang (Oberschenkel 0,412,
+   Unterschenkel 0,375) - es musste sich also dauerhaft weit zusammen-
+   falten. Genau das war die zusammengekauerte Haltung: die Figur
+   kroch die Wand hinauf, statt sie hinaufzulaufen.
+   Gemessen ueber 138 Wandlaufbilder, Abstand Huefte -> tieferer Fuss
+   (bei einem echten Laufschritt liegt der Standfuss knapp unter
+   Beinlaenge) und Abstand des Fusses zur Fassade:
+
+     Reich  Hub    Huefte ueber Fuss (min/Mitte/max)   Fuss vor der Wand
+     0,38   0,24        0,07 / 0,23 / 0,46                  0,09 m
+     0,50   0,24        0,22 / 0,40 / 0,58                  0,11
+     0,58   0,20        0,29 / 0,52 / 0,65                  0,12
+     0,60   0,18        0,33 / 0,56 / 0,67                  0,12   <- genommen
+     0,66   0,24        0,29 / 0,57 / 0,74                  0,15
+     0,72   0,24        0,38 / 0,63 / 0,76                  0,16
+     0,78   0,24        0,46 / 0,69 / 0,80                  0,18
+
+   Ueber 0,66 wird es nicht besser, sondern nur weiter von der Fassade
+   weg: der Zielpunkt liegt dann laenger als das Bein, die Kette steht
+   am Anschlag und der Fuss bleibt kurz davor stehen. 0,60 mit 0,18 Hub
+   haelt den Schritt zwischen 0,42 und 0,78 m - also von "Knie hoch" bis
+   "Bein gestreckt", ohne je an den Anschlag zu kommen. */
+let WANDLAUF_REICH = 0.60;
+let WANDLAUF_HUB = 0.18;
 let KRIECH_TIEFE = 0.30;
 /* ---- Wie weit die Huefte beim Klettern vor der Fassade sitzt ----
    Hier stand 0,26 - eine Schaetzung ("so wie bei einem Kletterer"). Sie
@@ -16537,6 +16563,20 @@ function updateHeroVisual(dt) {
                                 player.wandlauf, !kletternAusClip(), dt);
         // Contacts are applied once, after the final body/corner placement.
         player.wandRuhe = clamp((player.wandRuhe || 0) + dt * (player.wandStill ? 5 : -8), 0, 1);
+        /* ---- Beim Wandlauf gehoeren ARME und KOPF dazu ----
+           poseWandlauf() weiter unten war fuer den Wandlauf gar nicht
+           mehr erreichbar: sie steht in einem "sonst"-Zweig, und dieser
+           Zweig hier faengt den Wandlauf schon ab (wandKriechen ist auch
+           beim Laufen wahr). Damit fiel weg, was dort steht - die Arme
+           pendeln vor der Brust statt an der Fassade zu kleben, und der
+           Blick geht nach oben, dorthin, wo es hingeht. Uebrig blieb der
+           rohe Laufclip mit haengenden Armen und gesenktem Kopf.
+           Die BEINE stellt danach weiter poseWandSprint() in
+           wandFreiraum(); die ueberschreibt sie ohnehin. */
+        if (player.wandlauf && w && heroVisual.poseWandlauf) {
+          MISCH.wunsch = 'wandlauf';
+          MISCH.wandlaufArg = [w.nx, w.nz, player.phase, 0.9];
+        }
       } else if (w && heroVisual.poseWandkriechen && !player.wandlauf) {
         MISCH.wunsch = 'wand';
         MISCH.wandArg = [w.nx, w.nz, player.phase, player.anim === 'haengen' ? 0.2 : 0.72];
@@ -30351,6 +30391,7 @@ if (window.__WEBHERO_TEST__ === true) {
        ist fuer den Netzschwung aber Pflicht. */
     taste(code, an) { keys[code] = !!an; },
     setzeKriechTiefe(v) { KRIECH_TIEFE = v; },
+    setzeWandlaufBein(r, h) { WANDLAUF_REICH = r; if (h !== undefined) WANDLAUF_HUB = h; },
     setzeHueftKriech(v) { WAND_HUEFT_KRIECH = v; },
     /* Siehe WAND_AB_AN - nur fuer den Vorher/Nachher-Vergleich. */
     setzeWandAbgang(v) { WAND_AB_AN = !!v; },
