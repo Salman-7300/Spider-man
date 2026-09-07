@@ -294,3 +294,22 @@ test('Freier Fall benutzt die Fallbewegung, nicht die Gleithaltung', () => {
   assert.equal(direkt.length, 0,
     'poseGleiten wird ausserhalb des Gleitflugs gesetzt: ' + direkt.join(' | '));
 });
+
+test('Das Handy sitzt in der Faust, nicht daneben', () => {
+  /* Der Versatz zaehlt vom Handgelenk aus. Nur "vorn und hoch" setzt das
+     Geraet an den aeusseren Rand der Faust, neben den kleinen Finger.
+     Am Skelett gemessen liegt die Hoehlung der Faust 4,9 cm nach INNEN,
+     2,5 cm hoch und 1,8 cm vor dem Handgelenk. */
+  const quelle = require('node:fs').readFileSync(
+    require('node:path').resolve(__dirname, '..', 'game.js'), 'utf8');
+  const zeile = quelle.match(/_vHalt\.set\(([^)]*)\)/);
+  assert.ok(zeile, '_vHalt wird nicht mehr gesetzt');
+  const t = zeile[1];
+  assert.match(t, /-\s*rx\s*\*\s*0\.0(4[5-9]|5[0-3])/,
+    'der Versatz geht nicht mehr nach innen in die Faust: ' + t);
+  assert.match(t, /-\s*rz\s*\*\s*0\.0(4[5-9]|5[0-3])/,
+    'der Versatz geht nicht mehr nach innen in die Faust: ' + t);
+  const hoch = t.split(',')[1].trim();
+  assert.ok(Math.abs(Number(hoch) - 0.025) < 0.008,
+    'die Hoehe ueber dem Handgelenk stimmt nicht: ' + hoch);
+});

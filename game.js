@@ -22782,7 +22782,22 @@ function updateCivilians(dtBild) {
          Der kleine Versatz nach vorn holt es aus dem Handgelenk in die
          Finger. */
       if (c.visual.haltAusgerichtet) {
-        _vHalt.set(vx * 0.05, 0.045, vz * 0.05);
+        /* ---- Wohin genau in der Hand ----
+           Der Versatz zaehlt vom HANDGELENK aus, und er lag nur nach vorn
+           und nach oben. Damit sass das Geraet am aeusseren Rand der
+           Faust, neben dem kleinen Finger - im Bild schwebte es neben der
+           Hand.
+           Am Skelett gemessen (Koordinaten in der Figur: rechts | hoch |
+           vorn), Faust um das Handy geschlossen:
+             Handgelenk       -0,180 | 1,273 | 0,260
+             Daumenspitze     -0,081 | 1,283 | 0,260
+             Zeigefingerwurzel-0,132 | 1,338 | 0,313
+             Handy            -0,180 | 1,318 | 0,310   <- am Rand
+           Die Hoehlung der Faust ist die Mitte aus Handgelenk,
+           Daumenspitze und Zeigefingerwurzel: -0,131 | 1,298 | 0,278.
+           Vom Handgelenk aus sind das 4,9 cm nach innen, 2,5 cm hoch und
+           1,8 cm nach vorn. */
+        _vHalt.set(vx * 0.018 - rx * 0.049, 0.025, vz * 0.018 - rz * 0.049);
         c.visual.haltAusgerichtet(c.handy, c.facing + Math.PI, 0.20, _vHalt);
       }
     }
