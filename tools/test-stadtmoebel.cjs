@@ -315,3 +315,87 @@ test('Die Decke der Zwischenebene bleibt unter dem Gehweg', () => {
   /* Und hoch genug zum Durchgehen muss sie trotzdem sein. */
   assert.ok(UB_BE_HOCH > 2.9, 'die Halle waere mit ' + UB_BE_HOCH + ' m zu niedrig');
 });
+
+/* ================= Wo etwas steht =================
+   Nachgemessen an der gebauten Stadt (634 Gegenstaende): 113 Poller
+   standen bis zu 0,82 m auf der Fahrbahn, 65 Poller und 26 Beete
+   steckten im Ampelmast, 12 Bahnsteigbaenke standen paarweise exakt
+   uebereinander, 10 Baenke standen im Aufzug. Diese Tests rechnen die
+   Orte aus denselben Zahlen nach, mit denen game.js sie setzt. */
+const BLOCKS = zahl(/const BLOCKS = (\d+)/, 'BLOCKS');
+const PITCH = zahl(/const PITCH = (\d+)/, 'PITCH');
+const ORIGIN = zahl(/const ORIGIN = (-?\d+)/, 'ORIGIN');
+const ROAD_HALF = zahl(/const ROAD_HALF = ([\d.]+)/, 'ROAD_HALF');
+const POLLER_AB = zahl(/const POLLER_AB = ([\d.]+)/, 'POLLER_AB');
+const POLLER_LUECKE = zahl(/POLLER_AB = [\d.]+, POLLER_LUECKE = ([\d.]+)/, 'POLLER_LUECKE');
+const MOEBEL_RADIUS = JSON.parse(
+  lies(/const MOEBEL_RADIUS = (\{[\s\S]*?\});/, 'MOEBEL_RADIUS')
+    .replace(/(\w+):/g, '"$1":'));
+
+/* Die Reihe beginnt am Eckpunkt (Blockmitte plus halbe Seite minus 1 m)
+   und laeuft nach INNEN. */
+const halbBlock = PITCH / 2 - ROAD_HALF;          // 19
+const eckAb = halbBlock - 1.0;                    // 18
+
+test('Poller und Beete bleiben auf dem Gehweg', () => {
+  for (let k = 0; k < 3; k++) {
+    const weg = eckAb - (POLLER_AB + k * POLLER_LUECKE);
+    assert.ok(weg + MOEBEL_RADIUS.Poller <= halbBlock,
+      'Poller ' + k + ' ragt ueber die Gehwegkante: ' +
+      (weg + MOEBEL_RADIUS.Poller).toFixed(2) + ' > ' + halbBlock);
+    assert.ok(weg > 0, 'Poller ' + k + ' liegt jenseits der Blockmitte');
+  }
+  assert.ok(eckAb - POLLER_AB + MOEBEL_RADIUS.Beet <= halbBlock,
+    'das Beet ragt ueber die Gehwegkante');
+});
+
+test('Poller und Beete stehen nicht im Ampelmast', () => {
+  /* Der Mast sitzt auf der Rasterlinie plus ROAD_HALF + 1,2 - vom
+     Eckpunkt des Blocks aus gesehen also 0,2 m weiter aussen. */
+  const mastAb = halbBlock - (ROAD_HALF + 1.2) + ROAD_HALF;   // 18.2 vom Blockmittelpunkt
+  const naeh = Math.abs(mastAb - (eckAb - POLLER_AB));
+  assert.ok(naeh >= MOEBEL_RADIUS.Ampel + MOEBEL_RADIUS.Beet + 0.3,
+    'Beet und Ampelmast stehen ' + naeh.toFixed(2) + ' m auseinander');
+  assert.ok(naeh >= MOEBEL_RADIUS.Ampel + MOEBEL_RADIUS.Poller + 0.3,
+    'Poller und Ampelmast stehen ' + naeh.toFixed(2) + ' m auseinander');
+});
+
+test('Die Bahnsteigbank steht neben dem Aufzugsschacht, nicht darin', () => {
+  const AUF_B = zahl(/const AUF_B = ([\d.]+)/, 'AUF_B');
+  const AUF_ABST = zahl(/const AUF_ABST = ([\d.]+)/, 'AUF_ABST');
+  const BANK = JSON.parse(lies(/const UB_BANK_ABSTAND = (\[[^\]]*\])/, 'UB_BANK_ABSTAND'));
+  /* Schacht 0: xFuss 2,0, Richtung -1 -> Kabine von 2,0 bis 4,4 neben
+     der Hallenmitte. Die Bank ist 2,2 m lang. */
+  const xFuss = zahl(/\{ z0: 31\.8, z1: 34\.4, xFuss: ([\d.]+)/, 'xFuss Schacht Nord');
+  const nah = AUF_ABST - xFuss;                 // 2.0
+  const fern = nah + AUF_B;                     // 4.4
+  for (const ab of BANK) {
+    const bankNah = ab - 1.1;                   // naeheres Bankende
+    assert.ok(bankNah > fern || ab + 1.1 < nah,
+      'Bank bei ' + ab + ' m steht im Aufzug (' + nah + '..' + fern + ')');
+  }
+  assert.ok(BANK[0] - 1.1 - fern >= 0.4,
+    'zwischen Bank und Aufzug bleibt zu wenig Luft');
+});
+
+test('Der Linienversatz steht bei der Bahnsteigbank drin', () => {
+  /* deko() rechnet UB_DZ nicht dazu, ubDeko schon. Fehlt er hier, landen
+     die Baenke aller drei Linien auf derselben Linie. */
+  const stelle = quelle.indexOf('for (const abstand of UB_BANK_ABSTAND)');
+  assert.ok(stelle > 0, 'die Bankschleife fehlt');
+  const zeile = quelle.slice(stelle, stelle + 260);
+  assert.ok(/baueBank\([^)]*\+ UB_DZ/.test(zeile.replace(/\n/g, ' ')),
+    'der Bahnsteigbank fehlt der Linienversatz UB_DZ');
+});
+
+test('Wer winkt oder jubelt, hat kein Handy in der Hand', () => {
+  const haende = JSON.parse(lies(/const RUHE_POSEN_HAENDE = (\[[^\]]*\])/, 'RUHE_POSEN_HAENDE')
+    .replace(/'/g, '"'));
+  for (const p of ['winken', 'jubel', 'reden'])
+    assert.ok(haende.includes(p), p + ' fehlt in RUHE_POSEN_HAENDE');
+  const stelle = quelle.indexOf('RUHE_POSEN_HAENDE.includes(c.ruhePose)');
+  assert.ok(stelle > 0, 'die Pruefung fehlt in der Zivilisten-Schleife');
+  /* Sie muss NACH der Wahl der Haltung stehen, sonst nuetzt sie nichts. */
+  assert.ok(stelle > quelle.indexOf('c.ruhePose = c.gaffPose;'),
+    'das Handy wird abgeschaltet, bevor die Haltung feststeht');
+});

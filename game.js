@@ -1394,6 +1394,45 @@ const KIT_BLOCKS = [
 /* Stellen fuer Bauteile aus dem Baukasten. Die Liste muss VOR dem
    Stadtbau stehen: gesammelt wird beim Bauen, gesetzt erst, wenn die
    Datei geladen ist (siehe ladeStadtteile weiter unten). */
+/* ---- Ein Platz je Gegenstand ----
+   Ampelmast, Laterne, Beet und Poller wurden bisher jeder fuer sich
+   gesetzt, ohne voneinander zu wissen. Nachgemessen stand deshalb an
+   JEDER Kreuzung der Ampelmast 0,28 m neben einem Poller und 0,40 m
+   neben einem Beet: im Bild ein Haufen ineinandersteckender Sachen.
+   Jeder Gegenstand belegt jetzt einen Kreis am Boden. Wer keinen freien
+   Platz findet, wird nicht gesetzt - lieber eine Ecke ohne Poller als
+   ein Poller im Ampelmast.
+   Die Radien sind an den Modellen GEMESSEN, nicht geschaetzt: die Ampel
+   reicht vom Mast 1,67 m in Auslegerrichtung, steht am Boden aber nur
+   0,33 m breit; gezaehlt wird der Fuss, denn nur der ist im Weg. */
+const MOEBEL_RADIUS = { Ampel: 0.40, Laterne: 0.34, Beet: 0.85, Poller: 0.22,
+                        Muell: 0.48, Kiste: 0.50 };
+const MOEBEL_PLAETZE = [];
+function platzFrei(x, z, r) {
+  for (const p of MOEBEL_PLAETZE) {
+    const dx = x - p.x, dz = z - p.z, s = r + p.r;
+    if (dx * dx + dz * dz < s * s) return false;
+  }
+  return true;
+}
+/* Platz nehmen, wenn er frei ist. Gibt false zurueck, wenn dort schon
+   etwas steht - dann setzt der Aufrufer nichts. */
+function nimmPlatz(x, z, r) {
+  if (!platzFrei(x, z, r)) return false;
+  MOEBEL_PLAETZE.push({ x, z, r });
+  return true;
+}
+/* Liegt der Grundkreis ganz auf dem Gehweg? Die Fahrbahn ist ROAD_HALF
+   breit um jede Rasterlinie; dazwischen liegt der Blocksockel. Gilt nur
+   im Strassenraster - Promenade, Bruecke und Park haben eigene Flaechen
+   und fragen nicht danach. */
+function aufGehweg(x, z, r) {
+  const ux = ((x - ORIGIN) % PITCH + PITCH) % PITCH;
+  const uz = ((z - ORIGIN) % PITCH + PITCH) % PITCH;
+  return Math.min(ux - ROAD_HALF, PITCH - ROAD_HALF - ux,
+                  uz - ROAD_HALF, PITCH - ROAD_HALF - uz) >= r;
+}
+
 const TEIL_STELLEN = {};       // teilname -> [{x,y,z,ry,s}]
 /* Die daraus gebauten InstancedMeshes, teilname -> [mesh]. Nur damit
    sich ein Bausatzteil ausblenden laesst, wenn spaeter ein besseres
@@ -1816,8 +1855,12 @@ const UB_SCHAECHTE = [
 function ubWandSeite(sch) { return Math.min(sch.xFuss, sch.xKopf) > 0 ? -1 : 1; }
 /* Abstand der beiden Bahnsteigbaenke von der Hallenmitte, auf der
    Wandseite. Bei 4 m bleibt die Namenstafel (3,8 m breit, in der Mitte)
-   frei. */
-const UB_BANK_ABSTAND = [4, 10];
+   frei - dort steht aber der AUFZUG: sein Schacht reicht von 2,0 bis
+   4,4 m neben der Hallenmitte (xFuss 2,0 plus AUF_ABST 4,0, minus
+   AUF_B 2,4), und die 2,2 m lange Bank stand mit 4 m genau darin. Im
+   Bild sass die Bank in der glaesernen Kabine.
+   Bei 6,2 m endet die Bank bei 5,1 m, also 0,7 m vor dem Schacht. */
+const UB_BANK_ABSTAND = [6.2, 11.0];
 const UB_TREPPE = UB_ABGANG;
 const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
 
@@ -2516,6 +2559,10 @@ function buildCity() {
                               cz - size / 2, cz + size / 2, loecher);
   }
   const slabMat = new THREE.MeshLambertMaterial({ map: sidewalkTex });
+  /* Die Ampelmasten gehoeren an die Kreuzung, sie koennen nirgends
+     anders hin. Ihre Plaetze werden deshalb ZUERST belegt - alles
+     andere weicht ihnen aus, nicht umgekehrt. */
+  for (const mast of ampelMasten()) nimmPlatz(mast.x, mast.z, MOEBEL_RADIUS.Ampel);
   for (let bi = 0; bi < BLOCKS; bi++) {
     for (let bj = 0; bj < BLOCKS; bj++) {
       const cx = ORIGIN + bi * PITCH + PITCH / 2;
@@ -2544,22 +2591,41 @@ function buildCity() {
          jeder Kreuzung - so wie Laternen an einer Strasse wirklich stehen. */
       if ((bi + bj) % 2 === 0) addLamp(cx - size / 2 + 1, cz);
       /* Poller und Pflanzkuebel am Bordstein. Sie stehen genau dort, wo
-         man laeuft und kaempft, und geben dem Gehweg Massstab. */
+         man laeuft und kaempft, und geben dem Gehweg Massstab.
+         Zwei Fehler steckten hier drin, beide stadtweit:
+         1. Die Pollerreihe lief von der Ecke aus in BEIDE Richtungen -
+            der aeussere stand damit 0,6 m ueber der Gehwegkante auf der
+            Fahrbahn. Gemessen: 113 Poller auf der Strasse.
+         2. Genau in der Ecke steht der Ampelmast (auf Linie plus 7,2,
+            das sind 0,2 m neben dem Eckpunkt). Gemessen standen 65
+            Poller 0,28 m und 26 Beete 0,57 m IM Mast.
+         Die Reihe beginnt jetzt 2,6 m von der Ecke entfernt und laeuft
+         nach innen, laengs EINER Bordsteinkante. */
+      const POLLER_AB = 2.6, POLLER_LUECKE = 1.6;
       for (const [ex, ez] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
         const px0 = cx + ex * (size / 2 - 1.0), pz0 = cz + ez * (size / 2 - 1.0);
         if (loecher.some((l) => px0 > l.x0 - 2.5 && px0 < l.x1 + 2.5 &&
                                 pz0 > l.z0 - 2.5 && pz0 < l.z1 + 2.5)) continue;
+        /* Laengs welcher Kante? Auf der Diagonale ex===ez laeuft die
+           Reihe in z, sonst in x - so bekommt nicht jede Ecke dieselbe
+           Achse. Der Punkt wandert von der Ecke aus nach innen. */
+        const laengsZ = ex === ez;
+        const ort = (weg) => (laengsZ ? [px0, pz0 - ez * weg] : [px0 - ex * weg, pz0]);
         if ((bi * 3 + bj + ex + ez) % 3 === 0) {
-          /* Das Beet ist laenglich; es steht laengs der naeheren
-             Bordsteinkante, nicht quer ueber den Gehweg. */
-          const bx = px0 - ex * 0.6, bz = pz0 - ez * 0.6;
-          const bdreh = ex === ez ? 0 : Math.PI / 2;
-          BEET_STELLEN.push([bx, bz, bdreh]);
-          merkeTeil(BEET_ERSATZ, bx, SLAB_H, bz, bdreh, 0.8);
+          /* Das Beet ist laenglich; es steht laengs der Bordsteinkante,
+             nicht quer ueber den Gehweg. Das Modell ist in x lang, also
+             braucht die z-Kante eine Vierteldrehung. */
+          const [bx, bz] = ort(POLLER_AB);
+          const bdreh = laengsZ ? Math.PI / 2 : 0;
+          if (nimmPlatz(bx, bz, MOEBEL_RADIUS.Beet)) {
+            BEET_STELLEN.push([bx, bz, bdreh]);
+            merkeTeil(BEET_ERSATZ, bx, SLAB_H, bz, bdreh, 0.8);
+          }
         } else {
-          for (let k = -1; k <= 1; k++) {
-            merkeTeil('Prop_Bollard', px0 + (ex ? 0 : k * 1.6), SLAB_H,
-                      pz0 + (ex ? k * 1.6 : 0), 0);
+          for (let k = 0; k < 3; k++) {
+            const [qx, qz] = ort(POLLER_AB + k * POLLER_LUECKE);
+            if (nimmPlatz(qx, qz, MOEBEL_RADIUS.Poller))
+              merkeTeil('Prop_Bollard', qx, SLAB_H, qz, 0);
           }
         }
       }
@@ -3638,8 +3704,15 @@ function baueUBahn(x) {
        war keine Wand, ueber ihr das offene Schachtdach, und die Leute
        liefen die Treppe genau dort herunter. */
     const seite = ubWandSeite(sch);
+    /* Der Linienversatz FEHLTE hier. ubDeko und ubCollider rechnen ihn
+       selbst dazu, deko() nicht - und baueBank baut ueber deko(). Alle
+       Bahnsteigbaenke der drei Linien landeten deshalb auf der Linie
+       z = 0; bei den Stationen -100, 0 und 100, die zwei Linien
+       gemeinsam haben, standen zwoelf Baenke paarweise exakt
+       uebereinander (gemessener Abstand 0,00 m). */
     for (const abstand of UB_BANK_ABSTAND)
-      baueBank(x + seite * abstand, UB_TIEF, zw - rueck * 1.5, false, undefined, rueck);
+      baueBank(x + seite * abstand, UB_TIEF, zw - rueck * 1.5 + UB_DZ,
+               false, undefined, rueck);
   }
   /* Ueber dem GLEIS haengen keine Deckenleuchten mehr. Dort faehrt der
      Zug; in einer echten Station ist ueber dem Gleistrog nichts ausser
@@ -4536,6 +4609,11 @@ function ziehFestPunkt(x, y, z, r) {
                 h: y, y0: y - 0.6, klein: true, keinKlettern: true });
 }
 function addLamp(x, z, dreh) {
+  /* Steht dort schon etwas, kommt keine Laterne dazu. Der Waechter sitzt
+     hier in addLamp, weil Laternen an fuenf verschiedenen Stellen
+     gesetzt werden (Block, Park, Promenade, Bruecke, Altbaublock) - eine
+     Pruefung an jeder einzelnen davon haette eine vergessen. */
+  if (!nimmPlatz(x, z, MOEBEL_RADIUS.Laterne)) return;
   /* Der Ausleger zeigt zur Strasse. Alle Laternen stehen an der
      Westkante ihres Blocks, der Fahrbahn also nach -x zugewandt. */
   const d = dreh === undefined ? Math.PI : dreh;
@@ -10527,6 +10605,12 @@ const HANDY_FERN = 32, HANDY_BAND = 6;
 const SCHIRM_FERN = 38, SCHIRM_BAND = 8;
 const RUHE_POSEN = ['idle', 'idle', 'telefon', 'warten', 'umschauen', 'tippen',
                     'reden', 'streiten', 'trinken', 'gelangweilt', 'froh', 'winken'];
+/* Haltungen, die BEIDE Haende brauchen. Wer eine davon einnimmt, hat
+   kein Handy in der Hand. Vorher wurde die Sichtbarkeit des Handys
+   gerechnet, BEVOR die Haltung feststand: ein Zivilist, der beim Gehen
+   das Handy heraushatte, blieb stehen, um dem Helden zuzuwinken - und
+   winkte dann mit dem Geraet in der Faust. */
+const RUHE_POSEN_HAENDE = ['winken', 'froh', 'reden', 'streiten', 'jubel'];
 const _fa = new THREE.Vector3(), _fb = new THREE.Vector3(), _fc = new THREE.Vector3();
 const _fd = new THREE.Vector3(), _fe = new THREE.Vector3();
 
@@ -19189,23 +19273,40 @@ function moebelOrt(px, pz, dreh, lx, ly, lz, out) {
     .set(px + lx * c + lz * s, SLAB_H + ly, pz - lx * s + lz * c);
 }
 
-function baueAmpeln() {
-  const stellen = AMPEL_STELLEN;
-  const ampelKisten = [];
-  const _o = new THREE.Vector3();
+/* Wo steht ein Ampelmast? Die Liste wird ZWEIMAL gebraucht: einmal, um
+   die Plaetze zu belegen, bevor Poller, Beete und Laternen gesetzt
+   werden, und einmal beim Bau der Ampeln selbst. Solange sie an zwei
+   Stellen gerechnet wurde, konnte niemand den Masten ausweichen -
+   gemessen stand an jeder Kreuzung ein Poller 0,28 m im Mast. */
+function ampelMasten() {
+  const aus = [];
   for (let i = 0; i <= BLOCKS; i++) {
     for (let j = 0; j <= BLOCKS; j++) {
       const x = ORIGIN + i * PITCH, z = ORIGIN + j * PITCH;
       if (x > RIVER_X0 - 20) continue;                 // nicht im Fluss
       for (const [sx, sz] of [[1, 1], [-1, -1]]) {
-        const px = x + sx * (ROAD_HALF + 1.2), pz = z + sz * (ROAD_HALF + 1.2);
         /* Zwei Ausleger je Mast, einer fuer jede Fahrtrichtung. Der
            Ausleger muss ueber SEINE Fahrbahn reichen, also zur
            Kreuzungsmitte hin - steht der Mast in der Ecke +x/+z, zeigt
            der Arm fuer den Laengsverkehr nach -x und der fuer den
            Querverkehr nach -z. */
-        const drehZ = sx > 0 ? Math.PI : 0;            // regelt Verkehr laengs z
-        const drehX = sx > 0 ? Math.PI / 2 : -Math.PI / 2;  // laengs x
+        aus.push({ x: x + sx * (ROAD_HALF + 1.2), z: z + sz * (ROAD_HALF + 1.2),
+                   drehZ: sx > 0 ? Math.PI : 0,            // regelt Verkehr laengs z
+                   drehX: sx > 0 ? Math.PI / 2 : -Math.PI / 2 });  // laengs x
+      }
+    }
+  }
+  return aus;
+}
+
+function baueAmpeln() {
+  const stellen = AMPEL_STELLEN;
+  const ampelKisten = [];
+  const _o = new THREE.Vector3();
+  for (const mast of ampelMasten()) {
+    {
+      {
+        const px = mast.x, pz = mast.z, drehX = mast.drehX, drehZ = mast.drehZ;
         stellen.push([px, pz, drehX, drehZ]);
         /* Der Haltepunkt sitzt oben auf dem Ausleger, dort wo er
            waagerecht ueber der Fahrbahn liegt (4,30 m). Vorher stand die
@@ -22571,6 +22672,12 @@ function updateCivilians(dtBild) {
       if (!c.gaffPose) c.gaffPose = pick(['umschauen', 'warten', 'froh', 'winken', 'reden']);
       if (!c.filmt && !(ruf > 45 && c.jubelt)) c.ruhePose = c.gaffPose;
     } else c.gaffPose = null;
+    /* Erst JETZT steht die Haltung fest. Wer winkt, jubelt oder redet,
+       steckt das Handy weg - ausser er filmt gerade, dann ist das Handy
+       der Grund fuer die Haltung. */
+    if (c.handy.visible && !c.filmt &&
+        (RUHE_POSEN_HAENDE.includes(c.ruhePose) || (ruf > 45 && c.jubelt && c.gafft)))
+      c.handy.visible = false;
     c.vel.x = dirX * speed; c.vel.z = dirZ * speed;
     /* ---- Die Lage VOR dem Schritt merken ----
        collideBody entscheidet damit, auf welcher Seite eines Klotzes die
@@ -31140,6 +31247,20 @@ if (window.__WEBHERO_TEST__ === true) {
     laterneStellen() { return LATERNE_STELLEN; },
     bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
+    beetStellen() { return BEET_STELLEN; },
+    /* Alles, was auf dem Gehweg steht, in EINER Liste mit Grundkreis.
+       Damit laesst sich pruefen, ob zwei Gegenstaende ineinander stecken
+       oder einer auf der Fahrbahn steht - ohne jede Sorte einzeln
+       abzufragen und ohne im Bild danach zu suchen. */
+    strassenMoebel() {
+      const aus = [];
+      const zu = (art, x, z, r) => aus.push({ art, x, z, r });
+      for (const [px, pz] of AMPEL_STELLEN) zu('Ampel', px, pz, MOEBEL_RADIUS.Ampel);
+      for (const [px, pz] of LATERNE_STELLEN) zu('Laterne', px, pz, MOEBEL_RADIUS.Laterne);
+      for (const [px, pz] of BEET_STELLEN) zu('Beet', px, pz, MOEBEL_RADIUS.Beet);
+      for (const t of TEIL_STELLEN.Prop_Bollard || []) zu('Poller', t.x, t.z, MOEBEL_RADIUS.Poller);
+      return aus;
+    },
     /* Schaltphase von aussen setzen - sonst muesste ein Bildtest
        elf Sekunden warten, um Gelb oder Gruen zu sehen. */
     ampelPhase(phase, t) { AMPEL.phase = phase; AMPEL.t = t || 0; updateAmpeln(0); },
