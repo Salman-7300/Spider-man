@@ -103,6 +103,7 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     WANDLAUF_REICH: Number(lies(/let WANDLAUF_REICH = ([\d.]+)/, '0.6')),
     WANDLAUF_HUB: Number(lies(/let WANDLAUF_HUB = ([\d.]+)/, '0.18')),
     WANDLAUF_KIPP: Number(lies(/let WANDLAUF_KIPP = (-?[\d.]+)/, '-0.7')),
+    WANDLAUF_BLICK: JSON.parse(lies(/let WANDLAUF_BLICK = (\[[^\]]*\])/, '[0.26,0.24,0.2,0.16]')),
     WANDLAUF_ARM: JSON.parse(lies(/let WANDLAUF_ARM = (\[[^\]]*\])/, '[0.02,0.16,0.34,0.4,0.16,0.06,0.12,0.12]')),
     SCHWUNG_KOPF: JSON.parse(lies(/let SCHWUNG_KOPF = (\[[^\]]*\])/, '[0.55,0.3,0.22,0]')),
     EINST: { maus: 100, autokam: 'aus' }, mouseDX: 0, mouseDY: 0, touchAktiv: false,

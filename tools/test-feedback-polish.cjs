@@ -97,7 +97,13 @@ for (const roll of [0, -Math.PI / 2, Math.PI / 2]) {
     v.root.position.z += 0.52 - pos(v, 'hips').z;
     v.poseWandSprint(0, 1, 0, 1, roll, 1);
     const direction = V(Math.sin(roll), Math.cos(roll), 0), spine = pos(v, 'head').sub(pos(v, 'hips'));
-    assert.ok(spine.dot(direction) > 0.4, 'run must not use the prone crawl transform');
+    /* Der Kopf muss in Laufrichtung ueber der Huefte bleiben - die Figur
+       darf nicht flach an der Wand liegen wie beim Kriechen.
+       Die Grenze lag bei 0,40. Seit die Kippung so gewaehlt ist, dass der
+       SCHRITT die Wand hinauflaeuft (-1,40 statt -0,15), lehnt sich die
+       Figur weiter zurueck: der Kopf steht 33 Grad ueber der Waagerechten
+       statt fast senkrecht, gemessen 0,33. Flach liegen waere 0. */
+    assert.ok(spine.dot(direction) > 0.22, 'run must not use the prone crawl transform');
     assert.ok(Math.min(pos(v, 'leftfoot').z, pos(v, 'rightfoot').z) < 0.12);
     assert.ok(pos(v, 'lefthand').z > 0.05 && pos(v, 'righthand').z > 0.05);
   });

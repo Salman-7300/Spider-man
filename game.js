@@ -7917,15 +7917,39 @@ function makeGlbVisual(m) {
        12 cm drin). Jede Sohle wird jetzt flach an die Wand gelegt, und zwar
        um so staerker, je naeher der Fuss der Wand schon ist - der
        schwingende Fuss behaelt so seine Laufbewegung. */
+    /* ---- Beim Wandlauf den Blick die Wand hinauf ----
+       Die Kippung legt den ganzen Koerper an die Wand; der Kopf zeigt
+       danach von der Fassade weg, und im Bild sieht die Figur aus, als
+       liege sie auf dem Ruecken. Ein Laeufer schaut aber dorthin, wo er
+       hinlaeuft. Kopf, Nacken und Brustwirbel drehen deshalb ein Stueck
+       gegen die Kippung zurueck - dieselbe Aufteilung wie beim Schwingen,
+       wo derselbe Fehler schon einmal auftrat (Kopf ohne Nacken). */
+    wandlaufBlick(kipp, k) {
+      const gegen = -(kipp || 0);
+      const s = clamp(k === undefined ? 1 : k, 0, 1);
+      if (s <= 0.01 || !gegen) return;
+      drehZuRuhe(knochen.head, gegen * WANDLAUF_BLICK[0], 0, 0, 0.85 * s);
+      drehZuRuhe(knochen.neck, gegen * WANDLAUF_BLICK[1], 0, 0, 0.8 * s);
+      drehe(knochen.spine2, gegen * WANDLAUF_BLICK[2], 0, 0, 0.55 * s);
+      drehe(knochen.spine1, gegen * WANDLAUF_BLICK[3], 0, 0, 0.5 * s);
+    },
     poseWandlaufFuesse(nx, nz, flaeche, k) {
       root.updateMatrixWorld(true);
-      const sohle = _vw1.set(nx, 0, nz);
+      /* setzeFuss dreht den Fuss so, dass seine SOHLE in die uebergebene
+         Richtung zeigt. Hier stand (nx|0|nz) - das ist die Normale, also
+         VON der Wand weg: die Figur haette mit dem Spann an der Fassade
+         gestanden. Es muss zur Wand hinein zeigen, wie bei
+         poseWandKontakt und poseWandSprint auch. */
+      const sohle = _vw1.set(-nx, 0, -nz);
       for (const seite of ['left', 'right']) {
         const f = knochen[seite + 'foot'];
         if (!f) continue;
         f.getWorldPosition(_vw3);
         const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
-        const nah = 1 - clamp((d - 0.05) / 0.35, 0, 1);
+        /* Voll bis 16 cm Abstand, dann ausblenden bis 46. Mit der alten
+           Grenze (voll nur bei 5 cm) war der Fuss beim Auftritt erst zur
+           Haelfte gedreht und die Zehe stand 4,6 cm im Haus. */
+        const nah = 1 - clamp((d - 0.16) / 0.30, 0, 1);
         if (nah < 0.02) continue;
         _fh.set(0, 1, 0);                 // Zehen zeigen die Wand hinauf
         setzeFuss(seite, _fh, sohle, clamp(k * nah, 0, 1));
@@ -16368,22 +16392,34 @@ const MISCH_NAMEN = ['schwung', 'gleiten', 'wand', 'wandlauf'];
    Wandnormale (0 Grad = Kopf zeigt gerade von der Wand weg) und einmal
    gegen die Senkrechte (90 Grad = Koerper waagerecht):
 
-     Kippung   zur Wand   zur Senkrechten
-       0,00      110,7           21,2   <- Brust klebt an der Fassade
-      -0,15      105,0           15,4   <- Laufschritt, leichte Vorlage
-      -0,30       97,4            8,3   <- schon aufrecht
-      -0,70       73,1           17,7   <- legt sich zurueck
-      -1,10       48,6           41,6
-      -1,90        5,9           85,2   <- steht waagerecht von der Wand ab
+   Der erste Versuch hat sie nach dem STANDBILD gewaehlt (-0,15) - das
+   war falsch, und der Nutzer hat es sofort gesehen. Entscheidend ist
+   nicht, wie die Figur in einem Bild steht, sondern WOHIN DER SCHRITT
+   GEHT. Gemessen ueber 70 Bilder, Weg des Knoechels:
 
-   Ueber 90 Grad "zur Wand" heisst: der Kopf ist naeher an der Fassade
-   als die Huefte, die Figur lehnt sich also in die Wand hinein - genau
-   das macht ein Laeufer. Bei -1,90 waere die Wand sein Boden und er
-   staende waagerecht davon ab; das sieht aus, als liege er auf dem
-   Ruecken in der Luft (nachgesehen, verworfen).
-   -0,15 laesst 15 Grad Vorlage stehen und zeigt den Laufschritt sauber:
-   Knie hoch, anderes Bein gestreckt nach hinten, Arme pendeln frei. */
-let WANDLAUF_KIPP = -0.15;
+     Kippung   quer zur Wand   die Wand hinauf   Sohle (0 = liegt an)
+       0,00        1,00 m           0,44 m            0,073
+      -0,15        0,92 m           0,37 m            0,44    <- Schritt IN die Wand
+      -0,50        0,45 m           0,13 m            0,42
+      -1,00        0,14 m           0,47 m            0,073
+      -1,20        0,15 m           0,61 m            0,060
+      -1,40        0,13 m           1,24 m            0,048   <- gewaehlt
+      -1,70        0,11 m           1,29 m            0,039
+      -1,90        0,14 m           1,18 m            0,036   <- liegt auf dem Ruecken
+
+   Bei -0,15 trat die Figur einen Meter weit IN die Fassade und wieder
+   heraus und kam dabei nur 37 cm die Wand hinauf - sie lief also gegen
+   die Wand statt an ihr hoch. Ab etwa -1,4 ist es umgekehrt: 1,24 m
+   Schritt die Wand hinauf, nur 13 cm quer, und die Sohle liegt bis auf
+   drei Grad an der Fassade.
+   Weiter als -1,7 wird die Wand vollends zum Boden: die Figur steht
+   waagerecht von der Fassade ab und liegt im Bild auf dem Ruecken. Bei
+   -1,40 bleibt der Kopf ueber der Huefte - Ruecklage wie bei einem
+   Laeufer, der eine Wand hinaufrennt. */
+let WANDLAUF_KIPP = -1.40;
+/* Anteile, mit denen Kopf, Nacken, Brust- und Lendenwirbel gegen die
+   Kippung zurueckdrehen - der Blick geht dorthin, wo es hingeht. */
+let WANDLAUF_BLICK = [0.26, 0.24, 0.20, 0.16];
 /* ---- Armziele beim Wandlauf ----
    Wandlaufen macht man MIT DEN BEINEN. Die Haende fassen nichts an, die
    Arme pendeln vor dem Koerper wie beim Laufen - deshalb liegen beide
@@ -17568,6 +17604,19 @@ function wandFreiraum(dt) {
                          player.gliedKraft, player.wandlauf,
                          (kletternAusClip() && !player.wandlauf)
                            ? WAND_GRIFF_KLETTER : undefined);
+    r.updateMatrixWorld(true);
+  }
+  /* ---- Die SOHLE gehoert an die Fassade ----
+     wandGriff() zieht den Fuss an die Wand, aber er behaelt die Richtung
+     aus der Laufdatei - dort zeigt die Zehe nach unten, wie am Boden.
+     Gemessen stand die Zehe dabei bis zu 6 cm HINTER der Fassade, die
+     Figur trat also mit der Fussspitze ins Haus statt mit der Sohle
+     darauf. poseWandlaufFuesse dreht jeden Fuss, der nah genug ist: Zehen
+     die Wand hinauf, Sohle an die Wand. Weiter draussen (Schwungbein)
+     blendet es aus, sonst stuende der Fuss in der Luft quer. */
+  if (player.wandlauf && !eckHalb && heroVisual.poseWandlaufFuesse) {
+    if (heroVisual.wandlaufBlick) heroVisual.wandlaufBlick(WANDLAUF_KIPP, 1);
+    heroVisual.poseWandlaufFuesse(gf.nx, gf.nz, gf.fl, 0.95);
     r.updateMatrixWorld(true);
   }
   /* Und zum Schluss die harte Zusage: kein Glied steckt tief im Haus.
