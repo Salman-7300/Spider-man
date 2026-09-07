@@ -1855,7 +1855,19 @@ const UB_STUFEN = UB_STUFEN_OBEN + UB_STUFEN_UNTEN;
    Die lichte Hoehe geht von 3,6 auf 4,2 m - eine Bahnhofshalle ist
    hoeher als ein Wohnzimmer, und die Werbetafeln haengen jetzt frei. */
 const UB_BE_TIEF = 26.0;                  // Tiefe der Halle neben dem Schacht
-const UB_BE_HOCH = 4.2;                   // lichte Hoehe
+/* ---- Lichte Hoehe: sie hat eine harte Obergrenze ----
+   Mit 4,2 m lag die Oberkante der Hallendecke bei
+     UB_MITTE + 4,2 + 0,17 + 0,35/2 = +0,345,
+   also UEBER dem Gehweg. Der Gehwegsockel reicht von -0,25 bis +0,25 -
+   die Decke stand als 16 x 26 m grosse weisse Platte auf dem Gehweg,
+   und ihr Anstosser (bis y = +0,35) war die "unsichtbare Wand", durch
+   die man nicht hindurchkam.
+   Die Grenze rechnet sich so: Deckenoberkante = UB_MITTE + hoch + 0,345
+   muss unter der Unterkante des Gehwegsockels (-SLAB_H) bleiben. Mit
+   UB_MITTE = -4,2 und SLAB_H = 0,25 sind das hoechstens 3,60 m; 3,50 m
+   laesst zehn Zentimeter Luft. Eine Bahnhofshalle mit 3,50 m lichter
+   Hoehe ist immer noch hoeher als jedes Wohnzimmer. */
+const UB_BE_HOCH = 3.5;                   // lichte Hoehe
 const UB_BE_RAND = 0.3;                   // Abstand zu den Schachtenden
 function ubBEbene(sx, sch, dz) {
   const v = dz || 0;
@@ -3106,14 +3118,17 @@ function baueBEbene(sx, sch) {
     const dreh = weg > 0 ? 0 : Math.PI;
     UB_MOEBEL.kiosk.stellen.push([mx - 4.0, u0, tief(9.2) + UB_DZ, dreh]);
     UB_MOEBEL.uhr.stellen.push([mx, u0, tief(14.0) + UB_DZ, dreh]);
+    /* ubCollider rechnet den Linienversatz SELBST dazu - hier darf er
+       nicht noch einmal drauf, sonst stehen die Anstosser der beiden
+       versetzten Linien hundert Meter neben ihrer Halle. */
     ubCollider({ x0: mx - 5.0, x1: mx - 3.0,
-                  z0: Math.min(tief(8.5), tief(9.9)) + UB_DZ,
-                  z1: Math.max(tief(8.5), tief(9.9)) + UB_DZ,
+                  z0: Math.min(tief(8.5), tief(9.9)),
+                  z1: Math.max(tief(8.5), tief(9.9)),
                   h: u0 + 2.46, y0: u0 - 0.1, klein: true });
     /* Der Uhrenmast ist duenn, aber er steht mitten im Weg - ohne
        Anstosser laeuft man mittendurch. */
     ubCollider({ x0: mx - 0.22, x1: mx + 0.22,
-                  z0: tief(14.0) + UB_DZ - 0.22, z1: tief(14.0) + UB_DZ + 0.22,
+                  z0: tief(14.0) - 0.22, z1: tief(14.0) + 0.22,
                   h: u0 + 2.61, y0: u0 - 0.1, klein: true });
   }
 

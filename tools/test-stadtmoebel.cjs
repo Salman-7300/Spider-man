@@ -295,3 +295,23 @@ test('Der Umhaengegurt endet nicht frei in der Luft', () => {
       'Gurtende auf ' + p[1] + ' m steht ' + p[2] + ' m vor dem Koerper');
   }
 });
+
+test('Die Decke der Zwischenebene bleibt unter dem Gehweg', () => {
+  /* Regression: mit 4,2 m lichter Hoehe lag die Deckenoberkante bei
+     +0,345 - die Halle stand als 16 x 26 m grosse weisse Platte auf dem
+     Gehweg, und ihr Anstosser war eine unsichtbare Wand quer ueber den
+     Buergersteig. Der Gehwegsockel reicht von -SLAB_H bis +SLAB_H. */
+  const SLAB_H = zahl(/const SLAB_H = ([\d.]+)/, 'SLAB_H');
+  const UB_MITTE = zahl(/const UB_MITTE = (-?[\d.]+)/, 'UB_MITTE');
+  const UB_BE_HOCH = zahl(/const UB_BE_HOCH = ([\d.]+)/, 'UB_BE_HOCH');
+  const u1 = UB_MITTE + UB_BE_HOCH;
+  /* Deckenplatte: Mitte u1 + 0,17, Dicke 0,35. Anstosser bis u1 + 0,35. */
+  assert.ok(u1 + 0.35 < -SLAB_H,
+    'Hallendecke reicht bis ' + (u1 + 0.35).toFixed(3) +
+    ' m, der Gehweg beginnt schon bei ' + (-SLAB_H) + ' m');
+  /* Decke der Zwischenebene im Schacht: Mitte UB_MITTE + hoch, Dicke 0,35. */
+  assert.ok(UB_MITTE + UB_BE_HOCH + 0.175 < -SLAB_H,
+    'Decke des Treppenabsatzes reicht bis ' + (UB_MITTE + UB_BE_HOCH + 0.175).toFixed(3) + ' m');
+  /* Und hoch genug zum Durchgehen muss sie trotzdem sein. */
+  assert.ok(UB_BE_HOCH > 2.9, 'die Halle waere mit ' + UB_BE_HOCH + ' m zu niedrig');
+});
