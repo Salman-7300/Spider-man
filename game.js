@@ -9212,11 +9212,25 @@ function makeGlbVisual(m) {
           const kette = gangStufe >= 3 ? ['sprint_lang', 'sprint', 'run', 'walk']
                       : gangStufe === 2 ? ['sprint', 'sprint_lang', 'run', 'walk']
                       : gangStufe === 1 ? ['run', 'sprint', 'walk']
-                      /* "gehen" ist der Gehzyklus des HELDEN (animation-2).
-                         Nur sein Modell hat den Clip; Zivilisten und
-                         Gegner fallen ueber habe() automatisch auf walk
-                         zurueck. */
-                      : ['gehen', 'walk', 'run', 'sprint'];
+                      /* ---- Warum hier wieder 'walk' vorn steht ----
+                         'gehen' ist der Gehzyklus aus animation-2, auf
+                         unser Skelett umgerechnet. Er geht gebueckt: der
+                         Blick liegt 26 Grad anders als in JEDER anderen
+                         Bewegung des Modells (gehen +5,1 Grad gegen
+                         idle -22,3, walk -21,2, run -25,1). Im Bild ist
+                         das ein vornuebergebeugter Schlurfgang mit
+                         haengendem Kopf - genau das, was am langsamen
+                         Laufen auffiel.
+                         Geprueft und verworfen: die Halsspur entfernen.
+                         Dann steht der Kopf zwar wieder wie bei den
+                         anderen (Blick -2,6), aber die Koerperachse
+                         kippt von 8,2 auf 16,1 Grad nach vorn - der Hals
+                         hielt gegen einen vorgebeugten Rumpf, der Fehler
+                         steckt also in der ganzen Kette, nicht im Kopf.
+                         'gehen' bleibt geladen (Zivilisten benutzen es
+                         nicht, sie haben den Clip gar nicht), fuehrt
+                         aber nicht mehr. */
+                      : ['walk', 'gehen', 'run', 'sprint'];
           for (const n of kette) if (habe(n)) { want = n; break; }
         }
         else if (p.gang && findClip(m.clips, p.gang)) want = p.gang;
