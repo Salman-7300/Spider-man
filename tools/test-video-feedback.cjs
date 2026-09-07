@@ -325,3 +325,92 @@ test('Das Handy sitzt in der Faust, nicht daneben', () => {
   assert.ok(Math.abs(Number(hoch) - 0.025) < 0.008,
     'die Hoehe ueber dem Handgelenk stimmt nicht: ' + hoch);
 });
+
+/* ---- Kamera an der Wand ----
+   Gemessen an einem echten Wandlauf im Browser: die Kamera stand 27 Grad
+   neben der Wandnormale (dort, wo der Anlauf am Boden geendet hatte) und
+   der Blick ging mit camPitch +0.22 nach unten, waehrend die Figur nach
+   oben lief. Im Bild sah man die Hauskante und die Strasse, nicht den
+   Weg. Diese Tests halten die Richtung fest, nicht meinen Geschmack. */
+function wandKamera(r, nx, nz) {
+  const e = r.env, c = { x0: -10, x1: 10, z0: -10, z1: 10, h: 70 };
+  for (let i = Math.floor((c.x0 - e.ORIGIN) / e.PITCH); i <= Math.floor((c.x1 - e.ORIGIN) / e.PITCH); i++)
+    for (let j = Math.floor((c.z0 - e.ORIGIN) / e.PITCH); j <= Math.floor((c.z1 - e.ORIGIN) / e.PITCH); j++) {
+      const key = i + ',' + j; e.colliderGrid.set(key, [...(e.colliderGrid.get(key) || []), c]);
+    }
+  e.player.pos.set(nx * 10.18, 30, nz * 10.18);
+  e.player.state = 'climb'; e.player.wallInfo = { col: c, nx, nz };
+  return { e, normalYaw: Math.atan2(nx, nz) };
+}
+const winkelAb = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+
+for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  test(`Wandlauf: die Kamera dreht vor die Fassade und schaut hinauf (${nx},${nz})`, () => {
+    const r = runtime(), { e, normalYaw } = wandKamera(r, nx, nz);
+    e.EINST.autokam = 'gleiten';
+    e.player.wandlauf = true; e.player.vel.set(0, 11, 0);
+    /* Startlage wie nach einem Anlauf am Boden: schraeg daneben und von
+       oben herab. */
+    r.run(`camYaw = ${normalYaw + 0.62}; camPitch = 0.22; mausRuhe = 1;
+           camPos.copy(player.pos); camPos.y += 1.7;`);
+    for (let i = 0; i < 120; i++) e.updateCamera(1 / 60);
+    const yaw = r.run('camYaw'), pitch = r.run('camPitch');
+    assert.ok(winkelAb(yaw, normalYaw) < 0.12,
+      'die Kamera steht nicht vor der Fassade: ' +
+      (winkelAb(yaw, normalYaw) * 180 / Math.PI).toFixed(0) + ' Grad daneben');
+    assert.ok(pitch < -0.12,
+      'die Kamera schaut beim Hochlaufen nicht hinauf: ' + pitch.toFixed(2));
+    /* Und sie steht dabei ausserhalb der Wand. */
+    const p = e.camera.position;
+    assert.ok((nx ? p.x * nx : p.z * nz) > 10.3, 'die Kamera steckt in der Wand');
+  });
+}
+
+test('An der Wand folgt der Blick der Richtung: hinauf, still, hinunter', () => {
+  const werte = {};
+  for (const [name, vy] of [['hoch', 8], ['still', 0], ['runter', -8]]) {
+    const r = runtime(), { e, normalYaw } = wandKamera(r, 0, -1);
+    e.EINST.autokam = 'gleiten';
+    e.player.wandlauf = false; e.player.vel.set(0, vy, 0);
+    r.run(`camYaw = ${normalYaw}; camPitch = 0; mausRuhe = 1;
+           camPos.copy(player.pos); camPos.y += 1.7;`);
+    for (let i = 0; i < 240; i++) e.updateCamera(1 / 60);
+    werte[name] = r.run('camPitch');
+  }
+  assert.ok(werte.hoch < werte.still - 0.1,
+    'hochklettern hebt den Blick nicht: ' + JSON.stringify(werte));
+  assert.ok(werte.runter > werte.still + 0.1,
+    'runterklettern senkt den Blick nicht: ' + JSON.stringify(werte));
+  assert.ok(Math.abs(werte.still + 0.06) < 0.03,
+    'im Stillstand ist der Blick nicht ruhig: ' + werte.still.toFixed(2));
+});
+
+test('"Kamera nur von Hand" bleibt auch an der Wand von Hand', () => {
+  const r = runtime(), { e, normalYaw } = wandKamera(r, 0, -1);
+  e.EINST.autokam = 'aus';
+  e.player.wandlauf = true; e.player.vel.set(0, 11, 0);
+  const start = normalYaw + 0.62;
+  r.run(`camYaw = ${start}; camPitch = 0.22; mausRuhe = 1;
+         camPos.copy(player.pos); camPos.y += 1.7;`);
+  for (let i = 0; i < 120; i++) e.updateCamera(1 / 60);
+  assert.ok(winkelAb(r.run('camYaw'), start) < 0.02,
+    'die Kamera dreht sich, obwohl "nur von Hand" eingestellt ist');
+  assert.ok(Math.abs(r.run('camPitch') - 0.22) < 0.02);
+});
+
+test('Eine Mausbewegung hat an der Wand sofort Vorrang', () => {
+  const r = runtime(), { e, normalYaw } = wandKamera(r, 0, -1);
+  e.EINST.autokam = 'gleiten';
+  e.player.wandlauf = true; e.player.vel.set(0, 11, 0);
+  r.run(`camYaw = ${normalYaw}; camPitch = 0; mausRuhe = 1;
+         camPos.copy(player.pos); camPos.y += 1.7;`);
+  /* Wischen und danach kein Nachziehen: die Ruhezeit beginnt von vorn. */
+  for (let i = 0; i < 30; i++) { e.mouseDX = 40; e.updateCamera(1 / 60); }
+  const nachMaus = r.run('camYaw');
+  assert.ok(winkelAb(nachMaus, normalYaw) > 0.5,
+    'die Maus kommt gegen den Wandzug nicht an: ' +
+    winkelAb(nachMaus, normalYaw).toFixed(2));
+  e.updateCamera(1 / 60);
+  assert.ok(winkelAb(r.run('camYaw'), nachMaus) < 0.01,
+    'die Kamera zieht sofort nach der Maus wieder weg');
+});

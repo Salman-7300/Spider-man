@@ -11687,6 +11687,13 @@ function camForward() {
 
 let camRoll = 0;
 let mausRuhe = 0;
+/* Kamera an der Wand: ab wann sie von allein nachzieht, wie schnell sie
+   sich vor die Fassade dreht und wohin der Blick wandert. Der zweite
+   Wert von KAM_WAND_PITCH ist der Anteil, mit dem das Steigen den Blick
+   nach oben zieht. Alle drei sind gemessen, nicht geschaetzt. */
+let KAM_WAND_RUHE = 0.18;
+let KAM_WAND_ZUG = 3.2;
+let KAM_WAND_PITCH = [-0.06, 0.26];
 let flugGlatt = 0;   // geglättete Flugrichtung für die mitziehende Kamera
 let vorausGlatt = 0; // wie weit der Blickpunkt vorauswandert
 let kamFrei = 6;     // geglaettete freie Sichtweite hinter der Figur
@@ -11842,6 +11849,26 @@ function updateCamera(dt) {
        in den Asphalt zu starren. */
     const zielPitch = player.onGround ? 0.2 : 0.12;
     camPitch = lerp(camPitch, zielPitch, Math.min(0.25, dt * 0.9 * staerke));
+  }
+
+  /* ---- Kamera an der Wand ----
+     Nachgemessen an einem echten Wandlauf: camYaw blieb dort stehen, wo
+     der Anlauf am Boden aufgehoert hatte (2.67 statt 3.14 zur Normale
+     der Wand), und camPitch bei +0.22. Die Kamera hing also schraeg
+     ueber der Figur und schaute nach UNTEN, waehrend die Figur nach oben
+     lief - im Bild sah man vor allem die Hauskante, die dazwischenstand,
+     und nicht den Weg. An der Wand zieht die Kamera deshalb von allein
+     vor die Fassade, und der Blick geht dorthin, wohin es geht: hinauf
+     beim Hochlaufen, hinunter beim Abrutschen. Jede Mausbewegung
+     uebernimmt sofort wieder das Kommando. */
+  if (wand && autoStufe >= 1 && mausRuhe > KAM_WAND_RUHE) {
+    const lauf = !!player.wandlauf;
+    const kraft = clamp((mausRuhe - KAM_WAND_RUHE) * 1.6, 0, 1) * (lauf ? 1 : 0.6);
+    camYaw = dampAngle(camYaw, Math.atan2(wand.nx, wand.nz),
+                       Math.min(0.3, dt * KAM_WAND_ZUG * kraft));
+    const steig = clamp(player.vel.y / 8, -1, 1);
+    const zielPitch = clamp(KAM_WAND_PITCH[0] - steig * KAM_WAND_PITCH[1], -0.45, 0.30);
+    camPitch = lerp(camPitch, zielPitch, Math.min(0.25, dt * 1.8 * kraft));
   }
 
   /* Am Tiefpunkt des Bogens geht die Kamera weiter auf: dort ist man am
@@ -31095,6 +31122,12 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeWandlaufBein(r, h) { WANDLAUF_REICH = r; if (h !== undefined) WANDLAUF_HUB = h; },
     setzeSchwungKopf(a) { SCHWUNG_KOPF = a; },
     setzeWandlaufKipp(v) { WANDLAUF_KIPP = v; },
+    setzeKamWand(ruhe, zug, grund, steig) {
+      if (ruhe !== undefined && ruhe !== null) KAM_WAND_RUHE = ruhe;
+      if (zug !== undefined && zug !== null) KAM_WAND_ZUG = zug;
+      if (grund !== undefined && grund !== null) KAM_WAND_PITCH[0] = grund;
+      if (steig !== undefined && steig !== null) KAM_WAND_PITCH[1] = steig;
+    },
     setzeWandlaufArm(a) { WANDLAUF_ARM = a; },
     setzeHueftKriech(v) { WAND_HUEFT_KRIECH = v; },
     /* Siehe WAND_AB_AN - nur fuer den Vorher/Nachher-Vergleich. */
