@@ -22726,11 +22726,21 @@ function updateCivilians(dtBild) {
          Handgelenk statt in den Fingern zu stecken. */
       const co = Math.cos(c.facing), si = Math.sin(c.facing);
       const vx = si, vz = co;                    // Blickrichtung
-      const rx = co, rz = -si;                   // rechts von der Figur
+      /* ---- Auf welcher Seite steht der rechte Arm? ----
+         (co | -si) zeigt nach LINKS von der Figur, nicht nach rechts:
+         wer in +z schaut, hat seine rechte Hand bei -x. Die Ziele lagen
+         deshalb spiegelverkehrt, und der rechte Arm wurde quer ueber die
+         Brust auf die andere Koerperseite gezogen. Nachgemessen am
+         Skelett (Koordinaten in der Figur: rechts | hoch | vorn):
+         Schulter -0,191, Ellbogen kam auf -0,009 (also genau auf die
+         Mittellinie), Hand auf +0,093 - der Unterarm lief vor dem
+         Brustbein hoch und die Hand stand auf der falschen Seite des
+         Gesichts. */
+      const rx = -co, rz = si;                   // rechts von der Figur
       _v3.set(c.pos.x + rx * 0.26 + vx * 0.06, c.pos.y + 1.14,
               c.pos.z + rz * 0.26 + vz * 0.06);                 // Ellbogen
-      _v2.set(c.pos.x + rx * 0.13 + vx * 0.36, c.pos.y + 1.47,
-              c.pos.z + rz * 0.13 + vz * 0.36);                 // Hand
+      _v2.set(c.pos.x + rx * 0.13 + vx * 0.34, c.pos.y + 1.42,
+              c.pos.z + rz * 0.13 + vz * 0.34);                 // Hand
       c.visual.poseGreifen(_v3, _v2, 'R', 0.9 * handyStark);
       /* Die Finger schließen sich um das Gerät. Ohne das lag das Handy in
          einer flachen, offenen Hand und sah aus, als würde es schweben. */

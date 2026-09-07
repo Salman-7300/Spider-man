@@ -789,7 +789,19 @@
       for (const sx of [-1, 1]) b.beam([sx * 0.11, 1.51, -0.15], [sx * 0.12, 1.12, 0.145], 0.037, 0.022, 0x35434b);
     } else if (kind === 'satchel') {
       b.softBox(0.17, 0.23, 0.23, 0.22, 0.94, -0.05, 0x795e47);
-      b.beam([-0.13, 1.49, 0.14], [0.22, 0.99, 0.12], 0.035, 0.022, 0x574638);
+      /* ---- Der Gurt liegt auf der Schulter ----
+         Vorher lief er von der Huefte schraeg ueber die Brust nach oben
+         und endete FREI IN DER LUFT vor dem Kinn (0,14 m vor dem Koerper,
+         auf 1,49 m - das Schultergelenk liegt bei 1,45). Im Bild war das
+         ein Brett, das der Figur quer vor dem Gesicht steckt; wer dabei
+         das Handy ans Ohr hielt, sah aus, als habe er einen zweiten,
+         steifen Arm. Ein Umhaengegurt geht ueber das Schultergelenk und
+         auf dem Ruecken wieder hinunter zur Tasche - dann ist er
+         geschlossen und endet nirgends. Duenner ist er auch: 3,5 cm
+         Halbmesser war ein Riemen so dick wie ein Dachlatte. */
+      b.beam([0.21, 1.02, 0.09], [-0.16, 1.43, 0.015], 0.026, 0.017, 0x574638);
+      b.beam([-0.16, 1.43, 0.015], [-0.06, 1.12, -0.135], 0.024, 0.016, 0x574638);
+      b.beam([-0.06, 1.12, -0.135], [0.17, 0.98, -0.10], 0.022, 0.015, 0x574638);
     } else {
       const e = ENEMIES[kind];
       /* Schmaler als vorher. Die alte Platte war bis zu 0,50 m breit und

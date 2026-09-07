@@ -261,3 +261,37 @@ test('Bahnsteigbaenke stehen an der Wand, nicht im Treppenloch', () => {
   for (const a of abstaende) assert.ok(a - L / 2 > 1.9,
     'Bank bei ' + a + ' m steht vor der Namenstafel');
 });
+
+/* ---- Handy-Haltung der Zivilisten ---- */
+test('Der Handyarm zielt auf die richtige Koerperseite', () => {
+  /* (cos f | -sin f) zeigt nach LINKS von der Figur: wer in +z schaut,
+     hat die rechte Hand bei -x. Mit dem falschen Vorzeichen wurde der
+     rechte Arm quer ueber die Brust gezogen - am Skelett gemessen lag
+     der Ellbogen dann auf der Mittellinie und die Hand auf der falschen
+     Seite des Gesichts. */
+  const zeile = lies(/(const rx = [^;]+;\s*\/\/ rechts von der Figur)/, 'Handyarm-Seite');
+  assert.match(zeile, /rx = -co/, 'die Seitenrichtung ist wieder gespiegelt');
+  assert.match(zeile, /rz = si/, 'die Seitenrichtung ist wieder gespiegelt');
+});
+
+test('Der Umhaengegurt endet nicht frei in der Luft', () => {
+  const quelleV = fs.readFileSync(path.join(wurzel, 'city-visuals.js'), 'utf8');
+  const block = quelleV.match(/kind === 'satchel'\)\s*\{([\s\S]*?)\n    \} else \{/);
+  assert.ok(block, "der Satchel-Block steht nicht mehr in city-visuals.js");
+  /* Jeder Gurtabschnitt muss dort anfangen, wo der vorige aufhoert -
+     sonst haengt ein Ende im Nichts. */
+  const beams = [...block[1].matchAll(/b\.beam\(\[([^\]]+)\],\s*\[([^\]]+)\]/g)]
+    .map((m) => [m[1].split(',').map(Number), m[2].split(',').map(Number)]);
+  assert.ok(beams.length >= 2, 'der Gurt besteht aus weniger als zwei Stuecken');
+  for (let i = 1; i < beams.length; i++) {
+    const a = beams[i - 1][1], b = beams[i][0];
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    assert.ok(d < 0.01, 'Gurtstueck ' + i + ' setzt ' + d.toFixed(3) + ' m neben dem vorigen an');
+  }
+  /* Kein Ende darf vor dem Gesicht schweben: ueber 1,35 m Hoehe nur
+     dicht am Koerper (die Schulter liegt bei 1,45 | 0,19). */
+  for (const [a, b] of beams) for (const p of [a, b]) {
+    if (p[1] > 1.35) assert.ok(Math.abs(p[2]) < 0.06,
+      'Gurtende auf ' + p[1] + ' m steht ' + p[2] + ' m vor dem Koerper');
+  }
+});
