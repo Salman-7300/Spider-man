@@ -1685,6 +1685,25 @@ function setzeBahnhofmoebel() {
   }
 }
 
+/* Glas fuer die Aufzugshaeuschen. Es braucht ein durchsichtiges
+   Material und kann deshalb nicht in die uebrige Sammelgeometrie; alle
+   Scheiben der Stadt liegen dafuer in EINEM Mesh, also ein einziger
+   Zeichenaufruf. Es steht ueber dem Gehweg und bleibt immer sichtbar. */
+const ubGlasTeile = [];
+let ubGlasMesh = null;
+function ubGlas(w, h, d, x, y, z, farbe) {
+  ubGlasTeile.push({ w, h, d, x, y, z: z + UB_DZ, farbe, ry: 0, rz: 0, rx: 0 });
+}
+function baueUBahnGlasMesh() {
+  if (!ubGlasTeile.length) return;
+  ubGlasMesh = new THREE.Mesh(verschmelzeBoxen(ubGlasTeile),
+    new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true,
+                                    opacity: 0.34, depthWrite: false }));
+  ubGlasMesh.frustumCulled = false;
+  cityGroup.add(ubGlasMesh);
+  ubGlasTeile.length = 0;
+}
+
 let ubahnMesh = null;
 function baueUBahnMesh() {
   if (!ubDekoTeile.length) return;
@@ -2602,6 +2621,7 @@ function buildCity() {
   baueDekoMesh();
   baueUBahnMesh();
   baueUBahnMoebelMesh();
+  baueUBahnGlasMesh();
   baueZuege();
 }
 
@@ -3198,27 +3218,58 @@ function baueAufzug(sx, sch) {
      dort steigt man ein. Der Schacht selbst steckt in der Wand. */
   const tuerSeite = a.richtung > 0 ? a.x0 : a.x1;
   const rueckSeite = a.richtung > 0 ? a.x1 : a.x0;
-  const bh = 1.05;
-  const bruestung = (bx, bz, px, pz) => {
-    const laengs = bx > bz, lang = laengs ? bx : bz;
-    ubDeko(bx, 0.07, bz, px, SLAB_H + bh, pz, 0x9aa2ad);
-    ubDeko(bx, 0.05, bz, px, SLAB_H + bh * 0.48, pz, 0x8b939c);
-    const n = Math.max(2, Math.round(lang / 1.0));
-    for (let i = 0; i <= n; i++) {
-      const t2 = -lang / 2 + (i / n) * lang;
-      ubDeko(0.06, bh, 0.06, px + (laengs ? t2 : 0), SLAB_H + bh / 2,
-           pz + (laengs ? 0 : t2), 0x8b939c);
-    }
-    ubCollider({ x0: px - bx / 2, x1: px + bx / 2, z0: pz - bz / 2, z1: pz + bz / 2,
-                  h: SLAB_H + bh, y0: SLAB_H - 0.05, klein: true });
+  /* ---- Oben ein glaeserner Aufzugsturm ----
+     Bisher war der Aufzug an der Strasse ein Loch im Gehweg mit einem
+     weissen Gelaender darum - man erkannte ihn nur am Schild daneben.
+     Ein Strassenaufzug ist aber ein glaeserner Turm: vier Ecksaeulen,
+     Glas dazwischen, ein flaches Dach und die offene Tuer zur Treppe
+     hin.
+     Das Dach liegt auf 3,3 m. Die Kabine haelt oben mit dem BODEN auf
+     Gehwegniveau und ist 2,3 m hoch - wer mitfaehrt, steht in ihr, nicht
+     auf ihr, und hat unter dem Dach mehr als drei Meter Luft. */
+  const TH = 3.30, TR = 0.16;                    // Turmhoehe, Dachstaerke
+  const bx = a.x1 - a.x0, bz = a.z1 - a.z0;      // lichte Weite
+  const xs = [a.x0 - 0.09, a.x1 + 0.09], zs = [a.z0 - 0.09, a.z1 + 0.09];
+  for (const px of xs) for (const pz of zs)
+    ubDeko(0.18, TH, 0.18, px, SLAB_H + TH / 2, pz, 0x6f7681);            // Ecksaeulen
+  /* Die drei geschlossenen Seiten: Sockelblech, Scheibe, Riegel oben. */
+  const seite = (w, d, px, pz) => {
+    ubDeko(w, 0.32, d, px, SLAB_H + 0.16, pz, 0x5c646e);                  // Sockel
+    ubGlas(w, TH - 0.72, d * 0.5, px, SLAB_H + 0.32 + (TH - 0.72) / 2, pz, 0xbcd6e4);
+    ubDeko(w, 0.20, d, px, SLAB_H + TH - 0.10, pz, 0x6f7681);             // Riegel
+    ubCollider({ x0: px - w / 2, x1: px + w / 2, z0: pz - Math.max(d, 0.16) / 2,
+                  z1: pz + Math.max(d, 0.16) / 2, h: SLAB_H + TH,
+                  y0: SLAB_H - 0.05, klein: true });
   };
-  bruestung(a.x1 - a.x0 + 0.3, 0.12, mx, a.z0 - 0.15);
-  bruestung(a.x1 - a.x0 + 0.3, 0.12, mx, a.z1 + 0.15);
-  bruestung(0.12, a.z1 - a.z0, rueckSeite + (a.richtung > 0 ? 0.15 : -0.15), mz);
+  seite(bx + 0.18, 0.10, mx, a.z0 - 0.09);
+  seite(bx + 0.18, 0.10, mx, a.z1 + 0.09);
+  seite(0.10, bz, rueckSeite + a.richtung * -0.09, mz);
+  /* Tuerseite: zwei zurueckgeschobene Fluegel, dazwischen bleibt der
+     Durchgang offen - so steht ein wartender Aufzug da, und man kommt
+     hinein. */
+  const tx = tuerSeite + a.richtung * 0.09;
+  const fl = (bz - 1.10) / 2;
+  for (const s2 of [-1, 1]) {
+    const pz = mz + s2 * (1.10 / 2 + fl / 2);
+    ubDeko(0.12, TH - 0.30, fl, tx, SLAB_H + (TH - 0.30) / 2, pz, 0x77808b);
+    /* Schmale Fuge an der Schliesskante - sonst liest man die Fluegel
+       als Wand und nicht als Tuer. */
+    ubDeko(0.14, TH - 0.30, 0.05, tx, SLAB_H + (TH - 0.30) / 2,
+           pz - s2 * (fl / 2 - 0.03), 0x4a525c);
+    ubCollider({ x0: tx - 0.09, x1: tx + 0.09, z0: pz - fl / 2, z1: pz + fl / 2,
+                  h: SLAB_H + TH, y0: SLAB_H - 0.05, klein: true });
+  }
+  ubDeko(0.12, 0.30, bz, tx, SLAB_H + TH - 0.25, mz, 0x6f7681);           // Sturz
+  /* Dach mit Ueberstand und Attika. */
+  ubDeko(bx + 0.6, TR, bz + 0.6, mx, SLAB_H + TH + TR / 2, mz, 0x7d858f);
+  ubDeko(bx + 0.7, 0.10, bz + 0.7, mx, SLAB_H + TH + TR + 0.05, mz, 0x9aa2ad);
+  /* Rufsaeule neben der Tuer. */
+  ubDeko(0.22, 1.15, 0.22, tx + a.richtung * 0.5, SLAB_H + 0.575, a.z0 - 0.45, 0x5c646e);
+  ubDeko(0.16, 0.22, 0.06, tx + a.richtung * 0.5, SLAB_H + 1.02, a.z0 - 0.55, 0xa8e6a0);
   /* Ein blaues U auf einem Pfosten neben dem Eingang. */
-  ubDeko(0.09, 2.2, 0.09, tuerSeite - a.richtung * 0.2, SLAB_H + 1.1, a.z0 - 0.3, 0x6f7681);
-  ubDeko(0.6, 0.6, 0.09, tuerSeite - a.richtung * 0.2, SLAB_H + 2.1, a.z0 - 0.3, 0x1b3fa0);
-  ubDeko(0.24, 0.24, 0.11, tuerSeite - a.richtung * 0.2, SLAB_H + 2.1, a.z0 - 0.3, 0xf2f4f8);
+  ubDeko(0.09, 2.2, 0.09, tuerSeite - a.richtung * 0.6, SLAB_H + 1.1, a.z0 - 0.3, 0x6f7681);
+  ubDeko(0.6, 0.6, 0.09, tuerSeite - a.richtung * 0.6, SLAB_H + 2.1, a.z0 - 0.3, 0x1b3fa0);
+  ubDeko(0.24, 0.24, 0.11, tuerSeite - a.richtung * 0.6, SLAB_H + 2.1, a.z0 - 0.3, 0xf2f4f8);
   /* ---- Der Schacht unter der Strasse ----
      Drei geschlossene Waende, die vierte ist der Ausstieg. */
   const wandH = SLAB_H - unten;
