@@ -501,3 +501,56 @@ test('Steckt einer schon im Klotz, nagelt die Vorausschau ihn nicht fest', () =>
      hier 0 liefern, bliebe der Steckengebliebene fuer immer stehen. */
   assert.equal(e.freieStrecke(0, 0, 0, 1, 0, 3.6, 0.4), 3.6);
 });
+
+test('Der Umhaengegurt liegt auf der Jacke, nicht darin', () => {
+  /* Nachgeschaut im Bild: vom Gurt war vorn nur ein Stummel an der
+     Tasche zu sehen, der Rest steckte in der Jacke. Gerechnet lief die
+     Vorderstrecke von (0.21, 1.02, 0.09) geradewegs zur Schulter
+     (-0.16, 1.43, 0.015) - auf Brusthoehe 1.22 also bei z = 0.057, und
+     dort ist der Brustkorb. Der Rucksackgurt derselben Datei liegt bei
+     z = 0.145 aussen auf; das ist der Vergleichswert. */
+  const q = fsA.readFileSync(pathA.join(wurzelA, 'city-visuals.js'), 'utf8');
+  const a = q.indexOf("} else if (kind === 'satchel') {");
+  const b = q.indexOf('} else {', a);
+  assert.ok(a > 0 && b > a, 'die Umhaengetasche fehlt in city-visuals.js');
+  const teil = q.slice(a, b);
+  const beams = [...teil.matchAll(/b\.beam\(\[([^\]]+)\],\s*\[([^\]]+)\]/g)]
+    .map((m) => [m[1].split(',').map(Number), m[2].split(',').map(Number)]);
+  assert.ok(beams.length >= 3, 'der Gurt hat zu wenige Abschnitte: ' + beams.length);
+  /* Eine feste Mindesttiefe waere zu grob - der Brustkorb ist unten
+     breiter als an der Schulter. Geprueft wird deshalb das, worum es
+     geht: die Vorderstrecke muss sich nach AUSSEN woelben. Eine gerade
+     Verbindung von der Tasche zur Schulter schneidet durch den Koerper,
+     ein aufliegender Gurt beult nach vorn.
+     Alte Fassung: eine einzige gerade Strecke, Woelbung 0.
+     Jetzt: geknickt ueber die Brust, Woelbung rund 0,09 m. */
+  const vorn = beams.filter(([p, q2]) => p[2] > 0 && q2[2] > 0);
+  assert.ok(vorn.length >= 2,
+    'die Vorderstrecke ist nicht geknickt - sie schneidet gerade durch');
+  const anfang = vorn[0][0], ende = vorn[vorn.length - 1][1];
+  let woelbung = 0;
+  for (const [p, q2] of vorn) {
+    for (const punkt of [p, q2]) {
+      const t = (punkt[1] - anfang[1]) / ((ende[1] - anfang[1]) || 1);
+      const gerade = anfang[2] + (ende[2] - anfang[2]) * t;
+      woelbung = Math.max(woelbung, punkt[2] - gerade);
+    }
+  }
+  assert.ok(woelbung >= 0.045,
+    'der Gurt liegt nicht auf dem Koerper auf, Woelbung nur ' + woelbung.toFixed(3) + ' m');
+  /* Und er ist geschlossen: der letzte Punkt liegt wieder bei der Tasche. */
+  const rundStart = beams[0][0], rundEnde = beams[beams.length - 1][1];
+  const ab = Math.hypot(rundStart[0] - rundEnde[0], rundStart[1] - rundEnde[1],
+                        rundStart[2] - rundEnde[2]);
+  assert.ok(ab < 0.25, 'der Gurt endet frei in der Luft, Abstand ' + ab.toFixed(2));
+});
+
+test('Das Handy sitzt in der Hand, nicht daneben (gemessen in der Stadt)', () => {
+  /* Gemessen ueber 120 Sekunden Stadt an 24 Proben: groesster Abstand
+     zwischen Handy und naechster Hand 5,8 cm, keine ueber 22 cm. Dieser
+     Test haelt die Regel fest, die das moeglich macht: das Handy wird
+     ueber inDieHand an den Handknochen gehaengt. */
+  const q = fsA.readFileSync(pathA.join(wurzelA, 'game.js'), 'utf8');
+  assert.ok(/c\.handyInHand = c\.visual\.inDieHand\('R', c\.handy/.test(q),
+    'das Handy wird nicht mehr an den Handknochen gehaengt');
+});

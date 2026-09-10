@@ -799,8 +799,19 @@
          auf dem Ruecken wieder hinunter zur Tasche - dann ist er
          geschlossen und endet nirgends. Duenner ist er auch: 3,5 cm
          Halbmesser war ein Riemen so dick wie ein Dachlatte. */
-      b.beam([0.21, 1.02, 0.09], [-0.16, 1.43, 0.015], 0.026, 0.017, 0x574638);
-      b.beam([-0.16, 1.43, 0.015], [-0.06, 1.12, -0.135], 0.024, 0.016, 0x574638);
+      /* ---- Der Gurt lag IM Oberkoerper ----
+         Nachgeschaut im Bild: vom Gurt war vorn nur ein kurzer Stummel an
+         der Tasche zu sehen, der Rest verschwand in der Jacke. Gerechnet:
+         die Vorderstrecke lief von (0.21, 1.02, 0.09) geradewegs zur
+         Schulter (-0.16, 1.43, 0.015) - auf Brusthoehe (1,22) liegt diese
+         Gerade bei z = 0.057, und dort ist der Brustkorb. Ein Gurt gehoert
+         AUF die Jacke.
+         Die Vorderstrecke ist deshalb geknickt und laeuft ueber die Brust
+         bei z = 0.145 - derselbe Wert, mit dem der Rucksackgurt in
+         dieser Datei seit jeher aussen aufliegt. */
+      b.beam([0.20, 0.99, 0.10], [0.02, 1.22, 0.145], 0.026, 0.019, 0x574638);
+      b.beam([0.02, 1.22, 0.145], [-0.15, 1.44, 0.02], 0.024, 0.017, 0x574638);
+      b.beam([-0.15, 1.44, 0.02], [-0.06, 1.12, -0.135], 0.024, 0.016, 0x574638);
       b.beam([-0.06, 1.12, -0.135], [0.17, 0.98, -0.10], 0.022, 0.015, 0x574638);
     } else {
       const e = ENEMIES[kind];
