@@ -694,6 +694,8 @@ scene.add(untenLicht);
    Fenster, Ampeln und der Suchscheinwerfer erst richtig. */
 scene.add(himmel);
 const TAG = { dauer: 900, zeit: 0.42 };   // 0 = Mitternacht, 0.5 = Mittag
+/* Grundlicht in der tiefen Nacht. Siehe updateTagNacht. */
+let NACHT_SONNE = 0.14, NACHT_HIMMEL = 0.34;
 /* Ein voller Tag dauert jetzt 15 statt 8 Minuten – vorher stand man
    gefühlt ständig im Dunkeln. */
 const SONNE_RICHTUNG = new THREE.Vector3(0.5, 0.8, 0.3);
@@ -789,13 +791,21 @@ function updateTagNacht(dt) {
   /* Nur die RICHTUNG merken – die Position setzt die Kamera, damit der
      Schattenausschnitt dem Spieler folgt. */
   SONNE_RICHTUNG.set(Math.sin(w) * 0.8, Math.max(0.12, hoch), Math.cos(w * 0.6) * 0.6 + 0.35).normalize();
-  sun.intensity = 0.4 + tagAnteil * 0.85;
+  /* ---- Nacht ----
+     Gemessen sah die Strassenschlucht bei Nacht aus wie am Tag: die
+     Sonne lief mit 0,40 weiter und der Himmel mit 0,72, zusammen also
+     rund die Haelfte des Mittagslichts. Die Fassaden waren fast weiss.
+     Der frueher notierte Grund dafuer war richtig - bei Nacht UND Regen
+     war das Bild vorher fast schwarz und man erkannte weder Gegner noch
+     die eigene Figur. Nur war die Antwort falsch: nicht das Grundlicht
+     hochdrehen, sondern LICHTQUELLEN aufstellen. Die gibt es jetzt -
+     Fensterlicht, Laternen, Ampeln und die neue Leuchtreklame. Deshalb
+     darf das Grundlicht herunter.
+     NACHT_SONNE ist das Mondlicht, NACHT_HIMMEL die Aufhellung durch die
+     Stadt selbst. Beide sind ueber d.setzeNacht() messbar. */
+  sun.intensity = NACHT_SONNE + tagAnteil * (1.25 - NACHT_SONNE);
   mischen(sun.color, 0xff9a55, 0xfff2dd, 1 - daemmer);
-  /* Nachts deutlich heller als vorher: bei Nacht UND Regen war das Bild
-     fast schwarz, man konnte weder Gegner noch die eigene Figur erkennen.
-     Eine Großstadt bei Nacht ist durch Straßen- und Fensterlicht ohnehin
-     nie wirklich dunkel. */
-  himmel.intensity = 0.72 + tagAnteil * 0.36;
+  himmel.intensity = NACHT_HIMMEL + tagAnteil * (1.08 - NACHT_HIMMEL);
   /* Auch INNEN in einem Baukasten-Haus braucht es Licht: der Innenraum ist
      rundum geschlossen, Sonne und Himmel kommen nicht hinein, und ohne
      Lampe stuende man in einer schwarzen Kiste. */
@@ -2694,6 +2704,7 @@ function buildCity() {
   buildRiverAndBridge();
   buildFarShore();
   baueAmpeln();
+  baueNeon();
   baueHausMeshes();
   baueWassertuerme();
   baueDekoMesh();
@@ -4340,6 +4351,13 @@ function fasseGeometrien(liste) {
   return out;
 }
 
+/* VERWORFEN: die Fenster der prozeduralen Fassade nachts selbst leuchten
+   lassen (emissiveMap auf dieselbe Textur). Gebaut, gemessen, wieder
+   ausgebaut - die Bildhelligkeit blieb auf die Zehntelstelle genau
+   gleich (26,8 mit und ohne). Der Grund: die Tuerme, die man in der
+   Strassenschlucht sieht, kommen aus city-visuals.js (createTower) und
+   haben eigene Materialien; die prozedurale Fassade steht ueberwiegend
+   dahinter. Nachtfenster gehoeren deshalb dorthin, nicht hierher. */
 function baueHausMeshes() {
   /* Ein Material je Fassadentextur – alle Kacheln teilen es sich. */
   const wandMats = facadeTexes.map((t) => new THREE.MeshLambertMaterial({ map: t }));
@@ -4372,6 +4390,88 @@ function baueHausMeshes() {
    aendert sich am Spielgefuehl nichts, nur am Bild. */
 const HAUS_KISTEN = [];
 const HAUS_FASSADEN = [];        // die selbstgebauten Fassadenmeshes
+/* ---- Leuchtreklame ----
+   Der Trailer lebt von einem: Nacht, Regen, und dazwischen Leuchtschilder
+   an den Fassaden. Gemessen sah die Strassenschlucht bei Nacht dagegen
+   aus wie am Tag - die Fassaden waren hell, und es gab kein einziges
+   eigenes Licht ausser den Fenstern.
+   Die Schilder sind selbstleuchtend (MeshBasicMaterial), sie brauchen
+   also keine Lampe und kosten kein Licht. Alle zusammen sind EIN
+   verschmolzenes Mesh, also ein Zeichenaufruf fuer die ganze Stadt.
+   Sie haengen ab 4 m Hoehe - hoch genug, dass kein Auto und kein
+   Fussgaenger sie beruehrt, deshalb bekommen sie kein Hindernis.
+
+   WICHTIG: hier wird KEIN Math.random benutzt. Der erste Versuch tat es
+   und verbrauchte damit den Zufallsstrom, aus dem die Haeuser gesetzt
+   werden - die ganze Stadt sah danach anders aus. Alle Zufallswerte
+   kommen deshalb aus der Lage des Hauses selbst (streu), sind also fest
+   und veraendern nichts anderes. */
+const NEON_KISTEN = [];
+let neonMesh = null;
+/* Gesaettigte Farben, wie sie im Trailer an den Haeusern stehen. */
+const NEON_FARBEN = [0xff2d55, 0x18d7ff, 0xff45c8, 0xffb020, 0x36ff7a, 0xf5f1ff];
+const NEON_HOCH = 4.2;             // Unterkante des tiefsten Schildes
+
+/* Fester Streuwert aus drei Zahlen: gleiche Stelle, gleicher Wert. */
+function streu(a, b, c) {
+  const t = Math.sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453;
+  return t - Math.floor(t);
+}
+
+/* Schilder an die Fassaden, die zur Strasse zeigen. Die Strasse liegt
+   immer laengs einer Rasterlinie; die Aussenseite eines Hauses ist die,
+   die zur naechsten Linie zeigt. */
+function neonAnHaus(w, h, d, x, z) {
+  const naheLinie = (v) => {
+    const u = ((v - ORIGIN) % PITCH + PITCH) % PITCH;
+    return u < PITCH / 2 ? -u : PITCH - u;      // Vorzeichen = Richtung zur Linie
+  };
+  const seiten = [
+    { nx: Math.sign(naheLinie(x)) || 1, nz: 0, ab: Math.abs(naheLinie(x)) - w / 2 },
+    { nx: 0, nz: Math.sign(naheLinie(z)) || 1, ab: Math.abs(naheLinie(z)) - d / 2 },
+  ].filter((s2) => s2.ab < 12);
+  let k = 0;
+  for (const s2 of seiten) {
+    /* Je hoeher das Haus, desto mehr Schilder - aber nie mehr als vier. */
+    const anzahl = clamp(Math.floor(h / 9), 1, 4);
+    for (let i = 0; i < anzahl; i++) {
+      k++;
+      if (streu(x, z, k) < 0.28) continue;         // nicht jede Wand voll
+      const farbe = NEON_FARBEN[Math.floor(streu(x, z, k + 40) * NEON_FARBEN.length) % NEON_FARBEN.length];
+      const hoch = NEON_HOCH + i * (6.5 + streu(x, z, k + 80) * 3.0);
+      const lang = 2.4 + streu(x, z, k + 120) * 2.2;
+      if (hoch + lang > SLAB_H + h - 0.8) break;
+      /* Stehendes Blatt oder liegendes Band - beides kommt im Trailer
+         vor, das stehende ist das auffaelligere. */
+      const stehend = streu(x, z, k + 160) < 0.62;
+      const hochKant = stehend ? lang : 0.7 + streu(x, z, k + 200) * 0.45;
+      const breit = stehend ? 0.55 + streu(x, z, k + 240) * 0.4
+                            : 2.6 + streu(x, z, k + 240) * 2.6;
+      const tief = 0.16;
+      const ax = x + s2.nx * (w / 2 + tief / 2 + 0.06);
+      const az = z + s2.nz * (d / 2 + tief / 2 + 0.06);
+      const laengsX = s2.nz !== 0;                // Schild quer zur Normalen
+      NEON_KISTEN.push({ w: laengsX ? breit : tief, h: hochKant,
+                         d: laengsX ? tief : breit,
+                         x: ax, y: hoch + hochKant / 2, z: az, farbe, ry: 0, rz: 0 });
+      /* Ein dunkler Halter, damit das Schild nicht frei schwebt. */
+      NEON_KISTEN.push({ w: laengsX ? 0.1 : 0.14, h: 0.1, d: laengsX ? 0.14 : 0.1,
+                         x: x + s2.nx * (w / 2 + 0.03), y: hoch + hochKant - 0.25,
+                         z: z + s2.nz * (d / 2 + 0.03), farbe: 0x14161a, ry: 0, rz: 0 });
+    }
+  }
+}
+
+/* Alle Schilder in EIN Mesh. Wird nach dem Stadtbau einmal gerufen. */
+function baueNeon() {
+  for (const b of HAUS_KISTEN) neonAnHaus(b.w, b.h, b.d, b.x, b.z);
+  if (!NEON_KISTEN.length) return;
+  neonMesh = new THREE.Mesh(verschmelzeBoxen(NEON_KISTEN),
+                            new THREE.MeshBasicMaterial({ vertexColors: true }));
+  neonMesh.frustumCulled = false;
+  cityGroup.add(neonMesh);
+}
+
 function makeBuildingMesh(w, h, d, x, z) {
   const texIdx = randi(0, facadeTexes.length - 1);
   HAUS_KISTEN.push({ w, h, d, x, z });
@@ -31403,6 +31503,11 @@ if (window.__WEBHERO_TEST__ === true) {
     bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     beetStellen() { return BEET_STELLEN; },
+    neonZahl() { return NEON_KISTEN.length; },
+    setzeNacht(sonne, himmelI) {
+      if (sonne !== undefined && sonne !== null) NACHT_SONNE = sonne;
+      if (himmelI !== undefined && himmelI !== null) NACHT_HIMMEL = himmelI;
+    },
     /* Fuer die KI-Messung: wie weit ist der Weg vor einem Laeufer frei? */
     freieStrecke, ausweichWinkel,
     setzeAusweichen(an) { AUSWEICH_AN = !!an; },
