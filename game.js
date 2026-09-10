@@ -2705,6 +2705,7 @@ function buildCity() {
   buildFarShore();
   baueAmpeln();
   baueNeon();
+  baueKulisse();
   baueHausMeshes();
   baueWassertuerme();
   baueDekoMesh();
@@ -4459,6 +4460,97 @@ function neonAnHaus(w, h, d, x, z) {
                          x: x + s2.nx * (w / 2 + 0.03), y: hoch + hochKant - 0.25,
                          z: z + s2.nz * (d / 2 + 0.03), farbe: 0x14161a, ry: 0, rz: 0 });
     }
+  }
+}
+
+/* ---- Kulisse ----
+   Gemessen: von einem Dach bei (-150, 60) nach aussen geschaut war ausser
+   Himmel und einer dunklen Bodenflaeche NICHTS zu sehen - die Welt hoerte
+   sichtbar auf. Der Spieler kommt bis x = -193 und |z| = 193; die letzte
+   Haeuserzeile endet bei 169.
+   Hinter der Spielflaeche steht deshalb jetzt eine Kulisse aus
+   Haeusersilhouetten. Sie ist NICHT begehbar und hat kein Hindernis - sie
+   ist reine Ferne und wird vom Nebel geschluckt, genau wie eine echte
+   Stadt im Dunst. Im Osten braucht es sie nicht, dort liegt der Fluss.
+   Vier Meshes, eins je Seite, damit der Blick nach Westen nicht die
+   ganze Kulisse zeichnen muss.
+   Wie bei der Leuchtreklame: KEIN Math.random - die Werte kommen aus der
+   Lage, sonst verschiebt sich der Zufallsstrom der Stadt. */
+/* Der erste Versuch begann bei 205 m vom Ursprung - das sind nur 12 m
+   hinter der Spielgrenze (193). Vom Dach aus sah man dadurch keine Ferne,
+   sondern riesige graue Platten direkt vor der Nase, und von der Strasse
+   eine geschlossene Wand. Jetzt beginnt sie 137 m HINTER der Grenze und
+   reicht weit hinaus; die naechsten Kulissenhaeuser sind damit so weit
+   weg wie die andere Seite der Stadt. */
+const KULISSE_VON = 330;      // so weit draussen beginnt sie
+const KULISSE_BIS = 900;      // und so weit reicht sie
+const KULISSE_RASTER = 62;    // Abstand der Kulissenhaeuser
+const KULISSE_MESHES = [];
+function baueKulisse() {
+  /* ---- Erst der Boden ----
+     Ohne ihn schwebt die Kulisse: unter den Haeusern sah man Himmel, und
+     von einem Dach aus lag die Kante der Spielflaeche als dunkles Dreieck
+     im Bild.
+     Es darf aber KEINE durchgehende Platte sein. Der erste Versuch war
+     eine, 6 cm unter Null - und der Fluss liegt bei -2,6 m. Die Platte
+     haette ihn also zugedeckt. Es ist deshalb ein RING mit einem Loch,
+     das Spielflaeche UND Fluss samt Gegenufer frei laesst. */
+  const LOCH = { x0: -200, x1: SHORE_X1 + 14, z0: -200, z1: 200 };
+  const aussen = KULISSE_BIS * 1.4;
+  const platten = [];
+  const platte = (x0, x1, z0, z1) => platten.push({
+    w: x1 - x0, h: 0.12, d: z1 - z0,
+    x: (x0 + x1) / 2, y: -0.06, z: (z0 + z1) / 2, farbe: 0x2c3138, ry: 0, rz: 0 });
+  platte(-aussen, LOCH.x0, -aussen, aussen);              // Westen
+  platte(LOCH.x1, aussen, -aussen, aussen);               // Osten
+  platte(LOCH.x0, LOCH.x1, -aussen, LOCH.z0);             // Norden
+  platte(LOCH.x0, LOCH.x1, LOCH.z1, aussen);              // Sueden
+  const grund = new THREE.Mesh(verschmelzeBoxen(platten),
+                               new THREE.MeshLambertMaterial({ vertexColors: true }));
+  grund.castShadow = false; grund.receiveShadow = false;
+  grund.matrixAutoUpdate = false;
+  grund.frustumCulled = false;
+  cityGroup.add(grund);
+  KULISSE_MESHES.push(grund);
+  /* Fuer jede der drei Landseiten ein eigenes Mesh. */
+  const seiten = [
+    { nx: -1, nz: 0 },        // Westen
+    { nx: 0, nz: -1 },        // Norden
+    { nx: 0, nz: 1 },         // Sueden
+  ];
+  for (const s2 of seiten) {
+    const kisten = [];
+    /* laengs = quer zur Blickrichtung, tief = von der Stadt weg. */
+    for (let t = KULISSE_VON; t < KULISSE_BIS; t += KULISSE_RASTER) {
+      const breite = KULISSE_BIS;      // die Reihe reicht seitlich weit hinaus
+      for (let q = -breite; q <= breite; q += KULISSE_RASTER) {
+        const x = s2.nx ? s2.nx * t : q;
+        const z = s2.nz ? s2.nz * t : q;
+        /* Ecken doppelt: was in der Nachbarseite schon steht, faellt weg. */
+        if (s2.nz && Math.abs(x) > KULISSE_VON) continue;
+        const r1 = streu(x, z, 1), r2 = streu(x, z, 2), r3 = streu(x, z, 3);
+        if (r3 < 0.22) continue;                       // Luecken lassen
+        /* Weiter draussen niedriger - das gibt Tiefe. Und keines der
+           Kulissenhaeuser wird hoeher als der hoechste echte Turm (97 m),
+           sonst zieht die Kulisse den Blick von der Stadt weg. */
+        const fern = clamp((t - KULISSE_VON) / (KULISSE_BIS - KULISSE_VON), 0, 1);
+        const h = (20 + r1 * 62) * (1 - fern * 0.42);
+        const w = 26 + r2 * 22, d = 26 + r1 * 22;
+        const jx = (r1 - 0.5) * KULISSE_RASTER * 0.45;
+        const jz = (r2 - 0.5) * KULISSE_RASTER * 0.45;
+        /* Etwas kaelter und dunkler als die echte Stadt - Ferne im Dunst. */
+        const g = Math.round(56 + r2 * 26);
+        const farbe = (g << 16) | ((g + 4) << 8) | (g + 12);
+        kisten.push({ w, h, d, x: x + jx, y: h / 2, z: z + jz, farbe, ry: 0, rz: 0 });
+      }
+    }
+    if (!kisten.length) continue;
+    const m = new THREE.Mesh(verschmelzeBoxen(kisten),
+                             new THREE.MeshLambertMaterial({ vertexColors: true }));
+    m.castShadow = false; m.receiveShadow = false;
+    m.matrixAutoUpdate = false;
+    cityGroup.add(m);
+    KULISSE_MESHES.push(m);
   }
 }
 
@@ -31504,6 +31596,17 @@ if (window.__WEBHERO_TEST__ === true) {
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     beetStellen() { return BEET_STELLEN; },
     neonZahl() { return NEON_KISTEN.length; },
+    zeigeKulisse(an) { for (const m of KULISSE_MESHES) m.visible = !!an; },
+    /* Zeichenaufrufe und Dreiecke des zuletzt gezeichneten Bildes. */
+    renderZahlen() {
+      const r2 = renderer.info.render;
+      return { calls: r2.calls, tris: r2.triangles };
+    },
+    kulisse() {
+      return KULISSE_MESHES.map((m) => ({
+        dreiecke: m.geometry.index ? m.geometry.index.count / 3
+                                   : m.geometry.attributes.position.count / 3 }));
+    },
     setzeNacht(sonne, himmelI) {
       if (sonne !== undefined && sonne !== null) NACHT_SONNE = sonne;
       if (himmelI !== undefined && himmelI !== null) NACHT_HIMMEL = himmelI;
