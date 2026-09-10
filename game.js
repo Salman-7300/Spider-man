@@ -1,5 +1,5 @@
 /* =========================================================================
-   WEB HERO – Open-World-Netzschwung-Spiel im Browser (Three.js)
+   CITY SWING – Open-World-Netzschwung-Spiel im Browser (Three.js)
    Ein Fan-Projekt: eigener Netz-Held im klassischen Rot-Blau-Look.
    ========================================================================= */
 (function () {
@@ -14824,7 +14824,7 @@ function progLaden() {
     /* Kaputtes JSON ist kein weisser Bildschirm: es wird protokolliert
        und durch einen frischen Stand ersetzt. */
     PROG_INFO.kaputt = true;
-    console.warn('WEB HERO: Spielstand unlesbar, starte neu.', e && e.message);
+    console.warn('CITY SWING: Spielstand unlesbar, starte neu.', e && e.message);
     roh = null;
   }
   if (roh) {

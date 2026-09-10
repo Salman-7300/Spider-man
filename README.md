@@ -1,4 +1,4 @@
-# 🕸️ WEB HERO – Die Stadt braucht dich!
+# 🕸️ CITY SWING – Die Stadt braucht dich!
 
 Ein Open-World-Action-Spiel im Browser, inspiriert von den großen
 Netzschwinger-Spielen: Schwinge dich durch die Straßenschluchten einer
@@ -32,6 +32,12 @@ Das Spiel wird bei jedem Push **automatisch** über GitHub Actions auf
 GitHub Pages veröffentlicht (Workflow: `.github/workflows/deploy-pages.yml`).
 
 **▶️ Spiel-Link: https://salman-7300.github.io/Spider-man/**
+
+> Der Pfad `/Spider-man/` in der Adresse ist noch der alte Repository-Name.
+> Er aendert sich, sobald das Repository auf GitHub umbenannt wird
+> (Settings → General → Rename); danach lautet die Adresse
+> `https://salman-7300.github.io/city-swing/`. GitHub leitet die alte
+> Adresse automatisch weiter.
 
 Auf der Webseite werden zusätzlich die 3D-Menschenmodelle aus dem
 `assets/`-Ordner geladen (siehe unten).
