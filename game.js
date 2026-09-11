@@ -13233,6 +13233,20 @@ function tryJump() {
     player.wandSchwung = 0;
     player.wandlauf = false;
     player.wallInfo = null;
+    /* ---- Der Wandsprung muss die Wand auch verlassen duerfen ----
+       Gemessen (tools/pruef/uebergangsmatrix.js): mit gehaltenem W - also
+       genau so, wie man die Wand hinaufrennt - kam der Absprung NIE in die
+       Luft. Der Block weiter unten sieht "Eingabe zeigt in die Wand",
+       klebt im selben Bild wieder an, setzt vel auf null und loescht damit
+       die 7,5 m/s Abstossen restlos: waagerechte Hoechstgeschwindigkeit
+       nach dem Sprung 0,00 m/s, Zustand blieb 'climb', die Figur fuhr die
+       Fassade einfach weiter hoch.
+       Ohne W losgelassen: in EINEM Bild in der Luft, 14,73 m/s.
+       Die Sperre gibt dem Absprung die Zehntelsekunde, die er braucht, um
+       aus der Greifweite zu kommen. Sie gilt nur fuer das automatische
+       Ankleben - wer die Halte-Taste drueckt, will zurueck an die Wand und
+       darf das sofort. */
+    player.wandSperre = WAND_SPERRE;
     /* Der Absprung von der Wand ist eine eigene Bewegung: abstossen,
        einmal ueberschlagen, dann in den Fall. Vorher schaltete die Figur
        im selben Bild von der Kletterhaltung auf freien Fall um. */
@@ -15190,6 +15204,11 @@ function addScore(n, label, worldPos) {
 
 /* ======================= Spieler-Update ======================= */
 let onWallTimer = 0;
+/* Wie lange nach einem Wandsprung nicht von selbst wieder angeklebt wird.
+   0,22 s sind bei 7,5 m/s Abstossen rund 1,6 m - deutlich mehr als die
+   Greifweite, und kurz genug, dass ein absichtlicher zweiter Wandkontakt
+   (Sprung von Fassade zu Fassade) nicht behindert wird. */
+const WAND_SPERRE = 0.22;
 
 function updatePlayer(dt) {
   if (!heroVisual) return;
@@ -16309,14 +16328,17 @@ function updatePlayer(dt) {
        an der Wand. Der Tastencode KeyZ meint die physische Taste links von
        X; auf einer deutschen Tastatur steht darauf ein Y. */
     const kleben = keys['KeyZ'] || touchKleben;
+    /* Siehe WAND_SPERRE: direkt nach dem Wandsprung zaehlt nur die
+       ausdrueckliche Halte-Taste, nicht die Laufrichtung. */
+    const gesperrt = (player.wandSperre || 0) > 0 && !kleben;
     /* Im Gleitflug klebt man nicht sofort an jeder Fassade, an der man
        vorbeistreift: mit 25 m/s in die Wand zu greifen sah aus wie ein
        Fehler. Erst ein kurzer Moment Kontakt (oder die Halte-Taste) lässt
        greifen – und dann werden die Flügel sauber eingeklappt, statt dass
        die Gleithaltung an der Wand weiterläuft. */
     const noetig = player.gleiten ? 0.12 : 0;
-    onWallTimer = movingIn || kleben ? onWallTimer + dt : 0;
-    if ((movingIn || kleben) && onWallTimer >= noetig) {
+    onWallTimer = (movingIn || kleben) && !gesperrt ? onWallTimer + dt : 0;
+    if ((movingIn || kleben) && !gesperrt && onWallTimer >= noetig) {
       player.state = 'climb';
       player.wallInfo = w;
       player.vel.set(0, 0, 0);
@@ -16341,6 +16363,7 @@ function updatePlayer(dt) {
 
   /* ---- Timer ---- */
   if (player.keinHaltCd > 0) player.keinHaltCd -= dt;
+  if (player.wandSperre > 0) player.wandSperre -= dt;   // siehe WAND_SPERRE
   if (player.luftKombo > 0) player.luftKombo -= dt;
   if (player.konterT > 0) {
     player.konterT -= dt;
