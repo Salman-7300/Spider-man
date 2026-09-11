@@ -31627,7 +31627,29 @@ function poseLogImHaus() {
 const KAMPF_CLIPS = new Set(['punch', 'punch2', 'punch3', 'hook', 'hook2',
   'kick', 'uppercut', 'wurf', 'wurfgriff', 'stampfen', 'symkombo',
   'attack', 'block']);
-const WAND_KONTAKT_MAX = 0.30;
+/* ---- Neu geeicht in Phase 13, Teil 4 ----
+   Mit 0,30 meldete der Logger in JEDER Wandlage drei Treffer je Bild -
+   still haengend genauso wie beim Kriechen. Ein Melder, der immer
+   anschlaegt, kann keinen Rueckschritt mehr zeigen.
+   Gemessen (Knochenmitte zur Fassadenebene, je 300 Bilder):
+     still haengend   Huefte 0,368   Brust 0,438   Kopf 0,451
+     senkrecht hoch   Huefte 0,368   Brust 0,391   Kopf 0,378
+     seitwaerts       Huefte 0,352   Brust 0,393   Kopf 0,393
+   Das ist kein Fehler, sondern der Bau der Figur: CFG.climbGap haelt die
+   WURZEL 15 cm vor der Wand, und der Kletterclip setzt den Rumpf noch
+   einmal gut 20 cm dahinter - die halbe Koerpertiefe. Im Bild liegen
+   Haende (0,11 m) und Fuesse (0,20 m) sauber an, die Haltung stimmt.
+   Die frueher hier notierten 0,16 bis 0,19 m stammen aus einer Zeit vor
+   den neuen Kletterbewegungen und gelten nicht mehr.
+   0,55 liegt rund zehn Zentimeter ueber dem groessten Wert, der in einer
+   richtigen Haltung gemessen wurde (0,455 am Kopf).
+   Geprueft: mit 0,30 meldet der Logger 3,00 Treffer je Bild, mit 0,55
+   ueber 300 Bilder gar keinen. Was ein wirklich abgeloester Rumpf ergaebe,
+   habe ich NICHT gemessen - dafuer muesste man die Figur gegen ihre eigene
+   Wandhaltung von der Fassade ziehen, und das laesst der Zustand nicht zu.
+   Die Schwelle ist damit an der guten Haltung geeicht, nicht an der
+   schlechten. */
+const WAND_KONTAKT_MAX = 0.55;
 const RUMPF_KNOCHEN = new Set(['hips', 'spine2', 'head']);
 
 function simuliere(dt) {
