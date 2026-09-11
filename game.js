@@ -31598,7 +31598,8 @@ if (window.__WEBHERO_TEST__ === true) {
     neonZahl() { return NEON_KISTEN.length; },
     zeigeKulisse(an) { for (const m of KULISSE_MESHES) m.visible = !!an; },
     colliderNah(x, z) { return collidersNear(x, z); },
-    zugGaeste() { return ZUG_GAST; },
+    ubLinien() { return UB_LINIEN; },
+    ubSchaechte() { return UB_SCHAECHTE; },
     /* Zeichenaufrufe und Dreiecke des zuletzt gezeichneten Bildes. */
     renderZahlen() {
       const r2 = renderer.info.render;

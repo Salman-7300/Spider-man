@@ -399,3 +399,43 @@ test('Wer winkt oder jubelt, hat kein Handy in der Hand', () => {
   assert.ok(stelle > quelle.indexOf('c.ruhePose = c.gaffPose;'),
     'das Handy wird abgeschaltet, bevor die Haltung feststeht');
 });
+
+/* ================= Teil 19: U-Bahn =================
+   Nachgelaufen im Spiel: an allen 20 Zugaengen (10 Stationen mal zwei
+   Schaechte) kommt der Spieler bis auf den Bahnsteig - keine unsichtbare
+   Wand. Diese Tests halten die Zahlen fest, aus denen sich das ergibt. */
+test('Jede Station hat zwei Schaechte, und der Abgang ist begehbar lang', () => {
+  const linien = lies(/const UB_LINIEN = \[([\s\S]*?)\];/, 'UB_LINIEN');
+  const statX = [...linien.matchAll(/statX: \[([^\]]+)\]/g)]
+    .map((m) => m[1].split(',').map(Number));
+  assert.equal(statX.length, 3, 'es sind nicht mehr drei Linien');
+  const stationen = statX.reduce((s, a) => s + a.length, 0);
+  assert.equal(stationen, 10, 'es sind nicht mehr zehn Stationen: ' + stationen);
+  const TR_OBEN = zahl(/const UB_TR_OBEN = ([\d.]+)/, 'UB_TR_OBEN');
+  const HALLE = zahl(/const UB_HALLE_LANG = ([\d.]+)/, 'UB_HALLE_LANG');
+  const TR_UNTEN = zahl(/const UB_TR_UNTEN = ([\d.]+)/, 'UB_TR_UNTEN');
+  const MITTE = zahl(/const UB_MITTE = (-[\d.]+)/, 'UB_MITTE');
+  const TIEF = zahl(/const UB_TIEF = (-[\d.]+)/, 'UB_TIEF');
+  /* Keine Treppe steiler als 45 Grad - sonst laeuft man sie nicht mehr
+     hinauf, sondern klettert. */
+  const obenGrad = Math.atan2(Math.abs(MITTE - 0.25), TR_OBEN) * 180 / Math.PI;
+  const untenGrad = Math.atan2(Math.abs(TIEF - MITTE), TR_UNTEN) * 180 / Math.PI;
+  assert.ok(obenGrad < 45, 'die obere Treppe ist ' + obenGrad.toFixed(0) + ' Grad steil');
+  assert.ok(untenGrad < 45, 'die untere Treppe ist ' + untenGrad.toFixed(0) + ' Grad steil');
+  assert.ok(HALLE >= 3, 'die Zwischenebene ist zu kurz zum Stehen');
+});
+
+test('Die Zuglichter haengen an der Fahrtrichtung', () => {
+  /* Sonst leuchtet auch am Zugende ein weisser Scheinwerfer. game.js
+     reicht die Richtung durch, city-visuals faerbt danach um. */
+  const q = fs.readFileSync(path.join(wurzel, 'city-visuals.js'), 'utf8');
+  const a = q.indexOf('function updateTrain(');
+  assert.ok(a > 0, 'updateTrain fehlt in city-visuals.js');
+  const teil = q.slice(a, a + 900);
+  assert.ok(/frontLights\.color\.setHex\(sign > 0/.test(teil),
+    'die Frontlichter richten sich nicht nach der Fahrtrichtung');
+  assert.ok(/rearLights\.color\.setHex\(sign > 0/.test(teil),
+    'die Schlusslichter richten sich nicht nach der Fahrtrichtung');
+  assert.ok(/CITY_LOOK\.updateTrain\(t\.mesh,[\s\S]{0,120}?t\.richtung\)/.test(quelle),
+    'game.js reicht die Fahrtrichtung nicht an updateTrain weiter');
+});
