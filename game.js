@@ -1559,6 +1559,21 @@ function bridgeY(x) {
   if (x > BR_X1) return BR_HOCH * clamp((BR_X1 + BR_RAMPE - x) / BR_RAMPE, 0, 1);
   return BR_HOCH;
 }
+/* Hoehe des Brueckengehwegs. Er lag frueher NUR zwischen BR_X0 und BR_X1
+   auf Deckhoehe plus Bordstein und sprang an beiden Enden in einem Bild
+   auf Null: gemessen 0,20 m im Osten und 0,25 m im Westen, in sechs von
+   zehn Laufversuchen. Auf dem Bild war das eine weisse Platte, die
+   senkrecht ueber der Fahrbahn abbrach.
+   Der Bordstein waechst jetzt auf den ERSTEN SECHS METERN DES DECKS aus
+   der Fahrbahn heraus. Vor der Bruecke liegt der Gehweg auf
+   Fahrbahnhoehe - dort gehoert er auch hin: die Auffahrt kreuzt die
+   Uferstrasse, und ein 50 cm hoher Streifen quer ueber deren Fahrspur
+   bei x = 178 waere nur ein anderer Fehler. */
+const BR_GEH_RAMPE = 6;
+function bridgeGehwegY(x) {
+  const t = clamp(Math.min(x - BR_X0, BR_X1 - x) / BR_GEH_RAMPE, 0, 1);
+  return bridgeY(x) + BR_GEH_H * t;
+}
 function inWater(x, z) {
   return x > RIVER_X0 && x < RIVER_X1 && !onBridge(x, z);
 }
@@ -2162,9 +2177,8 @@ function groundY(x, z, yRef) {
     /* Auf dem flachen Deck liegt der Gehweg zwanzig Zentimeter hoeher
        als die Fahrbahn. Auf den Rampen nicht - dort laeuft alles auf
        Strassenhoehe aus. */
-    const h = bridgeY(x);
-    if (x >= BR_X0 && x <= BR_X1 && bridgeGehweg(z)) return h + BR_GEH_H;
-    return h;
+    if (bridgeGehweg(z)) return bridgeGehwegY(x);
+    return bridgeY(x);
   }
   if (x > RIVER_X0) {
     if (x < SHORE_X0) return WATER_Y;
@@ -4944,20 +4958,54 @@ function buildRiverAndBridge() {
      Haelften geteilt. */
   const gehBreite = BR_GEH_AUSSEN - BR_GEH_INNEN;
   const gehMitte = (BR_GEH_INNEN + BR_GEH_AUSSEN) / 2;
+  /* ---- Warum nicht mehr einfarbig hell ----
+     Der Brueckengehweg war als einziger Gehweg der Stadt eine glatte
+     Flaeche in 0xb8bcc0; alle anderen tragen sidewalkTex (Grundton
+     #575c62). Im Bild leuchtete er deshalb fast weiss und sah aus wie
+     ein anderes Material. Jetzt dieselbe Textur wie ueberall. */
+  /* Die Platte ist 141 m lang und 4 m breit. Mit der geteilten Textur
+     (eine Kachel ueber die ganze Flaeche) wurde daraus ein in Laengs-
+     richtung verschmierter Streifen. Eigene Kopie mit passender
+     Wiederholung: eine Kachel etwa alle vier Meter, also so grob wie auf
+     den Gehwegplatten der Stadt. */
+  function brGehTextur(laenge, breite) {
+    const t = sidewalkTex.clone();
+    t.needsUpdate = true;
+    t.repeat.set(Math.max(1, Math.round(laenge / 4)), Math.max(1, Math.round(breite / 4)));
+    return new THREE.MeshLambertMaterial({ map: t });
+  }
+  const brGehLang = BR_X1 - BR_X0 - 2 * BR_GEH_RAMPE;
+  const brGehMat = brGehTextur(brGehLang, gehBreite);
+  const brKeilMat = brGehTextur(BR_GEH_RAMPE, gehBreite);
   for (const s of [-1, 1]) {
     const zg = BRIDGE_Z + s * gehMitte;
     const platte = new THREE.Mesh(
-      new THREE.BoxGeometry(BR_X1 - BR_X0, BR_GEH_H, gehBreite),
-      new THREE.MeshLambertMaterial({ color: 0xb8bcc0 }));
+      new THREE.BoxGeometry(brGehLang, BR_GEH_H, gehBreite), brGehMat);
     platte.position.set((BR_X0 + BR_X1) / 2, BR_HOCH - BR_GEH_H / 2 + BR_GEH_H, zg);
     platte.receiveShadow = true;
     cityGroup.add(platte);
+    /* ---- Die Gehwegrampe ----
+       Der Bordstein endete an beiden Deckenden als 20 cm hohe Kante.
+       Jetzt waechst er auf den ersten und letzten sechs Metern des Decks
+       aus der Fahrbahn heraus: ein flacher Keil auf dem Deck. */
+    for (const [xm, dir] of [[BR_X0 + BR_GEH_RAMPE / 2, -1],
+                             [BR_X1 - BR_GEH_RAMPE / 2, 1]]) {
+      const keil = new THREE.Mesh(
+        new THREE.BoxGeometry(BR_GEH_RAMPE, 0.5, gehBreite), brKeilMat);
+      keil.position.set(xm, bridgeGehwegY(xm) - 0.25, zg);
+      keil.rotation.z = -dir * (BR_GEH_H / BR_GEH_RAMPE);
+      keil.receiveShadow = true;
+      cityGroup.add(keil);
+    }
     // Bordsteinkante zur Fahrbahn hin
     /* Der Bordstein des Brueckengehwegs wird am Fussgaengerueberweg an
        der Uferstrasse unterbrochen - sonst laeuft eine 24 cm hohe Kante
        quer ueber den Zebrastreifen. */
     const zM = BRIDGE_Z + s * BR_GEH_INNEN;
-    for (const [xa, xb] of ohneZebraX(zM - 0.11, zM + 0.11, BR_X0, BR_X1)) {
+    /* Nur ueber dem flachen Stueck: auf den Keilen liegt der Gehweg noch
+       auf Fahrbahnhoehe, dort stuende der Bordstein als Stufe im Nichts. */
+    for (const [xa, xb] of ohneZebraX(zM - 0.11, zM + 0.11,
+                                      BR_X0 + BR_GEH_RAMPE, BR_X1 - BR_GEH_RAMPE)) {
       deko(xb - xa, BR_GEH_H + 0.04, 0.22,
            (xa + xb) / 2, BR_HOCH + BR_GEH_H / 2, zM, 0x8a9096);
     }
@@ -4975,17 +5023,51 @@ function buildRiverAndBridge() {
     rampe.receiveShadow = true;
     cityGroup.add(rampe);
   }
+  /* ---- Wo die Pylonen stehen ----
+     Die Zahlen standen frueher erst weiter unten. Das Gelaender braucht
+     sie aber schon hier: es lief als durchgehender Balken von einem Ende
+     zum anderen und damit MITTEN durch beide Pylonbeine (Handlauf bei
+     z = -34,85 im Bein z = -37 bis -34, Handlauf bei -15,15 im Bein -16
+     bis -13). Im Bild sah man den roten Handlauf im Pfeiler
+     verschwinden und auf der anderen Seite wieder herauskommen. */
+  const PYL_X = [225, 285], PYL_TOP = 44;
+  const PYL_LUECKE = 1.9;      // halbe Beinbreite (1,5) plus etwas Luft
+  /* Zerlegt die Strecke a..b in die Stuecke, die NEBEN den Pylonbeinen
+     liegen. */
+  function ohnePylonen(a, b) {
+    let teile = [[a, b]];
+    for (const px of PYL_X) {
+      const naechste = [];
+      for (const [u, v] of teile) {
+        if (v <= px - PYL_LUECKE || u >= px + PYL_LUECKE) { naechste.push([u, v]); continue; }
+        if (u < px - PYL_LUECKE) naechste.push([u, px - PYL_LUECKE]);
+        if (v > px + PYL_LUECKE) naechste.push([px + PYL_LUECKE, v]);
+      }
+      teile = naechste;
+    }
+    return teile;
+  }
   for (const s of [-1, 1]) {
     /* Das Gelaender steht AUSSEN am Gehweg, nicht mehr mitten im
        begehbaren Streifen. */
     const zr = BRIDGE_Z + s * (BR_GEH_AUSSEN + 0.25);
     const gy = BR_HOCH + BR_GEH_H;
-    // schlanker Handlauf statt massiver Wand
+    // schlanker Handlauf statt massiver Wand, am Pylon unterbrochen
     for (const hy of [1.05, 0.62]) {
-      deko(BR_X1 - BR_X0, 0.14, 0.16, (BR_X0 + BR_X1) / 2, hy + gy, zr, 0x9a3a3a);
+      for (const [xa, xb] of ohnePylonen(BR_X0, BR_X1)) {
+        deko(xb - xa, 0.14, 0.16, (xa + xb) / 2, hy + gy, zr, 0x9a3a3a);
+      }
     }
     for (let x = BR_X0 + 2; x < BR_X1; x += 4.5) {
+      if (PYL_X.some((px) => Math.abs(x - px) < PYL_LUECKE + 0.08)) continue;
       deko(0.16, 1.15, 0.16, x, 0.85 + gy, zr, 0x6f2b2b);
+    }
+    /* Endpfosten direkt am Pylon - sonst enden die Handlaeufe freischwebend
+       sechzig Zentimeter hinter dem letzten Pfosten. */
+    for (const px of PYL_X) {
+      for (const d2 of [-1, 1]) {
+        deko(0.18, 1.15, 0.18, px + d2 * (PYL_LUECKE + 0.09), 0.85 + gy, zr, 0x6f2b2b);
+      }
     }
     /* Unsichtbare Brüstung: man fällt nicht mehr einfach seitlich von der
        Brücke ins Wasser, sondern stößt am Geländer an. */
@@ -5014,9 +5096,8 @@ function buildRiverAndBridge() {
   /* Laengsrippe in der Mitte, damit die Quertraeger nicht frei enden. */
   deko(BR_X1 - BR_X0, 0.30, 1.1, (BR_X0 + BR_X1) / 2, BR_HOCH - 0.60, BRIDGE_Z, 0x6b2c2c);
 
-  // Pylonen
+  // Pylonen (PYL_X und PYL_TOP stehen oben, beim Gelaender)
   const pylMat = new THREE.MeshLambertMaterial({ color: 0x8e3b3b });
-  const PYL_X = [225, 285], PYL_TOP = 44;
   for (const px of PYL_X) {
     /* ---- Pfeiler ----
        Die Pylonen standen ohne alles im Wasser - die roten Beine
@@ -20602,8 +20683,25 @@ function verkehrsAnteil() {
    behielt deren Grenze von 339 auch dann, wenn er laengst nach Norden
    fuhr - er verliess die Karte bei z = 220 und fuhr ueber leeres Land.
    Jetzt werden sie aus Achse und Spur neu bestimmt, bei jedem Bild. */
+/* Faehrt dieser Wagen auf der Brueckenstrasse? Dieselbe Frage stellen
+   sich die Grenzen und das Abbiegen - deshalb steht sie nur einmal da. */
+/* Wie oft ein Wagen an der Uferstrasse auf die Bruecke abbiegt.
+   Gemessen ueber je zehn Minuten, Durchfahrten je Minute durch die
+   Brueckenmitte (x = 255) gegen die Stadtmitte desselben Strassenzugs
+   (x = 0, z = -25):
+     Sog 0     Stadt 0,30 / Bruecke 0,40  (Bruecke 9 % der Zeit befahren)
+     Sog 0,20  Stadt 0,30 / Bruecke 1,00  (35 %)
+     Sog 0,45  Stadt 0,20 / Bruecke 1,20  (27 %)
+   Ueber 0,20 hinaus bringt es nichts mehr - der Unterschied 1,00 zu 1,20
+   sind 10 gegen 12 Durchfahrten in zehn Minuten und liegt im Rauschen.
+   Deshalb der kleinste Wert, der wirkt. Die Stadt verliert dabei nichts:
+   ihr Durchsatz bleibt gleich. */
+let BRUECKEN_SOG = 0.2;
+function autoAufBruecke(car) {
+  return car.axis === 'x' && Math.abs(car.lane - BRIDGE_Z) < BRIDGE_HW;
+}
 function setzeAutoGrenzen(car) {
-  const bruecke = car.axis === 'x' && Math.abs(car.lane - BRIDGE_Z) < BRIDGE_HW;
+  const bruecke = autoAufBruecke(car);
   /* Die drei Meter Zuschlag sind der Spurversatz: wer an der aeussersten
      Kreuzung abbiegt, steht auf Linie plus oder minus drei. */
   car.sMin = ORIGIN - 3;
@@ -20615,9 +20713,45 @@ function autoKreuzung(car, linie) {
   /* Liegt die NAECHSTE Kreuzung noch auf der Strasse? Der Abstand von 6 m
      war zu gross: die aeussersten Kreuzungen liegen genau auf sMin/sMax,
      damit galten sie als "draussen" und jedes Auto bog schon eine
-     Kreuzung frueher ab - die Randstrassen waren leer. */
+     Kreuzung frueher ab - die Randstrassen waren leer.
+
+     ---- Warum die Bruecke leer war ----
+     AUTO_X_MAX (179) haelt die Wagen aus Promenade und Fluss heraus. Die
+     Sperre galt aber auch fuer die Brueckenstrasse: ein Wagen, der auf
+     z = -22 oder -28 nach Osten fuhr, sah an der Kreuzung x = 175, dass
+     die naechste Kreuzung (225) "draussen" liegt, und bog zwingend ab.
+     Gemessen ueber 120 Sekunden: NULL Wagen auf der Bruecke. Die extra
+     dafuer gebaute Grenze sMax = 339 und das Wenden drueben waren damit
+     unerreichbarer Code. Auf der Brueckenstrasse gilt jetzt nur noch
+     sMin/sMax - und die kennen den Fluss. */
+  const bruecke = autoAufBruecke(car);
   const drin = weiter > car.sMin - 1 && weiter < car.sMax + 1 &&
-               !(car.axis === 'x' && weiter > AUTO_X_MAX);
+               !(car.axis === 'x' && !bruecke && weiter > AUTO_X_MAX);
+  /* ---- Der Brueckenkopf ----
+     Die Bruecke ist der EINZIGE Weg ueber den Fluss. In einer Stadt
+     buendelt so ein Bauwerk den Verkehr; hier war sie nur eine
+     Abbiegemoeglichkeit von vielen und entsprechend leer. Wer auf der
+     Uferstrasse an den Brueckenkopf kommt, biegt deshalb haeufiger auf
+     die Bruecke ab als irgendwo sonst - und zwar nach Osten, ueber den
+     Fluss. Der Wert ist nicht geschaetzt: er ist so gewaehlt, dass auf
+     der Bruecke ungefaehr so viele Wagen je hundert Meter stehen wie auf
+     demselben Strassenzug in der Stadt. */
+  const kopf = car.axis === 'z' && Math.abs(car.lane - RASTER_X1) < 4 &&
+               Math.abs(linie - BRIDGE_Z) < 0.5 && !car.flucht && !car.notfall;
+  if (kopf && Math.random() < BRUECKEN_SOG) {
+    /* Dieselbe Abbiegebewegung wie unten, nur mit fester Richtung: die
+       bisherige Spur (x = 172 oder 178) wird zur Laengslage, die neue
+       Spur ist die oestliche Fahrspur der Bruecke. */
+    car.s = car.lane;
+    car.axis = 'x';
+    car.lane = BRIDGE_Z + 3;
+    car.dir = 1;
+    car.kreuzung = null;
+    car.tempoJetzt *= 0.55;
+    car.kurve = 0.55;
+    setzeAutoGrenzen(car);
+    return true;
+  }
   if (drin && Math.random() > (car.flucht ? 0.30 : 0.14)) return false;
   /* Am Rand geht es in die Stadt hinein, sonst nach Lust und Laune. */
   const nd = !drin ? (car.lane > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
@@ -20629,6 +20763,9 @@ function autoKreuzung(car, linie) {
      x-Koordinate; faehrt es in z, wird die neue Laengslage zur
      x-Koordinate. Der Fluss beginnt bei RIVER_X0. */
   const neuesX = car.axis === 'x' ? neueLane : neuesS;
+  /* Abgebogen wird nie nach Osten hinaus - auch nicht von der Bruecke.
+     Die Scheinkreuzungen bei x = 225, 275 und 325 liegen mitten im
+     Fluss; dort faehrt jeder geradeaus weiter. */
   if (neuesX > AUTO_X_MAX) return false;
   /* Die neue Laengslage ist die alte Spur, also eine Linie plus oder
      minus drei - sie liegt damit immer auf der Fahrbahn. Der frueher hier
@@ -20890,16 +21027,24 @@ function updateCars(dt) {
       zx = car.lane; zz = car.s; zy = car.dir > 0 ? 0 : Math.PI;
       car.vx = 0; car.vz = car.dir * speed;
     }
+    /* ---- Hoehe der Fahrbahn ----
+       Die Wagen standen immer auf y = 0. Das stimmt ueberall, nur nicht
+       auf der Bruecke: dort liegt das Deck 30 cm hoeher und laeuft an
+       beiden Enden ueber eine Rampe aus. Gemessen, nachdem der Verkehr
+       ueberhaupt erst auf die Bruecke kam: 1094 von 1094 Proben auf
+       y = 0, also alle Raeder 30 cm im Deck. */
+    const zh = onBridge(zx, zz) ? bridgeY(zx) : 0;
     if (car.kurve > 0) {
       const k = Math.min(1, dt * 7);
       car.mesh.position.x = lerp(car.mesh.position.x, zx, k);
+      car.mesh.position.y = lerp(car.mesh.position.y, zh, k);
       car.mesh.position.z = lerp(car.mesh.position.z, zz, k);
       let dw = zy - car.mesh.rotation.y;
       while (dw > Math.PI) dw -= Math.PI * 2;
       while (dw < -Math.PI) dw += Math.PI * 2;
       car.mesh.rotation.y += dw * k;
     } else {
-      car.mesh.position.set(zx, 0, zz);
+      car.mesh.position.set(zx, zh, zz);
       car.mesh.rotation.y = zy;
     }
     if (CITY_LOOK) CITY_LOOK.updateCar(car.mesh, speed, dt);
@@ -21088,6 +21233,13 @@ function gehBegehbar(x, z, erlaubeStrasse, frei) {
   if (inWater(x, z)) return false;
   const y = groundY(x, z);
   if (y < -0.5) return false;                       // Schacht, Tunnel
+  /* Auf der Bruecke faellt die Schwelle "hoeher als SLAB_H - 0,05" aus:
+     dort liegt schon die Fahrbahn 30 cm ueber Null. Die Fahrspur dabei
+     auszunehmen, habe ich versucht und wieder zurueckgenommen - es
+     aenderte an 240 Sekunden Messung keine einzige Stelle (85 Prozent
+     der Zeit auf dem Gehweg, laengster Aufenthalt auf der Fahrbahn
+     9,8 s bei z = -20,1, also 0,9 m neben dem naechsten Wagen). Wer
+     dort steht, kommt nicht ueber diese Pruefung dorthin. */
   if (!erlaubeStrasse && y < SLAB_H - 0.05 && !onBridge(x, z)) return false;
   return gehPlatzFrei(x, z, frei === undefined ? GEH_FREI : frei);
 }
@@ -32182,6 +32334,8 @@ if (window.__WEBHERO_TEST__ === true) {
     regenStaerke() { return +REGEN.staerke.toFixed(2); },
     zeichne() { renderer.render(scene, camera); },
     setzeGrafik(v) { EINST.grafik = v; wendeGrafikAn(); },
+    setzeBrueckenSog(v) { BRUECKEN_SOG = v; },
+    brueckenSog() { return BRUECKEN_SOG; },
     fogFern() { return scene.fog.far; },
     schattenAn() { return renderer.shadowMap.enabled; },
     frier(an) { gefroren = !!an; },
