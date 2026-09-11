@@ -10328,6 +10328,15 @@ function makeGlbVisual(m) {
       current.timeScale = 0;
       current.time = clamp(t01, 0, 0.999) * (current.getClip().duration || 1);
     },
+    /* Nur fuer Messungen: die EINMAL-Bewegungen (Schlag, Rolle, Kante,
+       Kunststueck) laufen ueber eine eigene Aktion. laufStand() sieht sie
+       nicht - fuer die Bewegungsmatrix braucht es beide. */
+    angriffStand() {
+      return angriff ? { clip: angriff.getClip().name, art: angriffArt,
+                         ts: +angriff.timeScale.toFixed(2),
+                         t: +angriff.time.toFixed(3),
+                         gewicht: +angriff.getEffectiveWeight().toFixed(2) } : null;
+    },
     /* Nur fuer Messungen: welcher Clip laeuft gerade, wie schnell? */
     laufStand() {
       return current ? { clip: current.getClip().name, ts: +current.timeScale.toFixed(2),
