@@ -79,7 +79,76 @@ Alle gesetzten Gegenstaende gegen: Fahrbahn, Zebrastreifen, Treppen,
 Aufzug, U-Bahn-Eingang, Brueckenuebergang, Tueren, POI-Anker,
 Bewegungspfade.
 
-**Stand:** offen.
+Pruefstand: `tools/pruef/freigang.js`. Geprueft werden **887 gesetzte
+Gegenstaende** (112 Ampeln, 62 Laternen, 63 Beete, 339 Poller, 58 Baenke,
+174 Klimageraete, 63 Pflanzkuebel, 16 Kanaldeckel) gegen 325 Flaechen und
+**875 Kanten des Gehnetzes**.
+
+**Stand: alle neun Flaechen frei.**
+
+| Flaeche               | Befund |
+|-----------------------|--------|
+| Fahrbahn              | frei   |
+| Zebrastreifen         | frei   |
+| U-Bahn-Abgang         | frei   |
+| Aufzug                | frei   |
+| Brueckenuebergang     | frei   |
+| Haustuer (Durchgang)  | frei   |
+| Haustuer (Vorfeld)    | frei   |
+| POI-Anker             | frei   |
+| Bewegungspfade        | frei   |
+
+Bei den Bewegungspfaden wird die Ideallinie 262 mal gestreift (Mittel
+0,378 m, groesster Wert 1,55 m) - **daneben bleibt aber ueberall eine
+Luecke von mindestens 0,9 m**, also der Breite eines Passanten. Eine
+Ampel am Bordstein beruehrt die gedachte Mittellinie; im Weg steht sie
+deshalb nicht.
+
+### Vier Fehler im Pruefstand, einer im Spiel
+
+Der erste Durchlauf meldete 79 Befunde. Davon waren vier Gruppen mein
+Messgeraet:
+
+1. **41 "auf der Fahrbahn"** - das Strassenraster war unbegrenzt nach
+   Osten verlaengert. Es endet aber bei x = 181; dahinter liegen
+   Promenade, Fluss und ein eigenes Raster am anderen Ufer. Ausserdem
+   waren die meisten Gemeldeten **Klimageraete in 19 bis 30 m Hoehe auf
+   Daechern** - eine Flaeche am Boden kann nur blockieren, was am Boden
+   steht.
+2. **30 "U-Bahn-Abgang"** - der z-Versatz `dz` der Stationen fehlte,
+   deshalb wurde jeder Fund doppelt und an der falschen Stelle gemeldet;
+   und die Zone war um 1,6 m aufgeblasen, sodass Poller NEBEN dem Abgang
+   als Hindernis galten.
+3. **3 "POI-Anker"** - ohne Hoehenvergleich. Ein Dach-POI auf 39 m und
+   eine Laterne auf der Strasse sind sich nicht im Weg.
+4. **"Bewegungspfade frei"** - eine Falschmeldung in die andere Richtung:
+   der Kantenschluessel heisst `zu`, ich hatte `ziel` geraten. Es wurden
+   **null** Kanten geprueft und trotzdem "frei" gemeldet.
+
+Dazu 16 Kanaldeckel "auf der Fahrbahn" - richtig gemessen, aber dort
+gehoeren sie hin; sie liegen flach.
+
+### Gefunden: Ueberwege am Kartenrand ins Nichts
+
+Jede Kreuzung bekommt vier Ueberwege, 8,4 m neben der Kreuzungsmitte. An
+der **aeussersten** Rasterlinie gibt es dort aber keine Gegenseite mehr:
+
+| Ort                              | vorher | nachher |
+|----------------------------------|--------|---------|
+| Streifen auf der Uferpromenade (x 181..186) | 11 | 0 |
+| Streifen westlich des Kartenrands (x -186..-181) | 11 | 0 |
+| Ueberwegsflaechen ausserhalb jeder Fahrbahn | 32 von 256 | 0 von 224 |
+
+Die Streifen auf der Promenade lagen bei y = 0,025, der Promenadenboden
+aber bei 0,25 - sie steckten also unsichtbar im Belag. Schlimmer als die
+verschwendete Geometrie war die Wirkung auf `aufZebra()`: das Spiel
+unterdrueckt ueber Ueberwegen Bordsteine, und tat das an 32 Stellen, an
+denen gar kein Ueberweg ist. Genau daher kamen auch die fuenf Laternen,
+die "im Zebrastreifen" zu stehen schienen.
+
+Behoben: am Kartenrand entfaellt der nach aussen zeigende Ueberweg. Im
+Bild hat die Uferstrasse jetzt einen statt zwei Ueberwege nebeneinander;
+die Kreuzungen im Inneren sind unveraendert.
 
 ## Test F — Akt 1
 Alle acht Missionen. **Braucht einen Menschen am Steuer** — das kann der

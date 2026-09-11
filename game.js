@@ -2560,15 +2560,34 @@ function buildCity() {
     for (let j = 0; j <= BLOCKS; j++) {
       const cx = ORIGIN + i * PITCH, cz = ORIGIN + j * PITCH;
       for (const seite of [-1, 1]) {
+        /* ---- Am Kartenrand gibt es keine Gegenseite ----
+           Der Ueberweg liegt 8,4 m neben der Kreuzungsmitte, der Gehweg
+           beginnt aber schon bei 6 m. An der AEUSSERSTEN Rasterlinie
+           fuehrt der aeussere Ueberweg deshalb ins Nichts: im Osten auf
+           die Uferpromenade (Test E: 11 Streifen zwischen x = 181 und
+           186, wo der Boden 25 cm hoeher liegt - sie steckten also unter
+           dem Belag), im Westen 8 m ueber den Kartenrand hinaus
+           (nochmal 11 Streifen).
+           Schlimmer als die verschwendete Geometrie war die Wirkung auf
+           aufZebra(): 32 der 256 Ueberwegsflaechen lagen ausserhalb jeder
+           Fahrbahn. Dort unterdrueckte das Spiel Bordsteine, die es geben
+           sollte - und Test E meldete fuenf Laternen als "steht im
+           Zebrastreifen", obwohl dort gar keiner ist. */
+        const querRandX = (j === 0 && seite < 0) || (j === BLOCKS && seite > 0);
+        const querRandZ = (i === 0 && seite < 0) || (i === BLOCKS && seite > 0);
         /* Streifen quer zur x-Straße (nördlich und südlich der Kreuzung) */
         for (let k = -5; k <= 5; k++) {
-          deko(0.55, 0.03, 4.2, cx + k * 1.05, 0.025, cz + seite * (ROAD_HALF + 2.4), 0xe8e8e0);
-          deko(4.2, 0.03, 0.55, cx + seite * (ROAD_HALF + 2.4), 0.025, cz + k * 1.05, 0xe8e8e0);
+          if (!querRandX)
+            deko(0.55, 0.03, 4.2, cx + k * 1.05, 0.025, cz + seite * (ROAD_HALF + 2.4), 0xe8e8e0);
+          if (!querRandZ)
+            deko(4.2, 0.03, 0.55, cx + seite * (ROAD_HALF + 2.4), 0.025, cz + k * 1.05, 0xe8e8e0);
         }
-        merkeZebra(cx - 5.8, cx + 5.8,
-                   cz + seite * (ROAD_HALF + 2.4) - 2.1, cz + seite * (ROAD_HALF + 2.4) + 2.1);
-        merkeZebra(cx + seite * (ROAD_HALF + 2.4) - 2.1, cx + seite * (ROAD_HALF + 2.4) + 2.1,
-                   cz - 5.8, cz + 5.8);
+        if (!querRandX)
+          merkeZebra(cx - 5.8, cx + 5.8,
+                     cz + seite * (ROAD_HALF + 2.4) - 2.1, cz + seite * (ROAD_HALF + 2.4) + 2.1);
+        if (!querRandZ)
+          merkeZebra(cx + seite * (ROAD_HALF + 2.4) - 2.1, cx + seite * (ROAD_HALF + 2.4) + 2.1,
+                     cz - 5.8, cz + 5.8);
       }
     }
   }
@@ -31980,6 +31999,40 @@ if (window.__WEBHERO_TEST__ === true) {
     laterneStellen() { return LATERNE_STELLEN; },
     bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
+    teilArten() { return Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length); },
+    aufGehweg,
+    hausStellen() { return HAUS_STELLEN.slice(); },
+    /* Die Haustueren in WELTKOORDINATEN. Sie stehen nirgends als Liste:
+       der Durchgang ist im Baukasten je Haustyp lokal beschrieben
+       (KIT_HAEUSER[].tuer) und wird beim Setzen gedreht und verschoben.
+       Test E braucht ihn aber als Flaeche, um zu pruefen, ob etwas davor
+       steht - also wird er hier einmal ausgerechnet, statt die Rechnung
+       im Pruefskript zu wiederholen (die Kopie waere sonst das, was
+       geprueft wird, nicht das Spiel). */
+    tuerStellen() {
+      const aus = [];
+      for (const e of HAUS_STELLEN) {
+        const t = KIT_HAEUSER.find((k) => k.name === e.name);
+        if (!t || !t.tuer) continue;
+        const ry = e.ry + (t.dreh || 0);
+        /* Der Durchgang liegt in der Front des Modells, also auf z1. */
+        const r = kitRechteck(e.x, e.z, ry, t.tuer.x0, t.tuer.x1,
+                              t.z1 - KIT_WAND, t.z1);
+        /* Und der Streifen DAVOR, in den nichts hineinragen darf: die
+           1,4 m lichte Weite mal 1,6 m Anlauf nach aussen. */
+        const c = Math.cos(ry), si = Math.sin(ry);
+        const aussen = kitRechteck(e.x, e.z, ry, t.tuer.x0 - 0.25, t.tuer.x1 + 0.25,
+                                   t.z1, t.z1 + 1.6);
+        aus.push({ haus: e.name, x: +e.x.toFixed(2), z: +e.z.toFixed(2),
+                   ry: +ry.toFixed(3),
+                   nx: +(-si).toFixed(3), nz: +c.toFixed(3),
+                   durchgang: { x0: +r.x0.toFixed(2), x1: +r.x1.toFixed(2),
+                                z0: +r.z0.toFixed(2), z1: +r.z1.toFixed(2) },
+                   vorfeld: { x0: +aussen.x0.toFixed(2), x1: +aussen.x1.toFixed(2),
+                              z0: +aussen.z0.toFixed(2), z1: +aussen.z1.toFixed(2) } });
+      }
+      return aus;
+    },
     beetStellen() { return BEET_STELLEN; },
     neonZahl() { return NEON_KISTEN.length; },
     zeigeKulisse(an) { for (const m of KULISSE_MESHES) m.visible = !!an; },
