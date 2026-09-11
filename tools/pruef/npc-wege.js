@@ -107,6 +107,7 @@ const NUR_E = process.argv.includes('nurE');
       G_eingestiegen: 0,
       D_ungueltig: [], E_ungueltig: [],
       D_fahrgast: [],         // in die U-Bahn gestiegen: kein Fehler
+      D_geschlagen: [],       // von einer Gang niedergeschlagen: kein Fehler
     };
 
     const imKollider = (x, z, y) => {
@@ -186,6 +187,12 @@ const NUR_E = process.argv.includes('nurE');
       const luft = Math.hypot(kB.x - kA.x, kB.z - kA.z);
       const MAX = luft / 0.8 + 45;
       let t = 0, strecke = 0, ankunft = false, ungueltig = null, fahrgast = null;
+      let haengtGrund = null, geschlagen = null;
+      /* Wer nicht ankommt, hat dafuer einen Zustand - "flee" heisst, dass
+         eine Gang ihn von der Route gejagt hat, und das ist kein
+         Gehfehler. Ohne diese Aufstellung bleibt "nicht angekommen" eine
+         Zahl ohne Aussage. */
+      const zBilder = {}, gzBilder = {};
       let vx = civ.pos.x, vz = civ.pos.z;
       let still = 0, stillGrund = null, stillMax = 0;
       let imHaus = 0, unterBoden = 0, haengt = 0;
@@ -202,28 +209,14 @@ const NUR_E = process.argv.includes('nurE');
         d.schritt(1 / 30); t += 1 / 30; bild++;
         const s = Math.hypot(civ.pos.x - vx, civ.pos.z - vz);
         /* ---- Ein Fussgaenger legt in einem Bild keine 20 Meter zurueck ----
-           In etwa der Haelfte der Seitenladungen springt die Testfigur bei
-           einem FESTEN Bild einige hundert Meter weit. Isoliert nachgefahren
-           (tools/pruef/npc-einzelfall.js, Knoten 657->648): der Sprung geht
-           NICHT ueber pos.set oder pos.copy, die Steckstufe bleibt 0 und
-           GEH_STAT.gerettet zaehlt nicht hoch - es ist also weder die
-           Steckrettung noch das Ein- und Aussteigen. Auf dem normalen
-           Laufzeitpfad (Spieler in der Naehe, volle Welt) liess er sich
-           nicht ausloesen.
-           Der Reihe nach ausgeschlossen:
-             - pos.set und pos.copy (Stolperdraht auf beide, nie ausgeloest)
-             - die Steckrettung (festStufeN bleibt 0, GEH_STAT.gerettet
-               zaehlt nicht hoch, der naechste Knoten lag 2 m daneben)
-             - das Leeren der Zivilistenliste (tritt mit voller Liste
-               ebenso auf und bleibt ebenso aus)
-             - Nachladen von Weltdaten: Kollider 1929, Gehnetzknoten 728
-               und Zivilistenzahl 55 sind ab Bild 0 konstant
-
-           Nach der Regel "kein Spielcode ohne Reproduktion im normalen
-           Pfad" wird das Spiel deshalb NICHT geaendert. Der Lauf wird
-           stattdessen als UNGUELTIG verworfen - er als Fehlschlag zu
-           zaehlen waere eine Falschaussage ueber das Spiel. Die Zahl der
-           verworfenen Laeufe steht im Bericht. */
+           Die Ursache dieser Spruenge ist gefunden und abgestellt: es war
+           der Geiselauftrag, der sich die Testfigur holte (siehe oben,
+           setzeMissionCd), und an den U-Bahn-Knoten die Fahrt selbst
+           (jetzt getrennt gezaehlt). Seither meldet der Bericht null
+           verworfene Laeufe. Diese Schranke bleibt als Fangnetz stehen:
+           schlaegt sie wieder an, ist eine NEUE Quelle dazugekommen, und
+           der Lauf als Fehlschlag zu zaehlen waere eine Falschaussage
+           ueber das Spiel. */
         if (s > 20) { ungueltig = { bild: Math.round(t * 30), weit: +s.toFixed(1),
                                     von: [+vx.toFixed(1), +vz.toFixed(1)],
                                     nach: [+civ.pos.x.toFixed(1), +civ.pos.z.toFixed(1)] };
@@ -234,7 +227,38 @@ const NUR_E = process.argv.includes('nurE');
           still += 1 / 30;
           if (still > stillMax) { stillMax = still; stillGrund = civ.gehZustand; }
           const grenze = stillErlaubt(civ) ? STILL_ERLAUBT : STILL_FEHLER;
-          if (still > grenze) { haengt = 1; break; }
+          if (still > grenze) {
+            haengt = 1;
+            /* Warum sie steht, muss im Bericht stehen - sonst laesst sich
+               "blockiert" nicht von "will gerade gar nicht" trennen, und
+               genau daran ist die Auswertung schon zweimal gescheitert.
+               festStufe zaehlt nur hoch, wenn die GEWOLLTE Geschwindigkeit
+               ueber 0,6 liegt; eine Figur, die absichtlich stehenbleibt,
+               wird nie geloest - und muss es auch nicht. */
+            let nachbarn = 0;
+            for (const c2 of d.civilians) {
+              if (c2 === civ) continue;
+              if (Math.hypot(c2.pos.x - civ.pos.x, c2.pos.z - civ.pos.z) < 2.5) nachbarn++;
+            }
+            let autoNah = 0;
+            for (const car of (d.cars || [])) {
+              const m = car.mesh ? car.mesh.position : car.pos;
+              if (m && Math.hypot(m.x - civ.pos.x, m.z - civ.pos.z) < 6) autoNah++;
+            }
+            let gegnerNah = 0;
+            for (const e2 of (d.enemies || [])) {
+              if (Math.hypot(e2.pos.x - civ.pos.x, e2.pos.z - civ.pos.z) < 6) gegnerNah++;
+            }
+            haengtGrund = { gz: civ.gehZustand, zustand: civ.state || null,
+                            inListe: d.civilians.indexOf(civ) >= 0,
+                            pose: civ.ruhePose || null,
+                            gafft: !!civ.gafft, partner: !!civ.sozialPartner,
+                            geisel: !!civ.geisel, fest: civ.festStufeN || 0,
+                            v: +Math.hypot(civ.vel.x, civ.vel.z).toFixed(2),
+                            nachbarn, autoNah, gegnerNah,
+                            ort: [+civ.pos.x.toFixed(1), +civ.pos.z.toFixed(1)] };
+            break;
+          }
         } else still = 0;
         if (civ.gehZustand === 'warten' || civ.gehZustand === 'queren') F.F_ampel.stopps++;
         if (civ.eingestiegen > 0 || civ.zugFahrt) F.G_eingestiegen++;
@@ -259,7 +283,19 @@ const NUR_E = process.argv.includes('nurE');
            mehr. Das ist gewolltes Verhalten und beantwortet Frage D nicht
            mit "nein", sondern gar nicht. Es erklaert auch die grossen
            Ortswechsel an den U-Bahn-Knoten: das ist die Fahrt. */
+        zBilder[civ.state || '?'] = (zBilder[civ.state || '?'] || 0) + 1;
+        gzBilder[civ.gehZustand || '?'] = (gzBilder[civ.gehZustand || '?'] || 0) + 1;
         if (civ.bahnsteig !== undefined) { fahrgast = bild; break; }
+        /* ---- Niedergeschlagen ist auch kein Gehfehler ----
+           Waehrend der hundert Routen setzt das Spiel selbst Gangs, und
+           die schlagen Passanten nieder. Wer getroffen wird, liegt 40 bis
+           60 Sekunden (hurtT) und wartet gegebenenfalls auf den Rettungs-
+           dienst; die Route gilt dann nicht mehr. Gemessen: ALLE zehn
+           Faelle in Frage C standen auf zustand 'hurt', mit der letzten
+           Fluchtgeschwindigkeit 5,2 im vel und ohne einen einzigen
+           Nachbarn, ein Auto oder einen Gegner in der Naehe - es sah nur
+           wie Haengenbleiben aus. */
+        if (civ.state === 'hurt') { geschlagen = bild; break; }
         if (Math.hypot(civ.pos.x - kB.x, civ.pos.z - kB.z) < 3.0) { ankunft = true; break; }
       }
       if (stillMax > F.F_ampel.laengster) F.F_ampel.laengster = +stillMax.toFixed(1);
@@ -268,6 +304,13 @@ const NUR_E = process.argv.includes('nurE');
                                             nach: [+kB.x.toFixed(2), +kB.z.toFixed(2)],
                                             knotenVon: a, knotenNach: b2, seed: SEED, sprung: ungueltig });
                        continue; }
+      if (geschlagen !== null) {
+        F.D_geschlagen.push({ gegend: gName, bild: geschlagen, sekunden: +t.toFixed(1),
+                              von: [+kA.x.toFixed(2), +kA.z.toFixed(2)],
+                              nach: [+kB.x.toFixed(2), +kB.z.toFixed(2)],
+                              knotenVon: a, knotenNach: b2 });
+        continue;
+      }
       if (fahrgast !== null) {
         F.D_fahrgast.push({ gegend: gName, bild: fahrgast, sekunden: +t.toFixed(1),
                             von: [+kA.x.toFixed(2), +kA.z.toFixed(2)],
@@ -280,7 +323,8 @@ const NUR_E = process.argv.includes('nurE');
       const fall = { gegend: gName, ankunft, sekunden: +t.toFixed(1), luftlinie: +luft.toFixed(1),
                      umweg: luft > 1 ? +(strecke / luft).toFixed(2) : null,
                      stillMax: +stillMax.toFixed(1), stillGrund,
-                     haengt: !!haengt, imHaus, unterBoden,
+                     haengt: !!haengt, haengtGrund, imHaus, unterBoden,
+                     zustandBilder: zBilder, gehBilder: gzBilder,
                      von: [+kA.x.toFixed(2), +kA.z.toFixed(2)],
                      nach: [+kB.x.toFixed(2), +kB.z.toFixed(2)],
                      knotenVon: a, knotenNach: b2, seed: SEED,
@@ -409,6 +453,15 @@ const NUR_E = process.argv.includes('nurE');
                      umweg: luft > 1 ? +(strecke / luft).toFixed(2) : null,
                      minAbstand: +minAbstand.toFixed(2), nahT: +nahT.toFixed(1),
                      entferntBei, zustandBilder,
+                     /* Wie viele Gegner ausser unserem noch mitspielen.
+                        Das Spiel setzt waehrend der 60 Sekunden eigene
+                        Gangs; sind mehrere auf den Spieler angesetzt,
+                        verteilt verteileAngriffsrechte Plaetze im Ring -
+                        und wer keinen Platz hat, haelt Abstand. Das ist
+                        gewolltes Kampfverhalten und kein Wegfehler. */
+                     gegnerGesamt: d.enemies.length,
+                     gegnerBeimSpieler: (d.enemies || []).filter((x) => !x.dead &&
+                       Math.hypot(x.pos.x - P.pos.x, x.pos.z - P.pos.z) < 15).length,
                      sperrBilder: Object.fromEntries(
                        Object.entries(sperrBilder).filter(([, v]) => v > 0)),
                      festStufeN: e.festStufeN || 0, mut: e.mut, hp: e.hp,
@@ -456,6 +509,13 @@ const NUR_E = process.argv.includes('nurE');
                 F.D_fahrgast.length +
                 (F.D_fahrgast.length ? ' ' + JSON.stringify(proGegend) : ''));
   }
+  {
+    const proGegend = {};
+    for (const f of F.D_geschlagen) proGegend[f.gegend] = (proGegend[f.gegend] || 0) + 1;
+    console.log('  niedergeschlagen (kein Fehler, zaehlt bei D nicht mit): ' +
+                F.D_geschlagen.length +
+                (F.D_geschlagen.length ? ' ' + JSON.stringify(proGegend) : ''));
+  }
   console.log('  verworfen wegen Ortssprung (siehe Kommentar im Skript): ' +
               F.D_ungueltig.length + ' Routen, ' + F.E_ungueltig.length + ' Verfolgungen');
   if (F.D_ungueltig.length) console.log('    Beispiel: ' + JSON.stringify(F.D_ungueltig[0].sprung));
@@ -466,12 +526,41 @@ const NUR_E = process.argv.includes('nurE');
     if (!liste.length) continue;
     console.log('');
     console.log('== ' + name + ' (' + liste.length + ') - Einzelfaelle zum Nachfahren ==');
+    if (name.startsWith('C')) {
+      const z = { 'abgebaut (nicht mehr aktualisiert)': 0, 'Verkehr/Ueberweg': 0,
+                  'Gedraenge': 0, 'Gegner daneben': 0,
+                  'gafft': 0, 'im Gespraech': 0, 'sonst': 0 };
+      for (const e of liste) {
+        const g = e.haengtGrund;
+        if (!g) { z.sonst++; continue; }
+        if (g.inListe === false) z['abgebaut (nicht mehr aktualisiert)']++;
+        else if (g.gafft) z.gafft++;
+        else if (g.partner) z['im Gespraech']++;
+        else if (g.gz === 'warten' || g.gz === 'queren') z['Verkehr/Ueberweg']++;
+        else if (g.gegnerNah > 0) z['Gegner daneben']++;
+        else if (g.nachbarn >= 2 || g.autoNah > 0) z.Gedraenge++;
+        else z.sonst++;
+      }
+      console.log('   Grund: ' + JSON.stringify(z));
+    }
     for (const e of liste.slice(0, 6)) console.log('   ' + JSON.stringify(e));
   }
   const dFehl = F.D_route.faelle.filter((e) => !e.ankunft);
   if (dFehl.length) {
     console.log('');
     console.log('== D: nicht angekommen (' + dFehl.length + ') ==');
+    {
+      const z = { 'ueberwiegend auf der Flucht': 0, 'viel gewartet': 0, 'gelaufen': 0 };
+      for (const e of dFehl) {
+        const zb = e.zustandBilder || {}, gb = e.gehBilder || {};
+        const ges = Object.values(zb).reduce((a, v) => a + v, 0) || 1;
+        const wartet = (gb.warten || 0) + (gb.queren || 0);
+        if ((zb.flee || 0) / ges > 0.3) z['ueberwiegend auf der Flucht']++;
+        else if (wartet / ges > 0.3) z['viel gewartet']++;
+        else z.gelaufen++;
+      }
+      console.log('   ' + JSON.stringify(z));
+    }
     const gr = {};
     for (const e of dFehl) {
       const k = e.haengt ? 'haengt (' + e.stillGrund + ')' : 'Zeit abgelaufen';
@@ -492,6 +581,9 @@ const NUR_E = process.argv.includes('nurE');
     console.log('  davon naeher als 3,2 m (also in Angriffsreichweite): ' +
                 inReichweite + ' von ' + eFehl.length);
     const abgebaut = eFehl.filter((e) => e.entferntBei !== null);
+    const mitAnderen = eFehl.filter((e) => (e.gegnerGesamt || 1) > 1).length;
+    console.log('  waehrenddessen waren weitere Gegner im Spiel (Ringplaetze): ' +
+                mitAnderen + ' von ' + eFehl.length);
     console.log('  vom Spiel abgebaut (nicht mehr aktualisiert): ' +
                 abgebaut.length + ' von ' + eFehl.length +
                 (abgebaut.length ? ', frueheste Stelle Bild ' +
