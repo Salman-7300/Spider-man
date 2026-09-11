@@ -23,6 +23,8 @@ const fs = require('fs');
 
 (async () => {
   const { b, page } = await starte(800, 480, 4711);
+  const versuche = process.argv[3] ? JSON.parse(process.argv[3]) : [];
+  await page.evaluate((v) => { window.__versuche = v; }, versuche);
   const aus = await page.evaluate(async () => {
     const d = __dbg, P = d.player, HV = d.heroVisual;
     if (!HV || !HV.knochen) return { fehler: 'keine Knochen' };
@@ -57,7 +59,7 @@ const fs = require('fs');
       for (let i = 0; i < N; i++) {
         d.schritt(1 / 60);
         const lf = welt('leftfoot'), rf = welt('rightfoot'), h = welt('hips');
-        const st = d.laufStand();
+        const st = HV.laufStand ? HV.laufStand() : null;
         if (!lf || !rf || !h) continue;
         proben.push({
           t: i / 60,
@@ -116,12 +118,42 @@ const fs = require('fs');
         return r;
       }
       const kL = auswerten(absL, 'L'), kR = auswerten(absR, 'R');
+
+      /* ---- Zweites, unabhaengiges Mass ----
+         Die Abschnittsmethode oben setzt voraus, dass sich die Stuetzphase
+         ueberhaupt abgrenzen laesst. Bei Kriechen und Ducken tut sie das
+         nicht: der Fuss hebt nie weit genug ab, ein "Kontakt" dauert dort
+         gemessen 8 Sekunden und damit mehr als drei Cliplaengen. Jede
+         Rutschzahl daraus ist wertlos.
+         Deshalb zusaetzlich ein Mass OHNE Abschnitte: von allen Bildern
+         werden die genommen, in denen der Fuss im unteren Drittel seines
+         eigenen Hoehenbereichs liegt - das ist die Stuetzphase, ohne sie
+         abgrenzen zu muessen. Verglichen wird Bild fuer Bild, wie weit
+         sich der Fuss in der WELT bewegt, gegen den Weg der Figur. */
+      function unteresDrittel(seite) {
+        const y = seite === 'L' ? 'lfy' : 'rfy';
+        const fx = seite === 'L' ? 'lfx' : 'rfx', fz = seite === 'L' ? 'lfz' : 'rfz';
+        const hoehen = proben.map((p) => p[y]);
+        const lo = Math.min(...hoehen), hi = Math.max(...hoehen);
+        const grenze = lo + (hi - lo) / 3;
+        const werte = [];
+        for (let i = 1; i < proben.length; i++) {
+          if (proben[i][y] > grenze) continue;
+          const p = proben[i], q = proben[i - 1];
+          const fw = Math.hypot(p[fx] - q[fx], p[fz] - q[fz]);
+          const gw = Math.hypot(p.px - q.px, p.pz - q.pz);
+          if (gw < 0.001) continue;
+          werte.push(fw / gw);
+        }
+        return werte;
+      }
+      const d3 = unteresDrittel('L').concat(unteresDrittel('R'));
       const alle = kL.concat(kR);
       if (!alle.length) return { name, fehler: 'kein Bodenkontakt erkannt' };
       const med = (a) => { const s = a.slice().sort((x, y2) => x - y2);
         return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 
-      const clipDauer = d.clipDauer(name) || 0;
+      const clipDauer = (HV.clipDauer ? HV.clipDauer(name) : 0) || 0;
       const tsWerte = proben.map((p) => p.ts).filter((x) => x !== null);
       const vWerte = proben.map((p) => p.v);
 
@@ -138,6 +170,9 @@ const fs = require('fs');
           ? +(med(alle.map((x) => x.dauer)) * med(tsWerte) / clipDauer).toFixed(3) : null,
         eigentempoMedian: +med(alle.map((x) => x.eigen)).toFixed(3),
         rutschenMedianProzent: +(med(alle.map((x) => x.anteil)) * 100).toFixed(1),
+        rutschD3Median: d3.length ? +(med(d3) * 100).toFixed(1) : null,
+        rutschD3Max: d3.length ? +(Math.max(...d3) * 100).toFixed(1) : null,
+        rutschD3Proben: d3.length,
         rutschenGroesster: +(Math.max(...alle.map((x) => x.anteil)) * 100).toFixed(1),
         weltwegMedian: +med(alle.map((x) => x.welt)).toFixed(4),
       };
@@ -152,8 +187,23 @@ const fs = require('fs');
       ['walk',       []],
       ['run',        ['ShiftLeft']],
     ];
+    /* Ein Durchgang mit den eingestellten Werten, danach je Versuchswert
+       ein weiterer. Die Werte kommen von aussen, damit ein Fix erst
+       GEMESSEN und dann eingebaut wird - nicht umgekehrt. */
     const ergebnis = [];
     for (const [n, ein] of gangarten) ergebnis.push(messeGangart(n, ein, 8));
+
+    const versuche = [];
+    for (const [name, werte] of (window.__versuche || [])) {
+      const alt = d.gangRef()[name];
+      for (const v of werte) {
+        d.setzeGangRef(name, v);
+        const r = messeGangart(name, gangarten.find((g) => g[0] === name)[1], 8);
+        r.versuchsRef = v;
+        versuche.push(r);
+      }
+      d.setzeGangRef(name, alt);
+    }
 
     /* ---- Die beiden Uebergaenge ---- */
     function uebergang(name, vorTasten, nachTasten, bilder) {
@@ -168,7 +218,7 @@ const fs = require('fs');
       for (let i = 0; i < bilder; i++) {
         if (i === 60) { frei(); for (const t of nachTasten) d.taste(t, true); }
         d.schritt(1 / 60);
-        const st = d.laufStand();
+        const st = HV.laufStand ? HV.laufStand() : null;
         const lf = welt('leftfoot');
         spur.push({ i, clip: st ? st.clip : null, ts: st ? st.ts : null,
                     gew: st ? st.gewicht : null,
@@ -194,7 +244,7 @@ const fs = require('fs');
       uebergang('Duckgang -> Laufen',    ['KeyX', 'KeyW'], ['KeyW'], 240),
     ];
 
-    return { ergebnis, ueber };
+    return { ergebnis, ueber, versuche };
   });
 
   if (aus.fehler) { console.log('FEHLER:', aus.fehler); await b.close(); return; }
@@ -204,7 +254,8 @@ const fs = require('fs');
   console.log('Gangart'.padEnd(12) + 'Clip'.padEnd(12) + 'Ref'.padStart(7) +
               'Tempo'.padStart(8) + 'timeSc'.padStart(8) + 'Eigen'.padStart(8) +
               'Stuetz'.padStart(8) + 'Anteil'.padStart(8) +
-              'Rutsch%'.padStart(9) + 'max%'.padStart(8));
+              'Rutsch%'.padStart(9) + 'max%'.padStart(8) +
+              'D3-Med%'.padStart(9) + 'D3-Max%'.padStart(9));
   console.log('-'.repeat(96));
   for (const e of aus.ergebnis) {
     if (e.fehler) { console.log(e.name.padEnd(12) + '  ' + e.fehler); continue; }
@@ -214,11 +265,30 @@ const fs = require('fs');
       String(e.eigentempoMedian).padStart(8) +
       String(e.stuetzDauerMedian).padStart(8) +
       String(e.stuetzAnteilDerCliplaenge == null ? '-' : e.stuetzAnteilDerCliplaenge).padStart(8) +
-      String(e.rutschenMedianProzent).padStart(9) + String(e.rutschenGroesster).padStart(8));
+      String(e.rutschenMedianProzent).padStart(9) + String(e.rutschenGroesster).padStart(8) +
+      String(e.rutschD3Median == null ? '-' : e.rutschD3Median).padStart(9) +
+      String(e.rutschD3Max == null ? '-' : e.rutschD3Max).padStart(9));
   }
   console.log('-'.repeat(96));
   console.log('Ref = eingestellte Eigengeschwindigkeit (GANG_REF), Eigen = gemessene');
   console.log('Stuetz = Dauer eines Bodenkontakts in s, Anteil = davon an der Cliplaenge');
+  console.log('D3 = zweites Mass ohne Abschnittsbildung: Fussweg/Figurweg in den Bildern,');
+  console.log('     in denen der Fuss im unteren Drittel seines Hoehenbereichs liegt.');
+  if (aus.versuche && aus.versuche.length) {
+    console.log('');
+    console.log('Versuchswerte (nur gemessen, noch nicht eingebaut):');
+    console.log('Gangart'.padEnd(12) + 'Ref'.padStart(7) + 'Tempo'.padStart(8) +
+                'timeSc'.padStart(8) + 'Eigen'.padStart(8) +
+                'D3-Med%'.padStart(9) + 'D3-Max%'.padStart(9));
+    for (const e of aus.versuche) {
+      if (e.fehler) { console.log(e.name.padEnd(12) + '  ' + e.fehler); continue; }
+      console.log(e.name.padEnd(12) + String(e.versuchsRef).padStart(7) +
+        String(e.spieltempo).padStart(8) + String(e.timeScale).padStart(8) +
+        String(e.eigentempoMedian).padStart(8) +
+        String(e.rutschD3Median == null ? '-' : e.rutschD3Median).padStart(9) +
+        String(e.rutschD3Max == null ? '-' : e.rutschD3Max).padStart(9));
+    }
+  }
   console.log('');
   console.log('Uebergaenge:');
   for (const u of aus.ueber) {
