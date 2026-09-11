@@ -12992,12 +12992,35 @@ function zipAngriff(e) {
    man. Solche Hindernisse sind mit klein markiert; gesucht wird das, auf
    dessen Oberkante die Fuesse gerade stehen und das deutlich ueber dem
    Boden darunter liegt. */
+/* ---- Was ein schmaler Halt ist ----
+   Die Kennzeichnung "klein" sagt nur, dass ein Kollider nicht als Haus
+   zaehlt - sie sagt nichts ueber die Groesse. Gemessen ueber alle 1175
+   kleinen Kollider der Stadt (jeweils die laengere Seite):
+
+     unter 1 m  431    Poller, Laternen, Masten
+     1 bis 2 m  239    Ampeln, Klimageraete
+     2 bis 4 m  287    Beete, Wassertuerme
+     4 bis 8 m   46
+     8 bis 16 m 116    Dachkraenze
+     ueber 16 m  56    Dachkraenze
+
+   Ohne Groessengrenze galt damit auch ein Dachkranz von 22,7 x 21,1 m
+   als schmaler Halt: gemessen stand die Figur mitten auf einem 20 m
+   breiten Dach und das Spiel hielt sie fuer jemanden auf einer Laterne.
+   Das hat zweierlei verdorben - sie ging in die Masthocke statt in die
+   Dachhocke, und die Kantensuche wurde ganz abgeschaltet (dachKante
+   laeuft nur, wenn KEIN schmaler Halt erkannt ist). Sie drehte sich
+   deshalb nie zur Kante.
+   2,5 m trennt Laterne, Ampel und Klimageraet sauber von Wasserturm und
+   Dachkranz. */
+const SCHMAL_MAX = 2.5;
 function aufSchmalemHalt() {
   if (!player.onGround) return false;
   const boden = groundY(player.pos.x, player.pos.z, 0.5);
   if (player.pos.y - boden < 2.0) return false;
   for (const c of collidersNear(player.pos.x, player.pos.z)) {
     if (!c.klein) continue;
+    if ((c.x1 - c.x0) > SCHMAL_MAX || (c.z1 - c.z0) > SCHMAL_MAX) continue;
     if (Math.abs(player.pos.y - c.h) > 0.15) continue;
     if (player.pos.x < c.x0 - 0.6 || player.pos.x > c.x1 + 0.6) continue;
     if (player.pos.z < c.z0 - 0.6 || player.pos.z > c.z1 + 0.6) continue;
