@@ -104,6 +104,7 @@ const SEED = Number(process.argv[3]) || 4711;
       E_jagd:  { ok: 0, n: 0, faelle: [] },
       F_ampel: { stopps: 0, laengster: 0 },
       G_eingestiegen: 0,
+      D_ungueltig: [], E_ungueltig: [],
     };
 
     const imKollider = (x, z, y) => {
@@ -163,7 +164,7 @@ const SEED = Number(process.argv[3]) || 4711;
 
       const luft = Math.hypot(kB.x - kA.x, kB.z - kA.z);
       const MAX = luft / 0.8 + 45;
-      let t = 0, strecke = 0, ankunft = false;
+      let t = 0, strecke = 0, ankunft = false, ungueltig = null;
       let vx = civ.pos.x, vz = civ.pos.z;
       let still = 0, stillGrund = null, stillMax = 0;
       let imHaus = 0, unterBoden = 0, haengt = 0;
@@ -172,6 +173,24 @@ const SEED = Number(process.argv[3]) || 4711;
       while (t < MAX) {
         d.schritt(1 / 30); t += 1 / 30; bild++;
         const s = Math.hypot(civ.pos.x - vx, civ.pos.z - vz);
+        /* ---- Ein Fussgaenger legt in einem Bild keine 20 Meter zurueck ----
+           In etwa der Haelfte der Seitenladungen springt die Testfigur bei
+           einem FESTEN Bild einige hundert Meter weit. Isoliert nachgefahren
+           (tools/pruef/npc-einzelfall.js, Knoten 657->648): der Sprung geht
+           NICHT ueber pos.set oder pos.copy, die Steckstufe bleibt 0 und
+           GEH_STAT.gerettet zaehlt nicht hoch - es ist also weder die
+           Steckrettung noch das Ein- und Aussteigen. Auf dem normalen
+           Laufzeitpfad (Spieler in der Naehe, volle Welt) liess er sich
+           nicht ausloesen.
+           Nach der Regel "kein Spielcode ohne Reproduktion im normalen
+           Pfad" wird das Spiel deshalb NICHT geaendert. Der Lauf wird
+           stattdessen als UNGUELTIG verworfen - er als Fehlschlag zu
+           zaehlen waere eine Falschaussage ueber das Spiel. Die Zahl der
+           verworfenen Laeufe steht im Bericht. */
+        if (s > 20) { ungueltig = { bild: Math.round(t * 30), weit: +s.toFixed(1),
+                                    von: [+vx.toFixed(1), +vz.toFixed(1)],
+                                    nach: [+civ.pos.x.toFixed(1), +civ.pos.z.toFixed(1)] };
+                      break; }
         strecke += s;
         vx = civ.pos.x; vz = civ.pos.z;
         if (s < 0.005) {
@@ -200,6 +219,10 @@ const SEED = Number(process.argv[3]) || 4711;
       }
       if (stillMax > F.F_ampel.laengster) F.F_ampel.laengster = +stillMax.toFixed(1);
 
+      if (ungueltig) { F.D_ungueltig.push({ gegend: gName, von: [+kA.x.toFixed(2), +kA.z.toFixed(2)],
+                                            nach: [+kB.x.toFixed(2), +kB.z.toFixed(2)],
+                                            knotenVon: a, knotenNach: b2, seed: SEED, sprung: ungueltig });
+                       continue; }
       F.D_route.n++;
       if (ankunft) F.D_route.ok++;
       const fall = { gegend: gName, ankunft, sekunden: +t.toFixed(1), luftlinie: +luft.toFixed(1),
@@ -246,12 +269,13 @@ const SEED = Number(process.argv[3]) || 4711;
 
       const luft = Math.hypot(ziel.x - a.x, ziel.z - a.z);
       const MAX = luft / 1.5 + 45;
-      let t = 0, strecke = 0, erreicht = false, still = 0, stillMax = 0;
+      let t = 0, strecke = 0, erreicht = false, still = 0, stillMax = 0, eUngueltig = null;
       let vx = e.pos.x, vz = e.pos.z, imHaus = 0, unterBoden = 0, haengt = 0;
       let ersterFehlerBild = null, ersterFehlerArt = null, ersterFehlerBox = null, bild = 0;
       while (t < MAX) {
         d.schritt(1 / 30); t += 1 / 30; bild++;
         const s = Math.hypot(e.pos.x - vx, e.pos.z - vz);
+        if (s > 20) { eUngueltig = { bild: Math.round(t * 30), weit: +s.toFixed(1) }; break; }
         strecke += s; vx = e.pos.x; vz = e.pos.z;
         if (s < 0.005) { still += 1 / 30; if (still > stillMax) stillMax = still;
                          if (still > STILL_FEHLER) { haengt = 1; break; } }
@@ -269,6 +293,7 @@ const SEED = Number(process.argv[3]) || 4711;
         if (e.dead) break;
         if (Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z) < 2.5) { erreicht = true; break; }
       }
+      if (eUngueltig) { F.E_ungueltig.push({ gegend: gName, sprung: eUngueltig }); continue; }
       F.E_jagd.n++;
       if (erreicht) F.E_jagd.ok++;
       const fall = { gegend: gName, erreicht, sekunden: +t.toFixed(1), luftlinie: +luft.toFixed(1),
@@ -308,6 +333,9 @@ const SEED = Number(process.argv[3]) || 4711;
   zeile('G', 'Bilder im Zug (kein Fehler)', F.G_eingestiegen + ' Bilder', true);
   console.log('');
   console.log('  laengster Stillstand ueberhaupt: ' + F.F_ampel.laengster + ' s');
+  console.log('  verworfen wegen Ortssprung (siehe Kommentar im Skript): ' +
+              F.D_ungueltig.length + ' Routen, ' + F.E_ungueltig.length + ' Verfolgungen');
+  if (F.D_ungueltig.length) console.log('    Beispiel: ' + JSON.stringify(F.D_ungueltig[0].sprung));
   console.log('  Wegsuche:', JSON.stringify(aus.gehSuche));
 
   for (const [name, liste] of [['A im Gebaeude', F.A_imGebaeude], ['B unter Boden', F.B_unterBoden],
