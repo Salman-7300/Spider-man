@@ -28,6 +28,19 @@
     align-items:flex-end; gap:6px;
     right:calc(8px + env(safe-area-inset-right, 0px));
     bottom:calc(10px + env(safe-area-inset-bottom, 0px)); }
+  /* ---- Knopfreihen und Daumenknueppel ueberschneiden sich ----
+     Gemessen auf 360 px Breite liegen VIER Knoepfe im Griffbereich des
+     Knueppels (tSprint, tNetz, tZip, tTritt), auf 414 px zwei, auf dem
+     Tablet keiner. Ein Funktionsfehler ist das NICHT: der Beruehrungscode
+     laesst einen Druck auf einen Knopf gar nicht erst an den Knueppel
+     (t.target.closest('#tknoepfe, #toben') -> continue), und der Knueppel
+     greift ohnehin auf der ganzen linken Bildhaelfte, nicht nur im
+     gezeichneten Kreis.
+     Den Block rechts vom Knueppel abzuschneiden und die Reihen umbrechen
+     zu lassen habe ich gebaut und wieder herausgenommen: gemessen war der
+     Griffbereich danach frei, im BILD zerfielen die drei ordentlichen
+     Reihen zu einer Treppe quer ueber den halben Bildschirm. Das ist
+     schlechter als die Ueberschneidung. */
   #tknoepfe .treihe { display:flex; gap:6px; align-items:flex-end; }
   /* Menue und Hilfe liegen links neben der Minikarte, nicht darunter. */
   #toben { position:absolute; display:flex; gap:6px;
@@ -45,7 +58,10 @@
   #touch .r2 button .tbez { font-size:7.5px; }
   #touch button.tgross { width:68px; height:68px; font-size:22px; }
   #touch button.tgross .tbez { font-size:9.5px; }
-  #touch button.tklein { width:42px; height:42px; font-size:15px; }
+  /* 44 px, nicht 42: das ist das kleinste Mass, das Apple fuer eine
+     Beruehrflaeche nennt (Google nennt 48). Gemessen lagen Menue- und
+     Hilfeknopf als einzige der siebzehn darunter. */
+  #touch button.tklein { width:44px; height:44px; font-size:15px; }
   #touch button:active, #touch button.tan { background:rgba(227,33,45,.8);
     border-color:rgba(255,255,255,.8); }
   /* Was gerade nicht geht (zu niedrige Stufe, falscher Zustand), bleibt

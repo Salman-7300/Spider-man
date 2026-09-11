@@ -38,7 +38,9 @@ const WURZEL = path.resolve(__dirname, '..', '..');
    Netz, deshalb wird die Anfrage auf die lokale Kopie umgebogen. */
 const THREE_DATEI = path.join(WURZEL, 'tools', 'node_modules', 'three', 'build', 'three.min.js');
 
-async function starte(breite, hoehe, seed) {
+/* opt: { touch: true } schaltet den Browser auf Beruehrung um - nur dann
+   baut das Spiel seine Touch-Bedienung auf. */
+async function starte(breite, hoehe, seed, opt) {
   if (!fs.existsSync(THREE_DATEI)) {
     throw new Error('three fehlt: npm i -D three im Ordner tools/');
   }
@@ -46,7 +48,9 @@ async function starte(breite, hoehe, seed) {
                          '--enable-unsafe-swiftshader'] };
   if (process.env.PLAYWRIGHT_CHROMIUM) start.executablePath = process.env.PLAYWRIGHT_CHROMIUM;
   const b = await chromium.launch(start);
-  const page = await b.newPage({ viewport: { width: breite || 800, height: hoehe || 500 } });
+  const seiteEin = { viewport: { width: breite || 800, height: hoehe || 500 } };
+  if (opt && opt.touch) { seiteEin.hasTouch = true; seiteEin.isMobile = true; }
+  const page = await b.newPage(seiteEin);
   page.on('pageerror', (e) => console.log('SEITENFEHLER:', e.message));
   await page.route('**/cdn.jsdelivr.net/**',
     (r) => r.fulfill({ path: THREE_DATEI, contentType: 'application/javascript' }));
