@@ -14637,8 +14637,16 @@ function listeVonText(v, max) {
 function progPruefen(roh) {
   const g = progLeer();
   if (!roh || typeof roh !== 'object') return g;
-  const wk = zahl(roh.weltKeim, 1, 4294967295, 0);
-  g.weltKeim    = wk > 0 ? Math.floor(wk) : WELT_KEIM;
+  /* ---- Die untere Grenze muss 0 sein, nicht 1 ----
+     Gemeint war: ein unbrauchbarer Keim faellt auf den Keim der gerade
+     gebauten Stadt zurueck. Mit der unteren Grenze 1 kam das nie vor -
+     clamp() machte aus jedem negativen Wert eine 1, und 1 ist ein
+     gueltiger Keim. Gemessen mit weltKeim = -5 stand danach 1 im Stand,
+     also eine ANDERE Stadt als die gebaute: alle gespeicherten POI- und
+     Markenkennungen haetten auf Orte gezeigt, die es dort nicht gibt.
+     Mit der Grenze 0 greift der Rueckfall so, wie er gedacht war. */
+  const wk = zahl(roh.weltKeim, 0, 4294967295, 0);
+  g.weltKeim    = wk >= 1 ? Math.floor(wk) : WELT_KEIM;
   g.punkte      = Math.round(zahl(roh.punkte, 0, 1e9, 0));
   g.bestPunkte  = Math.round(zahl(roh.bestPunkte, 0, 1e9, 0));
   g.ruf         = zahl(roh.ruf, 0, 100, 100);
