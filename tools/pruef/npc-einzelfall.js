@@ -77,7 +77,16 @@ const FOLGT = process.argv.includes('folgt');
                   boden: +boden.toFixed(2), gz: civ.gehZustand,
                   routeI: civ.routeI, routeLen: civ.route ? civ.route.length : 0,
                   zielKnoten: civ.route ? civ.route[civ.routeI] : null,
-                  still: +still.toFixed(1), fest: civ.festStufeN || 0, box };
+                  still: +still.toFixed(1), fest: civ.festStufeN || 0, box,
+                  /* Warum steht sie? festStufe zaehlt nur hoch, wenn die
+                     GEWOLLTE Geschwindigkeit ueber 0,6 liegt - eine Figur,
+                     die absichtlich stehenbleibt, wird nie geloest. Diese
+                     Felder trennen "blockiert" von "will gar nicht". */
+                  v: +Math.hypot(civ.vel.x, civ.vel.z).toFixed(2),
+                  gafft: !!civ.gafft, geisel: !!civ.geisel,
+                  partner: !!civ.sozialPartner, pose: civ.ruhePose || null,
+                  warteT: civ.warteT !== undefined ? +(+civ.warteT).toFixed(1) : null,
+                  ampel: civ.ampelWarten !== undefined ? !!civ.ampelWarten : null };
       if (civ.route !== routeStart && routeGewechselt < 0) {
         routeGewechselt = i;
         routeNeu = civ.route ? civ.route.map((k) => [Math.round(knoten[k].x), Math.round(knoten[k].z)]) : null;

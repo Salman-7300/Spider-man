@@ -32632,6 +32632,14 @@ if (window.__WEBHERO_TEST__ === true) {
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
+    /* Die Nebenauftraege pausieren. Ein Pruefstand, der EINE Figur laufen
+       laesst, bekommt sonst nach rund 18 Sekunden den Geiselauftrag
+       dazwischen: der sucht sich den naechsten Zivilisten und setzt ihn an
+       den Unterschlupf der Gang - bei einer einelementigen Liste immer die
+       Testfigur. Das sah wie ein Ortssprung im Gehverhalten aus und war
+       keiner. Siehe docs/PHASE13-TESTS.md, Test D. */
+    setzeMissionCd(v) { missionCd = v; },
+    get missionCd() { return missionCd; },
     /* Damit ein Pruefstand die Gebietsgrenze gegen das Gehnetz halten kann,
        statt sie abzuschreiben - abgeschriebene Grenzen waren schon einmal
        der Grund fuer einen falschen Befund. */

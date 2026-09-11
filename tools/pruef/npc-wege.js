@@ -126,6 +126,19 @@ const NUR_E = process.argv.includes('nurE');
     const STILL_FEHLER = 20;      // ohne Erklaerung
     const STILL_ERLAUBT = 45;     // mit Erklaerung (zwei Ampelphasen plus Luft)
 
+    /* ---- Nebenauftraege anhalten ----
+       DAS war der "Ortssprung", der diesen Pruefstand drei Laeufe lang
+       begleitet hat: nach 18 Sekunden startet das Spiel seinen ersten
+       Nebenauftrag. Faellt die Wahl auf 'geisel', sucht er sich den
+       Zivilisten, der dem Unterschlupf einer Gang am naechsten ist, und
+       setzt ihn dorthin:
+           civ.pos.x = g.home.x + rand(-3, 3);
+       Der Pruefstand hat die Zivilistenliste auf EINE Figur gekuerzt -
+       also traf es immer die Testfigur, immer beim selben Bild (531/532),
+       und immer nur dann, wenn die Wuerfel auf 'geisel' fielen. Das war
+       kein Gehfehler, sondern eine Mission, die ihre Geisel holt. */
+    d.setzeMissionCd(1e9);
+
     /* ================= D: Zivilistenrouten ================= */
     /* Der Vorgabewert aus CFG.playerHP. Der Pruefstand steigt nie auf,
        also bleibt es bei 100. */
