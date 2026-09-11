@@ -16,7 +16,68 @@ Gezaehlt werden ueber die ganze Stunde: Szenenobjekte, Gegner, Bosse,
 Zivilisten, Autos, Ereignisse, Einsatzkraefte, Lichter, temporaere
 Verweise, Fehler. Bedingung: **kein Wachstumstrend**.
 
-**Stand:** offen.
+Pruefstand: `tools/pruef/welt-stunde.js`. 60 Minuten Spielzeit am Stueck,
+**120 Messpunkte im Abstand von 30 s**. Der Spieler wandert ueber zehn
+Orte der Karte - stehenbleiben laesst die halbe Welt einschlafen und
+beweist nichts. Je Reihe wird eine Regressionsgerade durch alle 120
+Punkte gelegt; ein Trend zaehlt erst ab 5 % des Mittelwerts und
+mindestens 2 Stueck.
+
+**Stand: kein Wachstumstrend.**
+
+| Reihe | Anfang | Ende | Mittel | Hoechst | je Stunde |
+|---|---|---|---|---|---|
+| Szenenobjekte | 10.121 | 10.679 | 10.721,6 | 11.604 | −194,9 |
+| Lichter | 3 | 3 | 3,0 | 3 | 0 |
+| Gegner | 10 | 14 | 14,3 | 20 | −1,7 |
+| Bosse | 0 | 0 | 0,0 | 0 | 0 |
+| Zivilisten | 55 | 55 | 55,0 | 55 | 0 |
+| Autos | 26 | 26 | 26,1 | 28 | −0,4 |
+| Einsaetze | 0 | 0 | 0,1 | 2 | −0,4 |
+| Einsatzwagen | 0 | 0 | 0,1 | 2 | −0,4 |
+| Aktivitaeten | 0 | 0 | 0,4 | 1 | −0,1 |
+| Vogelschwaerme | 0 | 4 | 1,6 | 4 | −0,5 |
+| Kollider | 1.932 | 1.932 | 1.932,0 | 1.932 | 0 |
+| **Lecks** | 0 | 0 | **0,0** | **0** | 0 |
+| **Fehler** | 0 | 0 | **0,0** | **0** | 0 |
+
+Wegsuche ueber die Stunde: 1.007 Suchen, 0,116 ms je Suche.
+Hygiene: 1 vorgemerkt, 1 abgebaut, 0 zurueckgeholt, 0 Blockaden.
+
+**Zwei Einschraenkungen, die dazugehoeren.** Erstens war die Welt in
+diesem Lauf **ruhig**: null Bosse, hoechstens zwei Einsaetze, hoechstens
+eine Aktivitaet gleichzeitig. Ein Lecktest unter geringer Last ist
+schwaecher, als die Tabelle aussehen laesst - die belebte Seite deckt
+Test A ab. Zweitens stand die Reihe "Ereignisse" die ganze Stunde auf
+`undefined`, und das war ein echter Fund, siehe unten.
+
+### Gefunden: `evStand` war im Testfenster zweimal vergeben
+
+`window.__dbg` ist ein einziges Objektliteral mit 327 Eintraegen. Zwei
+Eintraege hiessen `evStand`: einer liefert die **Liste** der laufenden
+Ereignisse, einer eine **Zusammenfassung** `{bekannt, still}`. JavaScript
+nimmt bei doppelten Schluesseln stillschweigend den letzten - die Liste
+war also seit ihrer Entstehung unerreichbar.
+
+Das ist dieselbe Falle, die im Code schon einmal dokumentiert ist
+(`ubahnen` gab es ebenfalls doppelt). Deshalb nicht nur der Einzelfall
+behoben - die Zusammenfassung heisst jetzt `evUebersicht` -, sondern ein
+Waechter dazu: `tools/test-testfenster.cjs` schneidet den `__dbg`-Block
+ueber die Klammerbilanz heraus, sammelt alle Schluessel der obersten
+Ebene ein und schlaegt bei jedem doppelten an.
+
+Der Waechter hat beim ersten Lauf gleich noch eine Doppelung gefunden,
+und die war **meine**: `hausStellen` gab es schon als `hausStellen:
+HAUS_STELLEN` in einer Sammelzeile, und ich hatte in Test E eine zweite
+Fassung als Funktion daneben gestellt. Entfernt.
+
+Der Waechter selbst brauchte drei Anlaeufe: zeilenweise fand er 274 von
+327 Schluesseln (mehrere Eintraege teilen sich eine Zeile), mit
+Klammerzaehlung 136 (ein `(` beendet einen Methodennamen UND oeffnet die
+Argumentliste - die Reihenfolge der Pruefungen entschied), und ohne
+Ueberspringen des Wertes nach einem `:` waren es 357 (er zaehlte
+`HAUS_STELLEN` als eigenen Schluessel). Gegenprobe: ein kuenstlich
+eingebauter zweiter `fogFern` wird gefunden und beim Namen genannt.
 
 ## Test C — Uebergangsmatrix der Spielfigur
 Mindestens diese 20 Uebergaenge:

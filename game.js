@@ -31913,7 +31913,14 @@ if (window.__WEBHERO_TEST__ === true) {
     evVerlauf() { return EV.verlauf.slice(); },
     /* Nur lesen, fuer die Rhythmus-Messung: was laeuft gerade, und weiss
        der Spieler davon? */
-    evStand() {
+    /* ---- Hiess bis Test B ebenfalls evStand ----
+       Damit ueberschrieb dieser Eintrag die LISTE weiter oben, und jeder
+       Test, der die laufenden Ereignisse einzeln lesen wollte, bekam
+       stattdessen {bekannt, still}. In Test B stand die Reihe
+       "ereignisse" deshalb eine ganze Stunde lang auf undefined.
+       Dieselbe Falle wie frueher bei 'ubahnen' - ein Objektliteral meldet
+       einen doppelten Schluessel nicht, es nimmt einfach den letzten. */
+    evUebersicht() {
       let bekannt = 0, still = 0;
       for (const e of EV.liste) {
         if (e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN') continue;
@@ -32002,7 +32009,6 @@ if (window.__WEBHERO_TEST__ === true) {
     teilArten() { return Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length); },
     spawnGang,
     aufGehweg,
-    hausStellen() { return HAUS_STELLEN.slice(); },
     /* Die Haustueren in WELTKOORDINATEN. Sie stehen nirgends als Liste:
        der Durchgang ist im Baukasten je Haustyp lokal beschrieben
        (KIT_HAEUSER[].tuer) und wird beim Setzen gedreht und verschoben.
