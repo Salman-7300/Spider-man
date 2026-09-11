@@ -95,18 +95,26 @@ const fs = require('fs');
         /* Zeit nach der Strecke bemessen, mit reichlich Zuschlag fuer
            Ampeln, Ausweichen und die kurzen Pausen am Ziel. */
         const MAX = luft / 0.8 + 40;
-        /* Stillstand zaehlt erst als STECKEN, wenn er lange genug
-           dauert: an einer roten Ampel zu warten ist kein Fehler. */
-        let stillSeit = 0, laengsterStillstand = 0;
+        /* ---- Wie lange darf ein Passant stehen? ----
+           Acht Sekunden waren zu wenig: eine Ampelphase dauert
+           gruenDauer 9 + gelbDauer 2 = 11 s, ein Rotlicht also laenger
+           als meine Schwelle. 76 von 100 "steckt fest" im zweiten
+           Durchlauf waren schlicht Passanten an einer roten Ampel.
+           25 s liegen sicher ueber zwei Phasen. */
+        let stillSeit = 0, laengsterStillstand = 0, stillZustand = null;
+        const STILL_MAX = 25;
         while (t < MAX) {
           d.schritt(1 / 30);
           t += 1 / 30;
           const s = Math.hypot(civ.pos.x - vx, civ.pos.z - vz);
           strecke += s;
           if (s < 0.005) { stillSeit += 1 / 30;
-                           if (stillSeit > laengsterStillstand) laengsterStillstand = stillSeit; }
+                           if (stillSeit > laengsterStillstand) {
+                             laengsterStillstand = stillSeit;
+                             stillZustand = civ.gehZustand || null;
+                           } }
           else stillSeit = 0;
-          if (stillSeit > 8) { steckt++; break; }     // acht Sekunden ohne Schritt
+          if (stillSeit > STILL_MAX) { steckt++; break; }
           vx = civ.pos.x; vz = civ.pos.z;
           const boden = d.groundYAt(civ.pos.x, civ.pos.z, civ.pos.y);
           if (civ.pos.y < boden - 0.4) abgesackt++;
@@ -119,10 +127,11 @@ const fs = require('fs');
                       umweg: luft > 1 ? +(strecke / luft).toFixed(2) : null,
                       steckt, imHaus, abgesackt,
                       stillstand: +laengsterStillstand.toFixed(1),
+                      stillZustand,
                       von: [Math.round(kA.x), Math.round(kA.z)],
                       nach: [Math.round(kB.x), Math.round(kB.z)],
                       grund: ankunft ? null
-                             : steckt ? 'acht Sekunden keinen Schritt'
+                             : steckt ? STILL_MAX + ' s keinen Schritt (' + stillZustand + ')'
                              : 'Zeit abgelaufen (' + MAX.toFixed(0) + ' s)' });
       }
       d.civilians.push(...rest);
@@ -160,6 +169,16 @@ const fs = require('fs');
                                  grund: 'kein Gegner erzeugt' }); continue; }
         e.pos.set(a.x, d.groundYAt(a.x, a.z, 0), a.z);
         if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
+        /* ---- Der Gegner muss den Spieler ueberhaupt bemerkt haben ----
+           Ein Ganove wechselt erst bei 11 m Sichtweite in die Verfolgung
+           (9 m mit Sichtpruefung). Meine Startlagen lagen 12 bis 45 m
+           auseinander - die Gegner patrouillierten also brav weiter und
+           94 von 100 "Zeit abgelaufen" waren kein Befund ueber die KI,
+           sondern darueber, dass ich sie nie alarmiert habe.
+           Geprueft werden soll: kommt ein VERFOLGENDER Gegner durch die
+           schwierige Gegend zum Spieler. Also wird er alarmiert. */
+        e.state = 'chase';
+        e.target = 'player';
 
         const luft = Math.hypot(ziel.x - a.x, ziel.z - a.z);
         let t = 0, steckt = 0, imHaus = 0, abgesackt = 0, strecke = 0, erreicht = false;
@@ -174,7 +193,10 @@ const fs = require('fs');
           if (s < 0.005) { stillSeit += 1 / 30;
                            if (stillSeit > laengsterStillstand) laengsterStillstand = stillSeit; }
           else stillSeit = 0;
-          if (stillSeit > 8) { steckt++; break; }
+          if (stillSeit > 25) { steckt++; break; }
+          /* Falls die KI ihn zwischendurch zurueckstuft, wieder auf
+             Verfolgung setzen - gemessen wird der Weg, nicht die Laune. */
+          if (e.state !== 'chase' && !e.dead) { e.state = 'chase'; e.target = 'player'; }
           vx = e.pos.x; vz = e.pos.z;
           const boden = d.groundYAt(e.pos.x, e.pos.z, e.pos.y);
           if (e.pos.y < boden - 0.4) abgesackt++;
@@ -190,7 +212,7 @@ const fs = require('fs');
                        von: [Math.round(a.x), Math.round(a.z)],
                        nach: [Math.round(ziel.x), Math.round(ziel.z)],
                        grund: erreicht ? null : e.dead ? 'Gegner gestorben'
-                              : steckt ? 'acht Sekunden keinen Schritt'
+                              : steckt ? '25 s keinen Schritt'
                               : 'Zeit abgelaufen (' + MAX.toFixed(0) + ' s)' });
       }
     }
