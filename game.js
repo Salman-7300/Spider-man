@@ -20786,6 +20786,44 @@ function autoKreuzung(car, linie) {
   return true;
 }
 
+/* ---- Wer an der Kreuzung wartet ----
+   Steht eigenstaendig, damit sich die Entscheidung ohne halbe Stadt
+   pruefen laesst (tools/test-verkehr.cjs).
+
+   Hier standen frueher die eigene Spur (car.lane) und die eigene
+   Fahrachse als Kreuzungspunkt. Damit rechnete jeder Wagen mit einem
+   ANDEREN Punkt: wer in x fuhr, mass zu dem Punkt auf seiner z-Spur, wer
+   in z fuhr, zu dem auf seiner x-Spur - die beiden liegen drei Meter
+   auseinander. Jeder sah den anderen dadurch drei Meter naeher an der
+   Kreuzung als sich selbst, also wartete jeder auf den anderen. Gemessen
+   an der Uferstrasse (175 | -25): zwei Schlangen, die Koepfe 193
+   Sekunden unbewegt, im Stundenlauf bis zu 1379 Sekunden.
+   Jetzt rechnen beide zur MITTE der Kreuzung, also zu den Gitterlinien -
+   und vergleichen damit dieselbe Strecke. */
+function querverkehrWarten(car, dKreuz, liste) {
+  const kLaengs = car.s + car.dir * dKreuz;
+  const kQuer = ORIGIN + Math.round((car.lane - ORIGIN) / PITCH) * PITCH;
+  const kx = car.axis === 'x' ? kLaengs : kQuer;
+  const kz = car.axis === 'x' ? kQuer : kLaengs;
+  /* An der Uferstrasse steht keine Ampel; dort gilt reine Vorfahrt. */
+  const ohneAmpel = kx > RIVER_X0 - 20;
+  for (const o of liste) {
+    if (o === car || o.aus || o.axis === car.axis) continue;
+    if (!ohneAmpel && !o.flucht) continue;
+    /* Wie weit ist der andere von DERSELBEN Kreuzung entfernt? */
+    const oQuer = o.axis === 'x' ? kz - o.lane : kx - o.lane;
+    if (Math.abs(oQuer) > ROAD_HALF) continue;         // andere Kreuzung
+    const od = ((o.axis === 'x' ? kx : kz) - o.s) * o.dir;
+    if (od < 0 || od > 24) continue;                   // faehrt weg oder weit
+    if (o.flucht || od < dKreuz - 1.5) return true;
+    /* Gleichstand: die eineinhalb Meter Totband sollen verhindern, dass
+       beide warten - sie fuehren aber dazu, dass beide FAHREN. Deshalb
+       eine feste Vorfahrt: wer in x faehrt, faehrt zuerst. */
+    if (Math.abs(od - dKreuz) <= 1.5 && car.axis === 'z') return true;
+  }
+  return false;
+}
+
 function updateCars(dt) {
   updateAmpeln(dt);
   const anteil = verkehrsAnteil();
@@ -20861,20 +20899,7 @@ function updateCars(dt) {
          (oder kommt ein Fluchtauto), wird gewartet. */
       const dKreuz = abstandZurKreuzung(car);
       if (dKreuz < 24) {
-        const kx = car.axis === 'x' ? car.s + car.dir * dKreuz : car.lane;
-        const kz = car.axis === 'x' ? car.lane : car.s + car.dir * dKreuz;
-        const ohneAmpel = kx > RIVER_X0 - 20;
-        let warten = false;
-        for (const o of cars) {
-          if (o === car || o.aus || o.axis === car.axis) continue;
-          if (!ohneAmpel && !o.flucht) continue;
-          /* Wie weit ist der andere von DERSELBEN Kreuzung entfernt? */
-          const oQuer = o.axis === 'x' ? kz - o.lane : kx - o.lane;
-          if (Math.abs(oQuer) > ROAD_HALF) continue;         // andere Kreuzung
-          const od = ((o.axis === 'x' ? kx : kz) - o.s) * o.dir;
-          if (od < 0 || od > 24) continue;                   // faehrt weg oder weit
-          if (o.flucht || od < dKreuz - 1.5) warten = true;
-        }
+        const warten = querverkehrWarten(car, dKreuz, cars);
         if (warten) {
           const halt = dKreuz - (ROAD_HALF + eigenLaenge / 2 + 0.8);
           if (RESP.trace) car.bremse = 'querverkehr halt=' + halt.toFixed(1);
