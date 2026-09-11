@@ -30430,6 +30430,7 @@ function ptMissionAuf(d) {
     id: d.id, titel: d.titel, start: elapsed, ende: 0, gesamt: 0,
     kampf: 0, traversal: 0, erkundung: 0, jagd: 0, warten: 0,
     ohneFortschritt: 0, laengsteRatlosigkeit: 0,
+    ratlosZiel: null, ratlosPhase: -1, ratlosOrt: null,
     bisZielVerstanden: -1, phasen: [], tode: 0, neustarts: 0, weich: 0,
     _letzterFortschritt: elapsed, _letztePhase: -1, _startPos: null,
   };
@@ -30485,7 +30486,16 @@ function ptTakt(dt) {
   const still = elapsed - l._letzterFortschritt;
   if (still > 6) {
     l.ohneFortschritt += dt;
-    if (still > l.laengsteRatlosigkeit) l.laengsteRatlosigkeit = +still.toFixed(1);
+    if (still > l.laengsteRatlosigkeit) {
+      l.laengsteRatlosigkeit = +still.toFixed(1);
+      /* WELCHER Auftragstext stand da, als es am laengsten nicht
+         weiterging? Die blosse Dauer sagt nur, DASS jemand feststeckte;
+         der Zieltext sagt, WORAN. Ohne ihn ist die Zahl beim Auswerten
+         eines Spieldurchlaufs kaum zu gebrauchen. */
+      l.ratlosZiel = STORY.zielText || null;
+      l.ratlosPhase = l._letztePhase;
+      l.ratlosOrt = [Math.round(player.pos.x), Math.round(player.pos.z)];
+    }
   }
 }
 function ptMissionZu(art) {
@@ -30511,6 +30521,7 @@ function ptBericht() {
       jagd: m.jagd, warten: m.warten,
       ohneFortschritt: m.ohneFortschritt,
       laengsteRatlosigkeit: m.laengsteRatlosigkeit,
+      ratlosZiel: m.ratlosZiel, ratlosPhase: m.ratlosPhase, ratlosOrt: m.ratlosOrt,
       bisZielVerstanden: m.bisZielVerstanden,
       tode: m.tode, neustarts: m.neustarts, phasen: m.phasen,
     })),
@@ -31837,6 +31848,65 @@ function simuliere(dt) {
   updateHUD();
 }
 let windCd = 0;
+
+/* ================= Pruefmodus fuer den Spieldurchlauf =================
+   Test F (Akt 1) kann kein Bot ersetzen - aber wer ihn spielt, soll
+   hinterher Zahlen haben statt Erinnerung. Die Messung selbst gibt es
+   schon (PT/ptTakt); hier ist nur der Zugang fuer den NORMALEN Browser,
+   in dem window.__dbg nicht existiert.
+
+   Einschalten:  die Seite mit ?playtest=1 aufrufen
+   Auslesen:     playtest.bericht()  in der Konsole
+   Beenden:      playtest.stop()
+
+   Am Spiel aendert das NICHTS: die Missionen laufen unveraendert, es
+   wird nichts vereinfacht und nichts eingeblendet. Gemessen wird nur,
+   was ohnehin im Zustand steht. */
+(function () {
+  let an = false;
+  try {
+    an = new URLSearchParams(window.location.search).get('playtest') === '1';
+  } catch (e) { an = false; }
+
+  function tabelle() {
+    const b = ptBericht();
+    if (!b.missionen.length) {
+      console.log('Playtest: noch keine Mission abgeschlossen.');
+      return b;
+    }
+    console.log('%cAkt-1-Playtest - ' + b.missionen.length + ' Mission(en), ' +
+                b.gesamt.minuten + ' min', 'font-weight:bold');
+    const zeilen = b.missionen.map((m) => ({
+      Mission: m.titel || m.id,
+      Dauer: m.gesamt + ' s',
+      Ausgang: m.ausgang,
+      Tode: m.tode,
+      Neustarts: m.neustarts,
+      'ohne Fortschritt': m.ohneFortschritt + ' s',
+      'laengste Phase': m.laengsteRatlosigkeit + ' s',
+      'Ziel dabei': m.ratlosZiel || '-',
+      'bis Ziel verstanden': m.bisZielVerstanden < 0 ? 'nie' : m.bisZielVerstanden + ' s',
+    }));
+    if (console.table) console.table(zeilen); else console.log(zeilen);
+    console.log('Anteile:', b.gesamt);
+    console.log('Vollstaendig als JSON:  copy(playtest.roh())');
+    return b;
+  }
+
+  window.playtest = {
+    start() { ptStart(); an = true; console.log('Playtest laeuft. Akt 1 spielen, dann playtest.bericht()'); return true; },
+    stop() { const n = ptStop(); console.log('Playtest beendet, ' + n + ' Mission(en) gemessen.'); return n; },
+    bericht: tabelle,
+    roh() { return JSON.stringify(ptBericht(), null, 2); },
+    get aktiv() { return STORY_PLAYTEST; },
+  };
+  if (an) {
+    ptStart();
+    console.log('%cPRUEFMODUS AKTIV', 'background:#c8102e;color:#fff;padding:2px 6px');
+    console.log('Akt 1 spielen wie immer. Danach in dieser Konsole:  playtest.bericht()');
+  }
+})();
+
 animate();
 
 // Nur für automatisierte Tests sichtbar
@@ -32007,6 +32077,9 @@ if (window.__WEBHERO_TEST__ === true) {
     bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     teilArten() { return Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length); },
+    /* Welche Hand gerade das Netz fuehrt - Test A zaehlt damit die
+       Handwechsel beim Schwingen. */
+    get netzHand() { return netzHand; },
     spawnGang,
     aufGehweg,
     /* Die Haustueren in WELTKOORDINATEN. Sie stehen nirgends als Liste:
