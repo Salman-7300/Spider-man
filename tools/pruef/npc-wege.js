@@ -182,6 +182,15 @@ const SEED = Number(process.argv[3]) || 4711;
            Steckrettung noch das Ein- und Aussteigen. Auf dem normalen
            Laufzeitpfad (Spieler in der Naehe, volle Welt) liess er sich
            nicht ausloesen.
+           Der Reihe nach ausgeschlossen:
+             - pos.set und pos.copy (Stolperdraht auf beide, nie ausgeloest)
+             - die Steckrettung (festStufeN bleibt 0, GEH_STAT.gerettet
+               zaehlt nicht hoch, der naechste Knoten lag 2 m daneben)
+             - das Leeren der Zivilistenliste (tritt mit voller Liste
+               ebenso auf und bleibt ebenso aus)
+             - Nachladen von Weltdaten: Kollider 1929, Gehnetzknoten 728
+               und Zivilistenzahl 55 sind ab Bild 0 konstant
+
            Nach der Regel "kein Spielcode ohne Reproduktion im normalen
            Pfad" wird das Spiel deshalb NICHT geaendert. Der Lauf wird
            stattdessen als UNGUELTIG verworfen - er als Fehlschlag zu
@@ -280,7 +289,14 @@ const SEED = Number(process.argv[3]) || 4711;
         if (s < 0.005) { still += 1 / 30; if (still > stillMax) stillMax = still;
                          if (still > STILL_FEHLER) { haengt = 1; break; } }
         else still = 0;
-        if (e.state !== 'chase' && !e.dead) { e.state = 'chase'; e.target = 'player'; }
+        /* ---- NICHT jedes Bild chase erzwingen ----
+           Der vorige Lauf tat das und kam auf 0 von 91. Isoliert
+           nachgefahren erreicht derselbe Gegner den Spieler problemlos -
+           er wechselt dabei unterwegs nach 'suchen' und von selbst
+           zurueck nach 'chase'. Das Ueberschreiben in jedem Bild hat
+           genau diesen Anlauf zerstoert. Jetzt wird nur nachalarmiert,
+           wenn die KI ganz auf Patrouille zurueckfaellt. */
+        if (e.state === 'patrol' && !e.dead) { e.state = 'chase'; e.target = 'player'; }
         const boden = d.groundYAt(e.pos.x, e.pos.z, e.pos.y);
         if (e.pos.y < boden - 0.4) { unterBoden++;
           if (!ersterFehlerBild) { ersterFehlerBild = bild; ersterFehlerArt = 'unterBoden';
