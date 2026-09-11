@@ -19814,7 +19814,33 @@ function setzeMoebelFeld(geo, werkstoff, plaetze, wohin) {
 
 /* Wie weit ein Stadtmoebel noch gezeichnet wird. Knapp unter der
    kuerzesten Nebelweite (260 m auf der Stufe "niedrig"), damit nichts
-   VOR dem Nebel aufpoppt. */
+   VOR dem Nebel aufpoppt.
+
+   ---- KORREKTUR der Zahlen aus dem ersten Durchgang ----
+   Die zuerst berichtete Kurve (235 m spart 7,5 Prozent) war auf einer
+   UNVOLLSTAENDIGEN Stadt gemessen: der Pruefstand hatte 1,8 Sekunden
+   nach actorsReady losgelegt, und assets/haeuser.glb wird als letzte von
+   rund 300 GLB-Dateien geladen - die 287 Hausmodelle und 37 gebauten
+   Hochhaeuser standen also noch gar nicht.
+   Neu gemessen auf der vollstaendigen Stadt, von einem festen Standpunkt
+   und ohne Wagen, Passanten und Gegner (die aendern die Dreieckszahl von
+   Bild zu Bild und ueberdeckten den Unterschied):
+
+     unbegrenzt  620 Zeichenaufrufe  2.602.469 Dreiecke      0,0 Prozent
+     360 m       618                 2.578.781             - 0,9
+     300 m       617                 2.566.933             - 1,4
+     235 m       616                 2.520.070             - 3,2   <- gewaehlt
+     190 m       616                 2.326.678             -10,6
+     150 m       616                 2.102.870             -19,2
+     120 m       616                 1.925.590             -26,0
+      90 m       616                 1.821.382             -30,0
+
+   Die Ersparnis bei 235 m ist damit 3,2 Prozent, nicht 7,5. Die Form der
+   Kurve stimmt, die Hoehe war falsch. Die Zeichenaufrufe bleiben
+   unveraendert (616 bis 620) - das stimmte, nur lagen sie bei 360 statt
+   bei 620, weil die Haeuser fehlten.
+   An der Zahl 235 aendert das nichts: sie ist von der Nebelweite
+   bestimmt, nicht von der Ersparnis. */
 let MOEBEL_SICHT = 235;
 const _mbM = new THREE.Matrix4();
 function updateMoebelSicht(dt) {

@@ -69,7 +69,25 @@ async function starte(breite, hoehe, seed, opt) {
   }, seed === undefined ? null : seed);
   await page.goto('http://webhero.test/');
   await page.waitForFunction(() => window.__dbg && window.__dbg.actorsReady, { timeout: 150000 });
-  await page.waitForTimeout(1800);
+  /* ---- Warten, bis die STADT wirklich steht ----
+     actorsReady meldet nur die Figuren. assets/haeuser.glb (2,8 MB) wird
+     als LETZTE aller rund 300 GLB-Dateien angefordert; erst danach
+     ersetzt setzeHausModelle() die einfachen Fassadenkisten durch 287
+     Hausmodelle und 37 gebaute Hochhaeuser.
+     Gemessen: 1,8 Sekunden nach actorsReady steht davon NICHTS, nach drei
+     Sekunden alles. Wer frueher misst, misst eine andere Stadt - mir sind
+     damit eine LOD-Messung und eine Reihe Bildschirmfotos verdorben. */
+  await page.waitForFunction(() => {
+    let n = 0;
+    window.__dbg.szene.traverse((o) => {
+      if (o.userData && o.userData.visualKind === 'tower') n++;
+    });
+    return n > 0;
+  }, { timeout: 60000 }).catch(() => {
+    console.log('WARNUNG: die Hausmodelle sind nicht erschienen - '
+              + 'die Messung laeuft auf den einfachen Fassadenkisten.');
+  });
+  await page.waitForTimeout(900);
   await page.evaluate(() => {
     const o = document.getElementById('overlay');
     if (o) o.style.display = 'none';
