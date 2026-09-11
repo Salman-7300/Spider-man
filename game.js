@@ -19643,22 +19643,82 @@ function moebelAufHoehe(geo, hoch) {
    [x, y, z, drehung]. Alles in EINEM InstancedMesh: als einzelne Kopien
    waeren es hunderte Zeichenaufrufe, mehr als die ganze uebrige Stadt
    zusammen. */
+/* ---- Stadtmoebel nach Entfernung ----
+   Gemessen an der gebauten Stadt: EIN Instanzfeld trug 766 976 Dreiecke
+   (die Ampel, 3424 je Stueck bei 224 Instanzen). Weil ein Feld ueber die
+   ganze Stadt reicht, stand frustumCulled auf false - es wurde also in
+   JEDEM Bild vollstaendig gezeichnet, auch der Teil hinter dem Ruecken.
+   Von 3,0 Mio. gezeichneten Dreiecken lagen 2,8 Mio. in solchen Feldern.
+
+   ZWEI WEGE, DIE NICHT FUNKTIONIERT HABEN, beide gemessen:
+   1. Raeumliche Buendel mit eigener Huellkugel. Gebaut, gemessen,
+      verworfen: mit 110 m Buendeln entstehen in einer 350 m breiten
+      Stadt nur rund zehn Kugeln von 80 m Radius, die sich um 51 m
+      ueberlappen - fast jede liegt immer im Bild. Ergebnis: Dreiecke
+      exakt unveraendert, dafuer 89 Zeichenaufrufe mehr. Kleinere
+      Buendel wuerden das Wegschneiden verbessern, aber bei 40 m waeren
+      es 77 Buendel JE MOEBELART - der Gewinn faellt in Zeichenaufrufe.
+   2. Die Modelle vereinfachen (meshoptimizer, siehe
+      tools/moebel-vereinfachen.mjs). Selbst mit 20 Prozent
+      Fehlertoleranz kommt die Ampel nur von 3424 auf 2054 und die Bank
+      bewegt sich gar nicht: die Modelle sind hartkantig, jede Flaeche
+      hat eigene Punkte, und der Vereinfacher kann keine Kante
+      zusammenlegen, ohne die Form zu zerreissen.
+
+   WAS FUNKTIONIERT: das Feld bleibt EIN Zeichenaufruf, aber es enthaelt
+   nur noch die Stuecke in der Naehe. Viermal je Sekunde werden die
+   Matrizen neu geschrieben und count gesetzt. Dasselbe Verfahren
+   benutzt updateKitHaeuser schon fuer die Baukasten-Haeuser. */
+const MOEBEL_FELDER = [];
+let moebelTakt = 0;
+
 function setzeMoebelFeld(geo, werkstoff, plaetze, wohin) {
+  if (!plaetze.length) return null;
   const netz = new THREE.InstancedMesh(geo, werkstoff, plaetze.length);
   netz.castShadow = true; netz.receiveShadow = true;
   /* Ueber die ganze Stadt verteilt - ein gemeinsamer Umkreis waere
-     riesig und wuerde nie weggeschnitten. */
+     riesig und wuerde nie weggeschnitten. Statt Wegschneiden wird die
+     Zahl der Instanzen nach Entfernung gesetzt (updateMoebelSicht). */
   netz.frustumCulled = false;
   const m = new THREE.Matrix4(), q = new THREE.Quaternion();
   const p = new THREE.Vector3(), eins = new THREE.Vector3(1, 1, 1);
   const achse = new THREE.Vector3(0, 1, 0);
-  plaetze.forEach(([x, y, z, dreh], i) => {
-    m.compose(p.set(x, y, z), q.setFromAxisAngle(achse, dreh), eins);
-    netz.setMatrixAt(i, m);
-  });
+  /* Alle Matrizen EINMAL rechnen und merken - beim Nachziehen werden sie
+     nur noch umkopiert, nicht neu zusammengesetzt. */
+  const alle = plaetze.map(([x, y, z, dreh]) =>
+    new THREE.Matrix4().compose(p.set(x, y, z), q.setFromAxisAngle(achse, dreh), eins));
+  plaetze.forEach((pl, i) => netz.setMatrixAt(i, alle[i]));
+  netz.count = plaetze.length;
   netz.instanceMatrix.needsUpdate = true;
   (wohin || cityGroup).add(netz);
+  MOEBEL_FELDER.push({ netz, alle,
+                       orte: plaetze.map(([x, y, z]) => ({ x, y, z })) });
   return netz;
+}
+
+/* Wie weit ein Stadtmoebel noch gezeichnet wird. Knapp unter der
+   kuerzesten Nebelweite (260 m auf der Stufe "niedrig"), damit nichts
+   VOR dem Nebel aufpoppt. */
+let MOEBEL_SICHT = 235;
+const _mbM = new THREE.Matrix4();
+function updateMoebelSicht(dt) {
+  if (!MOEBEL_FELDER.length) return;
+  moebelTakt -= dt;
+  if (moebelTakt > 0) return;
+  moebelTakt = 0.25;
+  const px = player.pos.x, py = player.pos.y, pz = player.pos.z;
+  const w = MOEBEL_SICHT * MOEBEL_SICHT;
+  for (const f of MOEBEL_FELDER) {
+    let n = 0;
+    for (let i = 0; i < f.orte.length; i++) {
+      const o = f.orte[i];
+      const dx = o.x - px, dy = o.y - py, dz = o.z - pz;
+      if (dx * dx + dy * dy + dz * dz > w) continue;
+      f.netz.setMatrixAt(n++, f.alle[i]);
+    }
+    if (f.netz.count !== n) { f.netz.count = n; f.netz.instanceMatrix.needsUpdate = true; }
+    else f.netz.instanceMatrix.needsUpdate = true;
+  }
 }
 
 /* Die Laternen: ein Ausleger je Mast, Kopf zur Fahrbahn. */
@@ -31375,6 +31435,7 @@ function simuliere(dt) {
   updateGeschosse(dt);
   updateKlatscher(dt);
   updateUnterwelt();
+  updateMoebelSicht(dt);
   updateZug(dt);
   updateAufzuege(dt);
   updateKatapult(dt);
@@ -31601,6 +31662,12 @@ if (window.__WEBHERO_TEST__ === true) {
     ubLinien() { return UB_LINIEN; },
     ubSchaechte() { return UB_SCHAECHTE; },
     /* Zeichenaufrufe und Dreiecke des zuletzt gezeichneten Bildes. */
+    /* Wirkt SOFORT - sonst muesste ein Bildvergleich dazwischen
+       simulieren, und dann haben sich Autos und Leute mitbewegt. */
+    setzeMoebelSicht(v) { MOEBEL_SICHT = v; moebelTakt = 0; updateMoebelSicht(1); },
+    moebelFelder() {
+      return MOEBEL_FELDER.map((f) => ({ gesamt: f.orte.length, gezeigt: f.netz.count }));
+    },
     renderZahlen() {
       const r2 = renderer.info.render;
       return { calls: r2.calls, tris: r2.triangles };
