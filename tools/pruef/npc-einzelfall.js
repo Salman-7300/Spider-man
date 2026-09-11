@@ -22,6 +22,9 @@ const FOLGT = process.argv.includes('folgt');
   const aus = await page.evaluate(async ([VON, NACH, FOLGT]) => {
     const d = __dbg, P = d.player;
     d.frier(true);
+    /* Nebenauftraege anhalten - sonst holt sich der Geiselauftrag nach
+       18 Sekunden die Testfigur. Siehe docs/PHASE13-TESTS.md, Test D. */
+    if (d.setzeMissionCd) d.setzeMissionCd(1e9);
     const knoten = d.gehKnotenListe();
     const kA = knoten[VON], kB = knoten[NACH];
     if (!kA || !kB) return { fehler: 'Knoten nicht vorhanden' };

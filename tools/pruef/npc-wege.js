@@ -106,6 +106,7 @@ const NUR_E = process.argv.includes('nurE');
       F_ampel: { stopps: 0, laengster: 0 },
       G_eingestiegen: 0,
       D_ungueltig: [], E_ungueltig: [],
+      D_fahrgast: [],         // in die U-Bahn gestiegen: kein Fehler
     };
 
     const imKollider = (x, z, y) => {
@@ -184,7 +185,7 @@ const NUR_E = process.argv.includes('nurE');
 
       const luft = Math.hypot(kB.x - kA.x, kB.z - kA.z);
       const MAX = luft / 0.8 + 45;
-      let t = 0, strecke = 0, ankunft = false, ungueltig = null;
+      let t = 0, strecke = 0, ankunft = false, ungueltig = null, fahrgast = null;
       let vx = civ.pos.x, vz = civ.pos.z;
       let still = 0, stillGrund = null, stillMax = 0;
       let imHaus = 0, unterBoden = 0, haengt = 0;
@@ -251,6 +252,14 @@ const NUR_E = process.argv.includes('nurE');
                                                        z0: +box.z0.toFixed(1), z1: +box.z1.toFixed(1),
                                                        h: +(box.h || 0).toFixed(1) }; }
         }
+        /* ---- Fahrgast geworden ist KEIN Fehler ----
+           Wer in einen Treppenschacht laeuft, wird vom Spiel zum Fahrgast
+           dieser Station gemacht (machZuFahrgast): sein Rundweg fuehrt ab
+           dann ueber Bahnsteig und Treppe, die Gehnetzroute gilt nicht
+           mehr. Das ist gewolltes Verhalten und beantwortet Frage D nicht
+           mit "nein", sondern gar nicht. Es erklaert auch die grossen
+           Ortswechsel an den U-Bahn-Knoten: das ist die Fahrt. */
+        if (civ.bahnsteig !== undefined) { fahrgast = bild; break; }
         if (Math.hypot(civ.pos.x - kB.x, civ.pos.z - kB.z) < 3.0) { ankunft = true; break; }
       }
       if (stillMax > F.F_ampel.laengster) F.F_ampel.laengster = +stillMax.toFixed(1);
@@ -259,6 +268,13 @@ const NUR_E = process.argv.includes('nurE');
                                             nach: [+kB.x.toFixed(2), +kB.z.toFixed(2)],
                                             knotenVon: a, knotenNach: b2, seed: SEED, sprung: ungueltig });
                        continue; }
+      if (fahrgast !== null) {
+        F.D_fahrgast.push({ gegend: gName, bild: fahrgast, sekunden: +t.toFixed(1),
+                            von: [+kA.x.toFixed(2), +kA.z.toFixed(2)],
+                            nach: [+kB.x.toFixed(2), +kB.z.toFixed(2)],
+                            knotenVon: a, knotenNach: b2 });
+        continue;
+      }
       F.D_route.n++;
       if (ankunft) F.D_route.ok++;
       const fall = { gegend: gName, ankunft, sekunden: +t.toFixed(1), luftlinie: +luft.toFixed(1),
@@ -433,6 +449,13 @@ const NUR_E = process.argv.includes('nurE');
   zeile('G', 'Bilder im Zug (kein Fehler)', F.G_eingestiegen + ' Bilder', true);
   console.log('');
   console.log('  laengster Stillstand ueberhaupt: ' + F.F_ampel.laengster + ' s');
+  {
+    const proGegend = {};
+    for (const f of F.D_fahrgast) proGegend[f.gegend] = (proGegend[f.gegend] || 0) + 1;
+    console.log('  Fahrgast geworden (kein Fehler, zaehlt bei D nicht mit): ' +
+                F.D_fahrgast.length +
+                (F.D_fahrgast.length ? ' ' + JSON.stringify(proGegend) : ''));
+  }
   console.log('  verworfen wegen Ortssprung (siehe Kommentar im Skript): ' +
               F.D_ungueltig.length + ' Routen, ' + F.E_ungueltig.length + ' Verfolgungen');
   if (F.D_ungueltig.length) console.log('    Beispiel: ' + JSON.stringify(F.D_ungueltig[0].sprung));

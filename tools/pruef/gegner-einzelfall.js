@@ -24,6 +24,9 @@ const ZIVIS = process.argv.includes('mitzivis');
   const aus = await page.evaluate(async ([AX, AZ, ZX, ZZ, ZIVIS]) => {
     const d = __dbg, P = d.player;
     d.frier(true);
+    /* Nebenauftraege anhalten - sonst holt sich der Geiselauftrag nach
+       18 Sekunden die Testfigur. Siehe docs/PHASE13-TESTS.md, Test D. */
+    if (d.setzeMissionCd) d.setzeMissionCd(1e9);
 
     d.enemies.length = 0;
     if (d.gangs) d.gangs.length = 0;
