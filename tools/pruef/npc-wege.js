@@ -23,10 +23,11 @@ const { starte } = require('./basis');
 const fs = require('fs');
 
 const SEED = Number(process.argv[3]) || 4711;
+const NUR_E = process.argv.includes('nurE');
 
 (async () => {
   const { b, page } = await starte(700, 420, SEED);
-  const aus = await page.evaluate(async (SEED) => {
+  const aus = await page.evaluate(async ([SEED, NUR_E]) => {
     const d = __dbg, P = d.player;
     d.frier(true);
     const knoten = d.gehKnotenListe();
@@ -126,6 +127,9 @@ const SEED = Number(process.argv[3]) || 4711;
     const STILL_ERLAUBT = 45;     // mit Erklaerung (zwei Ampelphasen plus Luft)
 
     /* ================= D: Zivilistenrouten ================= */
+    /* Der Vorgabewert aus CFG.playerHP. Der Pruefstand steigt nie auf,
+       also bleibt es bei 100. */
+    const SPIELER_HP = 100;
     const civ = d.civilians[d.civilians.length - 1];
     const rest = d.civilians.filter((x) => x !== civ);
     d.civilians.length = 0; d.civilians.push(civ);
@@ -135,7 +139,10 @@ const SEED = Number(process.argv[3]) || 4711;
     const resetFehlerBsp = [];
 
     let versuche = 0;
-    while (F.D_route.n < 100 && versuche < 400) {
+    /* Mit "nurE" bleibt die D-Schleife aus. Damit laesst sich trennen,
+       ob ein Befund in Frage E aus dem Spiel kommt oder aus dem, was
+       hundert vorherige Szenarien in derselben Seite hinterlassen. */
+    while (!NUR_E && F.D_route.n < 100 && versuche < 400) {
       versuche++;
       const [gName] = gegenden[F.D_route.n % gegenden.length];
       const liste = nachArt[gName];
@@ -171,6 +178,13 @@ const SEED = Number(process.argv[3]) || 4711;
       let ersterFehlerBild = null, ersterFehlerArt = null, ersterFehlerBox = null;
       let bild = 0;
       while (t < MAX) {
+        /* Auch hier den Spieler am Leben halten. Er steht waehrend der
+           hundert Routen unbeaufsichtigt herum, und die Gangs, die das
+           Spiel selbst setzt, gehen auf ihn los. Stirbt er, ruft das Spiel
+           respawn() - und das versetzt ihn nach (25|25). Das aendert
+           schlagartig, welche Figuren "ausser Sicht" sind. */
+        if (P.hp < SPIELER_HP) P.hp = SPIELER_HP;
+        if (P.dead) P.dead = false;
         d.schritt(1 / 30); t += 1 / 30; bild++;
         const s = Math.hypot(civ.pos.x - vx, civ.pos.z - vz);
         /* ---- Ein Fussgaenger legt in einem Bild keine 20 Meter zurueck ----
@@ -266,8 +280,21 @@ const SEED = Number(process.argv[3]) || 4711;
       d.enemies.length = 0;
       if (d.gangs) d.gangs.length = 0;
       if (d.cars) d.cars.length = 0;
+      /* ---- Den SPIELER genauso zuruecksetzen wie die Figur ----
+         Ohne das war Frage E jahrelang unbeantwortbar: der Spieler steht
+         hundertmal mitten in einer frischen Gang, wird verpruegelt und ist
+         irgendwann tot. Dann greift in updateEnemies
+             if (e.target === 'player' && (player.dead || dp > 40 ...))
+                 { e.state = 'patrol'; e.target = null; }
+         in JEDEM Bild - ab dem Tod des Spielers scheitert jedes weitere
+         Szenario, egal wie gut die Verfolgung ist. Gemessen: der Gegner
+         stand danach 1419 von 1420 Bildern auf 'patrol', obwohl der
+         Pruefstand ihn in jedem Bild neu alarmierte. Genau das erklaert
+         auch die Streuung der alten Zahlen (10, 12 und 41 von 100 bei
+         gleichem Aufruf): sie sagten nur, wann der Spieler starb. */
       P.pos.set(ziel.x, d.groundYAt(ziel.x, ziel.z, 0), ziel.z);
       P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+      P.dead = false; P.hp = SPIELER_HP;
       d.spawnGang(a.x, a.z, 1, 'test');
       d.schritt(1 / 30, 3);
       const e = (d.enemies || [])[0];
@@ -279,10 +306,44 @@ const SEED = Number(process.argv[3]) || 4711;
       const luft = Math.hypot(ziel.x - a.x, ziel.z - a.z);
       const MAX = luft / 1.5 + 45;
       let t = 0, strecke = 0, erreicht = false, still = 0, stillMax = 0, eUngueltig = null;
+      /* Der kleinste erreichte Abstand entscheidet, ob ein "nicht erreicht"
+         heisst "kam nie an" oder "stand davor und schlug zu": der Gegner
+         haelt im Kampf seine eigene Reichweite (2,0 bis 3,0 m), die
+         Schwelle hier liegt bei 2,5 m. Ohne diese Zahl ist die Antwort auf
+         Frage E nicht zu lesen. */
+      let minAbstand = 1e9, nahT = 0;
+      /* Wird der Gegner vom Spiel abgebaut (ABBAU_UNSICHTBAR: weiter als
+         42 m weg und ausser Blick), bleibt unsere Referenz bestehen, wird
+         aber nicht mehr aktualisiert - die Figur steht dann bis zum Ende
+         still, ohne dass irgendetwas kaputt waere. Das muss der Bericht
+         unterscheiden koennen. */
+      let entferntBei = null;
+      const zustandBilder = {};
+      const sperrBilder = { flieht: 0, dieb: 0, rueckzug: 0, betaeubt: 0,
+                            netz: 0, ausholen: 0, schlag: 0, tot: 0 };
       let vx = e.pos.x, vz = e.pos.z, imHaus = 0, unterBoden = 0, haengt = 0;
       let ersterFehlerBild = null, ersterFehlerArt = null, ersterFehlerBox = null, bild = 0;
       while (t < MAX) {
+        /* Und waehrend des Szenarios am Leben halten: der Gegner kommt an
+           und schlaegt zu: stirbt der Spieler dabei, ist nicht nur DIESES
+           Szenario hin, sondern jedes folgende. Gefragt ist, OB er
+           ankommt - nicht, wie lange der Spieler das aushaelt. */
+        if (P.hp < SPIELER_HP) P.hp = SPIELER_HP;
+        if (P.dead) P.dead = false;
         d.schritt(1 / 30); t += 1 / 30; bild++;
+        /* HIER messen, nicht weiter unten: weiter unten ist der Zustand
+           schon wieder auf 'chase' gesetzt und die Statistik waere eine
+           Aufzeichnung der eigenen Nachalarmierung. */
+        if (entferntBei === null && d.enemies.indexOf(e) < 0) entferntBei = bild;
+        zustandBilder[e.state] = (zustandBilder[e.state] || 0) + 1;
+        if (e.flieht) sperrBilder.flieht++;
+        if (e.dieb) sperrBilder.dieb++;
+        if ((e.rueckzugT || 0) > 0) sperrBilder.rueckzug++;
+        if ((e.betaeubtT || 0) > 0) sperrBilder.betaeubt++;
+        if ((e.webT || 0) > 0) sperrBilder.netz++;
+        if ((e.warnT || 0) > 0) sperrBilder.ausholen++;
+        if (e.attack) sperrBilder.schlag++;
+        if (e.dead) sperrBilder.tot++;
         const s = Math.hypot(e.pos.x - vx, e.pos.z - vz);
         if (s > 20) { eUngueltig = { bild: Math.round(t * 30), weit: +s.toFixed(1) }; break; }
         strecke += s; vx = e.pos.x; vz = e.pos.z;
@@ -307,13 +368,23 @@ const SEED = Number(process.argv[3]) || 4711;
                                    ersterFehlerBox = { x0: +box.x0.toFixed(1), x1: +box.x1.toFixed(1),
                                                        z0: +box.z0.toFixed(1), z1: +box.z1.toFixed(1) }; } }
         if (e.dead) break;
-        if (Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z) < 2.5) { erreicht = true; break; }
+        const dpNow = Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z);
+        if (dpNow < minAbstand) minAbstand = dpNow;
+        if (dpNow < 3.2) nahT += 1 / 30;
+        if (dpNow < 2.5) { erreicht = true; break; }
       }
       if (eUngueltig) { F.E_ungueltig.push({ gegend: gName, sprung: eUngueltig }); continue; }
       F.E_jagd.n++;
       if (erreicht) F.E_jagd.ok++;
       const fall = { gegend: gName, erreicht, sekunden: +t.toFixed(1), luftlinie: +luft.toFixed(1),
                      umweg: luft > 1 ? +(strecke / luft).toFixed(2) : null,
+                     minAbstand: +minAbstand.toFixed(2), nahT: +nahT.toFixed(1),
+                     entferntBei, zustandBilder,
+                     sperrBilder: Object.fromEntries(
+                       Object.entries(sperrBilder).filter(([, v]) => v > 0)),
+                     festStufeN: e.festStufeN || 0, mut: e.mut, hp: e.hp,
+                     endZustand: e.state, endZiel: e.target === 'player' ? 'spieler'
+                                  : (e.target ? 'anderes' : null),
                      stillMax: +stillMax.toFixed(1), haengt: !!haengt, imHaus, unterBoden,
                      von: [+a.x.toFixed(2), +a.z.toFixed(2)],
                      nach: [+ziel.x.toFixed(2), +ziel.z.toFixed(2)], seed: SEED,
@@ -327,7 +398,7 @@ const SEED = Number(process.argv[3]) || 4711;
     return { F, resetFehler, resetFehlerBsp,
              werksFelder: WERKS_FELDER.length,
              netz: d.gehNetz(), gehSuche: d.gehSuche() };
-  }, SEED);
+  }, [SEED, NUR_E]);
 
   const F = aus.F;
   console.log('');
@@ -374,6 +445,22 @@ const SEED = Number(process.argv[3]) || 4711;
     for (const e of dFehl.slice(0, 5)) console.log('   ' + JSON.stringify(e));
   }
   const eFehl = F.E_jagd.faelle.filter((e) => !e.erreicht);
+  if (eFehl.length) {
+    const m = eFehl.map((e) => e.minAbstand).sort((a, b) => a - b);
+    const med = m[Math.floor(m.length / 2)];
+    const inReichweite = eFehl.filter((e) => e.minAbstand < 3.2).length;
+    console.log('');
+    console.log('  E, kleinster erreichter Abstand der Fehlschlaege: ' +
+                'Median ' + med.toFixed(2) + ' m, bester ' + m[0].toFixed(2) +
+                ' m, schlechtester ' + m[m.length - 1].toFixed(2) + ' m');
+    console.log('  davon naeher als 3,2 m (also in Angriffsreichweite): ' +
+                inReichweite + ' von ' + eFehl.length);
+    const abgebaut = eFehl.filter((e) => e.entferntBei !== null);
+    console.log('  vom Spiel abgebaut (nicht mehr aktualisiert): ' +
+                abgebaut.length + ' von ' + eFehl.length +
+                (abgebaut.length ? ', frueheste Stelle Bild ' +
+                  Math.min(...abgebaut.map((e) => e.entferntBei)) : ''));
+  }
   if (eFehl.length) {
     console.log('');
     console.log('== E: Spieler nicht erreicht (' + eFehl.length + ') ==');
