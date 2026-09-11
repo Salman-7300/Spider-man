@@ -31652,7 +31652,8 @@ function poseLogPruefe(e) {
          geprueft und macht es schlechter: mit 0,45 statt 0,28 steigen die
          Bilder ueber 0,30 m von 244 auf 408, mit 0,65 auf 524 - die Figur
          schwingt dann ueber die Wandlage hinaus. */
-      if (RUMPF_KNOCHEN.has(n) && d > WAND_KONTAKT_MAX && !(e.flags.eckT > 0) &&
+      const grenze = e.flags.wandModus === 'lauf' ? WAND_KONTAKT_MAX_LAUF : WAND_KONTAKT_MAX;
+      if (RUMPF_KNOCHEN.has(n) && d > grenze && !(e.flags.eckT > 0) &&
           !(e.flags.anlegen > 0)) {
         melde('rumpfZuWeitVonWand', { knochen: n, abstand: d });
       }
@@ -31745,6 +31746,27 @@ const KAMPF_CLIPS = new Set(['punch', 'punch2', 'punch3', 'hook', 'hook2',
    Die Schwelle ist damit an der guten Haltung geeicht, nicht an der
    schlechten. */
 const WAND_KONTAKT_MAX = 0.55;
+/* ---- Der Wandlauf braucht eine eigene Schwelle ----
+   Die 0,55 oben sind am KRIECHEN geeicht (Teil 4). Beim Wandlauf steht
+   die Figur aber aufrecht und laeuft die Fassade hinauf: nur die Fuesse
+   sind an der Wand, der Oberkoerper lehnt sich zwangslaeufig zurueck.
+   Gemessen ueber die Aufzeichnung des Spiels selbst, je Modus und ohne
+   Ecken- und Anlegebilder:
+
+     wandModus 'kriechen'   hips 0,368   spine2 0,387   head 0,366
+                            ueber 0,55: 0 von 119 Bildern
+     wandModus 'lauf'       hips 0,520   spine2 0,836   head 0,953
+                            ueber 0,55: 6 von 6 Bildern
+
+   Mit einer gemeinsamen Schwelle meldet der Logger also JEDES
+   Wandlaufbild als Fehler - in Test A waren das 4.001 Meldungen in
+   dreissig Minuten, bei 2.912 Wandlaufbildern. Ein Melder, der bei
+   richtigem Verhalten dauernd anschlaegt, verdeckt die echten Faelle.
+   1,10 liegt ueber dem gemessenen Kopfwert (p95 0,963) und weit unter
+   dem, was ein abgeloester Oberkoerper waere. Teil 5 hat den Wandlauf
+   getrennt geprueft: Fuesse 0,087 m Mittelabstand, 0 von 14 Anlaeufen
+   fehlerhaft - die Haltung selbst ist also in Ordnung. */
+const WAND_KONTAKT_MAX_LAUF = 1.10;
 const RUMPF_KNOCHEN = new Set(['hips', 'spine2', 'head']);
 
 function simuliere(dt) {
