@@ -32000,6 +32000,7 @@ if (window.__WEBHERO_TEST__ === true) {
     bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     teilArten() { return Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length); },
+    spawnGang,
     aufGehweg,
     hausStellen() { return HAUS_STELLEN.slice(); },
     /* Die Haustueren in WELTKOORDINATEN. Sie stehen nirgends als Liste:

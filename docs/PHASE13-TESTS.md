@@ -165,3 +165,50 @@ Pruefstand nicht ersetzen und soll es auch nicht.
     Regression gruen?
 
 Nur wenn alle drei erfuellt sind: behalten.
+
+---
+
+## Nachtrag Teil 12: die beiden offenen Zivilisten-Verhalten
+
+Aus der Liste in Teil 12 waren zwei Punkte in keinem Testfenster
+aufgetreten und deshalb nie geprueft worden: **"watch event"** und
+**"ride vehicle/train"**. Beide wurden jetzt gezielt ausgeloest.
+
+### ride vehicle/train — funktioniert
+
+Pruefstand: `tools/pruef/zug-mitfahrt.js`. Ein haltender Zug wird
+abgewartet, acht Zivilisten werden daneben gestellt, dann wird gemessen,
+was beim Einsteigen und auf der Fahrt wirklich passiert.
+
+| Gemessen | Wert |
+|---|---|
+| eingestiegen und mit Sitzplatz | 8 von 8 |
+| Zeit bis zum ersten Sitz | 2,7 s |
+| Abstand zum Sitz im Ruhezustand | 0,00 bis 0,63 m |
+| Bilder unsichtbar (Spieler im Wagen) | 0 von 2.057 |
+| gefahrene Strecke des Zuges | 178 m, Fahrgaeste bleiben auf dem Sitz |
+
+Ein Detail, das beim Messen fast ein Fehlbefund geworden waere: **ohne
+den Spieler im Wagen sind 32 % der Bilder "unsichtbar"** — das ist aber
+nur die Entfernungsabblendung, nicht ein fehlender Fahrgast. Mit dem
+Spieler an Bord sind es null. Ebenso der "groesste Sitzabstand 40 m" aus
+dem ersten Durchlauf: der galt fuer weggeblendete Figuren. Sichtbar
+bleiben 7 von 2.057 Bildern (0,34 %) mit mehr als 1 m Abstand, direkt
+beim Einsteigen, groesster Wert 4,83 m. Im Bild ist davon nichts zu
+sehen; **nicht geaendert**, weil es dafuer keinen sichtbaren Anlass gibt.
+
+### watch event — gibt es nicht
+
+Die Rollen, die ein Zivilist bei einem Ereignis annehmen kann, sind im
+Code vollstaendig aufzaehlbar:
+
+    opfer   verletzt   taeter   fluechtig   gefasst   boss
+
+Alles **Beteiligte**. Einen Zuschauer gibt es nicht: kein `gehZustand`
+fuer Zuschauen, keine Rolle dafuer, keine Stelle, an der ein
+Unbeteiligter stehen bleibt und hinsieht. Der Punkt liess sich also
+nicht "gezielt ausloesen" — er ist nicht gebaut.
+
+Nicht nachgeruestet, und zwar bewusst: Phase 13 ist eine Pruefphase, und
+ein neues Verhalten fuer alle Zivilisten waere ein Feature, kein Befund.
+Es steht hier, damit es nicht als geprueft gilt, was nie da war.
