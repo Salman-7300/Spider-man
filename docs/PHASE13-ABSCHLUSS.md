@@ -11,10 +11,10 @@ so da, und wo mein eigenes Messgeraet danebenlag, steht auch das.
 Phase 13 beginnt nach `9826ebf` ("Kulisse: die Stadt hoert nicht mehr am
 Kartenrand auf"). Seitdem 22 Commits auf `claude/spider-man-game-dev-8cepen`.
 
-Umfang der Aenderungen: 37 Dateien, +5.112 / −51 Zeilen. Davon sind rund
-3.700 Zeilen **neuer Pruefstand** (`tools/pruef/`, 20 Skripte) und
+Umfang der Aenderungen: 37 Dateien, +5.112 / −51 Zeilen. Der groesste Teil
+davon ist **neuer Pruefstand** (`tools/pruef/`, 22 Skripte) und
 Dokumentation (`docs/`, 5 neue Notizen). Am Spiel selbst: `game.js`
-+539/−…, `city-visuals.js` 15 Zeilen, `index.html` 18 Zeilen.
++495/−44, `city-visuals.js` 15 Zeilen, `index.html` 18 Zeilen.
 
 ## 2. Groesste tatsaechlich gefundene sichtbare Probleme
 
@@ -237,12 +237,12 @@ dazu 20 Browser-Pruefstaende unter `tools/pruef/`.
 
 ## 29. Geaenderte Dateien / Assets
 
-    game.js              +539 Zeilen (jetzt 32.719)
+    game.js              +495 / -44 Zeilen (jetzt 32.719)
     city-visuals.js      15 Zeilen
     index.html           18 Zeilen
     docs/                5 neue Notizen (ARCHITEKTUR, BEWEGUNGS-MATRIX,
                          HIGGSFIELD-KLETTERN, MODELL-QUELLEN, PHASE13-TESTS)
-    tools/pruef/         20 neue Pruefskripte + README
+    tools/pruef/         22 Pruefskripte + README
     tools/               anim-matrix.mjs, moebel-vereinfachen.mjs,
                          test-bruecke.cjs, test-verkehr.cjs
     Assets               KEINE neuen. Keine Higgsfield-Generierung,
