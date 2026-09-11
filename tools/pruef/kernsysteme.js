@@ -81,9 +81,27 @@ const fs = require('fs');
     if (d.bossListe().length) {
       const bo = d.bossListe()[0];
       E.boss.phase = bo.phase !== undefined ? bo.phase : null;
-      if (d.bossEntfernen) { d.bossEntfernen(); lauf(120); }
+      /* ---- Den Lebenszyklus so durchlaufen, wie das Spiel es tut ----
+         Zwei Anlaeufe davor waren Fehler des Pruefstands, nicht des Spiels:
+         d.bossEntfernen() gibt es im Testfenster nicht (im Spiel nimmt die
+         Funktion zwei Argumente), und der Weg ueber "weit weglaufen" kann
+         gar nicht greifen - der Abbauzweig verlangt e.bossNachEvent, und
+         ein mit spawnBoss gesetzter Boss ist der AKTIVE. Ein aktiver Boss
+         wird nicht abgebaut, und das ist richtig so: man kaempft gerade
+         gegen ihn.
+         Der echte Weg ist, ihn zu besiegen. Danach muss er aus der
+         Bossliste verschwinden UND der Verweis bossAktiv geloest sein -
+         genau dieser Verweis war im Stresslauf einmal die Ursache fuer
+         eine Bossleiste ohne Boss und eine gesperrte Spawnschicht. */
+      const bE = (d.enemies || []).find((e) => e.boss && !e.dead);
+      if (bE && d.damageEnemy) {
+        for (let n = 0; n < 60 && !bE.dead; n++) { d.damageEnemy(bE, 400, 'kick'); lauf(6); }
+      }
+      lauf(60 * 5);
+      E.boss.besiegt = !!(bE && bE.dead);
     }
     E.boss.nachEntfernen = d.bossListe().length;
+    E.boss.aktivVerweis = !!d.bossAktiv;
     E.boss.statistikNach = d.bossStatistik();
 
     /* ---- 4. Polizei und Rettung ---- */
@@ -141,8 +159,11 @@ const fs = require('fs');
   console.log('');
   console.log('3. Boss-Lebenszyklus');
   console.log('   erzeugt ' + aus.boss.erzeugt + ', im Spiel ' + aus.boss.imSpiel +
-              ', nach Entfernen ' + aus.boss.nachEntfernen +
+              ', nach Abbau ' + aus.boss.nachEntfernen +
               '   ' + ok(aus.boss.nachEntfernen === 0));
+  console.log('   besiegt ' + aus.boss.besiegt + ', Verweis bossAktiv noch gesetzt: ' +
+              aus.boss.aktivVerweis + '   ' + ok(aus.boss.besiegt && !aus.boss.aktivVerweis));
+  console.log('   Abbau-Zaehler: ' + JSON.stringify(aus.boss.statistikNach));
 
   const R = aus.einsatz;
   console.log('');
