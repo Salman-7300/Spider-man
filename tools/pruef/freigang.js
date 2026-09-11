@@ -275,6 +275,21 @@ const fs = require('fs');
       pfadBefunde,
       kantenGeprueft,
       netz: d.gehNetz(),
+      /* ---- Gehnetz gegen die Gebietsleine ----
+         Zwei Systeme, die uebereinstimmen MUESSEN: das Gehnetz sagt, wohin
+         eine Figur geroutet wird, imGebiet sagt, wo sie stehen darf. Als
+         sie auseinanderliefen, lagen 29 Knoten - der ganze Brueckengehweg -
+         im gesperrten Band, und jede Figur wurde dort in jedem Bild
+         zurueckgeschoben. Siehe docs/PHASE13-TESTS.md, Frage E. */
+      netzAusserhalb: (() => {
+        if (!d.imGebiet) return null;
+        const raus = [];
+        d.gehKnotenListe().forEach((k, i) => {
+          if (!d.imGebiet(k.x, k.z))
+            raus.push({ i, x: +k.x.toFixed(1), z: +k.z.toFixed(1), art: k.art || '?' });
+        });
+        return raus;
+      })(),
       hyg: d.hygStatistik ? d.hygStatistik() : null,
       aufFahrbahnZaehler: d.aufFahrbahn ? d.aufFahrbahn() : null,
       zonen: { zebras: zebras.length, stationen: schaechte.length,
@@ -310,6 +325,20 @@ const fs = require('fs');
                 : gesperrt.length + ' von ' + aus.pfadBefunde.length + ' wirklich gesperrt  !!');
   console.log('-'.repeat(74));
   console.log('Gehnetz:', JSON.stringify(aus.netz));
+  if (aus.netzAusserhalb === null) {
+    console.log('Gehnetz gegen Gebietsleine: __dbg.imGebiet fehlt - nicht geprueft  !!');
+  } else if (aus.netzAusserhalb.length === 0) {
+    console.log('Gehnetz gegen Gebietsleine: alle ' + aus.netz.knoten +
+                ' Knoten liegen im erlaubten Gebiet');
+  } else {
+    const proArt = {};
+    for (const k of aus.netzAusserhalb) proArt[k.art] = (proArt[k.art] || 0) + 1;
+    console.log('Gehnetz gegen Gebietsleine: ' + aus.netzAusserhalb.length +
+                ' von ' + aus.netz.knoten + ' Knoten ausserhalb  !!  ' +
+                JSON.stringify(proArt));
+    for (const k of aus.netzAusserhalb.slice(0, 12))
+      console.log('  Knoten ' + k.i + ' (' + k.art + ') bei ' + k.x + '/' + k.z);
+  }
   if (aus.aufFahrbahnZaehler !== null)
     console.log('Zaehler des Spiels "auf Fahrbahn":', aus.aufFahrbahnZaehler);
 

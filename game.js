@@ -24201,15 +24201,38 @@ function makeBlockzeichen() {
    der Stadtteil am anderen Ufer. Alles andere ist nackte Grundfläche –
    dort hat weder eine Gang noch ein Zivilist etwas verloren. */
 const STADT_RAND = ORIGIN + BLOCKS * PITCH;      // 175
+/* ---- Das Gebiet muss zum Gehnetz passen ----
+   Diese Grenzen sind aelter als der Brueckengehweg und die Uferpromenade.
+   Gemessen (Frage E in docs/PHASE13-TESTS.md): 29 der 728 Netzknoten lagen
+   ausserhalb - 21 auf der Bruecke, 6 am Ufer, 2 auf der Promenade. Wer
+   dorthin geroutet wurde, wurde in JEDEM Bild zurueckgeschoben und verlor
+   dabei sein Ziel; zu Fuss kam so nie jemand ueber den Fluss. Das Deck ist
+   jetzt ausdruecklich erlaubt, und die z-Grenze reicht bis zum aeussersten
+   Knoten der Promenade (|z| = 190). Das Wasser bleibt gesperrt. */
+const GEBIET_Z = 192;
+/* Das Deck samt beider Brueckenkoepfe. Der Streifen ist absichtlich
+   breiter als das Deck (BRIDGE_HW + 6): die Umgehungspunkte am Kopf
+   liegen 12,5 bis 16 m neben der Brueckenachse. Ueber dem Wasser gilt er
+   trotzdem nicht - das entscheidet inWater, das ausserhalb der Bruecke
+   den ganzen Fluss sperrt. */
+function aufBrueckendeck(x, z) {
+  if (x <= RIVER_X0 - 4 || x >= SHORE_X0 + 6) return false;
+  if (Math.abs(z - BRIDGE_Z) > BRIDGE_HW + 6) return false;
+  return !inWater(x, z);
+}
 function imGebiet(x, z) {
-  if (Math.abs(z) > STADT_RAND + 6) return false;
+  if (Math.abs(z) > GEBIET_Z) return false;
   if (x >= -STADT_RAND - 6 && x <= RIVER_X0 - 3) return true;
   if (x >= SHORE_X0 + 3 && x <= SHORE_X1 - 3) return true;
-  return false;
+  return aufBrueckendeck(x, z);
 }
 function haltenImGebiet(pos) {
   if (imGebiet(pos.x, pos.z)) return false;
-  pos.z = clamp(pos.z, -STADT_RAND - 6, STADT_RAND + 6);
+  pos.z = clamp(pos.z, -GEBIET_Z, GEBIET_Z);
+  /* Der z-Zug kann schon auf das Brueckendeck gefuehrt haben - dann ist
+     nichts weiter zu tun, sonst wuerde der naechste Schritt die Figur vom
+     Deck ins Ufer schieben. */
+  if (aufBrueckendeck(pos.x, pos.z)) return true;
   /* Zur nächstgelegenen erlaubten Zone zurückschieben. */
   if (pos.x > (RIVER_X0 + SHORE_X0) / 2) pos.x = clamp(pos.x, SHORE_X0 + 3, SHORE_X1 - 3);
   else pos.x = clamp(pos.x, -STADT_RAND - 6, RIVER_X0 - 3);
@@ -32609,6 +32632,10 @@ if (window.__WEBHERO_TEST__ === true) {
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
+    /* Damit ein Pruefstand die Gebietsgrenze gegen das Gehnetz halten kann,
+       statt sie abzuschreiben - abgeschriebene Grenzen waren schon einmal
+       der Grund fuer einen falschen Befund. */
+    imGebiet,
     ubahnen() { return UBAHNEN; },
     gangRef() { return GANG_REF; },
     flaeche(a,b,c,d) { return flaecheMitLoechern(a,b,c,d, ubahnLoecher()); },

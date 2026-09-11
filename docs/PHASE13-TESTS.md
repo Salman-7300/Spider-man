@@ -131,9 +131,93 @@ sofort. Danach: in der Luft nach 1 Bild, Abstossen messbar (x wandert von
 
 ## Test D — NPC-Hindernisse
 Mindestens 100 Zivilistenrouten und 100 Gegnerverfolgungen an schwierigen
-Orten.
+Orten. Der Pruefstand ist `tools/pruef/npc-wege.js`, ein einzelner Fall
+laesst sich mit `tools/pruef/npc-einzelfall.js` (Zivilist) beziehungsweise
+`tools/pruef/gegner-einzelfall.js` (Gegner) nachfahren.
 
-**Stand:** offen.
+### Die sieben Fragen einzeln, nicht als eine Zahl
+Lauf 6 (Werkszustand vor jedem Szenario zurueckgesetzt, 0 Ruecksetzfehler
+in 100 Szenarien):
+
+| | Frage | Ergebnis |
+|---|---|---|
+| A | jemand IN einem Gebaeude | 0 Faelle |
+| B | jemand unter der Bodenflaeche | 0 Faelle |
+| C | dauerhaft haengengeblieben | 13 Faelle |
+| D | Zivilist erreicht sein Ziel | 78/100 |
+| E | alarmierter Gegner erreicht Spieler | 1/90 |
+| F | Ampelstopps (kein Fehler) | 53 929 Bilder |
+| G | Bilder im Zug (kein Fehler) | 0 Bilder |
+
+A und B sind die beiden Fragen, bei denen ein Treffer ein echter Fehler
+waere. Beide sind null.
+
+### Frage E: erst messen, dann urteilen
+1 von 90 sieht nach einem kaputten Verfolgungsverhalten aus. Die Regel
+aus dem Auftrag lautet: kein Eingriff ins Spiel ohne Reproduktion. Also
+wurden fuenf gemeldete Faelle einzeln nachgefahren
+(`tools/pruef/gegner-einzelfall.js`, je eine frische Seite):
+
+| Fall | Luftlinie | im Massentest | einzeln nachgefahren |
+|---|---|---|---|
+| Uferpromenade 186,5/−92 → 186,5/−78 | 14 m | nicht erreicht | erreicht nach 1,8 s, Umweg 0,83 |
+| U-Bahn-Abgang −166/13,2 → −134/36,8 | 39,8 m | nicht erreicht | erreicht nach 8,0 s, Umweg 1,26 |
+| anderes Ufer 342,5/−134,5 → 373,4/−165,4 | 43,7 m | nicht erreicht | erreicht nach 27,2 s, Umweg 1,50 |
+| Kreuzungsecke −67/117 → −82,2/133 | 22,1 m | nicht erreicht | erreicht nach 4,0 s, Umweg 0,90 |
+| Bruecke 334,75/−45,05 → 327/−17,4 | 28,7 m | nicht erreicht | **auch einzeln nicht erreicht** |
+
+Vier von fuenf sind damit ein TESTFEHLER: der Massentest laesst hundert
+Szenarien in derselben Seite nacheinander laufen, und was dabei liegen
+bleibt, verfaelscht die spaeteren. Der fuenfte reproduziert — und der
+fuehrt zu einem echten Befund.
+
+### Gefunden: das Gehnetz reichte weiter als das erlaubte Gebiet
+Der Brueckenfall blieb mit 2878 Nachalarmierungen in 90 Sekunden haengen:
+der Gegner wechselte in nahezu jedem Bild von `chase` zurueck nach
+`patrol`. Ursache ist `haltenImGebiet` (game.js) — eine Leine, die
+verhindern soll, dass Gangs auf die nackte Grundflaeche ausserhalb des
+Rasters ziehen. Sie erlaubte zwei Baender: `x ≤ 189` und `x ≥ 333`.
+Dazwischen liegt der Fluss — **und die Bruecke**.
+
+Gemessen mit `d.imGebiet` gegen die Knotenliste des Gehnetzes:
+
+    728 Knoten, davon ausserhalb des erlaubten Gebiets: 29
+    21 "bruecke", 6 "ufer", 2 "prom"
+
+Das Gehnetz baut also seit Phase 9 einen Brueckengehweg mit 21 Knoten und
+30 Kanten, den die Leine derselben Figur in jedem Bild wieder wegnimmt.
+Wer dorthin geroutet wurde, wurde zurueckgeschoben und verlor sein Ziel
+(`c.waypoint = null`, beim Gegner zusaetzlich `state = 'patrol'`). Zu
+Fuss kam so nie jemand ueber den Fluss — weder Passant noch Ganove.
+
+Das ist kein Testartefakt: die Leine steht in `updateCivilians`
+(Zeile 23617) und `updateEnemies` (Zeile 26340), also im normalen
+Spielablauf.
+
+**Geaendert** (game.js, `imGebiet` / `haltenImGebiet`):
+* Das Brueckendeck ist ausdruecklich erlaubt, samt beider Brueckenkoepfe
+  (`BRIDGE_HW + 6`, weil die Umgehungspunkte am Kopf 12,5 bis 16 m neben
+  der Achse liegen). Das Wasser bleibt gesperrt — darueber entscheidet
+  weiterhin `inWater`, das ausserhalb der Bruecke den ganzen Fluss haelt.
+* Die z-Grenze geht von `STADT_RAND + 6` (181) auf 192, damit die
+  Promenaden- und Uferknoten bis |z| = 190 drin liegen.
+
+Nachgemessen mit demselben Pruefstand: **0 von 728 Knoten ausserhalb.**
+
+Der Zivilistenweg ueber die Bruecke (Knoten 704 → 613), der im Massentest
+nach 84,6 s nicht angekommen war, laeuft danach bis kurz vors Ziel durch
+(Bild 480: 325,0/−18,6 bei Wegpunkt 3 von 4).
+
+### Was der Brueckenfall NICHT loest
+Der Gegner kommt mit der Aenderung bis an den oestlichen Brueckenkopf,
+aber nicht auf den Gehweg der Gegenseite: er verfolgt in Luftlinie mit
+3,6 m Vorausschau (`AUSWEICH_SICHT`) und laeuft damit am Gelaender
+entlang statt um es herum (Umweg 31,6). Das Gehnetz benutzt er nicht.
+Das ist eine bekannte Grenze der Verfolgung an langen Hindernissen und
+keine Folge dieser Aenderung — vorher kam er ueberhaupt nicht bis dahin.
+Nicht repariert, weil dafuer die Verfolgung auf das Gehnetz umgestellt
+werden muesste: das ist ein neues System und gehoert nicht in eine
+Finalisierung. **Offen und hier festgehalten.**
 
 ## Test E — Funktionale Freigaengigkeit der Stadt
 Alle gesetzten Gegenstaende gegen: Fahrbahn, Zebrastreifen, Treppen,
