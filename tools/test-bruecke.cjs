@@ -38,15 +38,42 @@ const BR_RAMPE = wert(/BR_RAMPE = ([\d.]+)/, 'BR_RAMPE');
 const BR_GEH_RAMPE = wert(/const BR_GEH_RAMPE = ([\d.]+)/, 'BR_GEH_RAMPE');
 const RASTER_X1 = 175, RIVER_X1 = 330;
 const BR_X0 = RASTER_X1 + 6, BR_X1 = RIVER_X1 + 4;
+const AUTO_X_MAX = RASTER_X1 + 4;
+const ORIGIN = -175, PITCH = 50, BLOCKS = 7, SHORE_OX = 336;
+const PYL_X = JSON.parse(schnipsel(/const PYL_X = \[[\d, ]*\]/, 'PYL_X').replace('const PYL_X = ', ''));
+const PYL_LUECKE = wert(/const PYL_LUECKE = ([\d.]+)/, 'PYL_LUECKE');
+const PYL_BEIN_HALB = 1.5;      // halbe Breite eines Pylonbeins, siehe game.js
 
-/* Die beiden Hoehenfunktionen im Original ausfuehren. */
+/* Die Originalfunktionen ausfuehren statt ihren Quelltext zu beschreiben.
+   Was hier NICHT steht, steckt in einer 1.000-Zeilen-Funktion und laesst
+   sich nicht herausschneiden - siehe docs/ARCHITEKTUR.md 3.3. */
 const kasten = {
   clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
   BR_X0, BR_X1, BR_RAMPE, BR_HOCH, BR_GEH_H, BR_GEH_RAMPE,
+  BRIDGE_Z, BRIDGE_HW, PYL_X, PYL_LUECKE,
+  ORIGIN, PITCH, BLOCKS, SHORE_OX, AUTO_X_MAX,
+  /* Stellvertreter fuer die Bausteine, die brGehTextur benutzt. */
+  sidewalkTex: { clone: () => ({ istKopie: true, repeat: { x: 1, y: 1, set(a, b) { this.x = a; this.y = b; } } }) },
+  THREE: { MeshLambertMaterial: function (p) { Object.assign(this, p); } },
 };
 vm.createContext(kasten);
-vm.runInContext(schnipsel(/function bridgeY\(x\) \{[\s\S]*?\n\}/, 'bridgeY'), kasten);
-vm.runInContext(schnipsel(/function bridgeGehwegY\(x\) \{[\s\S]*?\n\}/, 'bridgeGehwegY'), kasten);
+for (const [re, name] of [
+  [/function bridgeY\(x\) \{[\s\S]*?\n\}/, 'bridgeY'],
+  [/function bridgeGehwegY\(x\) \{[\s\S]*?\n\}/, 'bridgeGehwegY'],
+  [/function onBridge\(x, z\) \{[\s\S]*?\n\}/, 'onBridge'],
+  [/function ohnePylonen\(a, b\) \{[\s\S]*?\n\}/, 'ohnePylonen'],
+  [/function autoAufBruecke\(car\) \{[\s\S]*?\n\}/, 'autoAufBruecke'],
+  [/function setzeAutoGrenzen\(car\) \{[\s\S]*?\n\}/, 'setzeAutoGrenzen'],
+  [/  function brGehTextur\(laenge, breite\) \{[\s\S]*?\n  \}/, 'brGehTextur'],
+]) vm.runInContext(schnipsel(re, name).replace(/^ {2}/gm, ''), kasten);
+
+/* Die Bedingung "faehrt weiter" steht mitten in autoKreuzung und ist
+   keine eigene Funktion. Sie wird deshalb als Ausdruck herausgeschnitten
+   und mit echten Werten gerechnet - nicht abgeschrieben. */
+const drinQuelle = schnipsel(
+  /const drin = weiter > car\.sMin - 1[\s\S]*?AUTO_X_MAX\);/, 'Bedingung drin');
+kasten.drinPruefen = vm.runInContext(
+  '(function (weiter, car, bruecke) { ' + drinQuelle + ' return drin; })', kasten);
 
 test('Der Brueckengehweg hat an keinem Ende eine Stufe', () => {
   /* In Zentimeterschritten ueber beide Enden. Aussen liegt der Gehweg
@@ -89,34 +116,94 @@ test('Das Gelaender laeuft nicht durch die Pylonbeine', () => {
   const zHand = BR_GEH_AUSSEN + 0.25;
   assert.ok(Math.abs(zHand - SEIL_Z) < 1.5,
     'Handlauf und Pylonbein beruehren sich gar nicht mehr - Luecke pruefen');
-  /* Der Handlauf wird wirklich in Stuecken gebaut. */
-  assert.match(quelle, /for \(const \[xa, xb\] of ohnePylonen\(BR_X0, BR_X1\)\)/);
-  assert.ok(PYL_X.length === 2);
+  /* Und jetzt die Zerlegung selbst durchrechnen, mit der echten Funktion
+     aus game.js: kein Stueck Handlauf darf ein Pylonbein beruehren, und
+     zwischen den Beinen darf auch keine Luecke bleiben. */
+  const stuecke = kasten.ohnePylonen(BR_X0, BR_X1);
+  assert.strictEqual(stuecke.length, PYL_X.length + 1,
+    PYL_X.length + ' Pylonen muessen den Handlauf in ' + (PYL_X.length + 1) +
+    ' Stuecke teilen, es sind ' + stuecke.length);
+  for (const [xa, xb] of stuecke) {
+    assert.ok(xb > xa, 'leeres Handlaufstueck ' + xa + '..' + xb);
+    for (const px of PYL_X) {
+      assert.ok(xb <= px - PYL_BEIN_HALB || xa >= px + PYL_BEIN_HALB,
+        'Handlaufstueck ' + xa.toFixed(2) + '..' + xb.toFixed(2) +
+        ' laeuft in das Pylonbein bei x = ' + px);
+    }
+  }
+  /* Gesamtlaenge: alles ausser den beiden Luecken. */
+  const laenge = stuecke.reduce((n, [xa, xb]) => n + (xb - xa), 0);
+  assert.strictEqual(+laenge.toFixed(3),
+    +((BR_X1 - BR_X0) - PYL_X.length * 2 * PYL_LUECKE).toFixed(3));
 });
 
 test('Die Brueckenstrasse ist fuer den Verkehr nicht mehr gesperrt', () => {
   /* AUTO_X_MAX haelt die Wagen aus Promenade und Fluss heraus. Fuer die
      Brueckenspur muss die Ausnahme dastehen, sonst biegt jeder Wagen an
      der letzten Kreuzung zwingend ab und die Bruecke bleibt leer. */
-  assert.match(quelle,
-    /const drin = weiter > car\.sMin - 1 && weiter < car\.sMax \+ 1 &&\s*!\(car\.axis === 'x' && !bruecke && weiter > AUTO_X_MAX\);/);
-  assert.match(quelle, /const bruecke = autoAufBruecke\(car\);/);
-  /* Abgebogen wird trotzdem nie nach Osten hinaus. */
-  assert.match(quelle, /if \(neuesX > AUTO_X_MAX\) return false;/);
+  /* Ein Wagen auf der Brueckenspur und einer auf der Uferstrasse - beide
+     mit den echten Funktionen aus game.js durchgerechnet. */
+  const aufBruecke = { axis: 'x', lane: BRIDGE_Z + 3, dir: 1, s: BR_X0 };
+  /* Die zweite Spur liegt bei z = +25, also eine Strassenlinie weit weg
+     von der Bruecke (BRIDGE_Z = -25). */
+  const aufUfer = { axis: 'x', lane: 25, dir: 1, s: 0 };
+  assert.strictEqual(kasten.autoAufBruecke(aufBruecke), true);
+  assert.strictEqual(kasten.autoAufBruecke(aufUfer), false);
+
+  kasten.setzeAutoGrenzen(aufBruecke);
+  kasten.setzeAutoGrenzen(aufUfer);
+  assert.strictEqual(aufBruecke.sMax, SHORE_OX + 3,
+    'der Brueckenwagen darf bis ans Ostufer, nicht nur bis zum Raster');
+  assert.strictEqual(aufUfer.sMax, ORIGIN + BLOCKS * PITCH + 3);
+
+  /* Und die Bedingung selbst: in der Mitte der Bruecke (x = 260, weit
+     hinter AUTO_X_MAX = 179) faehrt der Brueckenwagen weiter, der Wagen
+     auf derselben x-Achse ausserhalb der Bruecke nicht. */
+  const mitte = (BR_X0 + BR_X1) / 2;
+  assert.strictEqual(kasten.drinPruefen(mitte, aufBruecke, true), true,
+    'die Bruecke ist wieder gesperrt - AUTO_X_MAX greift auf der Brueckenspur');
+  assert.strictEqual(kasten.drinPruefen(mitte, aufUfer, false), false,
+    'ein Wagen ausserhalb der Bruecke duerfte nicht ueber AUTO_X_MAX hinaus');
+  assert.ok(mitte > AUTO_X_MAX, 'Testaufbau falsch: Brueckenmitte liegt vor AUTO_X_MAX');
 });
 
 test('Die Wagen fahren auf dem Deck, nicht darin', () => {
-  assert.match(quelle, /const zh = onBridge\(zx, zz\) \? bridgeY\(zx\) : 0;/);
-  assert.match(quelle, /car\.mesh\.position\.set\(zx, zh, zz\);/);
-  assert.match(quelle, /car\.mesh\.position\.y = lerp\(car\.mesh\.position\.y, zh, k\);/);
+  /* Genau die Zeile, mit der game.js die Wagenhoehe bestimmt, hier mit
+     den echten Funktionen nachgerechnet. */
+  const hoehe = (x, z) => (kasten.onBridge(x, z) ? kasten.bridgeY(x) : 0);
+  assert.strictEqual(+hoehe((BR_X0 + BR_X1) / 2, BRIDGE_Z + 3).toFixed(3),
+    +BR_HOCH.toFixed(3), 'der Wagen auf der Brueckenmitte steckt im Deck');
+  assert.strictEqual(hoehe(BR_X0 - BR_RAMPE, BRIDGE_Z + 3), 0,
+    'am Rampenfuss muss der Wagen auf Strassenhoehe stehen');
+  assert.strictEqual(hoehe(0, -25), 0, 'in der Stadt faehrt niemand erhoeht');
+  /* Auf der Rampe steigt die Hoehe streng monoton - kein Absatz. */
+  let vor = -1;
+  for (let i = 0; i <= 120; i++) {
+    const x = BR_X0 - BR_RAMPE + (i / 120) * BR_RAMPE;
+    const y = hoehe(x, BRIDGE_Z);
+    assert.ok(y >= vor, 'die Auffahrt faellt bei x = ' + x.toFixed(2) + ' wieder ab');
+    vor = y;
+  }
+  assert.strictEqual(+hoehe(BR_X0, BRIDGE_Z).toFixed(3), +BR_HOCH.toFixed(3),
+    'oben auf der Rampe ist die Deckhoehe noch nicht erreicht');
 });
 
 test('Der Brueckengehweg hat denselben Belag wie die Stadt', () => {
-  assert.ok(!/new THREE\.MeshLambertMaterial\(\{ color: 0xb8bcc0 \}\)/.test(quelle),
-    'der Gehweg ist wieder einfarbig hell');
-  assert.match(quelle, /const t = sidewalkTex\.clone\(\);/);
-  /* Und die Kachel wird auf die Laenge verteilt, sonst verschmiert sie. */
-  assert.match(quelle, /t\.repeat\.set\(Math\.max\(1, Math\.round\(laenge \/ 4\)\)/);
+  /* brGehTextur aus game.js wirklich aufrufen, mit Stellvertretern fuer
+     Textur und Material. Frueher stand hier nur, dass der Aufruf im
+     Quelltext vorkommt - das haette auch bei falschen Zahlen gehalten. */
+  const gehBreite = BR_GEH_AUSSEN - BR_GEH_INNEN;
+  const lang = BR_X1 - BR_X0;
+  const mat = kasten.brGehTextur(lang, gehBreite);
+  assert.ok(mat.map && mat.map.istKopie,
+    'der Gehweg benutzt nicht den Stadtbelag');
+  assert.strictEqual(mat.map.repeat.x, Math.round(lang / 4),
+    'die Kachel wird ueber ' + lang.toFixed(0) + ' m gestreckt statt wiederholt');
+  assert.strictEqual(mat.map.repeat.y, Math.max(1, Math.round(gehBreite / 4)));
+  /* Und sie faellt nie unter eine Wiederholung, auch nicht auf dem
+     kurzen Keil der Rampe. */
+  const keil = kasten.brGehTextur(BR_GEH_RAMPE, gehBreite);
+  assert.ok(keil.map.repeat.x >= 1 && keil.map.repeat.y >= 1);
 });
 
 test('Der Gehweg ist breit genug, um am Pylon vorbeizukommen', () => {

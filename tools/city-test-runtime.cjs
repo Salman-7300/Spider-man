@@ -9,9 +9,20 @@ const root = path.resolve(__dirname, '..');
 
 function cityRuntime(modern = true) {
   const source = fs.readFileSync(path.join(root, 'game.js'), 'utf8');
+  /* Die Tests schneiden echte Funktionen per Textmarke aus game.js heraus -
+     es gibt keine Exporte. Wird eine Marke umbenannt, stirbt sonst der ganze
+     Lauf mit einer Meldung, die nicht sagt, WELCHE der beiden Marken fehlt.
+     Genau das kostete in Phase 13 einmal eine halbe Stunde Suchen. */
   function between(start, end) {
-    const a = source.indexOf(start), b = source.indexOf(end, a + start.length);
-    if (a < 0 || b < 0) throw new Error('Factory not found: ' + start);
+    const a = source.indexOf(start);
+    if (a < 0) throw new Error(
+      'Textmarke nicht in game.js gefunden (Anfang): ' + JSON.stringify(start) +
+      ' - vermutlich wurde sie umbenannt. Marke in dieser Testdatei nachziehen.');
+    const b = source.indexOf(end, a + start.length);
+    if (b < 0) throw new Error(
+      'Textmarke nicht in game.js gefunden (Ende): ' + JSON.stringify(end) +
+      ' - der Anfang ' + JSON.stringify(start) + ' steht bei Zeile ' +
+      (source.slice(0, a).split('\n').length) + '.');
     return source.slice(a, b);
   }
   const look = createLook(THREE), env = {

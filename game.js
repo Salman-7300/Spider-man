@@ -4849,6 +4849,36 @@ function addLamp(x, z, dreh) {
 }
 
 let waterMesh = null;
+/* ---- Pylonen und Gelaenderluecken ----
+   Steht auf oberster Ebene, NICHT mehr in buildRiverAndBridge: nur so
+   laesst sich ohnePylonen von den Tests herausschneiden und wirklich
+   durchrechnen. Vorher konnte tools/test-bruecke.cjs nur behaupten,
+   dass der Aufruf im Quelltext steht - siehe docs/ARCHITEKTUR.md 3.3.
+
+   Die Zahlen standen frueher erst weiter unten im Brueckenbau. Das
+   Gelaender braucht sie aber schon vorher: es lief als durchgehender
+   Balken von einem Ende zum anderen und damit MITTEN durch beide
+   Pylonbeine (Handlauf bei z = -34,85 im Bein z = -37 bis -34, Handlauf
+   bei -15,15 im Bein -16 bis -13). Im Bild sah man den roten Handlauf im
+   Pfeiler verschwinden und auf der anderen Seite wieder herauskommen. */
+const PYL_X = [225, 285], PYL_TOP = 44;
+const PYL_LUECKE = 1.9;      // halbe Beinbreite (1,5) plus etwas Luft
+/* Zerlegt die Strecke a..b in die Stuecke, die NEBEN den Pylonbeinen
+   liegen. */
+function ohnePylonen(a, b) {
+  let teile = [[a, b]];
+  for (const px of PYL_X) {
+    const naechste = [];
+    for (const [u, v] of teile) {
+      if (v <= px - PYL_LUECKE || u >= px + PYL_LUECKE) { naechste.push([u, v]); continue; }
+      if (u < px - PYL_LUECKE) naechste.push([u, px - PYL_LUECKE]);
+      if (v > px + PYL_LUECKE) naechste.push([px + PYL_LUECKE, v]);
+    }
+    teile = naechste;
+  }
+  return teile;
+}
+
 function buildRiverAndBridge() {
   // Wasser
   waterMesh = new THREE.Mesh(
@@ -5023,30 +5053,6 @@ function buildRiverAndBridge() {
     rampe.receiveShadow = true;
     cityGroup.add(rampe);
   }
-  /* ---- Wo die Pylonen stehen ----
-     Die Zahlen standen frueher erst weiter unten. Das Gelaender braucht
-     sie aber schon hier: es lief als durchgehender Balken von einem Ende
-     zum anderen und damit MITTEN durch beide Pylonbeine (Handlauf bei
-     z = -34,85 im Bein z = -37 bis -34, Handlauf bei -15,15 im Bein -16
-     bis -13). Im Bild sah man den roten Handlauf im Pfeiler
-     verschwinden und auf der anderen Seite wieder herauskommen. */
-  const PYL_X = [225, 285], PYL_TOP = 44;
-  const PYL_LUECKE = 1.9;      // halbe Beinbreite (1,5) plus etwas Luft
-  /* Zerlegt die Strecke a..b in die Stuecke, die NEBEN den Pylonbeinen
-     liegen. */
-  function ohnePylonen(a, b) {
-    let teile = [[a, b]];
-    for (const px of PYL_X) {
-      const naechste = [];
-      for (const [u, v] of teile) {
-        if (v <= px - PYL_LUECKE || u >= px + PYL_LUECKE) { naechste.push([u, v]); continue; }
-        if (u < px - PYL_LUECKE) naechste.push([u, px - PYL_LUECKE]);
-        if (v > px + PYL_LUECKE) naechste.push([px + PYL_LUECKE, v]);
-      }
-      teile = naechste;
-    }
-    return teile;
-  }
   for (const s of [-1, 1]) {
     /* Das Gelaender steht AUSSEN am Gehweg, nicht mehr mitten im
        begehbaren Streifen. */
@@ -5096,7 +5102,7 @@ function buildRiverAndBridge() {
   /* Laengsrippe in der Mitte, damit die Quertraeger nicht frei enden. */
   deko(BR_X1 - BR_X0, 0.30, 1.1, (BR_X0 + BR_X1) / 2, BR_HOCH - 0.60, BRIDGE_Z, 0x6b2c2c);
 
-  // Pylonen (PYL_X und PYL_TOP stehen oben, beim Gelaender)
+  // Pylonen (PYL_X und PYL_TOP stehen auf oberster Ebene, vor dieser Funktion)
   const pylMat = new THREE.MeshLambertMaterial({ color: 0x8e3b3b });
   for (const px of PYL_X) {
     /* ---- Pfeiler ----
@@ -6434,6 +6440,19 @@ function findClip(clips, key) {
   }
   return null;
 }
+
+/* ================= Heldenmodell, Anzug und Einfaerbung =================
+   Bis hierher ging es um die Bewegungsdateien: Kernfenster, Blenddauern,
+   Wandgriffe, Clipsuche. Ab hier geht es um das MODELL - Kostuemfarben,
+   Symbiontentextur, Anzugkoerper, Augen, und der Zusammenbau der
+   sichtbaren Figur in makeGlbVisual.
+
+   Warum hier eine neue Ueberschrift steht: Diese 4.100 Zeilen lagen
+   bisher unter "Kernfenster der Bewegungsdateien" mit. Von den 4.500
+   Zeilen des Abschnitts gehoerten keine 400 zum Thema der Ueberschrift -
+   wer den Anzugcode suchte, fand ihn nicht, weil der Wegweiser falsch
+   beschriftet war. Gemessen und begruendet in docs/ARCHITEKTUR.md.
+   ===================================================================== */
 
 /* ---- Netz-Kostüm: färbt ein Menschmodell zum Helden um ----
    Rot am Oberkörper, Blau an Beinen und Oberarmen, dunkle Netzlinien –
