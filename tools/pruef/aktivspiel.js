@@ -165,28 +165,41 @@ const SEED = Number(process.argv[3]) || 4711;
                  if (Math.hypot(a.x - P.pos.x, a.z - P.pos.z) > 18) d.taste('Space', true); }
         else d.taste('KeyW', true);
       },
-      /* 10 U-Bahn: hinunter, Bahnsteig, Zug */
+      /* 10 U-Bahn: hinunter, Bahnsteig, IN den Zug und mitfahren.
+         Der erste Lauf kam auf 18.000 Bilder unter Tage, aber NULL
+         Zugkontakt: bis zur Wagentuer zu laufen reicht nicht, der
+         Zaehler verlangt die Figur im Wagen. Also wird sie dort
+         abgesetzt - genauso, wie der Bot in anderen Abschnitten auf ein
+         Dach gesetzt wird - und faehrt dann wirklich mit. */
       (s) => {
         frei();
         if (s === 0) { const liste = d.ubahnen() || [];
           const st = liste[Math.floor(Math.random() * liste.length)];
           if (st) { d.setzePos(st.x, -8.6, (st.dz || 0) + 24);
                     P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0); } }
-        /* auf einen haltenden Zug zugehen */
-        const zug = (d.zuegeRoh() || []).find((t) => Math.abs(t.x - P.pos.x) < 60 && P.pos.y < -5);
-        if (zug) { zuPunkt(zug.x, zug.z); d.taste('KeyW', true); }
+        const zug = (d.zuegeRoh() || []).find((t) => Math.abs(t.x - P.pos.x) < 90 && P.pos.y < -5);
+        if (zug && s % 240 === 60) {
+          d.setzePos(zug.x, -7.8, zug.z);
+          P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+        } else if (zug) { zuPunkt(zug.x, zug.z); d.taste('KeyW', true); }
         else d.taste('KeyW', true);
       },
-      /* 11 Fahrzeugkontakt: auf ein Autodach */
+      /* 11 Fahrzeugkontakt: auf ein Autodach und mitfahren.
+         Auch hier blieb der Zaehler im ersten Lauf auf null - danebenher
+         zu laufen und zu springen trifft das Dach praktisch nie. Die
+         Figur wird deshalb ueber dem Wagen abgesetzt und FAELLT darauf;
+         dass sie oben ankommt und liegen bleibt, muss das Spiel selbst
+         leisten (Teil 22 der frueheren Phase). */
       (s) => {
         frei();
-        const auto = (d.cars || []).find((c) => !c.aus &&
-          Math.hypot(c.mesh.position.x - P.pos.x, c.mesh.position.z - P.pos.z) < 60);
-        if (auto) { zuPunkt(auto.mesh.position.x, auto.mesh.position.z);
-                    d.taste('KeyW', true);
-                    if (Math.hypot(auto.mesh.position.x - P.pos.x,
-                                   auto.mesh.position.z - P.pos.z) < 12 && s % 60 === 0) d.tippeSprung(); }
-        else { d.taste('KeyW', true); }
+        const auto = (d.cars || []).find((c) => !c.aus && c.mesh &&
+          Math.hypot(c.mesh.position.x - P.pos.x, c.mesh.position.z - P.pos.z) < 90);
+        if (auto && s % 200 === 40) {
+          d.setzePos(auto.mesh.position.x, auto.mesh.position.y + 2.5, auto.mesh.position.z);
+          P.state = 'air'; P.onGround = false; P.vel.set(0, 0, 0);
+        } else if (auto) { zuPunkt(auto.mesh.position.x, auto.mesh.position.z);
+                           d.taste('KeyW', true); }
+        else d.taste('KeyW', true);
       },
       /* 12 gleiten ueber einen anderen Bezirk */
       (s) => {
