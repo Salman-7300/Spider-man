@@ -17470,6 +17470,24 @@ function updateHeroVisual(dt) {
         heroVisual.fussIK(bodenHoeheFuerFuss, 0.85,
                           Math.sin(player.facing), Math.cos(player.facing),
                           Math.sin(player.facing), Math.cos(player.facing));
+        /* ---- Warum hier nur die aufrechten Gangarten stehen ----
+           gangKontakt verankert den Standfuss, damit er nicht mitrutscht.
+           Gemessen als Anteil des Fussweges am Weg der Figur, Bodenfenster
+           3 cm:
+             walk 12,0 %   laufen 10,6 %   sprinten 8,5 %
+             ducken 14,2 %   schleichen 44,8 %   kriechen 44,5 %
+           Die Duckgangarten rutschen also drei- bis viermal so stark, und
+           ihre Zahlen aendern sich nicht, wenn man das Messfenster von 12
+           auf 3 cm zieht - dort wird nichts verankert.
+           Sie hier EINZUTRAGEN habe ich versucht und wieder
+           zurueckgenommen: es wurde messbar schlechter (schleichen 44,8 ->
+           60,5 %, kriechen 44,5 -> 59,3 %, ducken 14,2 -> 19,4 %). Die
+           Schwellen in gangKontakt (Bodenfenster 0,14 m, Reichweite
+           0,94) sind fuer eine aufrechte Figur eingestellt; in der Hocke
+           setzt der Anker an der falschen Stelle und zieht den Fuss
+           herum. Ein richtiger Weg braucht eigene Schwellen fuer die
+           Hocke - halb eingebaut ist er schlechter als gar nicht. Der
+           Punkt steht offen im Bericht. */
         if (heroVisual.gangKontakt && !player.platform &&
             ['walk', 'run', 'sprint'].includes(player.gang) && hSpeed > 0.15) {
           heroVisual.gangKontakt(player.vel, dt, bodenHoeheFuerFuss);
