@@ -216,17 +216,19 @@ als Kommentar in `index.html`, damit es niemand noch einmal probiert.
 ## 27. Bestehende Tests
 
     node --check game.js city-visuals.js menu.js     sauber
-    cd tools && node --test                          139 Tests, 139 gruen
+    cd tools && node --test                          141 Tests, 141 gruen
     git diff --check                                 sauber
 
-Neu in dieser Phase: `test-bruecke.cjs` (8) und `test-verkehr.cjs` (7),
-dazu 20 Browser-Pruefstaende unter `tools/pruef/`.
+Neu in dieser Phase: `test-bruecke.cjs` (8), `test-verkehr.cjs` (7) und
+`test-testfenster.cjs` (Doppelschluessel im `__dbg`-Objekt), dazu 24
+Browser-Pruefstaende unter `tools/pruef/`.
 
 ## 28. Verworfenes / bewusst nicht geaendert
 
 | Was | Warum zurueckgenommen |
 |---|---|
-| `gangKontakt` fuer Duckgangarten | Fussrutschen wurde schlechter: 44,8 % → 60,5 % |
+| `gangKontakt` fuer Duckgangarten | Fussrutschen wurde schlechter: 44,8 % → 60,5 %. Beide Zahlen sind inzwischen als ungueltig erwiesen (siehe unten) |
+| `GANG_REF` von `kriechen` anheben | Vier Werte durchgemessen (0,85 / 0,70 / 0,57 / 0,45): **jeder** ist schlechter, im Median UND im groessten Einzelruck |
 | `gehBegehbar`-Aenderung | **exakt null** Wirkung, Zahlen bis auf die Stelle gleich |
 | Touch-Knopfreihen umbrechen | Messung besser, Bild deutlich schlechter |
 | Raeumliche Buendelung der Stadtmoebel | +89 Zeichenaufrufe, 0 Dreiecke gespart |
@@ -250,13 +252,26 @@ dazu 20 Browser-Pruefstaende unter `tools/pruef/`.
 
 ## 30. Noch offene sichtbare Probleme
 
-1. **Fussrutschen der Duckgangarten (44,8 %)** — Ursache benannt, Versuch
-   zurueckgenommen, braucht eigene Kontaktschwellen fuer die Duckclips.
+1. **Fussrutschen von `kriechen` (99 %)** — gemessen, Ursache benannt,
+   kein Fix uebernommen. Die alte Zahl 44,8 % fuer „die Duckgangarten"
+   war ungueltig: das Abgrenzungsverfahren sah bei `kriechen` einen
+   einzigen Kontakt ueber 3,37 Cliplaengen und rechnete den gesamten Weg
+   der Figur als Rutschen. Mit dem zweiten Mass liegen `ducken` (26,3 %)
+   und `schleichen` (30,0 %) im Bereich von Sprinten (26,5 %) — sie sind
+   **kein Befund**. Uebrig bleibt `kriechen` mit 99 %: der Fuss steht
+   ueberhaupt nicht auf. Das laesst sich mit diesem Clip nicht durch eine
+   Zahl beheben, sondern nur durch eine andere Animation oder Fuss-IK —
+   beides gehoert nicht in eine Pruefphase. `docs/DUCKGANG-MESSUNG.md`.
 2. **7 Higgsfield-Objekte statt 5** — Ueberschreitung der Auftragsvorgabe.
 3. **`assets/haeuser.glb` hat keinen Herkunftsnachweis** — nur der
    Projektinhaber kann sagen, woher die Datei stammt.
-4. **Kein Zuschauerverhalten bei Ereignissen** — Luecke, kein Fehler.
-5. **Das Repository heisst weiter `Spider-man`** — die URL
+4. **Verfolgung an langen Hindernissen** — ein Gegner verfolgt in
+   Luftlinie mit 3,6 m Vorausschau und benutzt das Gehnetz nicht. Am
+   Brueckengelaender laeuft er deshalb daneben her statt herum (gemessen:
+   Umweg 31,6 bei 28,7 m Luftlinie). Ein Fix hiesse, die Verfolgung auf
+   das Gehnetz umzustellen — ein neues System.
+5. **Kein Zuschauerverhalten bei Ereignissen** — Luecke, kein Fehler.
+6. **Das Repository heisst weiter `Spider-man`** — die URL
    `salman-7300.github.io/Spider-man/` passt nicht zum Titel CITY SWING.
    Umbenennen kann nur der Besitzer (Settings → General → Rename).
-6. **Akt 1 ist ungeprueft** — braucht den Spieldurchlauf eines Menschen.
+7. **Akt 1 ist ungeprueft** — braucht den Spieldurchlauf eines Menschen.
