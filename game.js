@@ -30717,7 +30717,10 @@ const STORY_DEF = [
           if (!n) stGang(v.vorTuer.x, v.vorTuer.z, 2, 'story');
           stFunk('Zwei am Eingang. Sie haben dich gesehen.');
         },
-        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+        pruef: (m) => {
+          stGeflohenAufraeumen(m, m.ort, 45);
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
 
       { ziel: 'Ins Versteck eindringen',
         auf: (m) => {
@@ -30763,7 +30766,20 @@ const STORY_DEF = [
           if (civ) m.geisel = civ;
           stFunk('Innen sind noch mehr. Da ist außerdem ein Zivilist.');
         },
-        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+        /* ---- Auch hier kann einer davonrennen ----
+           Der Aufraeumer stand bisher nur in den beiden letzten Phasen.
+           Die Phasenmessung des Botlaufs zeigt aber, dass auch im
+           Erdgeschoss geflohen wird: 220 Fluchtbilder in Variante A, und
+           in einem Lauf dauerte diese Phase 155 s statt 16 s. Ein Ganove,
+           dem der Mut bricht, rennt aus dem Haus - und "das Erdgeschoss
+           sichern" wartet auf ihn, quer durch die halbe Stadt. Derselbe
+           Aufraeumer, dieselbe Regel: wer flieht und weit weg ist,
+           kaempft nicht mehr mit. 45 m statt 50, weil hier ein Haus der
+           Bezugspunkt ist und kein Platz. */
+        pruef: (m) => {
+          stGeflohenAufraeumen(m, m.ort, 45);
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
 
       { ziel: 'Die Geisel in Sicherheit bringen',
         auf: (m) => {
