@@ -30254,6 +30254,23 @@ function stEntferneGegner(e) {
   }
 }
 
+/* ---- Jede Phase muss fuer sich stehen koennen ----
+   Beim Wiedereinstieg am Kontrollpunkt laeuft NUR die aktuelle Phase auf
+   (storyStarte(id, abPhase) -> storyPhaseAuf). Die Phasen davor sind
+   uebersprungen - also gibt es kein m.v und kein m.ort, und jede Phase,
+   die darauf zugreift, stuerzt ab. Genau das hat der Checkpoint-Test
+   gefunden: "Cannot read properties of undefined (reading 'x')" ab
+   Phase 1. Deshalb zieht jede Phase das Versteck bei Bedarf nach.
+   Der Auftrag verlangt: transienter Weltzustand wird nicht gespeichert,
+   die Phase wird neu aufgebaut. Genau das passiert hier. */
+function stVersteckSichern(m) {
+  if (!m) return null;
+  if (!m.v) m.v = stVersteck(0);
+  if (m.v && !m.ort) m.ort = { x: m.v.mitte.x, z: m.v.mitte.z };
+  if (!m.ort) { const o = stOrt(40); m.ort = { x: o.x, z: o.z }; }
+  return m.v;
+}
+
 /* ---- Wer flieht und weit weg ist, ist aus dem Kampf ----
    Eine "raeume den Bereich"-Phase wartet auf den letzten lebenden
    Storygegner. Bricht dessen Mut (das Spiel laesst Ganoven fliehen, siehe
@@ -30673,7 +30690,7 @@ const STORY_DEF = [
 
       { ziel: 'Die Eingangswache ausschalten',
         auf: (m) => {
-          const v = m.v;
+          const v = stVersteckSichern(m);
           if (!v) { stGang(m.ort.x + 6, m.ort.z + 6, 3, 'story'); return; }
           /* Zwei bis drei vor der Tuer - auf gueltigem Boden, neben dem
              Durchgang, nicht darin: der Eingang muss passierbar bleiben. */
@@ -30704,7 +30721,7 @@ const STORY_DEF = [
 
       { ziel: 'Ins Versteck eindringen',
         auf: (m) => {
-          if (!m.v) return;
+          if (!stVersteckSichern(m)) return;
           /* Der Leuchtturm zeigt INS Haus - aber auf den Punkt direkt
              hinter der Tuer, nicht auf die Raummitte. Auf die Mitte
              gezeigt fuehrt er quer durch die Fassade: wer ihm folgt,
@@ -30722,7 +30739,7 @@ const STORY_DEF = [
 
       { ziel: 'Das Erdgeschoss sichern',
         auf: (m) => {
-          const v = m.v;
+          const v = stVersteckSichern(m);
           if (!v) { stGang(m.ort.x, m.ort.z, 3, 'story'); return; }
           /* So viele, wie der Raum glaubwuerdig traegt: die freie Flaeche
              entscheidet, nicht eine feste Zahl. */
@@ -30750,6 +30767,14 @@ const STORY_DEF = [
 
       { ziel: 'Die Geisel in Sicherheit bringen',
         auf: (m) => {
+          /* Wiedereinstieg direkt in diese Phase: dann gibt es noch keine
+             Geisel - sie wird hier nachgeholt, sonst waere die Phase ohne
+             Inhalt und der Auftragstext eine Luege. */
+          const v = stVersteckSichern(m);
+          if (!m.geisel && v) {
+            const p3 = versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 6 })[0];
+            if (p3) m.geisel = stGeisel(p3);
+          }
           if (m.geisel) m.zielPos = { x: m.geisel.pos.x, y: m.geisel.pos.y + 1,
                                       z: m.geisel.pos.z };
         },
@@ -30765,7 +30790,7 @@ const STORY_DEF = [
 
       { ziel: 'Den Funker stellen',
         auf: (m) => {
-          const v = m.v;
+          const v = stVersteckSichern(m);
           const p2 = v ? versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 5 })[0]
                        : null;
           const g = p2 ? stGang(p2.x, p2.z, 1, 'story')
@@ -30799,7 +30824,16 @@ const STORY_DEF = [
 
       { ziel: 'Den Funker verfolgen',
         auf: (m) => {
+          stVersteckSichern(m);
           m.treff = stTreffpunkt(m);
+          /* ---- Wiedereinstieg mitten in der Verfolgung ----
+             Nach einem Neustart am Kontrollpunkt gibt es keinen Funker
+             mehr - die Welt wird neu aufgebaut, nur der Fortschritt ist
+             gespeichert. Ohne Funker hat "Den Funker verfolgen" keinen
+             Inhalt, und die Phase wurde im Test sofort uebersprungen.
+             Sinnvoll ist dann derselbe Weg wie beim fruehen Fang: der
+             Treffpunkt ist bekannt. */
+          if (!m.funker || m.funker.dead) m.fruehGefangen = true;
           if (m.fruehGefangen) {
             /* Gut gespielt, nicht bestraft: das Funkgeraet verraet den
                Treffpunkt, und die Mission laeuft weiter. */
@@ -30826,6 +30860,7 @@ const STORY_DEF = [
 
       { ziel: 'Den Hinterhalt überstehen',
         auf: (m) => {
+          stVersteckSichern(m);
           const t = m.treff || (m.treff = stTreffpunkt(m));
           /* Drei bis fuenf, bewusst gemischt, verteilt um den Platz -
              nicht alle auf einem Punkt. */
@@ -30853,6 +30888,7 @@ const STORY_DEF = [
 
       { ziel: 'Den Anführer stellen',
         auf: (m) => {
+          stVersteckSichern(m);
           const t = m.treff || (m.treff = stTreffpunkt(m));
           const g = stGang(t.x, t.z, 1, 'story');
           const chef = g.enemies[0];
@@ -33418,6 +33454,7 @@ if (window.__WEBHERO_TEST__ === true) {
     /* Die Verstecke fuer Mission 6 - damit der Pruefstand dieselbe Liste
        bewertet, die das Spiel benutzt, und keine Kopie davon. */
     versteckListe, versteckWert, versteckPunkte, versteckFrei, versteckPlaetze,
+    stGeisel, stFunkerWeg, stTreffpunkt,
     imVersteck, freieFlaeche, stVersteck,
     /* Die Nebenauftraege pausieren. Ein Pruefstand, der EINE Figur laufen
        laesst, bekommt sonst nach rund 18 Sekunden den Geiselauftrag

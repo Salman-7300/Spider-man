@@ -174,6 +174,131 @@ const TEIL = process.argv[2] || '1-3';
       }
       E.test3 = { durchWand, wandProben, durchTuer, tuerProben };
     }
+    /* ============ TEST 4+5: Funker-Exit und Verfolgung ============
+       Der Funker startet TIEF im Haus. Er muss ueber die echte Tuer nach
+       draussen und dann zum Treffpunkt. Gemessen wird, was der Auftrag
+       verlangt: keine Wanddurchdringung, kein Teleport, nichts unter dem
+       Boden, kein Festhaengen, richtige Tuerseite, Weglaenge. */
+    if (TEIL === '4' || TEIL === '5' || TEIL === 'alle') {
+      const laeufe = [];
+      const wieOft = TEIL === '5' ? 50 : liste.length;
+      for (let n = 0; n < wieOft; n++) {
+        const v = liste[n % liste.length];
+        d.enemies.length = 0;
+        if (d.gangs) d.gangs.length = 0;
+        /* Der Spieler steht VOR der Tuer - wie am Ende des Innenkampfs. */
+        d.setzePos(v.vorTuer.x, (v.vorTuer.y || 0) + 0.05, v.vorTuer.z);
+        P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+        P.dead = false; P.hp = 100;
+        /* Tiefster gueltiger Punkt im Raum. */
+        const tief = v.punkte.reduce((a, q) => {
+          const dd = Math.hypot(q.x - v.tuerMitte.x, q.z - v.tuerMitte.z);
+          return dd > a.d ? { p: q, d: dd } : a; }, { p: v.punkte[0], d: 0 }).p;
+        d.spawnGang(tief.x, tief.z, 1, 'test');
+        d.schritt(1 / 30, 2);
+        const f = d.enemies[0];
+        if (!f) continue;
+        f.pos.set(tief.x, tief.y, tief.z);
+        if (f.visual && f.visual.root) f.visual.root.position.copy(f.pos);
+        /* Ein Treffpunkt wie im Spiel: freie Flaeche in Reichweite. */
+        const treff = d.freieFlaeche(v.mitte.x, v.mitte.z, 95, 4.5) || v.hof;
+        f.flieht = true; f.state = 'flee'; f.eventFlucht = true;
+        f.fluchtWeg = d.stFunkerWeg({ v, ort: { x: v.mitte.x, z: v.mitte.z } }, treff);
+        let imKollider = 0, unterBoden = 0, sprung = 0, still = 0, stillMax = 0;
+        let draussenBei = null, durchTuer = false, weg = 0, amZiel = null;
+        let vx = f.pos.x, vz = f.pos.z;
+        let warDrin = true;
+        for (let i = 0; i < 2400; i++) {
+          d.schritt(1 / 30);
+          const s2 = Math.hypot(f.pos.x - vx, f.pos.z - vz);
+          if (s2 > 3) sprung++;
+          weg += s2;
+          if (s2 < 0.004) { still += 1 / 30; if (still > stillMax) stillMax = still; }
+          else still = 0;
+          vx = f.pos.x; vz = f.pos.z;
+          const drin = d.imVersteck(v, f.pos.x, f.pos.z, f.pos.y);
+          const gy = d.groundYAt(f.pos.x, f.pos.z, f.pos.y + 0.6);
+          if (gy !== null && gy !== undefined && f.pos.y < gy - 0.5) unterBoden++;
+          if (!d.versteckFrei(f.pos.x, f.pos.z, f.pos.y, 0.2)) imKollider++;
+          if (warDrin && !drin && draussenBei === null) {
+            draussenBei = i + 1;
+            /* Richtige Tuerseite? Er muss die Tuer passiert haben, nicht
+               irgendwo durch die Wand herausgekommen sein. */
+            durchTuer = Math.hypot(f.pos.x - v.tuerMitte.x,
+                                   f.pos.z - v.tuerMitte.z) < 4.5;
+          }
+          if (!drin) warDrin = false;
+          if (treff && Math.hypot(f.pos.x - treff.x, f.pos.z - treff.z) < 8) {
+            amZiel = i + 1; break;
+          }
+        }
+        laeufe.push({ haus: v.haus, draussenBei, durchTuer, amZiel,
+                      weg: +weg.toFixed(0), imKollider, unterBoden, sprung,
+                      stillMax: +stillMax.toFixed(1),
+                      treffWeg: treff && treff.weg ? treff.weg : null });
+      }
+      E.test45 = laeufe;
+    }
+
+    /* ============ TEST 8: Geisel ============ */
+    if (TEIL === '8' || TEIL === 'alle') {
+      const v = liste[0];
+      d.enemies.length = 0;
+      if (d.gangs) d.gangs.length = 0;
+      for (const c of d.civilians) c.geisel = false;
+      const p2 = v.punkte[Math.floor(v.punkte.length / 2)];
+      const civ = d.stGeisel(p2);
+      const start = civ ? { x: civ.pos.x, z: civ.pos.z } : null;
+      let weit = 0, imZug = 0, aktiv = 0, partner = 0, verloren = 0;
+      let unterBoden2 = 0;
+      for (let i = 0; i < 3600 && civ; i++) {
+        d.schritt(1 / 30);
+        if (!civ.geisel) { verloren++; break; }
+        const dd = Math.hypot(civ.pos.x - start.x, civ.pos.z - start.z);
+        if (dd > weit) weit = dd;
+        if (civ.eingestiegen > 0 || civ.bahnsteig !== undefined) imZug++;
+        if (civ.aktivitaet || civ.eventRolle) aktiv++;
+        if (civ.sozialPartner) partner++;
+        const gy = d.groundYAt(civ.pos.x, civ.pos.z, civ.pos.y + 0.6);
+        if (gy !== null && gy !== undefined && Math.abs(civ.pos.y - gy) > 0.6) unterBoden2++;
+      }
+      const nochInListe = civ ? d.civilians.indexOf(civ) >= 0 : false;
+      if (civ) civ.geisel = false;
+      E.test8 = { gefunden: !!civ, weit: +weit.toFixed(2), imZug, aktiv, partner,
+                  verloren, bodenFehler: unterBoden2, nochInListe };
+    }
+
+    /* ============ TEST 9: Checkpoints ============ */
+    if (TEIL === '9' || TEIL === 'alle') {
+      const zeilen = [];
+      const def = d.storyDefs().find((x) => x.id === 'm6');
+      const phasen = def ? def.phasen : 9;
+      for (let ph = 0; ph < phasen; ph++) {
+        if (d.story.aktiv) d.storyAufraeumen();
+        d.enemies.length = 0;
+        if (d.gangs) d.gangs.length = 0;
+        for (const c of d.civilians) c.geisel = false;
+        d.story.fertig.length = 0;
+        for (const id of ['m1', 'm2', 'm3', 'm4', 'm5']) d.story.fertig.push(id);
+        d.setzePos(25, 0.05, 25);
+        P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+        /* Wiedereinstieg am Kontrollpunkt - genau der Weg, den ein
+           Neustart nach dem Tod benutzt. */
+        const ok = d.storyStarte('m6', ph);
+        d.schritt(1 / 30, 20);
+        const m2 = d.missionDaten();
+        zeilen.push({ phase: ph, gestartet: ok,
+                      phaseJetzt: d.story.phase, ziel: d.story.zielText,
+                      story: d.enemies.filter((e) => e.storyGegner && !e.dead).length,
+                      geiseln: d.civilians.filter((c) => c.geisel).length,
+                      hatVersteck: !!(m2 && m2.v),
+                      zielPos: !!(m2 && m2.zielPos) });
+      }
+      if (d.story.aktiv) d.storyAufraeumen();
+      for (const c of d.civilians) c.geisel = false;
+      E.test9 = zeilen;
+    }
+
     /* ============ TEST 10: kompletter Missionslauf ============
        Zwei Varianten. A laesst den Funker normal fliehen, B faengt ihn
        sofort nach dem Verlassen des Hauses. Beide muessen Mission 6
@@ -402,6 +527,54 @@ const TEIL = process.argv[2] || '1-3';
       (aus.test3.durchWand ? '   BEFUND' : '   ok'));
     p('  durch die TUER sichtbar:  ' + aus.test3.durchTuer + ' von ' + aus.test3.tuerProben +
       '   (soll so sein)');
+  }
+  if (aus.test45) {
+    p('');
+    p('== TEST 4+5: Funker-Exit und Verfolgung (' + aus.test45.length + ' Laeufe) ==');
+    const raus = aus.test45.filter((r) => r.draussenBei !== null);
+    const tuer = aus.test45.filter((r) => r.durchTuer);
+    const ziel = aus.test45.filter((r) => r.amZiel !== null);
+    const wege = aus.test45.filter((r) => r.amZiel !== null).map((r) => r.weg)
+      .sort((a, b2) => a - b2);
+    p('  aus dem Haus gekommen:      ' + raus.length + '/' + aus.test45.length);
+    p('  dabei die TUER benutzt:     ' + tuer.length + '/' + aus.test45.length +
+      (tuer.length === raus.length ? '   ok' : '   BEFUND'));
+    p('  Treffpunkt erreicht:        ' + ziel.length + '/' + aus.test45.length);
+    if (wege.length)
+      p('  Weglaenge: min ' + wege[0] + ' m, Median ' + wege[Math.floor(wege.length / 2)] +
+        ' m, max ' + wege[wege.length - 1] + ' m');
+    const summe = (k) => aus.test45.reduce((a, r) => a + r[k], 0);
+    p('  im Kollider ' + summe('imKollider') + ' Bilder, unter Boden ' +
+      summe('unterBoden') + ' Bilder, Ortssprünge ' + summe('sprung') +
+      ', laengster Stillstand ' +
+      Math.max(...aus.test45.map((r) => r.stillMax)) + ' s');
+    const schlecht = aus.test45.filter((r) => r.imKollider || r.unterBoden || r.sprung ||
+                                              (r.draussenBei !== null && !r.durchTuer));
+    for (const r of schlecht.slice(0, 6)) p('  BEFUND ' + JSON.stringify(r));
+  }
+  if (aus.test8) {
+    p('');
+    p('== TEST 8: Geisel ==');
+    const t = aus.test8;
+    p('  gefunden ' + t.gefunden + ', groesste Abweichung vom Platz ' + t.weit + ' m');
+    p('  Zug/Bahnsteig ' + t.imZug + ', Aktivitaet ' + t.aktiv + ', Gespraech ' + t.partner +
+      ', Bindung verloren ' + t.verloren + ', Bodenfehler ' + t.bodenFehler +
+      ', noch in der Liste ' + t.nochInListe);
+    const ok2 = t.gefunden && t.weit < 1.5 && !t.imZug && !t.aktiv && !t.partner &&
+                !t.verloren && !t.bodenFehler && t.nochInListe;
+    p('  ' + (ok2 ? 'ok' : 'BEFUND'));
+  }
+  if (aus.test9) {
+    p('');
+    p('== TEST 9: Checkpoints (Wiedereinstieg je Phase) ==');
+    for (const z of aus.test9)
+      p('  ab Phase ' + z.phase + ': gestartet ' + z.gestartet +
+        ', steht auf ' + z.phaseJetzt + ' (' + z.ziel + ')' +
+        ', Storygegner ' + z.story + ', Geiseln ' + z.geiseln +
+        ', Versteck ' + z.hatVersteck);
+    const schief = aus.test9.filter((z) => !z.gestartet || z.phaseJetzt !== z.phase ||
+                                           z.geiseln > 1);
+    p('  ' + (schief.length ? schief.length + ' Phasen fehlerhaft   BEFUND' : 'ok'));
   }
   if (aus.test10) {
     p('');
