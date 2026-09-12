@@ -185,11 +185,123 @@ Korrigiert in `88504d3`.
 
 ## 22. 30-Minuten-Live-Test (Test A)
 
-(wird nachgetragen)
+`tools/pruef/aktivspiel.js`, 108.000 Bilder nach Drehbuch, zwoelf
+Abschnitte. **Alle 26 Punkte der Auftragsliste sind vorgekommen.**
 
-## 23. 60-Minuten-Test (Test B und Test D)
+| | Zahl | | Zahl |
+|---|---|---|---|
+| laufen | 39.243 Bilder | Wandlauf | 3.630 Bilder |
+| sprinten | 16.787 Bilder | Wandsprung | 37 mal |
+| springen | 238 mal | Dachhocke | 8.730 Bilder |
+| schwingen | 1.095 Bilder | Kampf (Schlaege) | 62 mal |
+| Netz wechseln | 82 mal | Netzschuss | 9 mal |
+| Netz-Zip | 608 Bilder | Verbrechen erlebt | 16, davon 3 geloest |
+| freier Fall | 3.127 Bilder | zivile Aktivitaet | 4 |
+| gleiten | 2.799 Bilder | POI besucht | 7 |
+| landen | 478 mal | U-Bahn (unter Tage) | 10.440 Bilder |
+| Wandkontakt | 19.184 Bilder | Zugkontakt | 8.964 Bilder |
+| klettern hoch | 14.604 Bilder | Fahrzeugkontakt | 1.123 Bilder |
+| klettern runter | 2.500 Bilder | Stadtbezirke beruehrt | 16 |
+| klettern seitlich | 2.000 Bilder | | |
 
-(wird nachgetragen)
+Fuenfzehn Zeitreihen, 120 Messpunkte, je START/ENDE/MIN/MAX und eine
+Regressionsgerade. **Kein Wachstumstrend in keiner Bestandsreihe** —
+Szenenobjekte, Gegner, Zivilisten, Fahrzeuge, Ereignisse, Bosse,
+Projektile, Netze, Marker, Aktivitaeten, offene Hygienefaelle,
+Einsaetze und Lichter bleiben alle in ihrem Band.
+
+JS-Fehler der Seite: 0. Unter dem Boden: 0 Bilder. Gestorben: 0.
+
+### Drei Luecken im Pruefstand, keine im Spiel
+* **Netz-Zip kam nie vor.** Einzeln nachgeprueft feuert derselbe Aufruf
+  zuverlaessig, sobald die Figur Abstand vor der Fassade hat:
+  `zipHaltepunkt` tastet einen Kegel ab, der erst bei 4 m beginnt. Wer
+  mit gedruecktem W an der Wand klebt, hat nichts mehr darin.
+* **Klettern seitlich und runter** standen auf null, weil die Figur
+  EINMAL an die Wand gesetzt wurde und nach dem ersten Absturz unten
+  blieb.
+* **Kampf und Netzschuss** standen in einem von drei Laeufen auf null,
+  weil gerade kein Verbrechen lief.
+
+### Der Fail-Logger: 4.001 Meldungen, davon 97 Prozent richtige Haltungen
+4.001 ist der Deckel (`POSE_LOG` nimmt 4.000 Eintraege) — die Reihe
+wuchs also nicht, sie lief voll. Aufgeschluesselt nach Art, Zustand,
+Clip und Knochen:
+
+    beinZuHoch, Fuss ueber Huefte, Schwelle 0,15 m:
+      sturzflug   n=1387   min 0,162   Median 0,743   max 0,744
+      wandsprung  n= 124   min 0,194   Median 0,678   max 0,701
+      fall        n=  40   min 0,272   Median 0,547   max 0,716
+
+Ein Median beim Fuenffachen der Schwelle, der kaum streut, ist keine
+Fehlerverteilung, sondern eine Pose. Nachgesehen im Bild aus der
+Spielkamera (`tools/pruef/haltung-bilder.js`): Sturzflug, Wandsprung und
+Wandkriechen sehen richtig aus. Drei Korrekturen **am Logger, keine am
+Rig**: Ausnahmeliste fuer die Clips, in denen das angezogene Knie die
+Bewegung ist; eigene Wandschranke fuer Kopf und Brust im Kriechen (0,95,
+gemessen 0,878) bei unveraenderten 0,55 fuer die Huefte; und die
+Dachhocke meldet einmal je Hocke statt in jedem Bild.
+
+**Danach 150 Meldungen in 30 Minuten (5,0 je Minute).** Uebrig bleiben
+Kopf und Brust in den Wandakrobatik-Clips (Median 0,718 / 0,596); die
+Huefte kommt auf 4 Meldungen bei 0,558 bis 0,561 m, liegt also praktisch
+immer an der Wand.
+
+## 23. 60-Minuten-Test (Test B) und NPC-Hindernisse (Test D)
+
+**Test B** (`tools/pruef/welt-stunde.js`): 60 Minuten, 120 Messpunkte,
+Regressionsgerade je Reihe — kein Wachstumstrend. Steht in
+`docs/PHASE13-TESTS.md`.
+
+**Test D** (`tools/pruef/npc-wege.js`): 100 Zivilistenrouten und 100
+Gegnerverfolgungen an neun schwierigen Orten, vor jedem Szenario der
+Werkszustand der Figur wiederhergestellt (0 Ruecksetzfehler in 100
+Szenarien).
+
+| | Frage | Ergebnis |
+|---|---|---|
+| A | jemand IN einem Gebaeude | **0** |
+| B | jemand unter der Bodenflaeche | **0** |
+| C | dauerhaft haengengeblieben | **0** |
+| D | Zivilist erreicht sein Ziel | 84 und 93 von 100 (zwei Laeufe) |
+| E | alarmierter Gegner erreicht Spieler | 80 bis 83 von 100 |
+| F | Ampelstopps (kein Fehler) | 50.520 Bilder |
+| G | Bilder im Zug (kein Fehler) | 0 |
+
+Laengster Stillstand 1,8 s (vorher 20 s). Verworfen wegen Ortssprung: 0.
+
+Die Reste sind benannt, nicht nur gezaehlt: von den nicht angekommenen
+Zivilisten waren 12 von 16 beziehungsweise 6 von 7 **auf der Flucht** —
+eine Gang hatte sie von der Route gejagt. Bei den nicht erreichten
+Verfolgungen waren in **17 von 17** Faellen weitere Gegner im Spiel;
+sind mehrere auf den Spieler angesetzt, verteilt
+`verteileAngriffsrechte` Plaetze im Ring, und wer keinen Platz hat, haelt
+Abstand (kleinster Abstand im Median 6,0 m). Isoliert nachgefahren
+erreicht derselbe Gegner denselben Spieler in 1,9 s.
+
+Die Streuung zwischen den Laeufen (D 84 bis 93) ist echt: das Spiel
+benutzt `Math.random`, der Seed steuert nur die Welt.
+
+### Was Test D im Spiel gefunden hat
+Genau **einen** Befund, und der ist behoben: das Gehnetz reichte weiter
+als das erlaubte Gebiet. 29 der 728 Knoten — der ganze Brueckengehweg,
+sechs Uferknoten, zwei Promenadenknoten — lagen im gesperrten Band, und
+jede Figur wurde dort in jedem Bild zurueckgeschoben. Zu Fuss kam nie
+jemand ueber den Fluss. Nach der Korrektur: 0 von 728 ausserhalb.
+
+### Was Test D am Pruefstand gefunden hat
+Vier Dinge, die wie Spielfehler aussahen und keine waren:
+* Der Spieler wurde nie geheilt. Ist er tot, wirft `updateEnemies` jeden
+  Gegner in jedem Bild zurueck auf `patrol` — ab dem Tod scheiterte jedes
+  weitere Szenario. Die alten Zahlen (10, 12 und 41 von 100 bei gleichem
+  Aufruf) sagten nur, wann der Spieler starb.
+* Der Zustand des Gegners wurde NACH der eigenen Nachalarmierung
+  aufgezeichnet — also die eigene Eingabe statt des Spiels.
+* Der Ortssprung ueber mehrere hundert Meter war der Geiselauftrag, der
+  sich bei einer einelementigen Zivilistenliste immer die Testfigur
+  holte.
+* Alle Faelle in Frage C standen auf `hurt`: eine Gang hatte sie
+  niedergeschlagen, und wer getroffen wird, liegt 40 bis 60 Sekunden.
 
 ## 24. Act-1-Human-Playtest (Test F / Teil 21)
 

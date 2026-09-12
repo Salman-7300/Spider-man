@@ -104,11 +104,33 @@ const fs = require('fs');
     E.boss.aktivVerweis = !!d.bossAktiv;
     E.boss.statistikNach = d.bossStatistik();
 
-    /* ---- 4. Polizei und Rettung ---- */
+    /* ---- 4. Polizei und Rettung ----
+       Der erste Entwurf rief d.respTest() auf. Die Funktion gibt es nicht
+       - der Abschnitt hat nichts ausgeloest, alle vier Zahlen standen auf
+       null, und "Aufraeumfehler 0, Leck 0" war eine Aussage ueber ein
+       Nichtereignis. Einsaetze haengen im Spiel an EREIGNISSEN
+       (respAnfordern nimmt ein Ereignis). Also wird jetzt ein Ereignis
+       gestartet, seine Ganoven werden niedergeschlagen und ein Zivilist
+       verletzt - dann ruft das Spiel Polizei und Rettung von selbst. */
     const rVor = d.respStatistik();
-    try { d.respTest && d.respTest('polizei', P.pos.x + 30, P.pos.z); } catch (e) {}
-    try { d.respTest && d.respTest('ems', P.pos.x - 30, P.pos.z); } catch (e) {}
+    if (d.evRuheAus) d.evRuheAus();
+    for (let i = 0; i < 3; i++) { try { d.evStarte(); } catch (e) {} lauf(30); }
+    lauf(60 * 5);
+    for (let n = 0; n < 80; n++) {
+      const lebend = (d.enemies || []).filter((e) => !e.dead);
+      if (!lebend.length) break;
+      for (const e of lebend) d.damageEnemy(e, 400, 'kick');
+      lauf(6);
+    }
+    if (d.hurtCivilian && d.civilians && d.civilians.length) {
+      const c = d.civilians.find((x) => x.state !== 'hurt');
+      if (c) { try { d.hurtCivilian(c, 99); } catch (e) {} }
+    }
     lauf(60 * 60);
+    E.einsatzListe = (d.respListe() || []).length;
+    /* Absolutwerte mitnehmen, nicht nur Differenzen: waere respStatistik
+       jemals wieder ein lebendes Objekt, faellt es hier sofort auf. */
+    E.einsatzRoh = Object.assign({}, d.respStatistik());
     const rNach = d.respStatistik();
     E.einsatz = { angefordert: rNach.angefordert - rVor.angefordert,
                   ausgerueckt: rNach.ausgerueckt - rVor.ausgerueckt,
@@ -170,6 +192,8 @@ const fs = require('fs');
   console.log('4. Polizei und Rettung');
   console.log('   angefordert ' + R.angefordert + ', ausgerueckt ' + R.ausgerueckt +
               ', angekommen ' + R.angekommen + ', erledigt ' + R.erledigt);
+  console.log('   noch offene Einsaetze in der Liste: ' + aus.einsatzListe);
+  console.log('   Zaehler absolut: ' + JSON.stringify(aus.einsatzRoh));
   console.log('   Aufraeumfehler ' + R.aufraeumFehler + ', ohne Haltepunkt ' + R.ohneHaltepunkt +
               ', Leck ' + R.leck + '   ' + ok(R.aufraeumFehler === 0 && !R.leck));
 

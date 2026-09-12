@@ -32263,7 +32263,12 @@ if (window.__WEBHERO_TEST__ === true) {
         ziele: e.ziele.length,
       }));
     },
-    respStatistik() { return RESP.statistik; },
+    /* Eine KOPIE, wie bei bossStatistik. Vorher kam das lebende Objekt
+       zurueck: ein Pruefstand, der sich den Stand vorher merkt und
+       hinterher die Differenz bildet, hielt damit zweimal dasselbe Objekt
+       in der Hand und mass ueberall null. Genau das ist im Kernsysteme-
+       Pruefstand passiert - "angefordert 0" bei einem laufenden Einsatz. */
+    respStatistik() { return Object.assign({}, RESP.statistik); },
     respWagen() {
       return cars.filter((c) => c.notfall).map((c) => ({
         art: c.notfall, axis: c.axis, lane: +c.lane.toFixed(1),
