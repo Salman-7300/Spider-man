@@ -56,34 +56,41 @@ statische Stadtobjekte.
 Augenhöhe: Gullideckel, Poller, Türen, Türrahmen, Klimagerät, Pflanzkübel,
 Abfluss – dazu drei große Baukörper. CC0, also ohne Auflagen verwendbar.
 
-## `haeuser.glb` – Lizenz weiterhin OFFEN
+## `haeuser.glb` – Herkunft benannt: Sketchfab, CC Attribution
 
 18 Gebäude, 39.745 Dreiecke, 2,80 MB, 21 Texturen, über
 `tools/convert-haeuser.mjs` auf einen Einheitswürfel normiert.
 
-### Was die Nachforschung ergeben hat
+### Die beiden Quellsätze
 
-Gesucht wurde in Arbeitsbaum, gesamter Commit-Historie (alle Branches,
-alle Dateiversionen), Commit-Nachrichten und den GitHub-Releases nach
-„Brownstone Building Set", „Downtown Buildings Set" und `haeuser.glb`.
+Der Auftraggeber hat die Herkunft benannt. Beide Sätze stammen von
+**Daniel Zhabotinsky (@DanielZhabotinsky)** und stehen auf Sketchfab
+unter **CC Attribution**:
 
-**Die Originalarchive liegen im Release `build-1`** (veröffentlicht am
-26.08.2026, hochgeladen von `Salman-7300`):
-
-| Datei im Release | Größe |
+| Satz | Seite |
 |---|---|
-| `brownstone-building-set-low-poly-model.zip` | 36,7 MB |
-| `downtown-buildings-set-low-poly-model.zip` | 44,8 MB |
+| Brownstone Building Set – Low poly model | <https://sketchfab.com/3d-models/brownstone-building-set-low-poly-model-b15e6344acd844eabc823e1cc8332574> |
+| Downtown Buildings Set – Low Poly model | <https://sketchfab.com/3d-models/downtown-buildings-set-low-poly-model-7378e7fb9c914c39880d9913a6f4e1d6> |
 
-Beide Archive wurden heruntergeladen und vollständig durchsucht:
+### Was daran belegt ist und was nicht
 
-- **Keine Lizenzdatei, kein README, keine Nutzungsbedingungen.** 42 bzw.
-  61 Dateien, ausschließlich `source/*.fbx` und `textures/*.jpeg`.
-- Der Aufbau `source/` + `textures/` entspricht dem Downloadpaket von
-  Sketchfab. Das ist ein **Indiz, kein Nachweis** – dieselbe Struktur
-  benutzen andere Portale auch.
+Belegt ist die **Übereinstimmung der Namen**: `tools/convert-haeuser.mjs`
+nennt in seinem Kopf wörtlich die beiden Sätze
 
-Aus den FBX-Metadaten selbst gelesen (nicht abgeschrieben):
+    "Brownstone Building Set", "Downtown Buildings Set"
+
+und genau diese beiden Sets sind unter den oben genannten Adressen
+veröffentlicht. Die Archive im Release `build-1` heißen entsprechend
+`brownstone-building-set-low-poly-model.zip` und
+`downtown-buildings-set-low-poly-model.zip`.
+
+**Nicht belegt ist der Download selbst.** Es gibt keine Prüfsumme, keine
+Downloadquittung und keinen kryptographischen Nachweis, dass genau diese
+Dateien von genau dieser Seite geladen wurden. Die Zuordnung stützt sich
+auf die Namensgleichheit und auf die Angabe des Auftraggebers.
+
+Was ich unabhängig davon aus den FBX-Metadaten gelesen hatte, passt dazu,
+ersetzt den Nachweis aber nicht:
 
 | Feld | Brownstone | Downtown |
 |---|---|---|
@@ -91,23 +98,27 @@ Aus den FBX-Metadaten selbst gelesen (nicht abgeschrieben):
 | FBX SDK | 2020.0.1 | 2020.0.1 |
 | Datum (GMT) | 12.03.2025 01:53 | 12.03.2025 14:33 |
 | Ursprungspfad | `C:\Users\DanielPC\Desktop\Moontears\Buildings_Models\Brownstone_Building_Set\` | `…\Moontears\Buildings_Models\Downtown_Building_Set\` |
-| `Author` | **leer** | **leer** |
-| `Copyright` | **nicht gesetzt** | **nicht gesetzt** |
+| `Author` | leer | leer |
+| `Copyright` | nicht gesetzt | nicht gesetzt |
 
-### Urteil: OFFEN
+Der Benutzerpfad `DanielPC` und der Vorname des genannten Urhebers
+stimmen überein; die Archive selbst enthalten keine Lizenzdatei.
 
-Ein Ordnername („Moontears"), ein Vorname im Benutzerpfad und ein
-Modellierungsprogramm sind **kein Anbieter und keine Lizenz**. Eine
-Lizenz wird hier nicht erfunden und nicht aus der Paketstruktur
-abgeleitet.
+### Namensnennung (Pflicht bei CC Attribution)
 
-**Was zum Schließen fehlt – und nur der Auftraggeber weiß es:** von
-welchem Portal oder Verkäufer die beiden Sets stammen, unter welcher
-Lizenz sie erworben wurden und ob eine Namensnennung verlangt ist.
+CC Attribution verlangt, dass Urheber und Quelle genannt werden. Der
+folgende Text erfüllt das und gehört an jede Stelle, an der das Spiel
+veröffentlicht wird:
 
-Die belastbaren Anhaltspunkte oben sollten die Suche erheblich
-abkürzen: Urheber-/Studioname **„Moontears"**, Sets **„Brownstone
-Building Set"** und **„Downtown Buildings Set"**, erstellt **März 2025**.
+    Gebäudemodelle: "Brownstone Building Set - Low poly model" und
+    "Downtown Buildings Set - Low Poly model" von Daniel Zhabotinsky
+    (@DanielZhabotinsky), Sketchfab, lizenziert unter CC Attribution.
+
+**Offen bleibt allein die Anzeige im Spiel:** diese Notiz steht im
+Repository, aber CITY SWING hat noch keine Stelle, an der die
+Namensnennung für die Spielenden sichtbar ist (Titelbild, Menü oder eine
+Abspann-/Danksagungsseite). Das ist eine Änderung am Spiel und wurde
+hier bewusst nicht mitgemacht.
 
 ## Figuren und Bewegungen
 

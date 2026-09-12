@@ -27,28 +27,33 @@ gelaufen und gruen. Die Aussage bezieht sich ausdruecklich auf die
     Verkehrsstunde                          14.400 Proben, 0 Geisterfahrer
     Bewegung (7 Einzelpruefstaende)         0 fehlerhafte Anlaeufe
 
-**Was die Freigabe NICHT abdeckt — und was daran haengt:**
+**Der Human Playtest ist inzwischen gemacht.** Der Auftraggeber hat Akt 1
+selbst durchgespielt (Abschnitt 24). Er bringt **einen** Befund mit, und
+zwar keinen technischen: Mission 6 „Das Versteck" spielt auf einem
+offenen Platz statt in einem Gebaeude. Das ist eine Spielaenderung und
+steht als Punkt 2 in Abschnitt 30.
 
-1. **HUMAN PLAYTEST AUSSTEHEND.** Akt 1 ist nie von einem Menschen
-   durchgespielt worden. Ein Bot kann alle acht Missionen durchklicken,
-   aber nicht beurteilen, ob das Ziel verstanden wird und ob die Kette
-   aus Anfahrt, Kampf und Abschluss traegt. Der Pruefmodus dafuer steht
-   bereit (`?playtest=1`, siehe `docs/PLAYTEST-AKT1.md`). **Das ist kein
-   technischer Blocker, sondern der einzige Punkt des Auftrags, den ich
-   nicht selbst erledigen kann.**
-2. `assets/haeuser.glb` hat keinen Herkunftsnachweis. Die Nachforschung
-   ist vollstaendig dokumentiert (Abschnitt 20 und
-   `docs/MODELL-QUELLEN.md`) und bleibt **OFFEN**; nur der Projekt-
-   inhaber kann sagen, woher die Datei stammt. Eine Lizenz zu erfinden,
-   waere schlimmer als die Luecke.
-3. Sieben statt fuenf Higgsfield-Objekte — eine Ueberschreitung der
-   Auftragsvorgabe, die benannt und nicht rueckgaengig gemacht ist.
+**Was die Freigabe NICHT abdeckt:**
+
+1. **Ob Akt 1 Spass macht.** Ein Durchlauf eines Menschen liegt jetzt vor
+   und hat einen Befund ergeben; das ersetzt aber keine Aussage darueber,
+   ob die Missionskette insgesamt traegt. Der Pruefmodus dafuer bleibt
+   eingebaut (`?playtest=1`, siehe `docs/PLAYTEST-AKT1.md`).
+2. **Die Namensnennung im Spiel.** Die Herkunft von
+   `assets/haeuser.glb` ist geklaert — zwei Saetze von Daniel
+   Zhabotinsky auf Sketchfab, **CC Attribution**
+   (`docs/MODELL-QUELLEN.md`). Diese Lizenz verlangt, dass Urheber und
+   Quelle genannt werden. Im Repository stehen sie; im Spiel gibt es
+   dafuer noch keine Stelle.
 
 **Offene, benannte technische Punkte** (keiner davon blockiert, alle in
 Abschnitt 30 mit Messwerten): das Fussrutschen von `kriechen` (99 %,
 Ursache gemessen, kein Fix ohne neue Animation oder Fuss-IK), die
 Verfolgung an langen Hindernissen (Luftlinie mit 3,6 m Vorausschau), und
 kein Zuschauerverhalten bei Ereignissen.
+
+Die sieben Higgsfield-Objekte sind vom Auftraggeber freigegeben; die
+Fuenfer-Grenze gilt nicht mehr und ist **kein offener Punkt**.
 
 **Akt 2 wird nicht begonnen.**
 
@@ -212,9 +217,16 @@ gestreckten.
 
 ## 20. Higgsfield Static Asset Audit (Teil 24)
 
-`docs/MODELL-QUELLEN.md`: **7 Higgsfield-Objekte statt der im Auftrag
-genannten 5.** Alle vor Phase 13 bezahlt, keine neue Generation. Das ist
-eine Ueberschreitung der Vorgabe und steht hier als solche.
+`docs/MODELL-QUELLEN.md`: 7 Higgsfield-Objekte (Ampel, Laterne, Beet,
+Bank, Muelltonne, Bahnhofsuhr, Kiosk), zusammen 11.625 Dreiecke, **null
+Animationen und null Skelette** - sie beruehren den Helden-Rig nirgends.
+
+**Freigabe: 7 von 7.** Der Auftraggeber hat die urspruengliche
+Fuenfer-Grenze bei der Finalisierung ausdruecklich aufgehoben und alle
+sieben Objekte namentlich freigegeben. **Das ist damit kein offener
+Phase-13-Punkt mehr.** In Phase 13 wurde keine einzige neue Generierung
+beauftragt; neue Generierungen bleiben gesperrt, und der ABSOLUTE
+HERO-RIG LOCK ist davon unberuehrt.
 
 ## 21. GPU / FPS
 
@@ -353,10 +365,38 @@ Vier Dinge, die wie Spielfehler aussahen und keine waren:
 
 ## 24. Act-1-Human-Playtest (Test F / Teil 21)
 
-**Nicht gemacht — braucht einen Menschen am Steuer.** Ein Bot kann alle
-acht Missionen durchklicken, aber nicht beurteilen, ob sie Spass machen,
-ob das Ziel verstanden wird und ob die Kette aus Anfahrt, Kampf und
-Abschluss traegt. Der Punkt bleibt offen und liegt beim Spieler.
+**Gemacht.** Der Auftraggeber hat Akt 1 selbst durchgespielt. Genau
+dafuer war dieser Punkt vorgesehen: ein Bot kann alle acht Missionen
+durchklicken, aber nicht beurteilen, ob das Ziel verstanden wird und ob
+die Kette aus Anfahrt, Kampf und Abschluss traegt.
+
+**Rueckmeldung aus dem Durchlauf — ein Punkt, und der sitzt:**
+
+> Mission 6 „Das Versteck" ueberzeugt nicht, weil es **kein richtiges
+> Versteck** ist. Erwartet wird, in ein Gebaeude hineinzugehen und dort
+> drinnen das Versteck der Gegner vorzufinden.
+
+Das trifft zu. Die Mission waehlt heute ueber `stPoi(...)`
+beziehungsweise `stOrt(...)` einen **offenen Platz** in der Stadt und
+setzt drei Gangwellen darum herum; ein Innenraum kommt darin nicht vor.
+Der Auftragstext verspricht „Das Versteck erreichen" und „Den Innenhof
+raeumen" - geliefert wird ein Stueck Strasse.
+
+Was dafuer schon da ist (gemessen, nicht vermutet):
+
+* **19 begehbare Innenraeume** in den Baukasten-Haeusern (`KIT_INNEN`),
+  Median 140 m² Grundflaeche, der groesste 19 × 15 m.
+* **19 Haustueren** mit echtem Durchgang - die Fassadenkollision hat an
+  der Tuer eine Luecke, Test E prueft „Haustuer (Durchgang)" und
+  „Haustuer (Vorfeld)" seit dieser Phase auf Freigaengigkeit.
+* Die Gegnerwahrnehmung prueft bereits **freie Sicht**
+  (`siehtSpieler` → `freieSicht`), eine Wand unterbricht den Blick also
+  schon heute.
+
+Die Umsetzung ist **nicht** Teil dieses Berichts: sie ist eine
+Spielaenderung und wurde vom Auftraggeber fuer diesen Nachtrag
+ausdruecklich ausgeschlossen. Sie steht als benannter offener Punkt in
+Abschnitt 30.
 
 ## 25. Save / Progression Regression (Teil 22)
 
@@ -484,9 +524,19 @@ uebernommen.
    ueberhaupt nicht auf. Das laesst sich mit diesem Clip nicht durch eine
    Zahl beheben, sondern nur durch eine andere Animation oder Fuss-IK —
    beides gehoert nicht in eine Pruefphase. `docs/DUCKGANG-MESSUNG.md`.
-2. **7 Higgsfield-Objekte statt 5** — Ueberschreitung der Auftragsvorgabe.
-3. **`assets/haeuser.glb` hat keinen Herkunftsnachweis** — nur der
-   Projektinhaber kann sagen, woher die Datei stammt.
+2. **Mission 6 „Das Versteck" ist kein Versteck** — aus dem Durchlauf
+   des Auftraggebers. Die Mission spielt auf einem offenen Platz, obwohl
+   der Auftragstext einen Unterschlupf verspricht. Erwartet wird: in ein
+   Gebaeude hineingehen, drinnen das Versteck der Gegner. Die Bausteine
+   dafuer sind da (19 begehbare Innenraeume, 19 Haustueren mit Durchgang,
+   Sichtpruefung mit Verdeckung); die Aenderung selbst steht aus. Siehe
+   Abschnitt 24.
+3. **Die Namensnennung fuer `haeuser.glb` ist im Spiel nicht sichtbar** —
+   die Herkunft ist geklaert (zwei Saetze von Daniel Zhabotinsky auf
+   Sketchfab, CC Attribution, siehe `docs/MODELL-QUELLEN.md`), und CC
+   Attribution verlangt die Nennung von Urheber und Quelle. Im Repository
+   steht sie; CITY SWING hat aber noch keine Stelle, an der sie fuer die
+   Spielenden auftaucht — Titelbild, Menue oder eine Danksagungsseite.
 4. **Verfolgung an langen Hindernissen** — ein Gegner verfolgt in
    Luftlinie mit 3,6 m Vorausschau und benutzt das Gehnetz nicht. Am
    Brueckengelaender laeuft er deshalb daneben her statt herum (gemessen:
@@ -496,4 +546,5 @@ uebernommen.
 6. **Das Repository heisst weiter `Spider-man`** — die URL
    `salman-7300.github.io/Spider-man/` passt nicht zum Titel CITY SWING.
    Umbenennen kann nur der Besitzer (Settings → General → Rename).
-7. **Akt 1 ist ungeprueft** — braucht den Spieldurchlauf eines Menschen.
+7. *(erledigt)* Akt 1 ist durchgespielt — siehe Abschnitt 24. Was dabei
+   herauskam, steht als Punkt 2 dieser Liste.
