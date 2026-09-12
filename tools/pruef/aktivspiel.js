@@ -101,21 +101,52 @@ const SEED = Number(process.argv[3]) || 4711;
       (s) => { frei(); d.taste('KeyW', true); d.taste('Space', true);
                if (s % 420 === 0) d.stopSwing && d.stopSwing();
                if (s % 300 === 0) blick(P.facing + (Math.random() - 0.5)); },
-      /* 4 Netz-Zip an Fassaden */
-      (s) => { frei(); d.taste('KeyW', true);
-               const w = wandSuche();
-               if (w && s % 6 === 0) zuPunkt((w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2);
-               if (s % 180 === 0) d.webZip && d.webZip();
-               if (s % 180 === 45) d.tippeSprung(); },
-      /* 5 Wandkontakt, klettern hoch, seitlich, runter */
+      /* 4 Netz-Zip an Fassaden
+         Der erste Entwurf lief nur mit KeyW vorwaerts und rief alle 180
+         Bilder webZip auf - und kam auf NULL Bilder im Zustand 'zip'.
+         Einzeln nachgeprueft feuert derselbe Aufruf zuverlaessig, sobald
+         die Figur mit Abstand vor einer Fassade steht: zipHaltepunkt
+         tastet einen Kegel ab, der bei 4 m beginnt. Wer mit gedruecktem W
+         schon an der Wand klebt, hat nichts mehr im Kegel. Jetzt wird vor
+         jedem Zug sauber Abstand hergestellt. */
       (s) => {
         frei();
-        if (s === 0) { merkWand = wandSuche();
-          if (merkWand) { d.setzePos(merkWand.x0 - 1.0, 12, (merkWand.z0 + merkWand.z1) / 2);
-                          P.state = 'air'; P.onGround = false; zuPunkt(merkWand.x0 + 5, (merkWand.z0 + merkWand.z1) / 2); } }
+        if (s % 180 === 0) {
+          const w = wandSuche();
+          if (w) {
+            const wx = (w.x0 + w.x1) / 2, wz = (w.z0 + w.z1) / 2;
+            const vx = P.pos.x > wx ? w.x1 + 22 : w.x0 - 22;
+            d.setzePos(vx, d.groundYAt(vx, wz, 0) + 0.05, wz);
+            P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+            zuPunkt(wx, wz);
+            d.webZip && d.webZip();
+          }
+        } else if (s % 180 === 60) { d.tippeSprung(); }
+        else if (s % 180 > 60) { d.taste('KeyW', true); }
+      },
+      /* 5 Wandkontakt, klettern hoch, seitlich, runter
+         Die Figur wurde bisher EINMAL an die Wand gesetzt. Faellt sie
+         unterwegs ab - und das passiert, sobald die Fassade oben endet -,
+         laeuft der Rest des Abschnitts auf dem Gehweg, und "klettern
+         seitlich" und "klettern runter" kamen im Bericht mit NULL an,
+         obwohl beides funktioniert. Jetzt beginnt alle 900 Bilder ein
+         neuer Anlauf, und jeder Anlauf fuehrt hoch, zur Seite und wieder
+         hinunter. */
+      (s) => {
+        frei();
+        const r = s % 900;
+        if (r === 0) {
+          merkWand = wandSuche();
+          if (merkWand) {
+            const zm = (merkWand.z0 + merkWand.z1) / 2;
+            d.setzePos(merkWand.x0 - 1.0, 12, zm);
+            P.state = 'air'; P.onGround = false; P.vel.set(0, 0, 0);
+            zuPunkt(merkWand.x0 + 5, zm);
+          }
+        }
         d.taste('KeyZ', true);
-        if (s < 600) d.taste('KeyW', true);
-        else if (s < 900) d.taste('KeyA', true);
+        if (r < 450) d.taste('KeyW', true);
+        else if (r < 650) d.taste('KeyA', true);
         else d.taste('KeyS', true);
       },
       /* 6 Wandlauf und Wandsprung */
@@ -138,9 +169,20 @@ const SEED = Number(process.argv[3]) || 4711;
                    P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0); } }
         /* stehen bleiben - die Hocke kommt von selbst */
       },
-      /* 8 Kampf: Verbrechen suchen, hin, schlagen, Netzschuss */
+      /* 8 Kampf: Verbrechen suchen, hin, schlagen, Netzschuss
+         Der Abschnitt haengt davon ab, dass die Ereignisregie gerade ein
+         Verbrechen laufen hat. In einem von drei Laeufen tat sie das
+         nicht, und "Kampf" und "Netzschuss" standen im Bericht auf NULL,
+         obwohl beides funktioniert. Findet sich kein Ereignis, wird jetzt
+         eine Gang direkt vor die Figur gesetzt - gekaempft wird in beiden
+         Faellen mit denselben Tasten. */
       (s) => {
         frei();
+        if (s === 0 && !(d.evStand() || []).length && d.spawnGang) {
+          const gx = P.pos.x + 6, gz = P.pos.z + 6;
+          d.spawnGang(gx, gz, 3, 'test');
+          for (const e of (d.enemies || [])) { e.state = 'chase'; e.target = 'player'; }
+        }
         const ev = (d.evStand() || [])[0];
         if (ev) {
           zuPunkt(ev.ort[0], ev.ort[1]);
@@ -153,8 +195,31 @@ const SEED = Number(process.argv[3]) || 4711;
             if (s % 260 === 0) { d.uppercut && d.uppercut(); }
             if (s % 380 === 0) { d.packenUndWerfen && d.packenUndWerfen(); }
           }
-        } else { d.taste('KeyW', true); d.taste('Space', true);
-                 if (s % 140 === 0) { d.webShot && d.webShot(); T.netzschuss++; } }
+        } else {
+          /* Ohne Ereignis: der naechste lebende Gegner ist das Ziel. */
+          const g = (d.enemies || []).filter((e) => !e.dead)
+            .sort((a2, b2) => Math.hypot(a2.pos.x - P.pos.x, a2.pos.z - P.pos.z) -
+                              Math.hypot(b2.pos.x - P.pos.x, b2.pos.z - P.pos.z))[0];
+          if (g) {
+            zuPunkt(g.pos.x, g.pos.z);
+            const weg = Math.hypot(g.pos.x - P.pos.x, g.pos.z - P.pos.z);
+            if (weg > 3) d.taste('KeyW', true);
+            if (s % 20 === 0) { d.tryAttack && d.tryAttack(); T.kampfSchlaege++; }
+            if (s % 140 === 0) { d.webShot && d.webShot(); T.netzschuss++; }
+            if (s % 260 === 0) { d.uppercut && d.uppercut(); }
+            if (s % 300 === 0 && !(d.enemies || []).some((e) => !e.dead) && d.spawnGang) {
+              d.spawnGang(P.pos.x + 6, P.pos.z + 6, 3, 'test');
+              for (const e of (d.enemies || [])) { e.state = 'chase'; e.target = 'player'; }
+            }
+          } else {
+            d.taste('KeyW', true); d.taste('Space', true);
+            if (s % 140 === 0) { d.webShot && d.webShot(); T.netzschuss++; }
+            if (s % 300 === 0 && d.spawnGang) {
+              d.spawnGang(P.pos.x + 6, P.pos.z + 6, 3, 'test');
+              for (const e of (d.enemies || [])) { e.state = 'chase'; e.target = 'player'; }
+            }
+          }
+        }
       },
       /* 9 zivile Aktivitaet / POI besuchen */
       (s) => {
@@ -296,7 +361,55 @@ const SEED = Number(process.argv[3]) || 4711;
              respStat: d.respStatistik ? d.respStatistik() : null,
              hyg: d.hygStatistik ? d.hygStatistik() : null,
              validZaehler: d.validZaehler ? d.validZaehler() : null,
-             poseFehler: d.poseFehler ? d.poseFehler().slice(0, 5) : [] };
+             poseFehler: d.poseFehler ? d.poseFehler().slice(0, 5) : [],
+             /* Die Aufschluesselung entsteht IN der Seite: viertausend
+                Eintraege mit ihren Clipgewichten herauszureichen waere
+                ein Vielfaches des ganzen uebrigen Berichts. */
+             poseAufstellung: (() => {
+               if (!d.poseFehler) return null;
+               const L = d.poseFehler();
+               const nachArt = {}, nachZustand = {}, nachClip = {}, nachKnochen = {};
+               const hoehen = {}, abstaende = {};
+               let maxAbstand = 0, maxE = null;
+               for (const e of L) {
+                 nachArt[e.art] = (nachArt[e.art] || 0) + 1;
+                 nachZustand[e.zustand || '?'] = (nachZustand[e.zustand || '?'] || 0) + 1;
+                 nachClip[e.clip || '?'] = (nachClip[e.clip || '?'] || 0) + 1;
+                 const k = e.wert && e.wert.knochen;
+                 if (k) nachKnochen[k] = (nachKnochen[k] || 0) + 1;
+                 const a = e.wert && e.wert.abstand;
+                 if (typeof a === 'number' && k) (abstaende[k] = abstaende[k] || []).push(a);
+                 if (typeof a === 'number' && a > maxAbstand) {
+                   maxAbstand = a;
+                   maxE = { knochen: k || '?', zustand: e.zustand, clip: e.clip };
+                 }
+                 /* Wie WEIT ueber der Huefte? Eine Zahl von 0,16 ist ein
+                    Grenzfall, eine von 0,60 ist die Haltung des Clips
+                    selbst - und dann meldet der Logger keine Fehler,
+                    sondern eine Absicht. */
+                 const u = e.wert && e.wert.ueberHuefte;
+                 if (typeof u === 'number') {
+                   const c = e.clip || '?';
+                   (hoehen[c] = hoehen[c] || []).push(u);
+                 }
+               }
+               const hoehenStat = {};
+               for (const c in hoehen) {
+                 const v = hoehen[c].slice().sort((a2, b2) => a2 - b2);
+                 hoehenStat[c] = { n: v.length, min: +v[0].toFixed(3),
+                                   median: +v[Math.floor(v.length / 2)].toFixed(3),
+                                   max: +v[v.length - 1].toFixed(3) };
+               }
+               const knochenStat = {};
+               for (const k2 in abstaende) {
+                 const v = abstaende[k2].slice().sort((a2, b2) => a2 - b2);
+                 knochenStat[k2] = { n: v.length, median: +v[Math.floor(v.length / 2)].toFixed(3),
+                                     max: +v[v.length - 1].toFixed(3) };
+               }
+               return { gesamt: L.length, nachArt, nachZustand, nachClip, nachKnochen,
+                        hoehenStat, knochenStat,
+                        maxAbstand: +maxAbstand.toFixed(3), maxE };
+             })() };
   });
 
   function trend(y) {
@@ -349,11 +462,26 @@ const SEED = Number(process.argv[3]) || 4711;
     const tr = trend(y);
     const mittel = y.reduce((a, v) => a + v, 0) / y.length;
     const echt = Math.abs(tr) > Math.max(2, mittel * 0.05);
-    if (echt && tr > 0) waechst.push(r);
+    /* ---- Der Fail-Logger laeuft VOLL, er waechst nicht ----
+       POSE_LOG nimmt hoechstens 4000 Eintraege an (game.js: "if
+       (POSE_LOG.fehler.length > 4000) return"). Steht die Reihe am Ende
+       bei 4001, ist die Steigung nur die Fuellkurve bis zum Deckel, und
+       "WAECHST" waere hier eine Falschaussage ueber die Welt. */
+    const gedeckelt = r === 'failLogger' && y[y.length - 1] >= 4001;
+    /* Der Fail-Logger ist ein SUMMENZAEHLER: er kann nur steigen. Ihn in
+       derselben Spalte wie die Bestandsreihen (Gegner, Fahrzeuge,
+       Marker) als "WAECHST" zu fuehren, waere eine Falschaussage - die
+       Frage dieser Tabelle ist, ob etwas in der Welt anwaechst und nicht
+       mehr abgebaut wird. Fuer den Logger zaehlt stattdessen die RATE. */
+    const summe = r === 'failLogger';
+    if (echt && tr > 0 && !gedeckelt && !summe) waechst.push(r);
     console.log('  ' + r.padEnd(16) + String(y[0]).padStart(9) + String(y[y.length - 1]).padStart(9) +
                 String(Math.min(...y)).padStart(9) + String(Math.max(...y)).padStart(9) +
                 ((tr >= 0 ? '+' : '') + tr.toFixed(1)).padStart(11) +
-                (echt ? (tr > 0 ? '  WAECHST' : '  faellt') : ''));
+                (gedeckelt ? '  am Deckel (4000)'
+                           : summe ? '  Summe: ' +
+                               (y[y.length - 1] / 30).toFixed(1) + ' je Minute'
+                           : echt ? (tr > 0 ? '  WAECHST' : '  faellt') : ''));
   }
   console.log('  ' + '-'.repeat(63));
   console.log('  ' + (waechst.length === 0 ? 'Kein Wachstumstrend in keiner Reihe.'
@@ -363,7 +491,37 @@ const SEED = Number(process.argv[3]) || 4711;
   console.log('  JS-Fehler (Seite)      ' + seitenFehler.length +
               (seitenFehler.length ? ': ' + seitenFehler.slice(0, 2).join(' | ') : ''));
   console.log('  Fail-Logger (Haltung)  ' + (aus.daten.failLogger.slice(-1)[0] || 0));
-  if (aus.poseFehler.length) console.log('    z.B. ' + JSON.stringify(aus.poseFehler[0]).slice(0, 160));
+  if (aus.poseAufstellung && aus.poseAufstellung.gesamt) {
+    /* ---- Aufschluesseln, nicht nur zaehlen ----
+       Eine Zahl wie "4001" sagt nichts darueber, ob EIN Zustand
+       tausendfach meldet oder zehn Zustaende je vierhundertmal. Die
+       Schwellen des Fail-Loggers sind pro Wandmodus verschieden
+       (WAND_KONTAKT_MAX 0,55 gegen WAND_KONTAKT_MAX_LAUF 1,10), also
+       muss die Aufstellung Zustand UND Clip nennen. */
+    const A = aus.poseAufstellung;
+    const top = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 6)
+                       .map(([k, v]) => k + ' ' + v).join(', ');
+    console.log('    nach Art:      ' + top(A.nachArt));
+    console.log('    nach Zustand:  ' + top(A.nachZustand));
+    console.log('    nach Clip:     ' + top(A.nachClip));
+    console.log('    nach Knochen:  ' + top(A.nachKnochen));
+    if (A.hoehenStat && Object.keys(A.hoehenStat).length) {
+      console.log('    Fuss ueber Huefte (Schwelle 0,15 m), je Clip:');
+      for (const [c, v] of Object.entries(A.hoehenStat).sort((a, b) => b[1].n - a[1].n))
+        console.log('      ' + c.padEnd(12) + ' n=' + String(v.n).padStart(5) +
+                    '  min ' + v.min + '  Median ' + v.median + '  max ' + v.max);
+    }
+    if (A.knochenStat && Object.keys(A.knochenStat).length) {
+      console.log('    Abstand zur Wand (Schwellen 0,55 / Kriechen 0,95 / Lauf 1,10), je Knochen:');
+      for (const [k2, v] of Object.entries(A.knochenStat).sort((a, b) => b[1].n - a[1].n))
+        console.log('      ' + k2.padEnd(12) + ' n=' + String(v.n).padStart(5) +
+                    '  Median ' + v.median + '  max ' + v.max);
+    }
+    if (A.maxE) console.log('    groesster Abstand: ' + A.maxAbstand + ' m (' +
+                            A.maxE.knochen + ', ' + A.maxE.zustand + '/' + A.maxE.clip + ')');
+    if (aus.poseFehler.length)
+      console.log('    z.B. ' + JSON.stringify(aus.poseFehler[0]).slice(0, 160));
+  }
   console.log('  im Wasser              ' + aus.fehler.imWasser + ' Bilder');
   console.log('  im Haus                ' + aus.fehler.imHaus + ' Bilder');
   console.log('  unter dem Boden        ' + aus.fehler.unterBoden + ' Bilder');

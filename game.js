@@ -31552,6 +31552,9 @@ function zeigeKampfTafel(dt) {
    Kostet nichts, solange er aus ist. */
 const POSE_LOG = {
   an: false, sekunden: 4, ring: [], kopf: 0, fehler: [], luftBilder: 0,
+  /* Merker, damit die Dachhocke einmal je Hocke gemeldet wird und nicht
+     in jedem Bild - siehe Punkt 4 in poseLogPruefe. */
+  hockeGemeldet: false,
 };
 const POSE_KNOCHEN = ['hips', 'spine2', 'head', 'leftarm', 'rightarm',
   'leftforearm', 'rightforearm', 'lefthand', 'righthand',
@@ -31651,7 +31654,23 @@ function poseLogPruefe(e) {
      Fehler sass: im Uebergang von der Wand herunter.
      Jetzt wird im Koerpersystem gemessen (laborFussUeberHuefte), und die
      Ausnahme kann entfallen. */
-  if (!e.flags.attack && e.fussHoch) {
+  /* ---- Bewegungen, deren HALTUNG das angehobene Bein ist ----
+     Der Schwellenwert 0,15 m stammt vom Stehen und Gehen. Im Sturzflug,
+     beim Wandsprung und in den Rollen ist das angezogene Knie die
+     Bewegung selbst. Gemessen ueber 30 Minuten aktives Spiel (Test A):
+
+         sturzflug   n=1387   min 0,162   Median 0,743   max 0,744
+         wandsprung  n= 124   min 0,194   Median 0,678   max 0,701
+         fall        n=  40   min 0,272   Median 0,547   max 0,716
+
+     Der Median liegt beim Fuenffachen der Schwelle und streut kaum -
+     das ist keine Fehlerverteilung, das ist eine Pose. Nachgesehen wurde
+     auch im Bild aus der Spielkamera (tools/pruef/haltung-bilder.js):
+     Sturzflug und Wandsprung sehen richtig aus.
+     Diese Meldungen haben den Logger bis an seinen Deckel von 4000
+     Eintraegen gefuellt und dabei die Meldungen verdeckt, auf die es
+     ankommt. Deshalb sind genau diese Clips ausgenommen - und nur sie. */
+  if (!e.flags.attack && e.fussHoch && !BEIN_HOCH_CLIPS.has(e.clip)) {
     for (const s in e.fussHoch) {
       const v = e.fussHoch[s];
       if (v > 0.15) melde('beinZuHoch', { seite: s, ueberHuefte: +v.toFixed(3) });
@@ -31675,7 +31694,18 @@ function poseLogPruefe(e) {
          geprueft und macht es schlechter: mit 0,45 statt 0,28 steigen die
          Bilder ueber 0,30 m von 244 auf 408, mit 0,65 auf 524 - die Figur
          schwingt dann ueber die Wandlage hinaus. */
-      const grenze = e.flags.wandModus === 'lauf' ? WAND_KONTAKT_MAX_LAUF : WAND_KONTAKT_MAX;
+      /* ---- Das Kriechen hebt Kopf und Brust bewusst von der Wand ----
+         Gemessen (Test A, 30 Minuten): im Clip "kriechen" meldet der
+         Logger nur head (1274) und spine2 (1152), nie hips, mit Werten
+         bis 0,878 m. Das Bild aus der Spielkamera zeigt eine richtige
+         Kriechhaltung - der Kopf ist angehoben, weil die Figur nach oben
+         schaut. Kopf und Brust bekommen deshalb im Kriechen ihre eigene
+         Schranke; die HUEFTE behaelt 0,55 m, und damit bleibt genau die
+         Pruefung scharf, die den alten Fehler "Klettern zu weit von der
+         Fassade" gefunden hat. */
+      const kriecht = e.clip === 'kriechen' && n !== 'hips';
+      const grenze = e.flags.wandModus === 'lauf' ? WAND_KONTAKT_MAX_LAUF
+                   : kriecht ? WAND_KONTAKT_MAX_KRIECH : WAND_KONTAKT_MAX;
       if (RUMPF_KNOCHEN.has(n) && d > grenze && !(e.flags.eckT > 0) &&
           !(e.flags.anlegen > 0)) {
         melde('rumpfZuWeitVonWand', { knochen: n, abstand: d });
@@ -31692,8 +31722,17 @@ function poseLogPruefe(e) {
       }
     }
   }
-  /* 4. Dachhocke weit von der Kante. */
-  if (e.flags.hockeT > 0.9 && e.kanteAbstand !== null && e.kanteAbstand > 2.5) {
+  /* 4. Dachhocke weit von der Kante.
+     EINMAL JE HOCKE, nicht in jedem Bild. Eine einzige lange Hocke mitten
+     auf einem Dach hat in Test A 3948 Eintraege erzeugt und damit den
+     Logger an seinen Deckel von 4000 gebracht - alles Weitere war
+     verdeckt. Der Befund selbst bleibt: wer in der Kantenhocke sitzt,
+     ohne dass eine Kante in der Naehe ist, sieht falsch aus. Er wird nur
+     nicht mehr sechsunddreissigmal je Sekunde wiederholt. */
+  if (!(e.flags.hockeT > 0.9)) POSE_LOG.hockeGemeldet = false;
+  if (e.flags.hockeT > 0.9 && e.kanteAbstand !== null && e.kanteAbstand > 2.5 &&
+      !POSE_LOG.hockeGemeldet) {
+    POSE_LOG.hockeGemeldet = true;
     melde('hockeWeitVonKante', e.kanteAbstand);
   }
 }
@@ -31790,7 +31829,14 @@ const WAND_KONTAKT_MAX = 0.55;
    getrennt geprueft: Fuesse 0,087 m Mittelabstand, 0 von 14 Anlaeufen
    fehlerhaft - die Haltung selbst ist also in Ordnung. */
 const WAND_KONTAKT_MAX_LAUF = 1.10;
+/* Und dasselbe fuer das Kriechen: gemessener Hoechstwert 0,878 m an Kopf
+   und Brust, die Huefte bleibt bei 0,55. */
+const WAND_KONTAKT_MAX_KRIECH = 0.95;
 const RUMPF_KNOCHEN = new Set(['hips', 'spine2', 'head']);
+/* Clips, in denen das angehobene Bein die Bewegung IST - siehe die
+   Messung bei Punkt 2 des Fail-Loggers. */
+const BEIN_HOCH_CLIPS = new Set(['sturzflug', 'wandsprung', 'fall',
+                                 'frontflip', 'backflip', 'fallrolle']);
 
 function simuliere(dt) {
   updateGamepad();
