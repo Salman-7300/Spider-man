@@ -206,6 +206,51 @@ doppelte Gegner.
     Variante A (Funker flieht)       9 Phasen, abgeschlossen, Mission 7 frei
     Variante B (früh gefangen)       9 Phasen, abgeschlossen, Mission 7 frei
     danach je Lauf                   0 Storygegner, 0 gebundene Geiseln
+    Haus im letzten Lauf             Building_Large_2 [108,-160] / [158,90]
+
+### Test 11 — die Zahlen für den menschlichen Durchlauf
+
+Der Prüfmodus (`?playtest=1`) misst Dauer, Tode, Neustarts und Zeit ohne
+Fortschritt schon seit Phase 13. Zwei Dinge kamen dazu, beide als
+Ergänzung der vorhandenen Messung:
+
+* **Jede Phase bekommt ihre Dauer**, auch die letzte. Die Dauer der
+  Verfolgung ist damit einfach die Dauer ihrer Phase — keine zweite
+  Messung.
+* **Marken**: eine einzelne Tatsache, die nur eine Mission kennt.
+  Mission 6 setzt genau eine, `funkerFrueh` — welcher der beiden
+  gültigen Wege gespielt wurde.
+
+`playtest.phasen()` druckt die Phasentabelle, `playtest.phasen('m6')`
+nur diese Mission. Der Botlauf lässt die Messung mitlaufen und prüft
+damit **nur**, dass die Zahlen entstehen. Wie hoch sie sind, sagt erst
+ein Mensch: ein Bot stirbt nicht und ist nie ratlos.
+
+Gemessener Botlauf, Variante A:
+
+    P0 Das Versteck erreichen             0,0 s
+    P1 Die Eingangswache ausschalten      3,5 s   0 Fluchtbilder
+    P2 Ins Versteck eindringen            1,3 s   0
+    P3 Das Erdgeschoss sichern           11,6 s   216 Fluchtbilder, bis 12 m
+    P4 Die Geisel in Sicherheit bringen   2,1 s   0
+    P5 Den Funker stellen                 2,6 s    79, bis 20 m
+    P6 Den Funker verfolgen               4,3 s   128, bis 25 m
+    P7 Den Hinterhalt überstehen          7,0 s   333, bis 80 m
+    P8 Den Anführer stellen               1,5 s   0
+
+### Was die Phasenmessung gefunden hat
+
+Ein Ausreißer: „Das Erdgeschoss sichern" dauerte in einem Lauf **155 s
+statt 16 s**. Die neuen Zähler zeigen, warum das passieren kann — in
+dieser Phase wird geflohen (216 bis 220 Fluchtbilder in jedem Lauf).
+
+Der Aufräumer für geflohene Storygegner stand bis dahin nur in den
+beiden **letzten** Phasen. Ein Ganove, dem der Mut bricht, rennt aus dem
+Haus, und „das Erdgeschoss sichern" wartet auf ihn — quer durch die
+Stadt. Dieselbe Regel gilt jetzt auch für die Eingangswache und das
+Erdgeschoss: wer flieht und weiter als 45 m vom Versteck weg ist, kämpft
+nicht mehr mit. Fliehen selbst bleibt unangetastet; nur gewartet wird
+nicht mehr.
 
 ---
 
@@ -240,8 +285,95 @@ Drei echte Fehler, alle behoben, alle außerhalb von Mission 6 wirksam:
   und der Treffpunkt steht trotzdem.
 * **Die Missionsdauer** ist mit einem Bot gemessen, nicht mit einem
   Menschen. Die Zielspanne von 8 bis 15 Minuten ist eine Absicht, keine
-  Messung.
+  Messung. Der Bot braucht 34 bis 57 Sekunden — er reist gesetzt an und
+  zögert nie.
+* **Der Bot kam in einem von vier Läufen 873 Sekunden lang nicht durch
+  die Tür.** Dasselbe Haus (`Building_Large_2 [158,90]`) hatte er im
+  Lauf davor in 2,2 s betreten. Das ist die grobe Steuerung des Bots —
+  er hält W gedrückt und kann nicht ausweichen —, kein gemessener Befund
+  am Türdurchgang: Test 1 prüft alle 18 Häuser geometrisch auf
+  betretbar/verlassbar, 18/18. Erwähnt, weil es in der Playtest-Messung
+  als `ohne Fortschritt 866,8 s` auftaucht: die Messung hat den Bot
+  zuverlässig als feststeckend erkannt, und genau dafür ist sie da.
 * **Keine Mission-Requisiten.** Der Treffpunkt wird nicht mit Kisten
   oder einem Van ausstaffiert. Das wäre möglich (nur vorhandene
   Assets), kostet aber ein Aufräumen mehr, das schiefgehen kann — und
   der Auftrag nennt es ausdrücklich optional.
+
+---
+
+## Regression: was der Umbau sonst berührt hat
+
+Alle Zahlen neu gelaufen, nicht aus älteren Berichten zitiert. Wo ein
+Vergleich nötig war, lief derselbe Prüfstand gegen den Stand **vor** dem
+Umbau (`a5c928f`) in einem eigenen Arbeitsbaum.
+
+    node --check game.js / city-visuals.js / menu.js    ok
+    node --test (tools/)                                141 von 141
+    git diff --check                                    sauber
+    Kernsysteme (sieben Bereiche)                       alle ok
+    Story Akt 1                                         8 Missionen gestartet,
+                                                        8 beendet, 22 Phasen
+    Test E Freigängigkeit                               alle neun Flächen frei
+    Test C Übergangsmatrix                              20 von 20
+    Mission 6 Kontrollpunkte                            9 von 9 Phasen sauber
+
+### Test A — 30 Minuten aktives Spiel, beide Stände
+
+    Punkte der Liste nicht vorgekommen   nachher 1   vorher 2
+    JS-Fehler                            nachher 0   vorher 0
+    Tode                                 nachher 0   vorher 0
+    Fail-Logger                          250 bei 24.079 Wandbildern (1,04 %)
+                                          98 bei 10.341 Wandbildern (0,95 %)
+    Wachstumstrend                       keiner, in keiner Reihe
+
+### Test D — 100 Zivilistenrouten und 100 Verfolgungen
+
+    A in einem Gebäude        nachher 0     vorher 0
+    B unter der Bodenfläche   nachher 1     vorher 0
+    C hängengeblieben         nachher 0     vorher 0
+    D Zivilist am Ziel        nachher 88    vorher 90
+    E Gegner erreicht Spieler nachher 79    vorher 88
+
+**E ist offen und wird nicht schöngeredet.** Der Rückgang ist die
+Richtung, die die `freieSicht`-Korrektur vorhersagt: ein Gegner, der
+hinter einer Wand die Sicht verliert, sucht jetzt, statt weiter zu
+verfolgen. Das ist eine Verhaltensänderung, kein Fehler — aber es ist
+**ein Lauf je Seite**, und dieser Prüfstand schwankt. Als Zahl belastbar
+ist er damit nicht. Was dabei gemessen wurde: von 21 Fehlschlägen kam
+**keiner** in Angriffsreichweite, und in allen 21 waren andere Gegner
+beim Spieler.
+
+**B ist ein einzelner Fall**: ein fliehender Zivilist, 9 Bilder unter
+dem Boden am U-Bahn-Abgang. Vorher 0. Auch hier ein Lauf je Seite.
+
+### Brücke
+
+Fünf Läufe je Seite, 50 Spuren je Seite:
+
+    nachher   1 fehlerhafte Spur von 50
+    vorher    2 fehlerhafte Spuren von 50
+
+Immer dieselbe Spur, dieselbe Richtung, dieselbe Stelle: `Gehweg Nord
+innen`, Ost, fest bei **x = 180,55**. Kein Rückschritt durch den Umbau —
+vorher häufiger als nachher.
+
+Die Ursache ist gemessen, nicht vermutet
+(`tools/pruef/bruecke-stelle.js`): bei x = 181,0 beginnt das
+**Brückengeländer** (z −35,1..−34,6, y 0,2..1,9). Die Figur steht bei
+180,55, also 181,0 minus ihr eigener Radius von 0,45 m. Ihre Spur bei
+z = −31,4 ist auf der ganzen Breite frei — sie wurde vorher 3,1 m zur
+Seite gedrückt (einmal mit einem Zivilisten in 4 m Abstand, einmal
+ohne). Der Prüfstand hält W gedrückt und läuft geradeaus; er kann nicht
+ausweichen. **Das Spiel verhält sich richtig.** Solche Spuren stehen
+jetzt als `ABGE` getrennt im Bericht, statt als Fehler zu zählen — die
+Zeile bleibt sichtbar, nur die Summe stimmt wieder.
+
+**Offen, einmal in 60 Spuren gesehen, nicht diagnostiziert:**
+
+    FEHL Fahrbahn Mitte  Ost  Ende x=191,9  tiefstes y=-1,5  Abdrift z=12,76@x186
+
+Auf der Fahrbahn, wo Autos fahren, wurde die Figur 12,76 m zur Seite
+gedrückt und landete unter dem Wasserspiegel — also seitlich an der
+Brücke vorbei. Ein einzelner Fall, hier festgehalten, damit er nicht
+verlorengeht.

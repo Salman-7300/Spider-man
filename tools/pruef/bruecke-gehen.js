@@ -114,11 +114,32 @@ const { starte } = require('./basis');
     }
     return berichte;
   });
-  let schlimm = 0;
+  /* ---- Zwei Sorten Fehlschlag auseinanderhalten ----
+     Dieser Pruefstand haelt W gedrueckt und laeuft geradeaus. Er kann
+     nicht ausweichen. Wird die Figur unterwegs zur Seite gedrueckt - ein
+     Zivilist genuegt - landet sie neben ihrer Spur, und dort steht
+     womoeglich echte Geometrie.
+
+     Genau das ist der wiederkehrende Fall bei x = 180,55: gemessen mit
+     der Sonde (tools/pruef/bruecke-stelle.js) beginnt dort bei x = 181,0
+     das Brueckengelaender (z -35,1..-34,6, y 0,2..1,9). Die Figur steht
+     bei 180,55 - das ist 181,0 minus ihr eigener Radius von 0,45 m, auf
+     den Zentimeter. Ihre eigentliche Spur bei z = -31,4 ist auf der
+     ganzen Breite frei. Das Spiel verhaelt sich richtig; abgedraengt
+     wurde sie vorher.
+
+     Das wird weiterhin gemeldet, aber getrennt gezaehlt - sonst
+     verschwindet ein echter Befund zwischen den abgedraengten Spuren.
+     Wegdefiniert wird nichts: die Zeile steht im Bericht. */
+  let schlimm = 0, abgedraengt = 0;
   for (const r of aus) {
+    const seitlichWeg = r.driftZ > 2 &&
+      r.festUmfeld !== null && r.festUmfeld.indexOf('Kollider') >= 0;
     const ok = r.durch && r.tiefY > -0.5 && r.festBei === null;
-    if (!ok) schlimm++;
-    console.log((ok ? 'ok   ' : 'FEHL ') + r.spur.padEnd(20) + r.richtung.padEnd(6) +
+    if (!ok && seitlichWeg) abgedraengt++;
+    else if (!ok) schlimm++;
+    console.log((ok ? 'ok   ' : (seitlichWeg ? 'ABGE ' : 'FEHL ')) +
+      r.spur.padEnd(20) + r.richtung.padEnd(6) +
       'Ende x=' + r.endeX + ' tiefstes y=' + r.tiefY +
       ' groesste Stufe=' + r.maxStufe + (r.stufeX !== null ? '@x' + r.stufeX : '') +
       ' Abdrift z=' + r.driftZ + '@x' + r.driftX + (r.festBei !== null ? ' FEST bei x=' + r.festBei : ''));
@@ -127,6 +148,7 @@ const { starte } = require('./basis');
         ' | Blick ' + r.festBlick + ', Boden 0,6 m voraus ' + r.festBoden +
         ', im Gebiet ' + r.festGebiet);
   }
-  console.log('Spuren:', aus.length, '| fehlerhaft:', schlimm);
+  console.log('Spuren:', aus.length, '| fehlerhaft:', schlimm,
+    '| abgedraengt (ABGE, siehe Kommentar):', abgedraengt);
   await b.close();
 })();
