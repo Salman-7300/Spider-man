@@ -391,6 +391,34 @@ const TEIL = process.argv[2] || '1-3';
                  die Flucht des Funkers, der Hinterhalt.
              Was gesetzt wird, steht im Bericht. */
           let ziel = null, nahkampf = false, verfolgt = false;
+          /* ---- Der Bot im Missionsinnenraum ----
+             Er haelt W gedrueckt und laeuft geradeaus; ausweichen kann er
+             nicht. Zwei Stellen haben ihn deshalb haengen lassen, beide
+             ohne dass an der Mission etwas falsch war:
+
+             1. Die Haustuer. Er stand 275 Sekunden davor, weil sein
+                Anlauf schraeg war. Vor der Tuer ist ANFAHRT - er wird
+                dorthin gesetzt, und durch die Tuer geht er zu Fuss.
+             2. Der Geiselbereich. Er lief den kuerzesten Weg zur Geisel,
+                stiess gegen die Trennwand und rutschte an ihr entlang -
+                einmal nach Westen, also genau an der Oeffnung vorbei.
+                Liegt das Ziel hinter der Trennwand, laeuft er zuerst zu
+                deren Oeffnung.
+             Ein Mensch sieht beides und geht herum. */
+          const iRaum = d.innenAktiv ? d.innen.raum : null;
+          let innenAnlauf = null;
+          if (iRaum) {
+            const gz = iRaum.zonen.geisel;
+            const zielInGeisel = (q) => q && q.x > gz.x0 && q.x < gz.x1 &&
+                                        q.z > gz.z0 && q.z < gz.z1;
+            const ichInGeisel = P.pos.x > gz.x0 && P.pos.x < gz.x1 &&
+                                P.pos.z > gz.z0 && P.pos.z < gz.z1;
+            if (m.geisel && zielInGeisel(m.geisel.pos) && !ichInGeisel) {
+              /* Die Oeffnung liegt an der oestlichen Haelfte der
+                 Trennwand - dort, wo sie aufhoert. */
+              innenAnlauf = { x: gz.x1 - 1.6, z: gz.z0 - 1.2 };
+            }
+          }
           /* ---- In Variante A bleibt der Funker verschont ----
              Der erste Anlauf liess den Bot JEDEN Storygegner angreifen -
              also auch den Funker, und der war erschlagen, bevor er zwei
@@ -412,6 +440,32 @@ const TEIL = process.argv[2] || '1-3';
           } else if (m.zielPos) {
             ziel = { x: m.zielPos.x, y: m.zielPos.y, z: m.zielPos.z };
           }
+          /* Erst zur Oeffnung, dann zum Ziel. */
+          if (innenAnlauf && ziel &&
+              Math.hypot(P.pos.x - innenAnlauf.x, P.pos.z - innenAnlauf.z) > 1.4) {
+            ziel = { x: innenAnlauf.x, y: P.pos.y, z: innenAnlauf.z };
+            nahkampf = false;
+          }
+          /* ---- Vor der Tuer ist Anfahrt ----
+             Solange die Mission auf "Ins Versteck eindringen" steht und der
+             Bot noch draussen ist, wird er einmal genau vor die Tuer
+             gesetzt und von dort auf der Tuerachse hineingeschickt. */
+          if (!d.innenAktiv && !d.innen.phase && m.v && d.story.phase === 2) {
+            const vt = m.v.vorTuer;
+            const dv = Math.hypot(P.pos.x - vt.x, P.pos.z - vt.z);
+            if (dv > 1.2) {
+              const gy2 = d.groundYAt(vt.x, vt.z, 2);
+              d.setzePos(vt.x, (gy2 === null || gy2 === undefined ? 0 : gy2) + 0.05, vt.z);
+              P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+              gesetzt++;
+            }
+            const t3 = m.v.tuer;
+            const w3 = Math.atan2(-t3.nx, -t3.nz);
+            P.facing = w3; d.setzeKamYaw(w3 + Math.PI);
+            d.taste('KeyW', true);
+            d.schritt(1 / 30);
+            continue;
+          }
           if (ziel) {
             const drinZiel = m.v && d.imVersteck(m.v, ziel.x, ziel.z);
             const drinIch = m.v && d.imVersteck(m.v, P.pos.x, P.pos.z, P.pos.y);
@@ -432,7 +486,8 @@ const TEIL = process.argv[2] || '1-3';
                 gesetzt++;
               }
               d.taste('KeyW', false);
-            } else if (dd > 15 || P.pos.y > (m.v ? m.v.raum.boden : 0) + 6) {
+            } else if (!d.innenAktiv &&
+                       (dd > 15 || P.pos.y > (m.v ? m.v.raum.boden : 0) + 6)) {
               /* ---- ANFAHRT: gesetzt ---- */
               const gy = d.groundYAt(anlauf.x, anlauf.z, 2);
               d.setzePos(anlauf.x, (gy === null || gy === undefined ? 0 : gy) + 0.05,

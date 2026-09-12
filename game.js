@@ -15288,7 +15288,16 @@ function progLaden() {
 
 /* Schreiben. Nur wenn wirklich etwas anliegt - und nie mitten im Bild
    ohne Grund. */
+/* ---- Wiederholungslauf im Pruefmodus ----
+   Solange er laeuft, schreibt das Spiel KEINEN Spielstand. Der
+   Auftraggeber hat Mission 6 im echten Stand bereits erledigt; zum
+   Nachtesten soll sie wieder startbar sein, ohne dass dabei etwas
+   ueberschrieben wird. Nach einem Neuladen gilt deshalb wieder der echte
+   Stand - es wurde nie einer angefasst. Gesetzt wird das ausschliesslich
+   von playtest.replay(), und das gibt es nur mit ?playtest=1. */
+let PT_REPLAY = false;
 function progSpeichern(sofort) {
+  if (PT_REPLAY) return false;
   if (!sofort && !progSchmutzig) return false;
   /* Den aktuellen Stand erst hier abholen - so muss nicht jede Stelle,
      die Punkte vergibt, an das Speicherobjekt denken. */
@@ -33468,11 +33477,62 @@ let windCd = 0;
     return zeilen;
   }
 
+  /* ---- Eine Mission noch einmal spielen ----
+     Nur im Pruefmodus, und bewusst keine Abkuerzung: die Mission laeuft
+     danach genau wie sonst, mit denselben Phasen, Gegnern und
+     Kontrollpunkten.
+
+     Zwei Dinge halten den echten Fortschritt heraus: die Mission wird nur
+     IM SPEICHER aus der Erledigt-Liste genommen, und solange der
+     Wiederholungslauf laeuft, wird kein Spielstand geschrieben. Nach
+     einem Neuladen ist alles wie vorher.
+
+     Im normalen Spiel gibt es diese Funktion nicht - ohne ?playtest=1
+     sagt sie das und tut nichts. */
+  function replay(id) {
+    const mid = id || 'm6';
+    if (!an) {
+      console.log('playtest.replay gibt es nur im Pruefmodus. ' +
+                  'Die Seite mit ?playtest=1 aufrufen.');
+      return false;
+    }
+    const d = STORY_DEF.filter((x) => x.id === mid)[0];
+    if (!d) { console.log('Keine Mission mit der Kennung ' + mid); return false; }
+    PT_REPLAY = true;
+    if (!STORY_PLAYTEST) ptStart();
+    /* Laeuft gerade etwas, wird es sauber beendet - nicht ueberschrieben. */
+    if (STORY.aktiv) storyAufraeumen();
+    const i = STORY.fertig.indexOf(mid);
+    if (i >= 0) STORY.fertig.splice(i, 1);
+    /* Die Voraussetzung muss erfuellt sein, sonst startet sie nicht.
+       Fehlt die Vorgaengermission im Stand, wird sie fuer diesen Lauf
+       ergaenzt - ebenfalls nur im Speicher. */
+    const vor = STORY_DEF[STORY_DEF.indexOf(d) - 1];
+    if (vor && STORY.fertig.indexOf(vor.id) < 0) STORY.fertig.push(vor.id);
+    const los = storyStarte(mid);
+    console.log(los
+      ? 'Wiederholungslauf: ' + d.titel + ' laeuft. Es wird KEIN Spielstand ' +
+        'geschrieben - nach dem Neuladen ist alles wie vorher.'
+      : 'Mission ' + mid + ' liess sich nicht starten (Voraussetzung?).');
+    if (!los) PT_REPLAY = false;
+    return los;
+  }
+  /* Den Wiederholungslauf beenden, ohne die Seite neu zu laden: ab jetzt
+     wird wieder gespeichert. Der Stand im Speicher bleibt, wie er ist. */
+  function replayEnde() {
+    if (!PT_REPLAY) { console.log('Kein Wiederholungslauf aktiv.'); return false; }
+    PT_REPLAY = false;
+    console.log('Wiederholungslauf beendet. Es wird wieder gespeichert.');
+    return true;
+  }
+
   window.playtest = {
     start() { ptStart(); an = true; console.log('Playtest laeuft. Akt 1 spielen, dann playtest.bericht()'); return true; },
     stop() { const n = ptStop(); console.log('Playtest beendet, ' + n + ' Mission(en) gemessen.'); return n; },
     bericht: tabelle,
     phasen,
+    replay, replayEnde,
+    get wiederholung() { return PT_REPLAY; },
     roh() { return JSON.stringify(ptBericht(), null, 2); },
     get aktiv() { return STORY_PLAYTEST; },
   };
@@ -33481,6 +33541,7 @@ let windCd = 0;
     console.log('%cPRUEFMODUS AKTIV', 'background:#c8102e;color:#fff;padding:2px 6px');
     console.log('Akt 1 spielen wie immer. Danach in dieser Konsole:  playtest.bericht()');
     console.log('Phasen einzeln:  playtest.phasen()   nur eine Mission:  playtest.phasen(\'m6\')');
+    console.log('Mission wiederholen:  playtest.replay(\'m6\')   (schreibt keinen Spielstand)');
   }
 })();
 

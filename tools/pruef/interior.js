@@ -295,6 +295,67 @@ const will = (n) => TEIL === String(n) || TEIL === 'alle';
       R.t6 = { vor, nach, zyklen: d.innenZyklen, bilderGesamt,
                innenAktiv: d.innenAktiv, blende: d.innenBlende };
     }
+    /* ---------- 7: Kontrollpunkt, Tod und Abbruch im Innenraum ---------- */
+    if (will(7)) {
+      const vorbereiten = () => {
+        if (d.story.aktiv) d.storyAufraeumen();
+        d.story.fertig.length = 0;
+        for (const id of ['m1', 'm2', 'm3', 'm4', 'm5']) d.story.fertig.push(id);
+        d.enemies.length = 0;
+        if (d.gangs) d.gangs.length = 0;
+        for (const c of d.civilians) c.geisel = false;
+        if (d.innenAktiv || d.innen.phase) d.innenSofortRaus();
+        d.setzePos(25, 0.05, 25);
+        P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+        P.dead = false; P.hp = 100;
+      };
+      /* Wiedereinstieg in JEDE Phase, auch die drei im Innenraum. */
+      const phasen = [];
+      for (let ph = 0; ph <= 8; ph++) {
+        vorbereiten();
+        const los = d.storyStarte('m6', ph);
+        /* Ein paar Bilder, damit ein angestossener Uebergang durchlaeuft
+           und der aufgeschobene Aufbau nachgeholt wird. */
+        for (let i = 0; i < 90; i++) d.schritt(1 / 60);
+        phasen.push({ ph, los, steht: d.story.phase, ziel: d.story.zielText,
+          innen: d.innenAktiv,
+          storyGegner: d.enemies.filter((e) => e.storyGegner && !e.dead).length,
+          geiseln: d.civilians.filter((c) => c.geisel).length,
+          gegnerImRaum: d.enemies.filter((e) => e.storyGegner && !e.dead &&
+            d.imInnenraum(e.pos.x, e.pos.z)).length,
+          spielerImRaum: d.imInnenraum(P.pos.x, P.pos.z) });
+      }
+      /* Tod im Innenraum: heraus, und die Mission steht wieder auf ihrer
+         Phase - nicht in einer Sackgasse. */
+      vorbereiten();
+      d.storyStarte('m6', 3);
+      for (let i = 0; i < 90; i++) d.schritt(1 / 60);
+      const vorTod = { innen: d.innenAktiv, phase: d.story.phase };
+      P.hp = 1;
+      if (d.damagePlayer) d.damagePlayer(50, null); else { P.hp = 0; P.dead = true; }
+      for (let i = 0; i < 10; i++) d.schritt(1 / 60);
+      const totDrin = { tot: P.dead, innen: d.innenAktiv };
+      d.respawn();
+      for (let i = 0; i < 120; i++) d.schritt(1 / 60);
+      const nachTod = { innen: d.innenAktiv, phase: d.story.phase,
+        aktiv: !!d.story.aktiv, ort: [+P.pos.x.toFixed(1), +P.pos.z.toFixed(1)],
+        spielerImRaum: d.imInnenraum(P.pos.x, P.pos.z),
+        geiseln: d.civilians.filter((c) => c.geisel).length };
+      /* Abbruch im Innenraum. */
+      vorbereiten();
+      d.storyStarte('m6', 3);
+      for (let i = 0; i < 90; i++) d.schritt(1 / 60);
+      const vorAbbruch = d.innenAktiv;
+      d.storyAufraeumen();
+      for (let i = 0; i < 30; i++) d.schritt(1 / 60);
+      const nachAbbruch = { innen: d.innenAktiv, phase: d.innen.phase,
+        aktiv: !!d.story.aktiv,
+        storyGegner: d.enemies.filter((e) => e.storyGegner).length,
+        geiseln: d.civilians.filter((c) => c.geisel).length,
+        sichtbar: d.szeneSichtbar() };
+      vorbereiten();
+      R.t7 = { phasen, vorTod, totDrin, nachTod, vorAbbruch, nachAbbruch };
+    }
     return R;
   }, TEIL);
 
@@ -367,6 +428,23 @@ const will = (n) => TEIL === String(n) || TEIL === 'alle';
     const w = [];
     for (const k of Object.keys(t.vor)) if (t.vor[k] !== t.nach[k]) w.push(k + ' ' + t.vor[k] + ' -> ' + t.nach[k]);
     p('  Unterschiede: ' + (w.length ? w.join(', ') : 'keine'));
+  }
+  if (aus.t7) {
+    const t = aus.t7;
+    p('');
+    p('== 7: Kontrollpunkt, Tod und Abbruch ==');
+    p('  Ph gestartet stehtAuf innen Storygegner imRaum Geiseln SpielerImRaum  Ziel');
+    for (const z of t.phasen)
+      p('  ' + String(z.ph).padStart(2) + String(z.los).padStart(10) +
+        String(z.steht).padStart(9) + String(z.innen).padStart(6) +
+        String(z.storyGegner).padStart(12) + String(z.gegnerImRaum).padStart(8) +
+        String(z.geiseln).padStart(8) + String(z.spielerImRaum).padStart(15) +
+        '  ' + z.ziel);
+    p('  Tod im Innenraum: vorher ' + JSON.stringify(t.vorTod) +
+      '  im Tod ' + JSON.stringify(t.totDrin));
+    p('    danach ' + JSON.stringify(t.nachTod));
+    p('  Abbruch im Innenraum: vorher innen ' + t.vorAbbruch +
+      '  danach ' + JSON.stringify(t.nachAbbruch));
   }
   if (aus.lastA) {
     p('');
