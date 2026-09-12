@@ -51,7 +51,9 @@ const SEED = Number(process.argv[3]) || 4711;
       fahrzeugKontakt: 0, bezirke: 0,
     };
     const gesehen = { ev: new Set(), akt: new Set(), poi: new Set(), bez: new Set() };
-    const fehler = { imWasser: 0, imHaus: 0, unterBoden: 0, totBilder: 0 };
+    const fehler = { imWasser: 0, imHaus: 0, unterBoden: 0, totBilder: 0,
+                     tode: 0, laengsteTotzeit: 0 };
+    let totAmStueck = 0;
 
     /* ---- Zeitreihen ---- */
     const reihen = ['jsFehler', 'failLogger', 'szeneObjekte', 'gegner', 'zivilisten',
@@ -325,7 +327,28 @@ const SEED = Number(process.argv[3]) || 4711;
       if (d.inWasser && d.inWasser(P.pos.x, P.pos.z) && P.pos.y < 0) fehler.imWasser++;
       if (imKollider(P.pos.x, P.pos.z, P.pos.y + 0.9)) fehler.imHaus++;
       if (P.pos.y < d.groundYAt(P.pos.x, P.pos.z, P.pos.y) - 0.6) fehler.unterBoden++;
-      if (P.dead) fehler.totBilder++;
+      /* ---- Nach dem Tod weiterspielen ----
+         Das Spiel wartet nach einem K.o. auf einen Tastendruck - richtig
+         so, ein Mensch drueckt Enter. Dieses Skript hat den Tastendruck
+         nie gemacht: es zaehlte nur die toten Bilder und fuhr sein
+         Drehbuch an einer Leiche weiter ab.
+
+         Was das kostet, zeigt der Lauf, in dem es aufgefallen ist:
+         87.205 von 108.000 Bildern tot - achtzig Prozent der Messung.
+         Fuenf Punkte der Auftragsliste (Netz-Zip, Klettern runter,
+         Klettern seitlich, Wandsprung, Dachhocke) kamen deshalb nicht
+         vor, und der frueher gemeldete Satz "alle 26 Punkte vorgekommen"
+         stimmte nur, weil die Figur in JENEM Lauf zufaellig nicht starb.
+
+         Jetzt wird wiederbelebt wie ein Spieler: gezaehlt werden die
+         Tode und die laengste Totzeit am Stueck - beides Zahlen, die
+         etwas bedeuten. */
+      if (P.dead) {
+        fehler.totBilder++;
+        totAmStueck++;
+        if (totAmStueck > fehler.laengsteTotzeit) fehler.laengsteTotzeit = totAmStueck;
+        if (totAmStueck > 60 && d.respawn) { d.respawn(); fehler.tode++; totAmStueck = 0; }
+      } else totAmStueck = 0;
 
       /* ---- Zeitreihe ---- */
       if (i % PROBE === 0) {
@@ -525,7 +548,9 @@ const SEED = Number(process.argv[3]) || 4711;
   console.log('  im Wasser              ' + aus.fehler.imWasser + ' Bilder');
   console.log('  im Haus                ' + aus.fehler.imHaus + ' Bilder');
   console.log('  unter dem Boden        ' + aus.fehler.unterBoden + ' Bilder');
-  console.log('  tot                    ' + aus.fehler.totBilder + ' Bilder');
+  console.log('  tot                    ' + aus.fehler.totBilder + ' Bilder' +
+    ' (' + aus.fehler.tode + ' Tode, laengste Totzeit ' +
+    (aus.fehler.laengsteTotzeit / 60).toFixed(1) + ' s)');
   console.log('');
   if (aus.stand) console.log('Fortschritt:', JSON.stringify(aus.stand));
   if (aus.hyg) console.log('Hygiene:', JSON.stringify(aus.hyg));

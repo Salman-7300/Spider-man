@@ -337,6 +337,12 @@ const TEIL = process.argv[2] || '1-3';
         let vorF = null, vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
         let fest = 0, festGemeldet = 0;
         let anlaufPhase = -1, gesetzt = 0;
+        const phMess = {};
+        /* Das Haus wird WAEHREND des Laufs festgehalten, nicht danach:
+           storyAufraeumen() loescht die Missionsdaten beim Abschluss, und
+           der Bericht meldete deshalb bisher "Haus: null" - ausgerechnet
+           fuer den Lauf, der durchlief. */
+        let hausName = null, hausMitte = null;
         for (let i = 0; i < 30000 && d.story.aktiv; i++) {
           /* Der Spieler wird vom Skript gefuehrt: immer zum aktuellen
              Ziel, und was im Weg steht, wird geschlagen. */
@@ -351,6 +357,25 @@ const TEIL = process.argv[2] || '1-3';
           }
           gegnerMax = Math.max(gegnerMax,
             d.enemies.filter((e) => !e.dead && e.storyGegner).length);
+          /* ---- Warum dauert eine Phase so lange? ----
+             Der erste Lauf zeigte in Variante B fuer "Das Erdgeschoss
+             sichern" 155 s gegen 16 s in Variante A - zehnmal so lang.
+             Die Phasenspur sagt nur DASS es dauerte. Hier wird je Phase
+             mitgeschrieben, ob ein lebender Storygegner floh und wie weit
+             er vom Versteck wegkam: genau die beiden Zahlen, mit denen
+             sich "er rennt weg und die Phase wartet" von "der Kampf war
+             einfach zaeh" unterscheiden laesst. */
+          if (!phMess[letztePhase]) phMess[letztePhase] = { flieh: 0, weit: 0, bilder: 0 };
+          const pm2 = phMess[letztePhase];
+          pm2.bilder++;
+          for (const e of d.enemies) {
+            if (e.dead || !e.storyGegner) continue;
+            if (e.flieht || e.state === 'flee') pm2.flieh++;
+            if (m.ort) {
+              const dw = Math.hypot(e.pos.x - m.ort.x, e.pos.z - m.ort.z);
+              if (dw > pm2.weit) pm2.weit = dw;
+            }
+          }
           /* ================= Wie dieser Bot faehrt =================
              Gepruft werden soll die MISSION, nicht die Stadtnavigation.
              Die ist getrennt geprueft (Test C, Test A) - und ein Bot, der
@@ -456,6 +481,10 @@ const TEIL = process.argv[2] || '1-3';
             vorF = { x: m.funker.pos.x, z: m.funker.pos.z };
             chaseT += 1 / 30;
           } else vorF = null;
+          if (m.v && hausName === null) {
+            hausName = m.v.haus;
+            hausMitte = [Math.round(m.v.mitte.x), Math.round(m.v.mitte.z)];
+          }
           if (m.geisel && geiselOk === null) {
             geiselOk = !!m.geisel.geisel;
           }
@@ -467,9 +496,8 @@ const TEIL = process.argv[2] || '1-3';
         const pm = pb.missionen.filter((x) => x.id === 'm6')[0] || null;
         const mEnd = d.missionDaten();
         laeufe.push({ variante, gestartet,
-                      haus: mEnd && mEnd.v ? mEnd.v.haus : null,
-                      hausMitte: mEnd && mEnd.v
-                        ? [Math.round(mEnd.v.mitte.x), Math.round(mEnd.v.mitte.z)] : null,
+                      haus: hausName, hausMitte,
+                      phMess,
                       endPhase: d.story.phase, endZiel: d.story.zielText,
                       endOrt: [+P.pos.x.toFixed(1), +P.pos.y.toFixed(1), +P.pos.z.toFixed(1)],
                       drin: !!(mEnd && mEnd.v &&
@@ -628,10 +656,14 @@ const TEIL = process.argv[2] || '1-3';
         ', Tode ' + pt.tode + ', Neustarts ' + pt.neustarts +
         ', ohne Fortschritt ' + pt.ohneFortschritt + ' s');
       p('    Marken: ' + JSON.stringify(pt.marken));
-      for (const ph of pt.phasen)
+      for (const ph of pt.phasen) {
+        const mm = l.phMess && l.phMess[ph.nr];
         p('      P' + ph.nr + ' ' + String(ph.ziel).padEnd(32) +
           ' ab ' + String(ph.ab).padStart(6) + ' s, Dauer ' +
-          String(ph.dauer).padStart(6) + ' s');
+          String(ph.dauer).padStart(6) + ' s' +
+          (mm ? '   Fluchtbilder ' + mm.flieh +
+                ', Gegner hoechstens ' + mm.weit.toFixed(0) + ' m vom Versteck' : ''));
+      }
     }
   }
   await b.close();
