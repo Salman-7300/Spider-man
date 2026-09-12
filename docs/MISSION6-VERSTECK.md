@@ -1,5 +1,29 @@
 # Mission 6 „Das Versteck" — Umbau nach dem Human Playtest
 
+> **Nachtrag, zweiter Human-Playtest.** Der hier beschriebene Umbau ist
+> zur Hälfte bestätigt und zur Hälfte ersetzt worden.
+>
+> **Bestätigt:** das echte Versteck-Gebäude wird gut gefunden, und die
+> Gegner vor der Tür machen den Eingang verständlich. Anfahrt,
+> Versteckauswahl, Eingangswache und die echte Haustür gelten
+> unverändert — alles, was in dieser Notiz über die **Außenphasen**
+> steht, ist weiterhin gültig.
+>
+> **Ersetzt:** der Kampf im physischen Hausinnenraum. Dort stehen Tische,
+> Stühle und eine Bar, Zivilisten sitzen unbeeindruckt im Kampf, Möbel
+> hatten teilweise keine Kollision, der Boden flackerte, und der Spieler
+> landete stellenweise wieder neben dem Haus. Mission 6 spielt seitdem in
+> einem eigenen instanzierten Missionsraum:
+> **`docs/MISSION6-INTERIOR.md`**.
+>
+> Der physische Hausinnenraum bleibt im Spiel — die 19 begehbaren Räume
+> sind Teil der Stadt. Nur diese Mission spielt nicht mehr darin.
+>
+> Was unten über Innenraum-Spawns, `versteckPunkte`, `versteckPlaetze`
+> und den Funkerweg durch das Haus steht, ist damit **überholt**. Es
+> bleibt stehen, weil es beschreibt, was gebaut und gemessen wurde — der
+> alte Ansatz soll nicht so aussehen, als hätte es ihn nie gegeben.
+
 Der menschliche Durchlauf von Akt 1 hat genau einen Designbefund
 zurückgemeldet, und der saß:
 
