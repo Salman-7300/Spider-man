@@ -325,6 +325,42 @@ verbesserte die Messung, machte das **Bild aber deutlich schlechter**
 (Treppenmuster ueber den halben Schirm) und wurde zurueckgenommen. Steht
 als Kommentar in `index.html`, damit es niemand noch einmal probiert.
 
+## 26b. Kernsysteme (technische Regression)
+
+`tools/pruef/kernsysteme.js`, sieben Bereiche in einem Lauf:
+
+| | Bereich | Ergebnis |
+|---|---|---|
+| 1 | Story Akt 1 | 8 Missionen gestartet, 8 sauber beendet, 17 Phasen, 0 haengengeblieben |
+| 2 | Ereignisregie | 1 gestartet, 1 geloest, Aufraeumfehler 0, Leck 0, offen nach Aufraeumen 0 |
+| 3 | Boss-Lebenszyklus | erzeugt, besiegt, Bossliste leer, Verweis `bossAktiv` geloest |
+| 4 | Polizei und Rettung | 2 Einsaetze (1 Polizei, 1 Rettung), beide angekommen und erledigt, 3 gesichert, 1 versorgt, ohne Haltepunkt 0, Leck 0 |
+| 5 | Welthygiene | `floatingDowned` 0, `invalidProp` 0, `npcStaticPenetration` 0, `enemyStaticPenetration` 0, `climbSurfaceGap` 0, `wallrunFailed` 0 |
+| 6 | Fortschritt | Aktivitaetenleck 0 |
+| 7 | Stadtmoebel | 7 Felder, 469 Stueck |
+
+JS-Fehler der Seite: 0.
+
+`bridgePropInvalid` steht auf 4 und ist **kein** Fehler, sondern ein
+VERHINDERT-Zaehler: vier Promenadenmoebel waeren in den Brueckenbereich
+gefallen und wurden beim Bauen abgelehnt.
+
+### Drei BEFUNDE dieses Pruefstands gehoerten dem Pruefstand
+* **Boss.** Der Test rief `d.bossEntfernen()` — die Funktion gibt es im
+  Testfenster nicht, im Spiel nimmt sie zwei Argumente. Auch der zweite
+  Anlauf (Spieler weit weglaufen lassen) konnte nicht greifen: der
+  Abbauzweig verlangt `e.bossNachEvent`, und ein mit `spawnBoss`
+  gesetzter Boss ist der AKTIVE — ein aktiver Boss wird nicht abgebaut,
+  und das ist richtig so. Alle vier Blockier-Zaehler standen auf null;
+  genau daran war es zu sehen. Jetzt wird er besiegt, wie im Spiel.
+* **Polizei und Rettung.** Der Test rief `d.respTest()` — gibt es nicht.
+  Es wurde nie etwas ausgeloest, und "Aufraeumfehler 0, Leck 0" war eine
+  Aussage ueber ein Nichtereignis.
+* **Die Zaehler selbst.** `respStatistik()` gab das lebende Objekt
+  zurueck. Wer sich den Stand vorher merkt und hinterher die Differenz
+  bildet, hielt zweimal dasselbe Objekt in der Hand und mass ueberall
+  null. Gibt jetzt eine Kopie zurueck, wie `bossStatistik` seit jeher.
+
 ## 27. Bestehende Tests
 
     node --check game.js city-visuals.js menu.js     sauber

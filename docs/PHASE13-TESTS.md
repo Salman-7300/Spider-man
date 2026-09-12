@@ -7,9 +7,54 @@ nicht im Gespraechsverlauf verloren gehen. Ergebnisse werden je Test unter
 ## Test A — 30 Minuten aktives Spiel
 Kein Kreis-Bot. Ein Spieler, der wirklich schwingt, klettert, laeuft,
 Verbrechen erledigt, Aktivitaeten besucht, U-Bahn faehrt, kaempft und
-Polizei/Rettung erlebt.
+Polizei/Rettung erlebt. `tools/pruef/aktivspiel.js`, 108.000 Bilder,
+zwoelf Abschnitte nach Drehbuch.
 
-**Stand:** offen.
+**Stand: alle 26 Punkte der Auftragsliste sind vorgekommen.** Die Zahlen
+stehen in `docs/PHASE13-ABSCHLUSS.md`, Abschnitt 22.
+
+Fuenfzehn Zeitreihen mit je 120 Messpunkten, START/ENDE/MIN/MAX und einer
+Regressionsgeraden: **kein Wachstumstrend in keiner Bestandsreihe.**
+JS-Fehler 0, unter dem Boden 0 Bilder.
+
+### Drei Punkte fehlten - jedes Mal am Pruefstand
+* **Netz-Zip:** 0 Bilder. Einzeln nachgeprueft feuert derselbe Aufruf
+  zuverlaessig, sobald die Figur Abstand vor der Fassade hat -
+  `zipHaltepunkt` tastet einen Kegel ab, der erst bei 4 m beginnt. Wer
+  mit gedruecktem W an der Wand klebt, hat nichts mehr darin.
+* **Klettern seitlich und runter:** 0 Bilder, weil die Figur EINMAL an
+  die Wand gesetzt wurde und nach dem ersten Absturz unten blieb.
+* **Kampf und Netzschuss:** 0 in einem von drei Laeufen, weil gerade kein
+  Verbrechen lief.
+
+### Gefunden: der Fail-Logger meldete zu 97 Prozent richtige Haltungen
+4.001 Meldungen - und 4.001 ist der DECKEL (`POSE_LOG` nimmt 4.000
+Eintraege). Die Reihe wuchs also nicht, sie lief voll. Aufgeschluesselt:
+
+    beinZuHoch, Fuss ueber Huefte, Schwelle 0,15 m:
+      sturzflug   n=1387   min 0,162   Median 0,743   max 0,744
+      wandsprung  n= 124   min 0,194   Median 0,678   max 0,701
+      fall        n=  40   min 0,272   Median 0,547   max 0,716
+
+Ein Median beim Fuenffachen der Schwelle, der kaum streut, ist keine
+Fehlerverteilung, sondern eine Pose. Nachgesehen im Bild aus der
+Spielkamera (`tools/pruef/haltung-bilder.js`): Sturzflug, Wandsprung und
+Wandkriechen sehen richtig aus.
+
+Drei Korrekturen **am Logger, keine am Rig**:
+* `BEIN_HOCH_CLIPS` - in Sturzflug, Wandsprung, Fall, Front-/Backflip und
+  Fallrolle IST das angezogene Knie die Bewegung.
+* `WAND_KONTAKT_MAX_KRIECH` 0,95 fuer Kopf und Brust im Kriechen
+  (gemessener Hoechstwert 0,878). Die HUEFTE behaelt 0,55 - damit bleibt
+  genau die Pruefung scharf, die "Klettern zu weit von der Fassade"
+  gefunden hat.
+* Die Dachhocke meldet einmal je Hocke statt in jedem Bild. Eine einzige
+  lange Hocke hatte 3.948 Eintraege erzeugt.
+
+**Danach 150 Meldungen in 30 Minuten (5,0 je Minute)** statt 4.001 am
+Deckel. Uebrig bleiben Kopf und Brust in den Wandakrobatik-Clips (Median
+0,718 / 0,596); die Huefte kommt auf 4 Meldungen bei 0,558 bis 0,561 m,
+liegt also praktisch immer an der Wand.
 
 ## Test B — 60 Minuten Weltbelastung
 Gezaehlt werden ueber die ganze Stunde: Szenenobjekte, Gegner, Bosse,
@@ -136,21 +181,75 @@ laesst sich mit `tools/pruef/npc-einzelfall.js` (Zivilist) beziehungsweise
 `tools/pruef/gegner-einzelfall.js` (Gegner) nachfahren.
 
 ### Die sieben Fragen einzeln, nicht als eine Zahl
-Lauf 6 (Werkszustand vor jedem Szenario zurueckgesetzt, 0 Ruecksetzfehler
-in 100 Szenarien):
+Endstand (Werkszustand vor jedem Szenario zurueckgesetzt, 0
+Ruecksetzfehler in 100 Szenarien):
 
 | | Frage | Ergebnis |
 |---|---|---|
-| A | jemand IN einem Gebaeude | 0 Faelle |
-| B | jemand unter der Bodenflaeche | 0 Faelle |
-| C | dauerhaft haengengeblieben | 13 Faelle |
-| D | Zivilist erreicht sein Ziel | 78/100 |
-| E | alarmierter Gegner erreicht Spieler | 1/90 |
-| F | Ampelstopps (kein Fehler) | 53 929 Bilder |
+| A | jemand IN einem Gebaeude | **0** |
+| B | jemand unter der Bodenflaeche | **0** |
+| C | dauerhaft haengengeblieben | **0** |
+| D | Zivilist erreicht sein Ziel | 84 und 93 von 100 (zwei Laeufe) |
+| E | alarmierter Gegner erreicht Spieler | 80 bis 83 von 100 |
+| F | Ampelstopps (kein Fehler) | 50 520 Bilder |
 | G | Bilder im Zug (kein Fehler) | 0 Bilder |
 
-A und B sind die beiden Fragen, bei denen ein Treffer ein echter Fehler
-waere. Beide sind null.
+Laengster Stillstand 1,8 s (vorher 20 s). Verworfen wegen Ortssprung: 0.
+Getrennt gezaehlt, weil es keine Fehler sind: Fahrgast geworden, und von
+einer Gang niedergeschlagen.
+
+A, B und C sind die drei Fragen, bei denen ein Treffer ein echter Fehler
+waere. Alle drei sind null.
+
+### Der Weg dahin: vier Fehler im Pruefstand, einer im Spiel
+Die Zwischenstaende waren A 0, B 0, C 13, D 78/100, E 1/90. Jede
+Verbesserung kam aus einer Korrektur am Messgeraet - bis auf eine:
+
+1. **Der Spieler wurde nie geheilt.** Er steht hundertmal mitten in einer
+   frischen Gang. Ist er tot, wirft `updateEnemies` jeden Gegner in jedem
+   Bild zurueck auf `patrol`:
+
+        if (e.target === 'player' && (player.dead || dp > 40 || dpy > 12))
+          { e.state = 'patrol'; e.target = null; }
+
+   Ab dem Tod des Spielers scheiterte JEDES weitere Szenario. Drei Laeufe
+   mit identischem Aufruf ergaben 10, 12 und 41 von 100 - diese Zahlen
+   sagten nur, wann der Spieler starb.
+2. **Der Zustand wurde an der falschen Stelle gemessen**, naemlich NACH
+   der eigenen Nachalarmierung. Der Bericht zeichnete die eigene Eingabe
+   auf. An der richtigen Stelle stand der Gegner 1419 von 1420 Bildern
+   auf `patrol`.
+3. **Der Ortssprung** ueber mehrere hundert Meter, immer beim selben Bild
+   (531/532) und in etwa der Haelfte der Seitenladungen, war der
+   Geiselauftrag. `missionCd` steht auf 18 Sekunden; faellt die Wahl auf
+   `geisel`, sucht er den Zivilisten, der dem Unterschlupf einer Gang am
+   naechsten ist, und setzt ihn dorthin. Der Pruefstand kuerzt die
+   Zivilistenliste auf EINE Figur - also traf es immer die Testfigur.
+   Gefunden mit einem Stolperdraht auf die Position (ein Proxy, der bei
+   jedem Schreibzugriff ueber 20 m den Aufrufstapel mitschreibt); die
+   frueheren Stolperdraehte lagen auf `pos.set` und `pos.copy`, und
+   geschrieben wird direkt auf `.x` und `.z`.
+4. **Frage C stand komplett auf `hurt`.** Eine Gang hatte die Figur
+   niedergeschlagen; wer getroffen wird, liegt 40 bis 60 Sekunden
+   (`hurtT`) und wartet gegebenenfalls auf den Rettungsdienst. Im
+   Datensatz sah das wie Haengenbleiben aus: die letzte
+   Fluchtgeschwindigkeit 5,2 stand noch im `vel`, die Steckstufe blieb 0,
+   und weit und breit war weder ein Nachbar noch ein Auto noch ein
+   Gegner.
+
+Der eine echte Befund steht unten: das Gehnetz reichte weiter als das
+erlaubte Gebiet.
+
+### Die Reste sind benannt, nicht nur gezaehlt
+* **D, nicht angekommen:** 12 von 16 beziehungsweise 6 von 7 waren
+  ueberwiegend auf der FLUCHT - eine Gang hatte sie von der Route gejagt.
+* **E, nicht erreicht:** bei **17 von 17** waren weitere Gegner im Spiel.
+  Sind mehrere auf den Spieler angesetzt, verteilt
+  `verteileAngriffsrechte` Plaetze im Ring, und wer keinen Platz hat,
+  haelt Abstand (kleinster Abstand im Median 6,0 m). Isoliert
+  nachgefahren erreicht derselbe Gegner denselben Spieler in 1,9 s.
+* Die Streuung zwischen den Laeufen (D 84 bis 93) ist echt: das Spiel
+  benutzt `Math.random`, der Seed steuert nur die Welt.
 
 ### Frage E: erst messen, dann urteilen
 1 von 90 sieht nach einem kaputten Verfolgungsverhalten aus. Die Regel
