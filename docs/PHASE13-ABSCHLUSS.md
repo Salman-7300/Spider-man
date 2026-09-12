@@ -29,9 +29,11 @@ gelaufen und gruen. Die Aussage bezieht sich ausdruecklich auf die
 
 **Der Human Playtest ist inzwischen gemacht.** Der Auftraggeber hat Akt 1
 selbst durchgespielt (Abschnitt 24). Er bringt **einen** Befund mit, und
-zwar keinen technischen: Mission 6 „Das Versteck" spielt auf einem
-offenen Platz statt in einem Gebaeude. Das ist eine Spielaenderung und
-steht als Punkt 2 in Abschnitt 30.
+zwar keinen technischen: Mission 6 „Das Versteck" spielte auf einem
+offenen Platz statt in einem Gebaeude. Dieser Befund wurde **im Human
+Playtest gefunden, anschliessend behoben** — die Mission spielt jetzt im
+Innenraum eines der 19 begehbaren Haeuser (`docs/MISSION6-VERSTECK.md`).
+Der Human Playtest der neuen Fassung steht noch aus.
 
 **Was die Freigabe NICHT abdeckt:**
 
@@ -393,10 +395,18 @@ Was dafuer schon da ist (gemessen, nicht vermutet):
   (`siehtSpieler` → `freieSicht`), eine Wand unterbricht den Blick also
   schon heute.
 
-Die Umsetzung ist **nicht** Teil dieses Berichts: sie ist eine
-Spielaenderung und wurde vom Auftraggeber fuer diesen Nachtrag
-ausdruecklich ausgeschlossen. Sie steht als benannter offener Punkt in
-Abschnitt 30.
+Die Umsetzung war **nicht** Teil dieses Berichts: sie ist eine
+Spielaenderung und war vom Auftraggeber fuer diesen Nachtrag
+ausdruecklich ausgeschlossen.
+
+**Nachtrag — inzwischen umgesetzt.** Der Auftraggeber hat die Aenderung
+danach ausdruecklich beauftragt. Mission 6 spielt jetzt im Innenraum:
+Anfahrt, Eingangswache, durch die echte Haustuer, Innenraumkampf, Geisel,
+Funker, Verfolgung, Hinterhalt, Anfuehrer. Kein zweites Missionssystem —
+dieselben Storyphasen, dieselbe Gegner-KI, dieselben Kontrollpunkte. Was
+gemessen wurde und was dabei gefunden wurde, steht in
+`docs/MISSION6-VERSTECK.md`. **Der Human Playtest der neuen Fassung ist
+noch nicht gemacht** — diese Zeile bleibt erst dann vollstaendig.
 
 ## 25. Save / Progression Regression (Teil 22)
 
@@ -524,13 +534,14 @@ uebernommen.
    ueberhaupt nicht auf. Das laesst sich mit diesem Clip nicht durch eine
    Zahl beheben, sondern nur durch eine andere Animation oder Fuss-IK —
    beides gehoert nicht in eine Pruefphase. `docs/DUCKGANG-MESSUNG.md`.
-2. **Mission 6 „Das Versteck" ist kein Versteck** — aus dem Durchlauf
-   des Auftraggebers. Die Mission spielt auf einem offenen Platz, obwohl
-   der Auftragstext einen Unterschlupf verspricht. Erwartet wird: in ein
-   Gebaeude hineingehen, drinnen das Versteck der Gegner. Die Bausteine
-   dafuer sind da (19 begehbare Innenraeume, 19 Haustueren mit Durchgang,
-   Sichtpruefung mit Verdeckung); die Aenderung selbst steht aus. Siehe
-   Abschnitt 24.
+2. **Mission 6 „Das Versteck" ist kein Versteck** — **im Human Playtest
+   gefunden, anschliessend behoben.** Die Mission spielte auf einem
+   offenen Platz, obwohl der Auftragstext einen Unterschlupf verspricht.
+   Sie spielt jetzt im Innenraum eines der 19 begehbaren Haeuser, mit
+   Eingangswache, echter Haustuer, Innenraumkampf, Geisel, Funker,
+   Verfolgung und Hinterhalt — in denselben Storyphasen, ohne zweites
+   Missionssystem. `docs/MISSION6-VERSTECK.md`, Abschnitt 24.
+   **Offen bleibt nur eines:** der Human Playtest der neuen Fassung.
 3. **Die Namensnennung fuer `haeuser.glb` ist im Spiel nicht sichtbar** —
    die Herkunft ist geklaert (zwei Saetze von Daniel Zhabotinsky auf
    Sketchfab, CC Attribution, siehe `docs/MODELL-QUELLEN.md`), und CC

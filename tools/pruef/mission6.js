@@ -322,6 +322,14 @@ const TEIL = process.argv[2] || '1-3';
         P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
         for (const c of d.civilians) c.geisel = false;
         P.dead = false; P.hp = 100;
+        /* ---- TEST 11: die Playtest-Messung mitlaufen lassen ----
+           Nicht als zweiter Lauf. Der Bot spielt die Mission ohnehin von
+           vorn bis hinten; die Messung haengt sich daran und kostet nichts.
+           Geprueft wird damit nur EINES: dass die Zahlen, die ein Mensch
+           nach seinem Durchlauf ablesen soll, wirklich entstehen. Wie hoch
+           sie sind, sagt erst der Mensch - ein Bot stirbt nicht und ist
+           nie ratlos. */
+        d.storyPlaytestStart();
         const gestartet = d.storyStarte('m6');
         const spur = [];
         let letztePhase = -1, funkerGefangen = false, fehler = null;
@@ -454,6 +462,9 @@ const TEIL = process.argv[2] || '1-3';
           d.schritt(1 / 30);
         }
         d.taste('KeyW', false);
+        const pb = d.storyPlaytestReport();
+        d.storyPlaytestStop();
+        const pm = pb.missionen.filter((x) => x.id === 'm6')[0] || null;
         const mEnd = d.missionDaten();
         laeufe.push({ variante, gestartet,
                       haus: mEnd && mEnd.v ? mEnd.v.haus : null,
@@ -484,6 +495,13 @@ const TEIL = process.argv[2] || '1-3';
                             ? Math.round(Math.hypot(e.pos.x - mEnd.treff.x,
                                                     e.pos.z - mEnd.treff.z)) : null })),
                       geiselRest: d.civilians.filter((c) => c.geisel).length,
+                      playtest: pm ? {
+                        gesamt: pm.gesamt, ausgang: pm.ausgang, tode: pm.tode,
+                        neustarts: pm.neustarts, ohneFortschritt: pm.ohneFortschritt,
+                        marken: pm.marken,
+                        phasen: pm.phasen.map((x) => ({ nr: x.nr, ziel: x.ziel,
+                                                        ab: x.ab, dauer: x.dauer })),
+                      } : null,
                       fehler });
       }
       E.test10 = laeufe;
@@ -602,6 +620,18 @@ const TEIL = process.argv[2] || '1-3';
       for (const ph of l.spur)
         p('      Phase ' + ph.phase + '  ' + String(ph.ziel).padEnd(32) +
           ' ab Bild ' + ph.bild + ', Gegner ' + ph.gegner);
+      /* ---- TEST 11: was ein Mensch nach seinem Durchlauf ablesen kann ---- */
+      if (!l.playtest) { p('    TEST 11: KEINE Playtest-Messung entstanden'); continue; }
+      const pt = l.playtest;
+      p('    Playtest-Messung: Dauer ' + pt.gesamt + ' s (' +
+        (pt.gesamt / 60).toFixed(1) + ' min), Ausgang ' + pt.ausgang +
+        ', Tode ' + pt.tode + ', Neustarts ' + pt.neustarts +
+        ', ohne Fortschritt ' + pt.ohneFortschritt + ' s');
+      p('    Marken: ' + JSON.stringify(pt.marken));
+      for (const ph of pt.phasen)
+        p('      P' + ph.nr + ' ' + String(ph.ziel).padEnd(32) +
+          ' ab ' + String(ph.ab).padStart(6) + ' s, Dauer ' +
+          String(ph.dauer).padStart(6) + ' s');
     }
   }
   await b.close();

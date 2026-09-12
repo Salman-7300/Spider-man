@@ -30834,6 +30834,10 @@ const STORY_DEF = [
              Sinnvoll ist dann derselbe Weg wie beim fruehen Fang: der
              Treffpunkt ist bekannt. */
           if (!m.funker || m.funker.dead) m.fruehGefangen = true;
+          /* Die eine Tatsache, die der Bericht ueber Mission 6 sonst nicht
+             haette: welcher der beiden Wege gespielt wurde. Wie lange die
+             Verfolgung dann dauert, steht als Dauer dieser Phase da. */
+          ptMarke('funkerFrueh', !!m.fruehGefangen);
           if (m.fruehGefangen) {
             /* Gut gespielt, nicht bestraft: das Funkgeraet verraet den
                Treffpunkt, und die Mission laeuft weiter. */
@@ -31245,17 +31249,34 @@ function ptMissionAuf(d) {
     kampf: 0, traversal: 0, erkundung: 0, jagd: 0, warten: 0,
     ohneFortschritt: 0, laengsteRatlosigkeit: 0,
     ratlosZiel: null, ratlosPhase: -1, ratlosOrt: null,
-    bisZielVerstanden: -1, phasen: [], tode: 0, neustarts: 0, weich: 0,
+    bisZielVerstanden: -1, phasen: [], marken: {}, tode: 0, neustarts: 0, weich: 0,
     _letzterFortschritt: elapsed, _letztePhase: -1, _startPos: null,
   };
 }
 function ptPhase(nr, ziel) {
   if (!STORY_PLAYTEST || !PT.laufend) return;
   const l = PT.laufend;
-  l.phasen.push({ nr, ziel, ab: +(elapsed - l.start).toFixed(1) });
+  ptPhaseSchliessen(l);
+  l.phasen.push({ nr, ziel, ab: +(elapsed - l.start).toFixed(1), dauer: 0 });
   l._letzterFortschritt = elapsed;
   l._letztePhase = nr;
   l._startPos = { x: player.pos.x, z: player.pos.z };
+}
+/* Die Phasenliste hielt bisher nur fest, WANN eine Phase anfing. Fuer die
+   Frage "wie lange dauert die Verfolgung in Mission 6" ist das die falsche
+   Zahl - die braucht man als Differenz zur naechsten Phase, und die letzte
+   Phase hatte gar keine. Deshalb bekommt jeder Eintrag beim Ablaufen seine
+   Dauer, auch der letzte beim Missionsende. */
+function ptPhaseSchliessen(l) {
+  const v = l.phasen[l.phasen.length - 1];
+  if (v) v.dauer = +(elapsed - l.start - v.ab).toFixed(1);
+}
+/* Eine Marke ist eine einzelne Tatsache, die nur eine bestimmte Mission
+   kennt - "der Funker wurde frueh gefangen". Generisch, damit dafuer kein
+   zweites Messsystem entsteht. */
+function ptMarke(name, wert) {
+  if (!STORY_PLAYTEST || !PT.laufend) return;
+  PT.laufend.marken[name] = wert;
 }
 /* Jedes Bild: was tut der Spieler gerade? Abgeleitet aus vorhandenen
    Zustaenden, nicht aus Eingaben. */
@@ -31316,6 +31337,7 @@ function ptMissionZu(art) {
   if (!STORY_PLAYTEST || !PT.laufend) return;
   const l = PT.laufend;
   l.ende = elapsed;
+  ptPhaseSchliessen(l);
   l.gesamt = +l.gesamt.toFixed(1);
   for (const k of ['kampf', 'traversal', 'erkundung', 'jagd', 'warten', 'ohneFortschritt']) {
     l[k] = +l[k].toFixed(1);
@@ -31337,7 +31359,7 @@ function ptBericht() {
       laengsteRatlosigkeit: m.laengsteRatlosigkeit,
       ratlosZiel: m.ratlosZiel, ratlosPhase: m.ratlosPhase, ratlosOrt: m.ratlosOrt,
       bisZielVerstanden: m.bisZielVerstanden,
-      tode: m.tode, neustarts: m.neustarts, phasen: m.phasen,
+      tode: m.tode, neustarts: m.neustarts, phasen: m.phasen, marken: m.marken,
     })),
     gesamt: {
       minuten: +(ges / 60).toFixed(1),
@@ -32775,10 +32797,32 @@ let windCd = 0;
     return b;
   }
 
+  /* Zweite Tabelle: die Phasen. Mission 6 hat neun davon, und die Frage
+     "wo geht die Zeit hin" laesst sich aus der Missionszeile allein nicht
+     beantworten. Marken (z.B. funkerFrueh) stehen in der Zeile ihrer
+     Mission. */
+  function phasen(id) {
+    const b = ptBericht();
+    const liste = id ? b.missionen.filter((m) => m.id === id) : b.missionen;
+    if (!liste.length) { console.log('Playtest: keine Mission mit Phasen.'); return []; }
+    const zeilen = [];
+    for (const m of liste) {
+      for (const p of m.phasen) {
+        zeilen.push({ Mission: m.id, Nr: p.nr, Ziel: p.ziel,
+                      'ab s': p.ab, 'Dauer s': p.dauer });
+      }
+      const mk = Object.keys(m.marken || {});
+      if (mk.length) console.log(m.id + ' Marken:', m.marken);
+    }
+    if (console.table) console.table(zeilen); else console.log(zeilen);
+    return zeilen;
+  }
+
   window.playtest = {
     start() { ptStart(); an = true; console.log('Playtest laeuft. Akt 1 spielen, dann playtest.bericht()'); return true; },
     stop() { const n = ptStop(); console.log('Playtest beendet, ' + n + ' Mission(en) gemessen.'); return n; },
     bericht: tabelle,
+    phasen,
     roh() { return JSON.stringify(ptBericht(), null, 2); },
     get aktiv() { return STORY_PLAYTEST; },
   };
@@ -32786,6 +32830,7 @@ let windCd = 0;
     ptStart();
     console.log('%cPRUEFMODUS AKTIV', 'background:#c8102e;color:#fff;padding:2px 6px');
     console.log('Akt 1 spielen wie immer. Danach in dieser Konsole:  playtest.bericht()');
+    console.log('Phasen einzeln:  playtest.phasen()   nur eine Mission:  playtest.phasen(\'m6\')');
   }
 })();
 
