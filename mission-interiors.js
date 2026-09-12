@@ -205,8 +205,15 @@
 
     /* ---- Zone C: der abgeschirmte Geiselbereich ----
        Niedrige Trennwand, damit man von der Halle aus hinueber sieht -
-       der Spieler soll wissen, dass dort jemand ist, bevor er hingeht. */
-    bau(ziel, mat.metall, X(4), oy, Z(5.5), 6.0, 2.4, 0.4, ...WAND);
+       der Spieler soll wissen, dass dort jemand ist, bevor er hingeht.
+
+       Sie schirmt den Blick VOM EINGANG her ab und laesst den Bereich von
+       der Halle aus offen. Der erste Entwurf hatte 6 m Wand und einen 2 m
+       schmalen Durchlass ganz am Ende: im Botlauf fuehrte der Weg zur
+       Geisel von jedem Punkt der Halle aus durch die Wand, und die Phase
+       "Die Geisel befreien" war nicht zu beenden. Jetzt 4 m Wand und 5 m
+       Durchlass. */
+    bau(ziel, mat.metall, X(2), oy, Z(5.5), 4.0, 2.4, 0.4, ...WAND);
     bau(ziel, mat.metall, X(1.05), oy, Z(8.2), 0.4, 2.4, 5.0, ...WAND);
 
     /* ---- Massive Requisiten ----
@@ -281,7 +288,7 @@
     /* =================== Punkte ===================
        Alles, was die Mission braucht, kommt fertig geprueft heraus. */
     const spielerStart = { x: X(-13.2), y: oy, z: Z(0) };
-    const geiselPunkt = { x: X(5.0), y: oy, z: Z(8.6) };
+    const geiselPunkt = { x: X(6.5), y: oy, z: Z(8.5) };
     /* Der Funker steht VOR seinem Tisch, mit Abstand - der Platz muss
        frei sein, sonst steckt er beim Aufstehen im Kasten. */
     const funkPunkt = { x: X(11.2), y: oy, z: Z(-1.4) };
@@ -291,11 +298,19 @@
        Raster ueber die Haupthalle, jeder Punkt gegen alle gebauten
        Kollisionskaesten geprueft, mit Abstand zum Spielerstart und
        untereinander. */
+    const geiselZone = { x0: X(0.6), x1: X(9), z0: Z(5.5), z1: Z(hz) };
     const gegnerPunkte = [];
     for (let px = -7; px <= 8; px += 1.5) {
       for (let pz = -8.5; pz <= 8.5; pz += 1.5) {
         const wx = X(px), wz = Z(pz);
         if (!frei(ziel.kollider, wx, wz, 0.75)) continue;
+        /* ---- Der Geiselbereich ist kein Kampfplatz ----
+           Im ersten Botlauf stand der letzte Gegner IM abgeschirmten
+           Bereich, 1,2 m vom Spieler entfernt und durch die Trennwand von
+           ihm getrennt: die Phase war nicht mehr zu beenden. Der Kampf
+           gehoert in die Halle. */
+        if (wx > geiselZone.x0 && wx < geiselZone.x1 &&
+            wz > geiselZone.z0 && wz < geiselZone.z1) continue;
         if (Math.hypot(wx - spielerStart.x, wz - spielerStart.z) < 7) continue;
         if (Math.hypot(wx - geiselPunkt.x, wz - geiselPunkt.z) < 2.5) continue;
         let ok = true;
@@ -330,7 +345,7 @@
       zonen: {
         eingang: { x0: X(-hx), x1: X(-9), z0: Z(-hz), z1: Z(hz) },
         halle: { x0: X(-9), x1: X(9), z0: Z(-hz), z1: Z(hz) },
-        geisel: { x0: X(1), x1: X(9), z0: Z(5.5), z1: Z(hz) },
+        geisel: geiselZone,
         funk: { x0: X(9), x1: X(hx), z0: Z(-hz), z1: Z(hz) },
       },
       masse: { laenge: M.laenge, breite: M.breite, hoehe: M.hoehe },

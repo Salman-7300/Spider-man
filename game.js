@@ -5517,8 +5517,16 @@ let GANG_UM_BAND = 0.35;
    kleinsten und beide stehen am tiefsten. */
 let DUCK_STAND_T = 0.42;
 
+/* ---- Bewegungen, die JEDE Figur besitzt ----
+   Diese Liste wird fuer alle Slots angefragt (hero, civilian, civilian2,
+   thug). Was hier steht, muss es als Datei fuer jeden dieser Slots geben -
+   sonst entsteht bei jedem Laden eine 404-Anfrage.
+
+   'attack' stand hier und existiert fuer keinen einzigen Slot: vier
+   Fehlanfragen bei jedem Seitenaufruf, seit die Liste angelegt wurde.
+   tools/test-animationen.cjs prueft das jetzt am Dateibestand. */
 const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
-  'attack', 'kick', 'hit', 'roll', 'sit', 'swing', 'climb',
+  'kick', 'hit', 'roll', 'sit', 'swing', 'climb',
   /* mixamo-5: freies Klettern, seitliches Hangeln, Ausweichschritt
      nach links und rechts. */
   'klettern_frei', 'klettern_seit', 'ausweichenL', 'ausweichenR',
@@ -5531,7 +5539,25 @@ const GLB_ANIM_PARTS = ['idle', 'walk', 'run', 'jump', 'fall', 'land', 'punch',
      Haengen am Faden. */
   'sprint', 'ducken', 'schleichen', 'klettern', 'haengen_frei',
   /* mixamo-9: Haltungen fuer den Netzschwung, Landehocke, Salti. */
-  'schwungpose', 'sturzland', 'frontflip', 'backflip',
+  'schwungpose', 'sturzland', 'frontflip', 'backflip'];
+
+/* ---- Bewegungen, die es NUR fuer den Helden gibt ----
+   Netzschwung, Wandkriechen, Symbiont, Kunstflug, Netz-Zug: alles, was
+   ein Ganove und ein Passant nicht koennen - und wofuer es unter
+   thug@..., civilian@... und civilian2@... deshalb auch keine Datei gibt.
+
+   Sie standen bis hierher in GLB_ANIM_PARTS, also in der Liste FUER ALLE.
+   Der Lader fragte sie damit fuer jeden Slot an, und fuer drei von vier
+   Slots kam jedes Mal 404 zurueck: 33 Bewegungen mal drei Slots, also 99
+   vergebliche Anfragen bei jedem Seitenaufruf. Im Human-Playtest war das
+   als Reihe roter Zeilen in der Konsole zu sehen ("thug@wandsprung.glb",
+   "thug@netzwurf.glb", "thug@sturzflug.glb" und so weiter).
+
+   Die Trennung ist kein neuer Mechanismus: HELD_ANIM_PARTS gibt es
+   laengst genau dafuer, und der Kommentar dort sagt es seit Phase 8 -
+   "sonst suchten Zivilisten und Gegner eine Datei, die es fuer sie nicht
+   gibt". Die Namen standen nur auf der falschen Seite. */
+const HELD_NUR_PARTS = [
   /* animation-1: echte Netzschwung-Bewegungen aus einem fertigen Modell
      (siehe tools/extract-anims.mjs). Endlich ein richtiger Schwung statt
      einer festgehaltenen Haltung. */
@@ -5600,7 +5626,8 @@ const HELD_ANIM_PARTS = RICHT_8.map((r) => 'ausw_' + r)
      deshalb hierher und nicht in die Liste fuer alle Figuren, sonst
      suchten Zivilisten und Gegner eine Datei, die es fuer sie nicht
      gibt. */
-  .concat(['spin_l', 'spin_r', 'sprint_lang', 'gleiten']);
+  .concat(['spin_l', 'spin_r', 'sprint_lang', 'gleiten'])
+  .concat(HELD_NUR_PARTS);
 
 /* Höhe eines Modells bestimmen.
    Bei geskinnten Modellen taugt die Mesh-Box oft nichts: Manche Exporte
@@ -5667,7 +5694,8 @@ function loadGlbAssets(done) {
   const loader = new THREE.GLTFLoader();
   const slots = Object.keys(GLB_SLOTS);
   let pending = slots.length;
-  ladeGesamt = slots.length + slots.length * GLB_ANIM_PARTS.length;
+  ladeGesamt = slots.length + slots.length * GLB_ANIM_PARTS.length +
+               HELD_NUR_PARTS.length;
   const finish = () => { ladeSchritt(); if (--pending === 0) loadCompanionClips(); };
   for (const slot of slots) {
     loader.load(GLB_SLOTS[slot], (gltf) => {
@@ -12151,8 +12179,29 @@ let camYaw = Math.PI * 0.85, camPitch = 0.22, camDist = 5.6, camShake = 0;
    gewaehlt: tools/pruef/interior.js faehrt den ganzen Raum ab und meldet,
    wie oft die Kamera von einer Wand unter zwei Meter an die Figur
    herangezogen wird - genau das liest sich als staendiges Hineinzoomen.
-   Veraenderbar, damit der Pruefstand mehrere Werte vergleichen kann. */
-let INNEN_KAM_DIST = 4.0;
+   Veraenderbar, damit der Pruefstand mehrere Werte vergleichen kann.
+
+   Gemessen, 72 Proben je Wert (neun Standorte mal acht Blickrichtungen):
+
+     Abstand  ausserhalb des Raums  unter 2 m  min   Median  max
+      3,2              0               24     0,08   2,36   3,15
+      3,6              0               22     0,08   2,37   3,54
+      4,0              0               22     0,08   2,42   3,93
+      4,6              0               22     0,08   2,78   4,52
+      5,2              0               22     0,08   2,90   5,11
+
+   Zwei Dinge stehen damit fest. Erstens: die Kamera verlaesst den Raum
+   bei keinem Wert - das erledigt die vorhandene Wandpruefung. Zweitens:
+   die Faelle, in denen sie ganz an die Figur herangezogen wird, haengen
+   NICHT am Abstand. Es sind immer dieselben 22 von 72 - Standorte
+   anderthalb Meter vor einer Wand, mit Blick genau in diese Wand. Das
+   ist dasselbe Verhalten wie draussen vor einer Fassade.
+
+   Was der Abstand aendert, ist der Median. Gewaehlt ist 4,6: der beste
+   gemessene Median, der noch deutlich unter dem Aussenwert von 5,6 bis
+   6,6 m liegt. 5,2 waere praktisch der Aussenwert und der Innenraum
+   fuehlte sich nicht anders an. */
+let INNEN_KAM_DIST = 4.6;
 const camPos = V3(0, 8, 20);
 
 function camForward() {
@@ -34301,6 +34350,7 @@ if (window.__WEBHERO_TEST__ === true) {
          Muster - der kann nie gefunden werden. */
       const geladen = [].concat(GLB_ANIM_PARTS,
         typeof HELD_ANIM_PARTS !== 'undefined' ? HELD_ANIM_PARTS : [],
+        typeof HELD_NUR_PARTS !== 'undefined' ? HELD_NUR_PARTS : [],
         typeof ZIVI_ANIM_PARTS !== 'undefined' ? ZIVI_ANIM_PARTS : []);
       const ohneMuster = geladen.filter((k) => !GLB_CLIP_PATTERNS[k]);
       return { anzahlClips: namen.length, karte, proClip, ohneMuster,
