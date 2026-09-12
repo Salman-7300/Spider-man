@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "createdAt": "2026-09-05",
+  "project": "WEB HERO",
+  "status": "glb-generated-not-integrated",
+  "purpose": "Zwei 3D-Modelle aus den Referenzbildern der Vorprobe. Noch keine Laufzeit-Assets.",
+  "integration": {
+    "baseBranch": "claude/spider-man-game-dev-8cepen",
+    "runtimeFilesModified": false,
+    "gameplayTested": false,
+    "framerateMeasured": false
+  },
+  "generation": {
+    "provider": "Higgsfield",
+    "model": "meshy_v7_image_to_3d",
+    "plan": "plus",
+    "creditsPerModel": 38,
+    "creditsTotal": 76,
+    "costPreflighted": true,
+    "params": {
+      "should_texture": true,
+      "topology": "triangle",
+      "targetPolycountHaus": 6000,
+      "targetPolycountAuto": 8000,
+      "symmetryModeHaus": "off",
+      "symmetryModeAuto": "on"
+    }
+  },
+  "modelle": [
+    {
+      "datei": "haus-laden.glb",
+      "jobId": "29d099ce-ce01-402b-9af6-6807c102d798",
+      "quelle": "brick-shop-reference.png",
+      "dreiecke": 5904,
+      "eckpunkte": 10469,
+      "knoten": ["mesh_node"],
+      "materialien": 1,
+      "texturen": 1,
+      "groesseNormiert": [1.398, 1.902, 1.407],
+      "ursprung": "Mitte, minY -0.951",
+      "bytesRoh": 3631544,
+      "bytesGepackt": 851304,
+      "texturRoh": "2048x2048 JPEG, 2.91 MB",
+      "texturGepackt": "1024x1024 JPEG q88, 0.26 MB",
+      "briefErfuellt": true,
+      "offenePunkte": ["Maßstab in Meter setzen", "Ursprung auf Bodenhöhe legen"]
+    },
+    {
+      "datei": "stadtwagen.glb",
+      "jobId": "d94b5454-3d89-413b-bc6d-0ebf7b60a11a",
+      "quelle": "city-car-reference.png",
+      "dreiecke": 8045,
+      "eckpunkte": 10362,
+      "knoten": ["mesh_node"],
+      "materialien": 1,
+      "texturen": 1,
+      "groesseNormiert": [1.902, 0.789, 0.915],
+      "ursprung": "Mitte, minY -0.395",
+      "bytesRoh": 2931060,
+      "bytesGepackt": 802612,
+      "texturRoh": "2048x2048 JPEG, 2.23 MB",
+      "texturGepackt": "1024x1024 JPEG q88, 0.20 MB",
+      "briefErfuellt": false,
+      "briefVerletzung": "Getrennte Knoten body/wheel_fl/wheel_fr/wheel_rl/wheel_rr gefordert; geliefert wurde ein einziger verschmolzener mesh_node. Raeder koennen nicht rollen oder lenken.",
+      "offenePunkte": ["Raeder abtrennen oder getrennt erzeugen", "Maßstab in Meter setzen", "Ursprung auf Bodenhöhe legen"]
+    }
+  ],
+  "vergleich": {
+    "bestehendesHauspaketBytes": 2933356,
+    "hinweis": "assets/haeuser.glb enthaelt alle Stadthaeuser. Ein einzelnes Rohmodell wog mehr als dieses gesamte Paket; nach dem Neupacken liegt es bei rund einem Drittel davon."
+  }
+}
