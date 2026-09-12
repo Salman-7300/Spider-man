@@ -26,6 +26,7 @@ const TEIL = process.argv[2] || '1-3';
     const will = (n) => TEIL === String(n) || TEIL === '1-3' && n <= 3 || TEIL === 'alle';
 
     const liste = d.versteckListe();
+    const knoten = d.gehKnotenListe();
     E.verstecke = liste.length;
 
     /* ============ TEST 1: Haus-Auswahl ============ */
@@ -173,6 +174,195 @@ const TEIL = process.argv[2] || '1-3';
       }
       E.test3 = { durchWand, wandProben, durchTuer, tuerProben };
     }
+    /* ============ TEST 10: kompletter Missionslauf ============
+       Zwei Varianten. A laesst den Funker normal fliehen, B faengt ihn
+       sofort nach dem Verlassen des Hauses. Beide muessen Mission 6
+       abschliessen und Mission 7 freischalten. */
+    if (TEIL === '10' || TEIL === 'alle') {
+      const laeufe = [];
+      for (const variante of ['A', 'B']) {
+        /* Sauberer Anfang: Akt 1 bis m5 als erledigt setzen. */
+        /* d.story ist das lebende STORY-Objekt - ein eigener Reset-Haken
+           waere ein zweites Story-System durch die Hintertuer. */
+        if (d.story.aktiv) d.storyAufraeumen();
+        d.story.fertig.length = 0;
+        for (const id of ['m1', 'm2', 'm3', 'm4', 'm5']) d.story.fertig.push(id);
+        d.enemies.length = 0;
+        if (d.gangs) d.gangs.length = 0;
+        /* ---- Jede Variante faengt gleich an ----
+           Sonst startet die zweite dort, wo die erste aufgehoert hat -
+           auf einem Dach, mit halber Stadt im Ruecken. Genau diese
+           Sorte Rest hat in Test D monatelang falsche Zahlen erzeugt. */
+        d.setzePos(25, 0.05, 25);
+        P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+        for (const c of d.civilians) c.geisel = false;
+        P.dead = false; P.hp = 100;
+        const gestartet = d.storyStarte('m6');
+        const spur = [];
+        let letztePhase = -1, funkerGefangen = false, fehler = null;
+        let gegnerMax = 0, geiselOk = null, chaseWeg = 0, chaseT = 0;
+        let vorF = null, vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
+        let fest = 0, festGemeldet = 0;
+        let anlaufPhase = -1, gesetzt = 0;
+        for (let i = 0; i < 30000 && d.story.aktiv; i++) {
+          /* Der Spieler wird vom Skript gefuehrt: immer zum aktuellen
+             Ziel, und was im Weg steht, wird geschlagen. */
+          const m = d.missionDaten();
+          if (!m) break;
+          if (P.hp < 100) P.hp = 100;
+          if (P.dead) P.dead = false;
+          if (d.story.phase !== letztePhase) {
+            letztePhase = d.story.phase;
+            spur.push({ phase: letztePhase, ziel: d.story.zielText, bild: i,
+                        gegner: d.enemies.filter((e) => !e.dead).length });
+          }
+          gegnerMax = Math.max(gegnerMax,
+            d.enemies.filter((e) => !e.dead && e.storyGegner).length);
+          /* ================= Wie dieser Bot faehrt =================
+             Gepruft werden soll die MISSION, nicht die Stadtnavigation.
+             Die ist getrennt geprueft (Test C, Test A) - und ein Bot, der
+             nur W druecken kann, klettert an der ersten Fassade hoch und
+             steht dann auf dem Dach: genau das ist hier dreimal passiert.
+
+             Deshalb die klare Trennung:
+               ANFAHRT (weiter als 15 m weg) wird GESETZT. Das ist Reisen,
+                 nicht Mission - der Spieler kann schwingen, zippen und
+                 ueber Daecher laufen, das Ergebnis ist dasselbe.
+               ALLES MISSIONSKRITISCHE bleibt echt und ungesetzt:
+                 durch die Tuer gehen, kaempfen, die Geisel erreichen,
+                 die Flucht des Funkers, der Hinterhalt.
+             Was gesetzt wird, steht im Bericht. */
+          let ziel = null, nahkampf = false, verfolgt = false;
+          /* ---- In Variante A bleibt der Funker verschont ----
+             Der erste Anlauf liess den Bot JEDEN Storygegner angreifen -
+             also auch den Funker, und der war erschlagen, bevor er zwei
+             Schritte gelaufen war. Damit lief auch Variante A ueber den
+             Zweig "frueh gefangen", und die Verfolgung wurde nie
+             geprueft. */
+          const lebend = d.enemies.filter((e) => !e.dead && e.storyGegner &&
+            !(variante === 'A' && e.funker));
+          if (lebend.length) {
+            lebend.sort((a2, b2) =>
+              Math.hypot(a2.pos.x - P.pos.x, a2.pos.z - P.pos.z) -
+              Math.hypot(b2.pos.x - P.pos.x, b2.pos.z - P.pos.z));
+            ziel = { x: lebend[0].pos.x, y: lebend[0].pos.y, z: lebend[0].pos.z };
+            nahkampf = true;
+          } else if (variante === 'A' && m.funker && !m.funker.dead) {
+            /* Dranbleiben, nicht ueberholen: zehn Meter hinter ihm. */
+            ziel = { x: m.funker.pos.x, y: m.funker.pos.y, z: m.funker.pos.z };
+            verfolgt = true;
+          } else if (m.zielPos) {
+            ziel = { x: m.zielPos.x, y: m.zielPos.y, z: m.zielPos.z };
+          }
+          if (ziel) {
+            const drinZiel = m.v && d.imVersteck(m.v, ziel.x, ziel.z);
+            const drinIch = m.v && d.imVersteck(m.v, P.pos.x, P.pos.z, P.pos.y);
+            let anlauf = ziel;
+            /* Ziel im Haus, Bot draussen: der Anlaufpunkt ist das Vorfeld. */
+            if (drinZiel && !drinIch) anlauf = { x: m.v.vorTuer.x, y: 0, z: m.v.vorTuer.z };
+            const dd = Math.hypot(anlauf.x - P.pos.x, anlauf.z - P.pos.z);
+            /* Beim Verfolgen NICHT setzen, sondern Abstand halten: sonst
+               steht der Bot im selben Bild auf dem Funker und die Flucht
+               ist vorbei, bevor sie anfaengt. */
+            if (verfolgt) {
+              if (dd > 11) {
+                const gy2 = d.groundYAt(anlauf.x, anlauf.z, 2);
+                const rx = (P.pos.x - anlauf.x) / (dd || 1), rz = (P.pos.z - anlauf.z) / (dd || 1);
+                d.setzePos(anlauf.x + rx * 9, (gy2 === null || gy2 === undefined ? 0 : gy2) + 0.05,
+                           anlauf.z + rz * 9);
+                P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+                gesetzt++;
+              }
+              d.taste('KeyW', false);
+            } else if (dd > 15 || P.pos.y > (m.v ? m.v.raum.boden : 0) + 6) {
+              /* ---- ANFAHRT: gesetzt ---- */
+              const gy = d.groundYAt(anlauf.x, anlauf.z, 2);
+              d.setzePos(anlauf.x, (gy === null || gy === undefined ? 0 : gy) + 0.05,
+                         anlauf.z);
+              P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+              gesetzt++;
+              d.taste('KeyW', false);
+            } else {
+              /* ---- ECHT: die letzten Meter, die Tuer, der Kampf ---- */
+              let laufZiel = anlauf;
+              if (drinZiel && !drinIch) {
+                const t2 = m.v.tuer;
+                /* Auf der Tuerachse hindurch, nicht schraeg: schraeg
+                   streift die Figur den Rahmen und klettert. */
+                if (Math.hypot(P.pos.x - m.v.vorTuer.x, P.pos.z - m.v.vorTuer.z) < 1.2)
+                  anlaufPhase = letztePhase;
+                if (anlaufPhase === letztePhase)
+                  laufZiel = { x: m.v.tuerMitte.x - t2.nx * 4.0,
+                               z: m.v.tuerMitte.z - t2.nz * 4.0 };
+              }
+              const w = Math.atan2(laufZiel.x - P.pos.x, laufZiel.z - P.pos.z);
+              P.facing = w; d.setzeKamYaw(w + Math.PI);
+              const d2 = Math.hypot(laufZiel.x - P.pos.x, laufZiel.z - P.pos.z);
+              if (d2 > 1.6) d.taste('KeyW', true); else d.taste('KeyW', false);
+              if (nahkampf && d2 < 3.0 && i % 12 === 0) d.tryAttack && d.tryAttack();
+              const weg = Math.hypot(P.pos.x - vorP.x, P.pos.z - vorP.z) +
+                          Math.abs(P.pos.y - vorP.y);
+              if (weg < 0.08) fest++; else fest = 0;
+              vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
+              if (fest === 60) d.tippeSprung && d.tippeSprung();
+              if (fest > 240) { anlaufPhase = -1; fest = 0; festGemeldet++; }
+            }
+          }
+          /* Variante B: den Funker sofort einnetzen, sobald es geht. */
+          if (variante === 'B' && m.funker && !m.funker.dead && !funkerGefangen) {
+            const dd = Math.hypot(m.funker.pos.x - P.pos.x, m.funker.pos.z - P.pos.z);
+            if (dd < 14) { d.applyWeb && d.applyWeb(m.funker, 3);
+                           if ((m.funker.webT || 0) > 0) funkerGefangen = true; }
+          }
+          /* Chase-Weg messen. */
+          /* NUR waehrend der Verfolgungsphase messen. Der erste Anlauf
+             summierte ueber den ganzen Lauf und kam auf 1912 m in 983 s -
+             das war nicht die Verfolgung, das war die ganze Mission. */
+          if (m.funker && !m.funker.dead && d.story.phase === 6) {
+            if (vorF) chaseWeg += Math.hypot(m.funker.pos.x - vorF.x, m.funker.pos.z - vorF.z);
+            vorF = { x: m.funker.pos.x, z: m.funker.pos.z };
+            chaseT += 1 / 30;
+          } else vorF = null;
+          if (m.geisel && geiselOk === null) {
+            geiselOk = !!m.geisel.geisel;
+          }
+          d.schritt(1 / 30);
+        }
+        d.taste('KeyW', false);
+        const mEnd = d.missionDaten();
+        laeufe.push({ variante, gestartet,
+                      haus: mEnd && mEnd.v ? mEnd.v.haus : null,
+                      hausMitte: mEnd && mEnd.v
+                        ? [Math.round(mEnd.v.mitte.x), Math.round(mEnd.v.mitte.z)] : null,
+                      endPhase: d.story.phase, endZiel: d.story.zielText,
+                      endOrt: [+P.pos.x.toFixed(1), +P.pos.y.toFixed(1), +P.pos.z.toFixed(1)],
+                      drin: !!(mEnd && mEnd.v &&
+                               d.imVersteck(mEnd.v, P.pos.x, P.pos.z, P.pos.y)),
+                      tuerAbstand: mEnd && mEnd.v
+                        ? +Math.hypot(P.pos.x - mEnd.v.tuerMitte.x,
+                                      P.pos.z - mEnd.v.tuerMitte.z).toFixed(1) : null,
+                      beendet: d.story.fertig.indexOf('m6') >= 0,
+                      /* m7 wird allein dadurch frei, dass m6 in fertig steht -
+                         genau das prueft m7.frei(). */
+                      m7frei: d.story.fertig.indexOf('m6') >= 0,
+                      phasen: spur.length, spur, funkerGefangen, gegnerMax,
+                      geiselGebunden: geiselOk,
+                      chaseWeg: +chaseWeg.toFixed(0), chaseT: +chaseT.toFixed(1),
+                      festGemeldet, gesetzt,
+                      restGegner: d.enemies.filter((e) => !e.dead).length,
+                      restStory: d.enemies.filter((e) => e.storyGegner).length,
+                      restStoryInfo: d.enemies.filter((e) => e.storyGegner && !e.dead)
+                        .map((e) => ({ art: e.typ ? e.typ.art : '?', zustand: e.state,
+                          flieht: !!e.flieht, funker: !!e.funker, hp: Math.round(e.hp),
+                          ort: [Math.round(e.pos.x), Math.round(e.pos.z)],
+                          zumTreff: mEnd && mEnd.treff
+                            ? Math.round(Math.hypot(e.pos.x - mEnd.treff.x,
+                                                    e.pos.z - mEnd.treff.z)) : null })),
+                      geiselRest: d.civilians.filter((c) => c.geisel).length,
+                      fehler });
+      }
+      E.test10 = laeufe;
+    }
     return E;
   }, TEIL);
 
@@ -212,6 +402,34 @@ const TEIL = process.argv[2] || '1-3';
       (aus.test3.durchWand ? '   BEFUND' : '   ok'));
     p('  durch die TUER sichtbar:  ' + aus.test3.durchTuer + ' von ' + aus.test3.tuerProben +
       '   (soll so sein)');
+  }
+  if (aus.test10) {
+    p('');
+    p('== TEST 10: kompletter Missionslauf ==');
+    for (const l of aus.test10) {
+      p('  Variante ' + l.variante + (l.variante === 'A' ? ' (Funker flieht normal)'
+                                                         : ' (Funker frueh gefangen)'));
+      p('    gestartet ' + l.gestartet + '   abgeschlossen ' + l.beendet +
+        '   Mission 7 frei ' + l.m7frei);
+      p('    Phasen durchlaufen: ' + l.phasen + '   Gegner gleichzeitig hoechstens: ' + l.gegnerMax);
+      p('    Funker gefangen: ' + l.funkerGefangen +
+        '   Fluchtweg ' + l.chaseWeg + ' m in ' + l.chaseT + ' s');
+      p('    Haus: ' + l.haus + ' ' + JSON.stringify(l.hausMitte));
+      if (!l.beendet)
+        p('    STEHENGEBLIEBEN in Phase ' + l.endPhase + ' (' + l.endZiel + ')' +
+          '   Spieler ' + JSON.stringify(l.endOrt) + '   im Haus: ' + l.drin +
+          '   Tuerabstand ' + l.tuerAbstand + ' m');
+      p('    Geisel gebunden: ' + l.geiselGebunden +
+        '   Anfahrten gesetzt: ' + l.gesetzt +
+        (l.festGemeldet ? '   Neuanlaeufe: ' + l.festGemeldet : ''));
+      if (l.restStoryInfo && l.restStoryInfo.length)
+        p('    uebrige Storygegner: ' + JSON.stringify(l.restStoryInfo));
+      p('    danach: Gegner ' + l.restGegner + ', Storygegner ' + l.restStory +
+        ', gebundene Geiseln ' + l.geiselRest);
+      for (const ph of l.spur)
+        p('      Phase ' + ph.phase + '  ' + String(ph.ziel).padEnd(32) +
+          ' ab Bild ' + ph.bild + ', Gegner ' + ph.gegner);
+    }
   }
   await b.close();
 })();

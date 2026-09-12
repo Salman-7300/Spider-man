@@ -25711,16 +25711,33 @@ function updateEnemies(dtBild) {
     /* Der Dieb rennt vom Helden weg statt auf ihn zu - und wer den Mut
        verloren hat, ebenso. */
     if (e.dieb || e.flieht) {
-      const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
-      const dd = Math.hypot(dx, dz) || 1;
-      /* ---- Nicht stur geradeaus ----
-         Bisher lief ein Fliehender exakt vom Helden weg - also regelmaessig
-         frontal in eine Fassade, wo er dann stehenblieb und sich abfangen
-         liess. Jetzt wird die Fluchtrichtung gedreht, bis der Weg frei
-         ist; die Richtung "weg vom Helden" bleibt dabei die erste Wahl. */
-      const fr = fluchtRichtung(e, dx / dd, dz / dd);
-      moveX = fr.x; moveZ = fr.z;
-      speed = (e.typ ? e.typ.tempo : 5) * 1.5;
+      /* ---- Ein vorgegebener Fluchtweg geht vor ----
+         fluchtRichtung() laeuft VOM SPIELER WEG. Im Haus ist das falsch:
+         steht der Spieler zwischen Funker und Tuer, rennt der Funker in
+         die Rueckwand statt hinaus - und Mission 6 verlangt ausdruecklich,
+         dass er die echte Tuer benutzt. Eine Mission darf deshalb eine
+         Folge von Punkten vorgeben. Die Punkte sind beim Setzen geprueft
+         (freier Boden, kein Hindernis); hier wird nur abgelaufen, nicht
+         teleportiert. Ist der Weg zu Ende, gilt wieder das normale
+         Fluchtverhalten - drinnen fuehrt der Weg, draussen die Angst. */
+      let gefuehrt = null;
+      while (e.fluchtWeg && e.fluchtWeg.length) {
+        const z0 = e.fluchtWeg[0];
+        const wd = Math.hypot(z0.x - e.pos.x, z0.z - e.pos.z);
+        if (wd < (z0.r || 1.3)) { e.fluchtWeg.shift(); continue; }
+        gefuehrt = { x: (z0.x - e.pos.x) / wd, z: (z0.z - e.pos.z) / wd };
+        break;
+      }
+      if (gefuehrt) {
+        moveX = gefuehrt.x; moveZ = gefuehrt.z;
+        speed = (e.typ ? e.typ.tempo : 5) * 1.35;
+      } else {
+        const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
+        const dd = Math.hypot(dx, dz) || 1;
+        const fr = fluchtRichtung(e, dx / dd, dz / dd);
+        moveX = fr.x; moveZ = fr.z;
+        speed = (e.typ ? e.typ.tempo : 5) * 1.5;
+      }
       anim = 'run';
       e.facing = dampAngle(e.facing, Math.atan2(moveX, moveZ), dt * 8);
       e.state = 'patrol'; e.target = null;
@@ -30122,6 +30139,192 @@ function versteckPlaetze(v, n, weg, minAbstand) {
   return raus;
 }
 
+/* ---- Einem gesetzten Ganoven einen Archetyp geben ----
+   spawnGang wuerfelt den Typ (waehleGanov). Fuer eine Missionsgruppe
+   soll die Mischung stimmen - drei gleiche Gegner sind kein Kampf. Der
+   Typ wird deshalb nachtraeglich gesetzt und alles nachgezogen, was
+   daran haengt: Lebenspunkte, Groesse, Radius, Haut.
+   Nur Arten mit dem Standardmodell: duellant und stuermer bringen ein
+   eigenes GLB mit, das sich nachtraeglich nicht tauschen laesst. */
+const ST_ARTEN_OK = new Set(['schlaeger', 'brecher', 'flink', 'waechter', 'werfer']);
+function stArt(e, art) {
+  if (!e || !ST_ARTEN_OK.has(art)) return e;
+  const t = GANOVEN.find((g) => g.art === art);
+  if (!t || e.typ === t) return e;
+  e.typ = t;
+  e.hpMax = t.hp; e.hp = t.hp;
+  e.radius = 0.4 * t.groesse;
+  e.mut = MUT_BASIS[t.art] === undefined ? 0.8 : MUT_BASIS[t.art];
+  if (e.visual && e.visual.root) e.visual.root.scale.setScalar(t.groesse);
+  if (CITY_LOOK && CITY_LOOK.dressEnemy) CITY_LOOK.dressEnemy(e.visual, t.art);
+  setzeGegnerHaut(e.visual, t.art);
+  return e;
+}
+
+/* Gefangen heisst: tot, im Netz, oder gepackt. Dieselbe Pruefung, die
+   Mission 3 fuer den Kurier benutzt. */
+function stGefangen(e) {
+  if (!e) return true;
+  return e.dead || (e.webT || 0) > 0 || player.haeltGegner === e;
+}
+
+/* ---- Die Geisel ----
+   Ein ECHTER Zivilist aus der Welt, ueber das vorhandene Geiselsystem
+   gebunden. c.geisel ist kein neues Feld: updateCivilians stellt die
+   Figur damit still, und Gespraech, Route, Aktivitaet, Bahnsteig und
+   Sozialpartner fragen alle danach. Zivilisten werden ausserdem nie
+   abgebaut - es gibt kein civilians.splice -, die Welt-Hygiene kann die
+   Geisel also nicht wegraeumen. */
+function stGeisel(punkt) {
+  if (!punkt) return null;
+  let civ = null, best = 1e9;
+  for (const c of civilians) {
+    if (c.geisel || c.state === 'hurt' || c.eingestiegen > 0) continue;
+    if (c.bahnsteig !== undefined) continue;
+    const d = Math.hypot(c.pos.x - punkt.x, c.pos.z - punkt.z);
+    if (d < best) { best = d; civ = c; }
+  }
+  if (!civ) return null;
+  civ.geisel = true;
+  civ.route = null; civ.routeI = 0; civ.waypoint = null;
+  civ.sozialPartner = null;
+  civ.pos.set(punkt.x, punkt.y === undefined ? groundY(punkt.x, punkt.z, 2) : punkt.y, punkt.z);
+  civ.vel.set(0, 0, 0);
+  if (civ.visual && civ.visual.root) civ.visual.root.position.copy(civ.pos);
+  return civ;
+}
+function stGeiselFrei(m) {
+  if (m && m.geisel) {
+    m.geisel.geisel = false;
+    m.geiselGerettet = true;
+    m.geisel = null;
+  }
+}
+
+/* ---- Der Weg des Funkers nach draussen ----
+   Drinnen: vom Standpunkt hinter die Tuer, durch die Tuer, vors Haus.
+   Draussen: ueber das vorhandene GEHNETZ zum Treffpunkt - dieselben
+   Knoten, auf denen die Passanten laufen, also geprueft frei. Erfunden
+   wird kein Weg und teleportiert wird nicht. */
+function stFunkerWeg(m, ziel) {
+  const v = m && m.v;
+  const weg = [];
+  if (v) {
+    weg.push({ x: v.hinterTuer.x, z: v.hinterTuer.z, r: 1.1 });
+    weg.push({ x: v.tuerMitte.x, z: v.tuerMitte.z, r: 0.8 });
+    weg.push({ x: v.vorTuer.x, z: v.vorTuer.z, r: 1.2 });
+  }
+  if (ziel) {
+    const vonX = v ? v.vorTuer.x : (m.ort ? m.ort.x : 0);
+    const vonZ = v ? v.vorTuer.z : (m.ort ? m.ort.z : 0);
+    const a = gehNaechster(vonX, vonZ, 40);
+    const b = gehNaechster(ziel.x, ziel.z, 40);
+    if (a >= 0 && b >= 0) {
+      const route = gehRoute(a, b);
+      if (route) for (const k of route) {
+        const kn = GEH.knoten[k];
+        if (kn) weg.push({ x: kn.x, z: kn.z, r: 2.0 });
+      }
+    }
+    weg.push({ x: ziel.x, z: ziel.z, r: 2.5 });
+  }
+  return weg;
+}
+
+/* ---- Einen einzelnen Storygegner aus der Welt nehmen ----
+   Nicht "tot" setzen: er ist nicht besiegt, er ist ENTKOMMEN. Wer ihn
+   totstellt, faelscht die Statistik und gibt Punkte fuer nichts. Er wird
+   aus der Welt und aus seiner Gruppe genommen; damit zaehlt ihn
+   stAlleGangsTot nicht mehr mit - sonst wartet die naechste Phase
+   ewig auf jemanden, der gerade quer durch die Stadt laeuft. */
+function stEntferneGegner(e) {
+  if (!e) return;
+  e.storyGegner = false;
+  e.flieht = false; e.eventFlucht = false; e.fluchtWeg = null;
+  const i = enemies.indexOf(e);
+  if (i >= 0) enemies.splice(i, 1);
+  if (e.visual && e.visual.root) scene.remove(e.visual.root);
+  if (e.cocoon) e.cocoon.visible = false;
+  deckungLoesen(e);
+  KAMPF_RECHT.delete(e);
+  if (player.ziel === e) player.ziel = null;
+  if (e.gang) {
+    const gi = e.gang.enemies.indexOf(e);
+    if (gi >= 0) e.gang.enemies.splice(gi, 1);
+  }
+}
+
+/* ---- Wer flieht und weit weg ist, ist aus dem Kampf ----
+   Eine "raeume den Bereich"-Phase wartet auf den letzten lebenden
+   Storygegner. Bricht dessen Mut (das Spiel laesst Ganoven fliehen, siehe
+   MUT_BASIS), rennt er davon - und die Phase endet nie. Im Botlauf stand
+   am Ende genau ein Gegner offen: auf der Flucht, 458 m vom Treffpunkt.
+   Wer so weit weg ist, kaempft nicht mehr mit; er wird aus der Welt
+   genommen, nicht totgestellt. */
+function stGeflohenAufraeumen(m, ort, weite) {
+  if (!m || !m.gangs || !ort) return 0;
+  const w = weite || 50;
+  let n = 0;
+  for (const g of m.gangs) {
+    for (let i = g.enemies.length - 1; i >= 0; i--) {
+      const e = g.enemies[i];
+      if (e.dead || !e.flieht) continue;
+      if (Math.hypot(e.pos.x - ort.x, e.pos.z - ort.z) < w) continue;
+      stEntferneGegner(e);
+      n++;
+    }
+  }
+  return n;
+}
+
+/* Der Treffpunkt am Ende der Verfolgung: der freie Platz, den die
+   Versteckauswahl ohnehin schon gesucht hat. Gibt es keinen, wird einer
+   in der Naehe gesucht - und wenn auch das nichts findet, bleibt der
+   Platz vor dem Haus. Nichts davon ist erfunden: freieFlaeche misst. */
+function stTreffpunkt(m) {
+  if (m.treff) return m.treff;
+  /* ---- Der Weg dorthin muss eine Verfolgung sein, kein Marathon ----
+     Der erste Entwurf nahm einfach den freien Platz, den die
+     Versteckauswahl gefunden hatte - bis zu 95 m Luftlinie. Ueber das
+     Gehnetz wurden daraus im Botlauf 1331 gelaufene Meter in 336
+     Sekunden. Gesucht wird deshalb ein Platz, dessen WEG (nicht dessen
+     Luftlinie) im gewuenschten Bereich liegt. */
+  const vonX = m.v ? m.v.vorTuer.x : m.ort.x;
+  const vonZ = m.v ? m.v.vorTuer.z : m.ort.z;
+  const a = gehNaechster(vonX, vonZ, 40);
+  const wegLaenge = (t) => {
+    if (a < 0 || !t) return null;
+    const b = gehNaechster(t.x, t.z, 40);
+    if (b < 0) return null;
+    const route = gehRoute(a, b);
+    if (!route || route.length < 2) return null;
+    let l = 0;
+    for (let i = 1; i < route.length; i++) {
+      const p1 = GEH.knoten[route[i - 1]], p2 = GEH.knoten[route[i]];
+      if (p1 && p2) l += Math.hypot(p2.x - p1.x, p2.z - p1.z);
+    }
+    return l;
+  };
+  let best = null, bestAbw = 1e9;
+  for (let i = 0; i < 14; i++) {
+    const t = freieFlaeche(vonX, vonZ, 30 + i * 8, 4.0);
+    if (!t) continue;
+    const l = wegLaenge(t);
+    if (l === null) continue;
+    /* Zielband 120 bis 250 m gelaufener Weg. Die Abweichung davon
+       entscheidet - nicht "so weit wie moeglich". */
+    const abw = l < 120 ? 120 - l : (l > 250 ? l - 250 : 0);
+    if (abw < bestAbw) { bestAbw = abw; best = t; best.weg = Math.round(l); }
+    if (abw === 0) break;
+  }
+  if (!best) best = m.v && m.v.hof;
+  if (!best) best = freieFlaeche(player.pos.x, player.pos.z, 70, 3.5);
+  if (!best) best = { x: m.ort.x, z: m.ort.z,
+                      y: groundY(m.ort.x, m.ort.z, 2) || 0, radius: 5 };
+  m.treff = best;
+  return best;
+}
+
 /* Einen POI als Storyort verwenden - Phase 10 hat vierzig davon. */
 function stPoi(arten, minAbstand) {
   const kand = POI.liste.filter((p) => arten.indexOf(p.art) >= 0 &&
@@ -30276,6 +30479,31 @@ const STORY_DEF = [
           if (!m.kurier || m.kurier.dead || (m.kurier.webT || 0) > 0) return 'weiter';
           if (m.jagdT <= 0) return 'weich';
           return null;
+        },
+        /* Ist er entkommen, muss er aus der Welt: als lebender
+           Storygegner wuerde er jede weitere Phase blockieren -
+           stAlleGangsTot() wartet sonst auf jemanden, der gerade quer
+           durch die Stadt rennt. Im Botlauf ist genau das passiert:
+           Phase "Hinterhalt" endete nie, ein Storygegner blieb uebrig. */
+        ende: (m) => {
+          const f = m.funker;
+          if (!f) return;
+          f.fluchtWeg = null;
+          if (f.dead) return;
+          if (stGefangen(f)) {
+            /* ---- Gefangen heisst: er bleibt ----
+               Ein eingenetzter Funker galt als gefangen, blieb aber auf
+               flieht = true stehen. Lief das Netz ab, rannte er weiter -
+               und weil er ein lebender Storygegner ist, wartete jede
+               folgende Phase auf ihn. Im Botlauf endete der Hinterhalt
+               deshalb nie: ein Gegner, 66 m entfernt, auf der Flucht. */
+            f.flieht = false; f.eventFlucht = false;
+            f.state = 'chase'; f.target = 'player';
+          } else {
+            /* Entkommen: aus der Welt, nicht totgestellt. */
+            stEntferneGegner(f);
+            m.funkerWeg = true;
+          }
         } },
     ],
     erfolgText: 'Eine Liste mit Uhrzeiten. Alle in derselben Nacht.',
@@ -30413,44 +30641,244 @@ const STORY_DEF = [
   /* ---------------------------------------------------------------- */
   { id: 'm6', nr: 6, titel: 'Das Versteck',
     kurz: 'Der Ort, an dem alles zusammenläuft.',
-    system: 'Kampf in Wellen · Archetypen · Rettung',
+    system: 'Innenraum · Rettung · Verfolgung · Hinterhalt',
     frei: () => STORY.fertig.indexOf('m5') >= 0,
     start: 'Leitstelle: Wir haben die Adresse. Geh vorsichtig rein.',
+    /* ---------------------------------------------------------------
+       Diese Mission hiess "Das Versteck" und spielte auf einem offenen
+       Platz: stPoi() suchte irgendeinen POI, drei Gangwellen stellten
+       sich drumherum. Der menschliche Durchlauf von Akt 1 hat genau das
+       als einzigen Designbefund zurueckgemeldet - es ist kein Versteck.
+
+       Jetzt ist es ein wirklich begehbares Haus (stVersteck), der
+       Spieler geht durch die echte Tuer, kaempft drinnen, befreit einen
+       Zivilisten, und der Funker flieht ueber dieselbe Tuer nach
+       draussen. Wer ihn frueh faengt, bekommt den Treffpunkt aus dem
+       Funkgeraet - die Mission haengt dann nicht, sie belohnt.
+       --------------------------------------------------------------- */
     phasen: [
       { ziel: 'Das Versteck erreichen',
         auf: (m) => {
-          const p = stPoi(['LANDMARK', 'ROOFTOP', 'TRANSIT'], 60) || stOrt(80);
-          m.ort = { x: p.x, z: p.z };
-          m.zielPos = { x: p.x, y: p.y || 1, z: p.z };
+          m.v = stVersteck(70);
+          if (!m.v) { m.v = null; m.ort = stOrt(70);
+                      m.zielPos = { x: m.ort.x, y: 1, z: m.ort.z }; return; }
+          m.ort = { x: m.v.mitte.x, z: m.v.mitte.z };
+          /* Der Leuchtturm steht VOR DER TUER, nicht ueber der Hausmitte:
+             der Spieler soll das Gebaeude und seinen Eingang erkennen. */
+          m.zielPos = { x: m.v.vorTuer.x,
+                        y: (m.v.vorTuer.y === null ? 1 : m.v.vorTuer.y) + 1,
+                        z: m.v.vorTuer.z };
         },
-        pruef: (m) => stNah(m.zielPos, 24) ? 'weiter' : null },
-      { ziel: 'Die Wache ausschalten',
-        auf: (m) => { stGang(m.ort.x + 6, m.ort.z + 6, 3, 'story');
-                      stFunk('Zwei am Eingang. Sie haben dich gesehen.'); },
+        pruef: (m) => stNah(m.zielPos, 14) ? 'weiter' : null },
+
+      { ziel: 'Die Eingangswache ausschalten',
+        auf: (m) => {
+          const v = m.v;
+          if (!v) { stGang(m.ort.x + 6, m.ort.z + 6, 3, 'story'); return; }
+          /* Zwei bis drei vor der Tuer - auf gueltigem Boden, neben dem
+             Durchgang, nicht darin: der Eingang muss passierbar bleiben. */
+          const t = v.tuer;
+          const quer = { x: -t.nz, z: t.nx };
+          const stellen = [
+            { x: v.vorTuer.x + quer.x * 2.6, z: v.vorTuer.z + quer.z * 2.6 },
+            { x: v.vorTuer.x - quer.x * 2.6, z: v.vorTuer.z - quer.z * 2.6 },
+            { x: v.vorTuer.x + t.nx * 3.4, z: v.vorTuer.z + t.nz * 3.4 },
+          ];
+          const arten = ['schlaeger', 'flink', 'waechter'];
+          let n = 0;
+          for (let i = 0; i < stellen.length; i++) {
+            const p2 = stellen[i];
+            const gy = groundY(p2.x, p2.z, 2);
+            if (gy === null || gy === undefined) continue;
+            if (!versteckFrei(p2.x, p2.z, gy, 0.7)) continue;
+            const g = stGang(p2.x, p2.z, 1, 'story');
+            const e = g.enemies[0];
+            if (e) { e.pos.set(p2.x, gy, p2.z);
+                     if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
+                     stArt(e, arten[i % arten.length]); n++; }
+          }
+          if (!n) stGang(v.vorTuer.x, v.vorTuer.z, 2, 'story');
+          stFunk('Zwei am Eingang. Sie haben dich gesehen.');
+        },
         pruef: () => stAlleGangsTot() ? 'weiter' : null },
-      { ziel: 'Den Innenhof räumen',
-        /* Punkt 14 erlaubt hoechstens zwei Zwischenmeldungen je Mission.
-           Diese hier war die dritte und sagte nichts, was der Auftragstext
-           "Den Innenhof raeumen" nicht schon sagt - die beiden anderen
-           (Eingang, Funkgeraet) tragen dagegen Information. */
-        auf: (m) => { stGang(m.ort.x - 8, m.ort.z + 4, 4, 'story');
-                      stGang(m.ort.x + 4, m.ort.z - 8, 3, 'story'); },
+
+      { ziel: 'Ins Versteck eindringen',
+        auf: (m) => {
+          if (!m.v) return;
+          /* Der Leuchtturm zeigt INS Haus - aber auf den Punkt direkt
+             hinter der Tuer, nicht auf die Raummitte. Auf die Mitte
+             gezeigt fuehrt er quer durch die Fassade: wer ihm folgt,
+             laeuft gegen die Wand und faengt an zu klettern. Genau das
+             ist im Botlauf passiert. Hinter der Tuer liegt der Punkt
+             drinnen UND in der Fluchtlinie des Durchgangs. */
+          m.zielPos = { x: m.v.hinterTuer.x, y: m.v.raum.boden + 1,
+                        z: m.v.hinterTuer.z };
+        },
+        /* Drin ist drin: die Spielerposition muss wirklich im Innenraum
+           liegen. Abstand zur Hausmitte wuerde auch durch Wand und Dach
+           zaehlen. */
+        pruef: (m) => (!m.v || imVersteck(m.v, player.pos.x, player.pos.z, player.pos.y))
+          ? 'weiter' : null },
+
+      { ziel: 'Das Erdgeschoss sichern',
+        auf: (m) => {
+          const v = m.v;
+          if (!v) { stGang(m.ort.x, m.ort.z, 3, 'story'); return; }
+          /* So viele, wie der Raum glaubwuerdig traegt: die freie Flaeche
+             entscheidet, nicht eine feste Zahl. */
+          const anzahl = clamp(Math.round(v.freiFlaeche / 28), 2, 4);
+          const arten = ['schlaeger', 'flink', 'waechter', 'schlaeger'];
+          const plaetze = versteckPlaetze(v, anzahl,
+            { x: player.pos.x, z: player.pos.z, r: 5 }, 2.8);
+          plaetze.forEach((p2, i) => {
+            const g = stGang(p2.x, p2.z, 1, 'story');
+            const e = g.enemies[0];
+            if (e) { e.pos.set(p2.x, p2.y, p2.z);
+                     if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
+                     stArt(e, arten[i % arten.length]); }
+          });
+          /* Die Geisel: ein ECHTER Zivilist aus der Welt, tief im Raum,
+             ueber das vorhandene Geiselsystem gebunden. Sie steht damit
+             still und wird von keiner Ambient-Routine mehr angefasst -
+             kein Zug, kein Auto, keine Aktivitaet, kein Gespraech. */
+          const tief = versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 6 })[0];
+          const civ = tief ? stGeisel(tief) : null;
+          if (civ) m.geisel = civ;
+          stFunk('Innen sind noch mehr. Da ist außerdem ein Zivilist.');
+        },
         pruef: () => stAlleGangsTot() ? 'weiter' : null },
+
+      { ziel: 'Die Geisel in Sicherheit bringen',
+        auf: (m) => {
+          if (m.geisel) m.zielPos = { x: m.geisel.pos.x, y: m.geisel.pos.y + 1,
+                                      z: m.geisel.pos.z };
+        },
+        /* Keine Eskorte: der Bereich ist gesichert, der Spieler geht hin,
+           die Geisel ist gerettet. Zehn Minuten NPC begleiten waere die
+           andere Sorte Fehler. */
+        pruef: (m) => {
+          if (!m.geisel) return 'weiter';
+          if (stNah(m.zielPos, 4.5)) { stGeiselFrei(m); return 'weiter'; }
+          return null;
+        },
+        ende: (m) => stGeiselFrei(m) },
+
+      { ziel: 'Den Funker stellen',
+        auf: (m) => {
+          const v = m.v;
+          const p2 = v ? versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 5 })[0]
+                       : null;
+          const g = p2 ? stGang(p2.x, p2.z, 1, 'story')
+                       : stGang(m.ort.x, m.ort.z, 1, 'story');
+          const f = g.enemies[0];
+          m.funker = f || null;
+          if (f) {
+            if (p2) { f.pos.set(p2.x, p2.y, p2.z);
+                      if (f.visual && f.visual.root) f.visual.root.position.copy(f.pos); }
+            stArt(f, 'flink');
+            f.funker = true;
+            /* Kein kuenstlicher Panzer: er haelt etwas mehr aus als ein
+               normaler Ganove, mehr nicht. Wer ihn frueh erwischt, soll
+               ihn frueh erwischen. */
+            f.hpMax = Math.round(f.hpMax * 1.25); f.hp = f.hpMax;
+            f.flieht = true; f.state = 'flee'; f.eventFlucht = true;
+            f.fluchtWeg = stFunkerWeg(m);
+          }
+          stFunk('Der mit dem Funkgerät. Nicht entkommen lassen.');
+        },
+        pruef: (m) => {
+          const f = m.funker;
+          if (!f) return 'weiter';
+          if (stGefangen(f)) { m.fruehGefangen = true; return 'weiter'; }
+          /* Draussen und auf Abstand: ab hier ist es eine Verfolgung. */
+          if (m.v && !imVersteck(m.v, f.pos.x, f.pos.z, f.pos.y) &&
+              Math.hypot(f.pos.x - m.v.tuerMitte.x, f.pos.z - m.v.tuerMitte.z) > 12)
+            return 'weiter';
+          return null;
+        } },
+
+      { ziel: 'Den Funker verfolgen',
+        auf: (m) => {
+          m.treff = stTreffpunkt(m);
+          if (m.fruehGefangen) {
+            /* Gut gespielt, nicht bestraft: das Funkgeraet verraet den
+               Treffpunkt, und die Mission laeuft weiter. */
+            STORY.zielText = 'Zum Treffpunkt';
+            m.zielPos = { x: m.treff.x, y: m.treff.y + 1, z: m.treff.z };
+            stFunk('Sein Funkgerät nennt einen Treffpunkt. Da wollen sie hin.');
+            return;
+          }
+          m.jagdT = 150;
+          if (m.funker) m.funker.fluchtWeg = stFunkerWeg(m, m.treff);
+          m.zielPos = null;              // der Leuchtturm folgt dem Funker
+        },
+        pruef: (m, dt) => {
+          if (m.fruehGefangen) return stNah(m.zielPos, 12) ? 'weiter' : null;
+          const f = m.funker;
+          if (!f || stGefangen(f)) return 'weiter';
+          m.jagdT -= dt;
+          /* Am Treffpunkt angekommen: der Hinterhalt wartet ohnehin dort. */
+          if (m.treff && Math.hypot(f.pos.x - m.treff.x, f.pos.z - m.treff.z) < 8)
+            return 'weiter';
+          if (m.jagdT <= 0) return 'weich';
+          return null;
+        } },
+
+      { ziel: 'Den Hinterhalt überstehen',
+        auf: (m) => {
+          const t = m.treff || (m.treff = stTreffpunkt(m));
+          /* Drei bis fuenf, bewusst gemischt, verteilt um den Platz -
+             nicht alle auf einem Punkt. */
+          const arten = ['waechter', 'flink', 'brecher', 'schlaeger', 'flink'];
+          const n = clamp(Math.round(t.radius / 1.6), 3, 5);
+          for (let i = 0; i < n; i++) {
+            const w = (i / n) * TAU + rand(-0.3, 0.3);
+            const d2 = t.radius * rand(0.45, 0.85);
+            const x = t.x + Math.sin(w) * d2, z = t.z + Math.cos(w) * d2;
+            const gy = groundY(x, z, 2);
+            if (gy === null || gy === undefined || !versteckFrei(x, z, gy, 0.6)) continue;
+            const g = stGang(x, z, 1, 'story');
+            const e = g.enemies[0];
+            if (e) { e.pos.set(x, gy, z);
+                     if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
+                     stArt(e, arten[i % arten.length]);
+                     e.state = 'chase'; e.target = 'player'; }
+          }
+          m.hinterhaltDa = true;
+        },
+        pruef: (m) => {
+          stGeflohenAufraeumen(m, m.treff, 50);
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
+
       { ziel: 'Den Anführer stellen',
         auf: (m) => {
-          const g = stGang(m.ort.x, m.ort.z, 4, 'story');
+          const t = m.treff || (m.treff = stTreffpunkt(m));
+          const g = stGang(t.x, t.z, 1, 'story');
           const chef = g.enemies[0];
-          if (chef) { machElite(chef); chef.anfuehrer = true;
-                      chef.hpMax = Math.round(chef.hpMax * 1.5); chef.hp = chef.hpMax;
-                      g.chef = chef; }
-          stFunk('Der mit dem Funkgerät. Der redet mit jemandem.');
+          if (chef) {
+            const gy = groundY(t.x, t.z, 2);
+            if (gy !== null && gy !== undefined) {
+              chef.pos.set(t.x, gy, t.z);
+              if (chef.visual && chef.visual.root) chef.visual.root.position.copy(chef.pos);
+            }
+            stArt(chef, 'brecher');
+            machElite(chef);
+            chef.anfuehrer = true;
+            g.chef = chef;
+            chef.state = 'chase'; chef.target = 'player';
+          }
         },
-        pruef: () => stAlleGangsTot() ? 'weiter' : null },
+        pruef: (m) => {
+          stGeflohenAufraeumen(m, m.treff, 50);
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
     ],
     erfolgText: 'Er hat nur einen Satz gesagt: „Der Enforcer wird nicht erfreut sein."',
-    belohnung: { punkte: 600, ruf: 9 } },
+    weichText: 'Der Funker ist durch. Aber sein Treffpunkt stand im Funkverkehr.',
+    belohnung: { punkte: 600, ruf: 9 },
+    weichBelohnung: { punkte: 300, ruf: 4 } },
 
-  /* ---------------------------------------------------------------- */
   { id: 'm7', nr: 7, titel: 'ENFORCER',
     kurz: 'Er kommt selbst.',
     system: 'Boss · Adds',
@@ -30679,6 +31107,20 @@ function storyAufraeumen() {
        Regisseur, und Polizei und Rettungsdienst uebernehmen wie sonst. */
     if (m.ev1) { m.ev1.storyMissionId = null; m.ev1 = null; }
     if (m.opfer) { m.opfer.eventRolle = null; }
+    /* ---- Mission 6: Geisel und Funker loesen ----
+       Die Geisel ist ein echter Zivilist der Welt. Bleibt c.geisel
+       stehen, steht die Figur bis zum Seitenneuladen still und wird von
+       keiner Ambient-Routine mehr angefasst - ein Leck, das man erst
+       Minuten spaeter als "da steht jemand komisch herum" bemerkt.
+       Der Funker wird mit seiner Gruppe ohnehin entfernt; seine Felder
+       werden trotzdem geloescht, damit kein halber Fluchtweg an einer
+       Figur haengen bleibt, die noch jemand in der Hand hat. */
+    if (m.geisel) { m.geisel.geisel = false; m.geisel = null; }
+    if (m.funker) {
+      m.funker.funker = false; m.funker.fluchtWeg = null;
+      m.funker.flieht = false; m.funker.eventFlucht = false;
+      m.funker = null;
+    }
     if (m.wachen) m.wachen.length = 0;
   }
   MISSION.art = null; MISSION.daten = null; MISSION.zeit = 0;
