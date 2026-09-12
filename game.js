@@ -30707,8 +30707,15 @@ function stTreffpunkt(m) {
      Gehnetz wurden daraus im Botlauf 1331 gelaufene Meter in 336
      Sekunden. Gesucht wird deshalb ein Platz, dessen WEG (nicht dessen
      Luftlinie) im gewuenschten Bereich liegt. */
-  const vonX = m.v ? m.v.vorTuer.x : m.ort.x;
-  const vonZ = m.v ? m.v.vorTuer.z : m.ort.z;
+  /* ---- Von WO die Verfolgung wirklich beginnt ----
+     Frueher stand hier das Vorfeld der Haustuer. Seit die Mission im
+     Innenraum spielt, kommen Spieler und Funker aber HINTEN heraus
+     (m.austritt). Wird der Weg weiter von der Vordertuer aus gemessen,
+     liegt der Treffpunkt im Zielband 120 bis 250 m - nur eben von der
+     falschen Seite aus, und die tatsaechliche Verfolgung war im Botlauf
+     35 m lang. Gemessen wird deshalb ab dem Rueckkehrpunkt. */
+  const vonX = m.austritt ? m.austritt.x : (m.v ? m.v.vorTuer.x : m.ort.x);
+  const vonZ = m.austritt ? m.austritt.z : (m.v ? m.v.vorTuer.z : m.ort.z);
   const a = gehNaechster(vonX, vonZ, 40);
   const wegLaenge = (t) => {
     if (a < 0 || !t) return null;
