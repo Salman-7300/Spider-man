@@ -337,4 +337,78 @@ angefasst. `playtest.replayEnde()` schaltet das Speichern wieder ein.
 
 ---
 
+## Der vollständige Missionslauf
+
+Beide gültigen Wege, im Botlauf gemessen:
+
+| | Phasen | Mission 7 | Verfolgung | Dauer | danach |
+|---|---|---|---|---|---|
+| A — Funker flieht | 9 | frei | **160 m in 18,2 s** | 41,1 s | 0 Storygegner, 0 Geiseln |
+| B — früh gefangen | 9 | frei | — (`funkerFrueh`) | 106,8 s | 0 Storygegner, 0 Geiseln |
+
+Kein Tod, kein Neustart, 0 s ohne Fortschritt in beiden Läufen.
+
+Die 160 m liegen im angestrebten Band von etwa 100 bis 220 m. Davor waren
+es 35 m — nicht weil die Verfolgung zu kurz gebaut war, sondern weil
+`stTreffpunkt` den Weg noch vom **Vorfeld der Haustür** aus maß, während
+Spieler und Funker längst hinten herauskommen. Gemessen wird jetzt ab dem
+Rückkehrpunkt. Verlängert wurde nichts.
+
+---
+
+## Regression
+
+Alles neu gelaufen, nichts aus früheren Berichten zitiert.
+
+    node --check game.js / city-visuals.js / menu.js / mission-interiors.js   ok
+    node --test (tools/)                                        157 von 157
+    git diff --check                                            sauber
+    Kernsysteme (sieben Bereiche)                               alle ok
+    Test C Übergangsmatrix                                      20 von 20
+    Test E Freigängigkeit                                       alle neun Flächen frei,
+                                                                0 wirklich gesperrt
+    Test D NPC-Wege                                             A 0, B 0, C 0
+    Test A 30 Minuten aktives Spiel                             alle 26 Punkte vorgekommen,
+                                                                0 JS-Fehler, 0 Tode,
+                                                                0 Bilder unter dem Boden,
+                                                                kein Wachstumstrend
+    50 × hinein und hinaus                                      ein Raum, ein Kollidersatz
+
+**Offen, unverändert seit der Phase davor:** Test D meldet D 84/100 und
+E 77/100 als Befund. Das ist die Richtung, die die `freieSicht`-Korrektur
+vorhersagt — ein Gegner, der hinter einer Wand die Sicht verliert, sucht
+jetzt, statt weiter zu verfolgen, und ein Zivilist, der flieht, erreicht
+sein Ziel seltener. Es ist **ein Lauf je Messpunkt**, und dieser
+Prüfstand schwankt; als Zahl ist er nicht belastbar. Der Innenraum ist
+während Test D nicht aktiv.
+
+---
+
 ## Bekannte Grenzen
+
+* **Die Missionsdauer ist mit einem Bot gemessen**, nicht mit einem
+  Menschen: 41 und 107 Sekunden. Der Bot reist gesetzt an, zögert nie und
+  sucht nichts. Die Zielspanne von 8 bis 15 Minuten ist eine Absicht,
+  keine Messung — sie kann erst der Human-Playtest bestätigen.
+* **Der Bot ist ein Geradeausläufer.** Er kann nicht ausweichen. Im
+  Innenraum steht Mobiliar, und er ist dort fünfmal hängengeblieben —
+  jedes Mal an einer anderen Stelle, und jeder handgebaute Wegpunkt hat
+  den nächsten Fall erzeugt. Gelöst ist es dadurch, dass der **Raum
+  seinen eigenen Weg kennt** (`geiselWeg`, wie `funkWeg` beim Funker),
+  dazu ein allgemeiner Seitenschritt als letzte Rettung. Ein Mensch hat
+  dieses Problem nicht.
+* **Die Kamera wird in 22 von 72 Proben näher als zwei Meter an die Figur
+  gezogen.** Das sind Standorte anderthalb Meter vor einer Wand mit Blick
+  genau in diese Wand, und es ist dasselbe Verhalten wie draußen vor
+  einer Fassade. Der Kameraabstand ändert daran nichts (gemessen über
+  fünf Werte), nur den Median.
+* **Der Innenraum ist ein Raum, kein Gebäude.** Es gibt keine zweite
+  Etage, keine Treppe und kein Dach zum Betreten. Netzschwingen ist
+  drinnen abgeschaltet, Wände sind nicht kletterbar.
+* **Keine Missions-Requisiten am Treffpunkt.** Der Hinterhalt findet auf
+  einem geprüft freien Platz statt, der nicht mit Kisten oder einem Van
+  ausstaffiert wird.
+* **Die Zahl „Gegner höchstens N m vom Versteck" in der Phasentabelle ist
+  für Innenraumphasen ohne Aussage**: sie misst gegen das Haus in der
+  Stadt, während die Figuren im Raum bei x = 1000 stehen. Sie steht dort
+  für die Außenphasen; für drinnen ist sie zu ignorieren.

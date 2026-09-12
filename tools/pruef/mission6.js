@@ -344,6 +344,7 @@ const TEIL = process.argv[2] || '1-3';
            der Bericht meldete deshalb bisher "Haus: null" - ausgerechnet
            fuer den Lauf, der durchlief. */
         let hausName = null, hausMitte = null;
+        let treffWeg = null, treffLuft = null;
         for (let i = 0; i < 30000 && d.story.aktiv; i++) {
           /* Der Spieler wird vom Skript gefuehrt: immer zum aktuellen
              Ziel, und was im Weg steht, wird geschlagen. */
@@ -606,6 +607,16 @@ const TEIL = process.argv[2] || '1-3';
             hausName = m.v.haus;
             hausMitte = [Math.round(m.v.mitte.x), Math.round(m.v.mitte.z)];
           }
+          /* Auch der Treffpunkt wird WAEHREND des Laufs festgehalten -
+             nach dem Abschluss loescht storyAufraeumen die Missionsdaten,
+             und der Bericht meldete "null". Genau derselbe Fehler wie
+             vorher beim Haus. */
+          if (m.treff && treffWeg === null) {
+            treffWeg = m.treff.weg === undefined ? -1 : m.treff.weg;
+            treffLuft = m.austritt
+              ? Math.round(Math.hypot(m.treff.x - m.austritt.x, m.treff.z - m.austritt.z))
+              : null;
+          }
           if (m.geisel && geiselOk === null) {
             geiselOk = !!m.geisel.geisel;
           }
@@ -638,11 +649,7 @@ const TEIL = process.argv[2] || '1-3';
                          haengt. Ohne sie laesst sich eine kurze
                          Verfolgung nicht von einem kurzen Weg
                          unterscheiden. */
-                      treffWeg: mEnd && mEnd.treff && mEnd.treff.weg !== undefined
-                        ? mEnd.treff.weg : null,
-                      treffLuft: mEnd && mEnd.treff && mEnd.austritt
-                        ? Math.round(Math.hypot(mEnd.treff.x - mEnd.austritt.x,
-                                                mEnd.treff.z - mEnd.austritt.z)) : null,
+                      treffWeg, treffLuft,
                       festGemeldet, gesetzt,
                       restGegner: d.enemies.filter((e) => !e.dead).length,
                       restStory: d.enemies.filter((e) => e.storyGegner).length,
