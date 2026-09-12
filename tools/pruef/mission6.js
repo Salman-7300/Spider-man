@@ -425,8 +425,15 @@ const TEIL = process.argv[2] || '1-3';
              Schritte gelaufen war. Damit lief auch Variante A ueber den
              Zweig "frueh gefangen", und die Verfolgung wurde nie
              geprueft. */
-          const lebend = d.enemies.filter((e) => !e.dead && e.storyGegner &&
-            !(variante === 'A' && e.funker));
+          /* ---- Wer aufgegeben hat, ist kein Ziel mehr ----
+             Im geschlossenen Raum ergibt sich ein Ganove, dessen Mut
+             bricht (policeCustody). Das Spiel zaehlt ihn seither nicht
+             mehr mit - der Bot tat es noch und lief quer durch den Raum
+             auf ihn zu, gegen die Trennwand des Vorraums. In Variante B
+             blieb er deshalb in "Die Geisel befreien" stehen, obwohl die
+             Phase nur den Weg zur Geisel verlangt. */
+          const lebend = d.enemies.filter((e) => !e.dead && !e.policeCustody &&
+            e.storyGegner && !(variante === 'A' && e.funker));
           if (lebend.length) {
             lebend.sort((a2, b2) =>
               Math.hypot(a2.pos.x - P.pos.x, a2.pos.z - P.pos.z) -
@@ -540,7 +547,17 @@ const TEIL = process.argv[2] || '1-3';
              summierte ueber den ganzen Lauf und kam auf 1912 m in 983 s -
              das war nicht die Verfolgung, das war die ganze Mission. */
           if (m.funker && !m.funker.dead && d.story.phase === 6) {
-            if (vorF) chaseWeg += Math.hypot(m.funker.pos.x - vorF.x, m.funker.pos.z - vorF.z);
+            if (vorF) {
+              const dd3 = Math.hypot(m.funker.pos.x - vorF.x, m.funker.pos.z - vorF.z);
+              /* ---- Der Uebergang ist kein Laufweg ----
+                 Beim Verlassen des Innenraums wird der Funker im
+                 schwarzen Bild von x = 1000 nach draussen gestellt. Der
+                 erste Anlauf zaehlte diesen Sprung als gelaufene
+                 Strecke und meldete 1409 m in 19,3 s - also 73 m je
+                 Sekunde. Bilder mit laufender Blende und Spruenge ueber
+                 20 m zaehlen nicht mit. */
+              if (!d.innen.phase && dd3 < 20) chaseWeg += dd3;
+            }
             vorF = { x: m.funker.pos.x, z: m.funker.pos.z };
             chaseT += 1 / 30;
           } else vorF = null;
