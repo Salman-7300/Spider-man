@@ -433,6 +433,10 @@ const will = (n) => TEIL === String(n) || TEIL === 'alle';
     const t = aus.t7;
     p('');
     p('== 7: Kontrollpunkt, Tod und Abbruch ==');
+    p('  Zu lesen: "steht auf" darf GROESSER als "Ph" sein - in den 1,5 s');
+    p('  der Pruefung spielt niemand, und eine Phase kann von allein weiter-');
+    p('  laufen. Phase 5 tut das immer: der Funker rennt los, und ohne');
+    p('  Gegenwehr ist er in gut einer Sekunde am Hinterausgang.');
     p('  Ph gestartet stehtAuf innen Storygegner imRaum Geiseln SpielerImRaum  Ziel');
     for (const z of t.phasen)
       p('  ' + String(z.ph).padStart(2) + String(z.los).padStart(10) +
