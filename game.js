@@ -26713,7 +26713,15 @@ beacon.visible = false;
 scene.add(beacon);
 
 function setzeBeacon(pos, farbe) {
-  if (!pos) { beacon.visible = false; return; }
+  /* ---- Im Innenraum kein Leuchtturm ----
+     Der Leuchtturm ist ein 60 m hoher Zylinder. Draussen ueber einer
+     Kreuzung ist das genau richtig; in einem 5,2 m hohen Raum steht er
+     dem Spieler als halbdurchsichtige Saeule im Gesicht. Im ersten
+     Bildvergleich war das der auffaelligste Fehler - eine braune Wand
+     ueber der halben Bildbreite, die keine Wand war.
+     Drinnen braucht es ihn auch nicht: der Raum ist ueberschaubar, und
+     der Auftragstext sagt, was zu tun ist. */
+  if (!pos || MISSION_INTERIOR.active) { beacon.visible = false; return; }
   beacon.visible = true;
   beacon.position.set(pos.x, pos.y + 30, pos.z);
   beacon.material.color.setHex(farbe === undefined ? 0xff2233 : farbe);
@@ -30169,7 +30177,11 @@ function innenWeltVerbergen() {
   I.versteckt = [];
   const heldWurzel = heroVisual && heroVisual.root;
   for (const obj of scene.children) {
-    if (obj.isLight) continue;
+    /* Auch die Weltlichter werden ausgeblendet. Der Raum bringt seine
+       eigenen mit (Halbkugellicht und drei Punktlichter in seiner
+       Gruppe); die Sonne der Aussenwelt trifft eine nach unten zeigende
+       Decke gar nicht und hat sie im ersten Bildvergleich pechschwarz
+       stehen lassen. Drinnen leuchtet also nur der Raum. */
     if (I.raum && obj === I.raum.gruppe) continue;
     if (heldWurzel && obj === heldWurzel) continue;
     if (!obj.visible) continue;

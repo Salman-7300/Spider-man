@@ -407,17 +407,28 @@ const TEIL = process.argv[2] || '1-3';
                 deren Oeffnung.
              Ein Mensch sieht beides und geht herum. */
           const iRaum = d.innenAktiv ? d.innen.raum : null;
+          /* ---- Der Raum kennt seinen Weg zur Geisel ----
+             Sie steht hinter einer Trennwand. Wer nur die Luftlinie
+             kennt, laeuft dagegen - im Botlauf dreimal, jedes Mal an
+             einer anderen Stelle, und jeder handgebaute Wegpunkt hat den
+             naechsten Fall erzeugt.
+
+             mission-interiors.js liefert geiselWeg: drei beim Bauen
+             gegen alle Kollisionskaesten geprueft Stationen. Der Bot
+             haengt sie einfach ab - dieselbe Loesung, die der Funker
+             benutzt (funkWeg). */
           let innenAnlauf = null;
-          if (iRaum) {
+          if (iRaum && m.geisel && d.story.phase === 4) {
             const gz = iRaum.zonen.geisel;
-            const zielInGeisel = (q) => q && q.x > gz.x0 && q.x < gz.x1 &&
-                                        q.z > gz.z0 && q.z < gz.z1;
             const ichInGeisel = P.pos.x > gz.x0 && P.pos.x < gz.x1 &&
                                 P.pos.z > gz.z0 && P.pos.z < gz.z1;
-            if (m.geisel && zielInGeisel(m.geisel.pos) && !ichInGeisel) {
-              /* Die Oeffnung liegt an der oestlichen Haelfte der
-                 Trennwand - dort, wo sie aufhoert. */
-              innenAnlauf = { x: gz.x1 - 1.6, z: gz.z0 - 1.2 };
+            if (!ichInGeisel) {
+              for (const w of iRaum.geiselWeg) {
+                if (Math.hypot(P.pos.x - w.x, P.pos.z - w.z) > (w.r || 1.2)) {
+                  innenAnlauf = { x: w.x, z: w.z };
+                  break;
+                }
+              }
             }
           }
           /* ---- In Variante A bleibt der Funker verschont ----
@@ -449,8 +460,7 @@ const TEIL = process.argv[2] || '1-3';
             ziel = { x: m.zielPos.x, y: m.zielPos.y, z: m.zielPos.z };
           }
           /* Erst zur Oeffnung, dann zum Ziel. */
-          if (innenAnlauf && ziel &&
-              Math.hypot(P.pos.x - innenAnlauf.x, P.pos.z - innenAnlauf.z) > 1.4) {
+          if (innenAnlauf) {
             ziel = { x: innenAnlauf.x, y: P.pos.y, z: innenAnlauf.z };
             nahkampf = false;
           }
@@ -542,7 +552,11 @@ const TEIL = process.argv[2] || '1-3';
                  eigenen Wegpunkt dafuer gebaut. Das skaliert nicht.
                  Kommt er nicht voran, geht er stattdessen kurz zur Seite -
                  abwechselnd links und rechts, wie ein Mensch. */
-              if (fest > 45) {
+              /* Der Seitenschritt ist die LETZTE Rettung, nicht die
+                 erste: bei 45 Bildern hat er mit den Wegpunkten
+                 gestritten und den Bot am Durchgang pendeln lassen.
+                 Erst nach anderthalb Sekunden ohne Fortschritt. */
+              if (fest > 90) {
                 seitT = 36; seitSeite = -seitSeite;
                 fest = 0; festGemeldet++;
               }

@@ -52,8 +52,8 @@
   const materialien = () => ({
     /* Sichtbeton, matt. Lambert reicht - der Raum hat kein Sonnenlicht,
        das sich in Lack spiegeln koennte. */
-    beton: new THREE.MeshLambertMaterial({ color: 0x55565b }),
-    wand: new THREE.MeshLambertMaterial({ color: 0x3c3d43 }),
+    beton: new THREE.MeshLambertMaterial({ color: 0x4a4b50 }),
+    wand: new THREE.MeshLambertMaterial({ color: 0x33343a }),
     stahl: new THREE.MeshPhongMaterial({ color: 0x70757e, shininess: 38, specular: 0x2a2d33 }),
     holz: new THREE.MeshLambertMaterial({ color: 0x6d5137 }),
     metall: new THREE.MeshLambertMaterial({ color: 0x4c5057 }),
@@ -137,7 +137,9 @@
     ziel.gruppe.add(boden); ziel.sichtbar++;
 
     /* ---- Decke ---- */
-    const decke = new THREE.Mesh(flaecheGeo, mat.wand);
+    /* Die Decke bekommt den helleren Betonton. Mit dem dunklen Wandton
+       multipliziert sich zweimal dunkel, und sie las sich als Loch. */
+    const decke = new THREE.Mesh(flaecheGeo, mat.beton);
     decke.rotation.x = Math.PI / 2;
     decke.position.set(X(0), oy + M.hoehe, Z(0));
     decke.scale.set(M.laenge, M.breite, 1);
@@ -198,10 +200,40 @@
     }
 
     /* ---- Industrieleuchten ---- */
-    for (const [lx, lz] of [[-11, 0], [-4, -5], [-4, 5], [4, 0], [11, -4], [11, 4]]) {
+    const lampen = [[-11, 0], [-4, -5], [-4, 5], [4, 0], [11, -4], [11, 4]];
+    for (const [lx, lz] of lampen) {
       bau(ziel, mat.metall, X(lx), oy + M.hoehe - 0.75, Z(lz), 1.3, 0.22, 0.55, false);
       bau(ziel, mat.lampe, X(lx), oy + M.hoehe - 0.82, Z(lz), 1.15, 0.07, 0.42, false);
     }
+
+    /* ---- Der Raum bringt sein eigenes Licht mit ----
+       Der erste Entwurf hatte keines und verliess sich auf die Sonne der
+       Aussenwelt. Das Bild war eindeutig: die Decke war PECHSCHWARZ und
+       der Boden ausgebrannt hell. Eine gerichtete Sonne von oben trifft
+       eine nach unten zeigende Deckenflaeche gar nicht - der Raum las
+       sich als graue Kiste mit einem Loch als Deckel.
+
+       Deshalb eigene Lichter, und die Weltlichter werden drinnen
+       ausgeblendet. Das Halbkugellicht gibt der Decke ueber die
+       Bodenfarbe ueberhaupt erst Helligkeit; drei Punktlichter unter
+       jeder zweiten Leuchte machen daraus Lichtinseln statt gleichmaessig
+       grauer Suppe.
+
+       Sie haengen IN der Gruppe: ist die Gruppe unsichtbar, zaehlen sie
+       nicht mit, und draussen kostet der Raum kein Licht. */
+    /* Die Werte sind am Bild eingestellt, nicht gewaehlt: mit 0,95 und
+       einem dunklen Bodenton war der Raum zwar stimmungsvoll, aber der
+       Kampf darin nicht mehr zu lesen - Vordergrund fast schwarz. */
+    const himmelLicht = new THREE.HemisphereLight(0x9aa6b6, 0x7a808c, 1.25);
+    himmelLicht.position.set(X(0), oy + M.hoehe, Z(0));
+    ziel.gruppe.add(himmelLicht);
+    for (const [lx, lz] of [lampen[0], lampen[3], lampen[5]]) {
+      const pl = new THREE.PointLight(0xffe2b0, 0.85, 20, 1.5);
+      pl.position.set(X(lx), oy + M.hoehe - 1.0, Z(lz));
+      ziel.gruppe.add(pl);
+      ziel.lichter = (ziel.lichter || 0) + 1;
+    }
+    ziel.lichter = (ziel.lichter || 0) + 1;   // das Halbkugellicht
 
     /* ---- Zone C: der abgeschirmte Geiselbereich ----
        Niedrige Trennwand, damit man von der Halle aus hinueber sieht -
@@ -330,6 +362,27 @@
       { x: hinterausgang.x, z: hinterausgang.z, r: 1.4 },
     ];
 
+    /* ---- Der Weg in den Geiselbereich ----
+       Er ist hinter einer Trennwand: von der Halle aus sieht man darueber
+       hinweg, hineingehen muss man aussen herum. Ein Mensch sieht das.
+       Eine Figur, die nur die Luftlinie kennt, laeuft gegen die Wand -
+       im Botlauf dreimal, jedes Mal an einer anderen Stelle.
+
+       Deshalb kennt der Raum seinen eigenen Weg dorthin, genau wie beim
+       Funker: zwei Stationen vor der Oeffnung und in ihr, beim Bauen
+       gegen jeden Kollisionskasten geprueft. Das ist keine
+       Botkruecke - es ist dieselbe Loesung, die der Funker benutzt, und
+       sie steht dem Spiel genauso zur Verfuegung. */
+    const geiselWeg = [
+      /* Erst nach Osten auf der Hauptachse - die ist auf ganzer Laenge
+         frei, das prueft der Korridortest. Dann nach Norden an der
+         Trennwand vorbei, dann zur Geisel. Der erste Entwurf schnitt auf
+         dem Weg eine Kiste an; gefunden hat das der Wegtest. */
+      { x: X(8.5), z: Z(0.5), r: 1.2 },
+      { x: X(8.5), z: Z(6.5), r: 1.2 },
+      { x: geiselPunkt.x, z: geiselPunkt.z, r: 1.4 },
+    ];
+
     return {
       id: 'hideout',
       gruppe: ziel.gruppe,
@@ -340,7 +393,7 @@
       grenzen: { x0: X(-hx) + 0.5, x1: X(hx) - 0.5, z0: Z(-hz) + 0.5, z1: Z(hz) - 0.5 },
       kampfFlaeche: { x0: X(-9), x1: X(9), z0: Z(-hz), z1: Z(hz) },
       spielerStart, spielerBlick: Math.PI / 2,      // nach +x
-      geiselPunkt, funkPunkt, hinterausgang, funkWeg,
+      geiselPunkt, funkPunkt, hinterausgang, funkWeg, geiselWeg,
       gegnerPunkte,
       zonen: {
         eingang: { x0: X(-hx), x1: X(-9), z0: Z(-hz), z1: Z(hz) },
@@ -350,7 +403,8 @@
       },
       masse: { laenge: M.laenge, breite: M.breite, hoehe: M.hoehe },
       zahlen: { sichtbar: ziel.sichtbar, massiv: ziel.massiv, klein: ziel.klein,
-                kollider: ziel.kollider.length, gegnerPunkte: gegnerPunkte.length },
+                kollider: ziel.kollider.length, gegnerPunkte: gegnerPunkte.length,
+                lichter: ziel.lichter || 0 },
     };
   }
 

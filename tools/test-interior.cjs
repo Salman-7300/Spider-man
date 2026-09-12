@@ -164,6 +164,29 @@ test('Der Weg des Funkers zum Hinterausgang ist frei', () => {
     JSON.stringify(blockiert.slice(0, 5)));
 });
 
+test('Der Weg in den Geiselbereich ist frei', () => {
+  /* Der Bereich liegt hinter einer Trennwand. Der Raum bringt seinen
+     eigenen Weg dorthin mit; abgetastet wird die Strecke, nicht nur die
+     Stationen. */
+  const h = bau();
+  /* Von der Hallenmitte aus - von dort kommt der Spieler. */
+  let vor = { x: (h.zonen.halle.x0 + h.zonen.halle.x1) / 2,
+              z: (h.grenzen.z0 + h.grenzen.z1) / 2 };
+  const blockiert = [];
+  for (const w of h.geiselWeg) {
+    const n2 = Math.ceil(Math.hypot(w.x - vor.x, w.z - vor.z) / 0.3);
+    for (let i = 1; i <= n2; i++) {
+      const x = vor.x + (w.x - vor.x) * (i / n2), z = vor.z + (w.z - vor.z) * (i / n2);
+      if (h.kollider.some((k) => stecktDrin(k, x, z, 0.45)))
+        blockiert.push([+x.toFixed(1), +z.toFixed(1)]);
+    }
+    vor = { x: w.x, z: w.z };
+  }
+  assert.deepStrictEqual(blockiert.slice(0, 5), [],
+    blockiert.length + ' blockierte Stellen auf dem Weg zur Geisel, z.B. ' +
+    JSON.stringify(blockiert.slice(0, 5)));
+});
+
 test('Die Hauptwege sind breit genug fuer Spieler und Gegner', () => {
   /* Vorgabe aus dem Auftrag: Hauptwege rund 2 m frei. Geprueft wird die
      Achse vom Eingang zum Hinterausgang. */

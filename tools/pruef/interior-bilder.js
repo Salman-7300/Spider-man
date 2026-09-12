@@ -71,6 +71,20 @@ const ZIEL = process.argv[2] || path.resolve(__dirname, '..', '..', 'bilder-inte
       const Z = (v) => mz + v;
       d.aufnahme(X(k[0]), k[1], Z(k[2]), X(z[0]), z[1], Z(z[2]));
     }, [kam, blick]);
+    /* ---- Zweimal zeichnen, dann erst aufnehmen ----
+       Ein Bild aus dem ersten Anlauf hatte eine harte senkrechte Kante
+       mit einer braunen Haelfte - kein Objekt in der Szene, sondern ein
+       halb fertiger Puffer: die Aufnahme lief, waehrend SwiftShader noch
+       zeichnete. Seit die Lichter des Raums dazugekommen sind, dauert
+       das erste Bild laenger. Also ein Bild abwarten und neu zeichnen. */
+    await page.evaluate(() => new Promise((res) => requestAnimationFrame(res)));
+    await page.evaluate(([k, z]) => {
+      const d = __dbg;
+      const o = d.innen.raum;
+      const mx = (o.grenzen.x0 + o.grenzen.x1) / 2;
+      const mz = (o.grenzen.z0 + o.grenzen.z1) / 2;
+      d.aufnahme(mx + k[0], k[1], mz + k[2], mx + z[0], z[1], mz + z[2]);
+    }, [kam, blick]);
     const datei = path.join(ZIEL, name + '.png');
     await page.screenshot({ path: datei });
     console.log('  ' + name);
