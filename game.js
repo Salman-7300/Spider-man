@@ -30024,7 +30024,48 @@ function stGang(x, z, n, art) {
   }
   return g;
 }
-function stLebend(g) { return g && g.enemies.filter((e) => !e.dead).length; }
+/* Wer noch mitkaempft. Nicht nur "nicht tot": wer in Gewahrsam ist,
+   steht still und greift nicht mehr an (siehe updateEnemies,
+   e.policeCustody). Eine Storyphase, die auf ihn wartet, wartet auf
+   jemanden, der schon aus dem Kampf heraus ist. */
+function stLebend(g) {
+  return g && g.enemies.filter((e) => !e.dead && !e.policeCustody).length;
+}
+
+/* ---- Im geschlossenen Raum gibt es kein Entkommen ----
+   Draussen laeuft ein Ganove mit gebrochenem Mut davon, und
+   stGeflohenAufraeumen nimmt ihn ab 45 m aus dem Kampf. Drinnen kann er
+   nicht weit genug weg - der Raum ist 30 m lang.
+
+   Im Botlauf sah das so aus: ein "flink" mit 3 Lebenspunkten stand
+   fliehend in der Ecke bei (985, 990) und blieb dort. Mit so wenig
+   Energie erholt sich sein Mut auch nicht mehr, denn mutDach haengt an
+   den Lebenspunkten - er kommt also nie zurueck, und "Das Versteck
+   sichern" wartet auf ihn, bis der Spieler ihn in der Ecke findet.
+
+   Wer in einem geschlossenen Raum am Ende ist, ergibt sich. Das ist kein
+   neues System: policeCustody stellt die Figur seit Phase 11 still, und
+   stLebend zaehlt sie jetzt nicht mehr mit. Vier Sekunden Flucht sind
+   die Schwelle - kurz genug, dass die Phase nicht haengt, lang genug,
+   dass ein Rueckzug hinter eine Kiste noch ein Rueckzug ist. */
+function stInnenAufgeben(m, dt) {
+  if (!MISSION_INTERIOR.active || !m || !m.gangs) return 0;
+  let n = 0;
+  for (const g of m.gangs) {
+    for (const e of g.enemies) {
+      if (e.dead || e.policeCustody || e.funker) continue;
+      if (!e.flieht) { e.innenFluchtT = 0; continue; }
+      e.innenFluchtT = (e.innenFluchtT || 0) + (dt || 0);
+      if (e.innenFluchtT < 4) continue;
+      e.policeCustody = true;
+      e.flieht = false; e.eventFlucht = false; e.fluchtWeg = null;
+      e.state = 'idle'; e.target = null; e.attack = null;
+      popupWorld('Ich geb auf!', e.pos, '#ffd0a8');
+      n++;
+    }
+  }
+  return n;
+}
 function stAlleGangsTot() {
   const m = MISSION.daten;
   if (!m || !m.gangs) return true;
@@ -31314,7 +31355,7 @@ const STORY_DEF = [
            Aufraeumer, dieselbe Regel: wer flieht und weit weg ist,
            kaempft nicht mehr mit. 45 m statt 50, weil hier ein Haus der
            Bezugspunkt ist und kein Platz. */
-        pruef: (m) => {
+        pruef: (m, dt) => {
           if (!innenPhaseTakt(m)) {
             /* Der Raum wird gerade betreten - oder er fehlt ganz, dann
                laeuft die Ersatzfassung vor dem Haus. */
@@ -31322,6 +31363,9 @@ const STORY_DEF = [
             stGeflohenAufraeumen(m, m.ort, 45);
             return stAlleGangsTot() ? 'weiter' : null;
           }
+          /* Drinnen kann niemand weit genug weglaufen - wer am Ende ist,
+             ergibt sich. Siehe stInnenAufgeben. */
+          stInnenAufgeben(m, dt);
           /* ---- Zweite Welle statt einer Wand aus Gegnern ----
              Sechs auf einmal in einem Raum sind ein Gedraenge, kein Kampf.
              Die Verstaerkung kommt, wenn die erste Gruppe steht. Im
