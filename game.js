@@ -1136,6 +1136,70 @@ function kitBoxDazu(r) {
   KIT_BOX.x0 = Math.min(KIT_BOX.x0, r.x0); KIT_BOX.x1 = Math.max(KIT_BOX.x1, r.x1);
   KIT_BOX.z0 = Math.min(KIT_BOX.z0, r.z0); KIT_BOX.z1 = Math.max(KIT_BOX.z1, r.z1);
 }
+/* ---- Die Haustueren in WELTKOORDINATEN ----
+   Sie stehen nirgends als Liste: der Durchgang ist im Baukasten je
+   Haustyp LOKAL beschrieben (KIT_HAEUSER[].tuer) und wird beim Setzen
+   gedreht und verschoben. Hier wird das einmal ausgerechnet und gemerkt.
+
+   Die Rechnung stand frueher im Testfenster. Dort war sie fuer Test E
+   richtig - aber Mission 6 braucht dieselben Tueren IM SPIEL, und zwei
+   Kopien derselben Rechnung waeren genau die Sorte Fehler, die ein
+   Pruefstand nicht mehr findet: er wuerde seine eigene Kopie pruefen.
+   Jetzt ist es eine Funktion, und das Testfenster reicht sie nur durch. */
+let HAUS_TUEREN = null;
+function hausTueren() {
+  if (HAUS_TUEREN) return HAUS_TUEREN;
+  const aus = [];
+  for (const e of HAUS_STELLEN) {
+    const t = KIT_HAEUSER.find((k) => k.name === e.name);
+    if (!t || !t.tuer) continue;
+    /* ---- t.dreh NICHT noch einmal dazu ----
+       merkeHaus() speichert die Drehung, mit der das Haus wirklich
+       gesetzt wurde, und die ist beim Setzen schon "k.ry + t.dreh":
+
+           const ry = k.ry + t.dreh;        // Kante + Modellversatz
+           merkeHaus(t.name, x, SLAB_H, z, ry);
+           kitHindernis(t, x, z, ry, kasten);
+
+       Wer hier noch einmal t.dreh addiert, dreht die Tuer gegenueber dem
+       Haus. Betroffen war genau ein Haustyp - Building_Small_1 mit
+       dreh = -PI/2 -, und davon stehen elf in der Stadt. Ihr Durchgang
+       lag dadurch nicht in der Wand, sondern quer MITTEN IM RAUM.
+       Gemessen: fuer alle elf lagen sowohl "Tuermitte + 3 m nach aussen"
+       als auch "- 3 m" innerhalb des Innenraums.
+       Test E prueft mit diesen Rechtecken, ob vor einer Haustuer etwas
+       im Weg steht - fuer elf der neunzehn Haeuser hat er damit eine
+       Flaeche mitten im Zimmer geprueft und "frei" gemeldet. */
+    const ry = e.ry;
+    /* Der Durchgang liegt in der Front des Modells, also auf z1. */
+    const r = kitRechteck(e.x, e.z, ry, t.tuer.x0, t.tuer.x1,
+                          t.z1 - KIT_WAND, t.z1);
+    /* Und der Streifen DAVOR, in den nichts hineinragen darf: die
+       1,4 m lichte Weite mal 1,6 m Anlauf nach aussen. */
+    const c = Math.cos(ry), si = Math.sin(ry);
+    const aussen = kitRechteck(e.x, e.z, ry, t.tuer.x0 - 0.25, t.tuer.x1 + 0.25,
+                               t.z1, t.z1 + 1.6);
+    /* ---- Die Aussennormale ist (sin, cos), nicht (-sin, cos) ----
+       kitRechteck bildet einen lokalen Punkt so ab:
+           wx = lx*cos + lz*sin ,  wz = -lx*sin + lz*cos
+       Die lokale Vorderseite ist +z, also (0,1) - und die landet in der
+       Welt auf (sin(ry), cos(ry)). Das Minus war falsch und fiel nur
+       deshalb nie auf, weil bei ry = 0 und ry = PI der Sinus null ist:
+       die ungedrehten Haeuser stimmten zufaellig.
+       Gemessen ueber alle neunzehn Tueren, "drei Meter in Normalen-
+       richtung": mit -sin landeten NEUN davon im Haus, mit +sin keine. */
+    aus.push({ haus: e.name, x: +e.x.toFixed(2), z: +e.z.toFixed(2),
+               ry: +ry.toFixed(3),
+               nx: +si.toFixed(3), nz: +c.toFixed(3),
+               durchgang: { x0: +r.x0.toFixed(2), x1: +r.x1.toFixed(2),
+                            z0: +r.z0.toFixed(2), z1: +r.z1.toFixed(2) },
+               vorfeld: { x0: +aussen.x0.toFixed(2), x1: +aussen.x1.toFixed(2),
+                          z0: +aussen.z0.toFixed(2), z1: +aussen.z1.toFixed(2) } });
+  }
+  HAUS_TUEREN = aus;
+  return aus;
+}
+
 /* Plaetze fuer Leute in Innenraeumen. Die Liste entsteht beim Bauen, die
    Figuren kommen erst spaeter dazu (updateInnenLeute).
    boden = Standflaeche, sitz = Hoehe der Sitzflaeche (fehlt beim Stehen). */
@@ -29835,6 +29899,229 @@ function stOrt(minAbstand) {
   }
   return best || { x: 0, z: 0 };
 }
+/* ====================== Verstecke (Mission 6) ======================
+   Mission 6 heisst "Das Versteck" und die Leitstelle sagt "geh vorsichtig
+   rein". Bis zum menschlichen Durchlauf von Akt 1 spielte sie trotzdem
+   auf einem offenen Platz - stPoi() suchte irgendeinen POI. Der Befund
+   aus dem Durchlauf war genau das: es ist kein Versteck.
+
+   Ein Versteck ist hier ein WIRKLICH BEGEHBARES Haus: vier Wandscheiben
+   mit einer Tuerluecke, eigener Fussboden, Dachplatte (kitHindernis).
+   Die Stadt hat davon neunzehn. Welches davon taugt, wird nicht geraten,
+   sondern aus der gebauten Stadt ausgerechnet - Innenflaeche, gueltige
+   Standpunkte, freies Vorfeld, erreichbarer Hof fuer den Schluss. */
+const VERSTECK_RAND = 1.3;      // Abstand zur Wand, den eine Figur braucht
+const VERSTECK_RASTER = 1.5;    // Schrittweite, in der der Raum abgetastet wird
+const VERSTECK_FIGUR = 0.55;    // Platzbedarf einer Figur
+
+/* Steht an dieser Stelle etwas im Weg? Geprueft wird gegen ALLE Kollider
+   einschliesslich der kleinen - denn die kleinen sind hier die Moebel:
+   Regal, Theke, Tisch, Stuehle kommen ueber kitMoebel() als
+   addCollider({... klein: true}) in die Welt. inGebaeude() laesst sie
+   bewusst aus (sie sind kein Gebaeude), fuer einen Standpunkt sind sie
+   aber genau das Hindernis, um das es geht. */
+function versteckFrei(x, z, y, radius) {
+  const r = radius === undefined ? VERSTECK_FIGUR : radius;
+  for (const c of collidersNear(x, z)) {
+    if (x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r) {
+      const unten = c.y0 === undefined ? -1 : c.y0;
+      if (y + 1.2 > unten && y < (c.h === undefined ? 0 : c.h)) return false;
+    }
+  }
+  return true;
+}
+
+/* Alle gueltigen Standpunkte eines Innenraums, im Raster abgetastet.
+   "Gueltig" heisst: im Raum mit Wandabstand, frei von Moebeln, mit dem
+   Fussboden des Raums darunter - und nicht im Tuerdurchgang, damit die
+   Tuer benutzbar bleibt. */
+function versteckPunkte(raum, tuer) {
+  const aus = [];
+  const x0 = raum.x0 + VERSTECK_RAND, x1 = raum.x1 - VERSTECK_RAND;
+  const z0 = raum.z0 + VERSTECK_RAND, z1 = raum.z1 - VERSTECK_RAND;
+  if (x1 <= x0 || z1 <= z0) return aus;
+  const dg = tuer && tuer.durchgang;
+  for (let x = x0; x <= x1; x += VERSTECK_RASTER) {
+    for (let z = z0; z <= z1; z += VERSTECK_RASTER) {
+      /* Den Durchgang und seinen Anlauf freihalten. */
+      if (dg && x > dg.x0 - 1.4 && x < dg.x1 + 1.4 &&
+          z > dg.z0 - 1.4 && z < dg.z1 + 1.4) continue;
+      const gy = groundY(x, z, raum.boden + 0.6);
+      if (gy === null || gy === undefined) continue;
+      if (Math.abs(gy - raum.boden) > 0.35) continue;
+      if (!versteckFrei(x, z, gy)) continue;
+      aus.push({ x, z, y: gy });
+    }
+  }
+  return aus;
+}
+
+/* Ein freier Platz im Freien, gross genug fuer einen Kampf. Gesucht wird
+   um einen Mittelpunkt herum; zurueck kommt der Punkt mit dem groessten
+   freien Radius, oder null. Das ist die Grundlage fuer den Treffpunkt am
+   Ende der Verfolgung - erfunden wird dafuer nichts. */
+function freieFlaeche(cx, cz, suchR, minR) {
+  let best = null, bestR = 0;
+  for (let i = 0; i < 60; i++) {
+    const w = Math.random() * TAU, d = Math.sqrt(Math.random()) * suchR;
+    const x = cx + Math.sin(w) * d, z = cz + Math.cos(w) * d;
+    if (!imGebiet(x, z)) continue;
+    if (inWater(x, z)) continue;
+    /* Nicht auf der Fahrbahn: aufGehweg() verlangt, dass der ganze
+       Grundkreis neben dem Asphalt liegt. Das ist dieselbe Pruefung, mit
+       der die Stadtmoebel gesetzt werden - kein zweites Kriterium. */
+    if (!aufGehweg(x, z, 1.2)) continue;
+    const gy = groundY(x, z, 2);
+    if (gy === null || gy === undefined || gy < -1 || gy > 3) continue;
+    /* Wie weit ist es hier frei? In acht Richtungen abtasten. */
+    let r = 0;
+    for (r = 1.5; r <= 9; r += 1.5) {
+      let frei = true;
+      for (let k = 0; k < 8 && frei; k++) {
+        const a = (k / 8) * TAU;
+        const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+        if (!versteckFrei(px, pz, gy, 0.4) || inWater(px, pz) || !imGebiet(px, pz)) frei = false;
+      }
+      if (!frei) break;
+    }
+    r -= 1.5;
+    if (r > bestR) { bestR = r; best = { x, z, y: gy, radius: r }; }
+  }
+  return bestR >= (minR || 4.5) ? best : null;
+}
+
+/* Die Liste aller tauglichen Verstecke. Einmal gerechnet, dann gemerkt -
+   sie haengt nur an der gebauten Stadt, und die aendert sich nicht. */
+let VERSTECKE = null;
+function versteckListe() {
+  if (VERSTECKE) return VERSTECKE;
+  const tueren = hausTueren();
+  const aus = [];
+  for (const r of KIT_INNEN) {
+    const mx = (r.x0 + r.x1) / 2, mz = (r.z0 + r.z1) / 2;
+    /* ---- Die Tuer muss IN DER WAND DIESES Raums liegen ----
+       Nicht die naechstgelegene nehmen: bei den 19 m breiten Haeusern ist
+       die Tuer des NACHBARHAUSES der Raummitte manchmal naeher als die
+       eigene. Wer darauf zulaeuft, steht vor einer fremden Fassade. */
+    let tuer = null, bd = 1e9;
+    for (const t of tueren) {
+      const tx = (t.durchgang.x0 + t.durchgang.x1) / 2;
+      const tz = (t.durchgang.z0 + t.durchgang.z1) / 2;
+      if (tx < r.x0 - 1.6 || tx > r.x1 + 1.6 || tz < r.z0 - 1.6 || tz > r.z1 + 1.6) continue;
+      const rand2 = Math.min(Math.abs(tx - r.x0), Math.abs(tx - r.x1),
+                             Math.abs(tz - r.z0), Math.abs(tz - r.z1));
+      if (rand2 > 1.6) continue;
+      const dd = Math.hypot(tx - mx, tz - mz);
+      if (dd < bd) { bd = dd; tuer = { t, tx, tz }; }
+    }
+    if (!tuer) continue;
+    const t = tuer.t;
+    const punkte = versteckPunkte(r, t);
+    if (punkte.length < 5) continue;
+    /* Vor der Tuer: der Punkt, an dem der Spieler steht, bevor er
+       hineingeht - und an dem die Eingangswache wartet. */
+    const vorTuer = { x: tuer.tx + t.nx * 3.0, z: tuer.tz + t.nz * 3.0 };
+    vorTuer.y = groundY(vorTuer.x, vorTuer.z, 2);
+    /* Und direkt INNEN hinter der Tuer - der erste gueltige Punkt auf dem
+       Weg nach draussen. */
+    const hinterTuer = { x: tuer.tx - t.nx * 1.8, z: tuer.tz - t.nz * 1.8 };
+    hinterTuer.y = groundY(hinterTuer.x, hinterTuer.z, r.boden + 0.6);
+    const vorfeldFrei = versteckFrei(vorTuer.x, vorTuer.z,
+                                     vorTuer.y === null ? 0 : vorTuer.y, 0.9);
+    /* ---- Ein verstelltes Vorfeld schliesst das Haus aus ----
+       Mission 6 verlangt, dass der Spieler durch die Tuer geht. Steht
+       davor etwas im Weg, ist das Haus als Versteck untauglich - gemessen
+       kommt man bei genau einem der neunzehn weder hinein noch hinaus.
+       Ein niedriger Wert wuerde es nur selten treffen; hier muss es nie
+       getroffen werden. */
+    if (!vorfeldFrei) continue;
+    aus.push({
+      raum: { x0: r.x0, x1: r.x1, z0: r.z0, z1: r.z1, boden: r.boden, decke: r.decke },
+      mitte: { x: mx, z: mz, y: r.boden },
+      haus: t.haus, tuer: t, tuerMitte: { x: tuer.tx, z: tuer.tz },
+      vorTuer, hinterTuer, punkte,
+      flaeche: (r.x1 - r.x0) * (r.z1 - r.z0),
+      freiFlaeche: punkte.length * VERSTECK_RASTER * VERSTECK_RASTER,
+      vorfeldFrei,
+    });
+  }
+  VERSTECKE = aus;
+  return aus;
+}
+
+/* Bewertung eines Verstecks. Absichtlich NICHT "das groesste gewinnt":
+   ein riesiger Raum mit verstelltem Vorfeld oder ohne Hof in der Naehe
+   ist als Missionsort schlechter als ein mittlerer mit freiem Zugang. */
+function versteckWert(v) {
+  let w = 0;
+  w += Math.min(40, v.punkte.length * 2);        // gueltige Standpunkte
+  w += Math.min(20, v.flaeche / 8);              // Groesse, gedeckelt
+  if (v.vorfeldFrei) w += 15;                    // freier Zugang
+  if (v.hof) w += 25;                            // Treffpunkt fuer den Schluss
+  if (v.hof) w += Math.min(10, v.hof.radius * 1.2);
+  return w;
+}
+
+/* Das Versteck fuer diese Missionsausfuehrung waehlen. Weit genug weg,
+   damit die Anfahrt eine Anfahrt ist, und mit einem echten Hof in
+   Reichweite fuer den Hinterhalt am Ende. */
+function stVersteck(minAbstand) {
+  const min = minAbstand === undefined ? 70 : minAbstand;
+  const liste = versteckListe();
+  if (!liste.length) return null;
+  const kand = [];
+  for (const v of liste) {
+    const d = Math.hypot(v.mitte.x - player.pos.x, v.mitte.z - player.pos.z);
+    if (d < min) continue;
+    /* Der Hof wird erst hier gesucht - er kostet Abtastungen, und fuer
+       Haeuser, die ohnehin zu nah sind, waere das verschenkt. */
+    if (v.hof === undefined) v.hof = freieFlaeche(v.mitte.x, v.mitte.z, 95, 5.0);
+    kand.push({ v, d, wert: versteckWert(v) });
+  }
+  if (!kand.length) {
+    /* Lieber ein nahes Versteck als gar keines - ein offener Platz waere
+       genau der Fehler, der hier behoben wird. */
+    for (const v of liste) {
+      if (v.hof === undefined) v.hof = freieFlaeche(v.mitte.x, v.mitte.z, 95, 5.0);
+      kand.push({ v, d: 0, wert: versteckWert(v) });
+    }
+  }
+  kand.sort((a, b) => b.wert - a.wert);
+  /* Unter den drei besten wuerfeln, damit nicht jede Partie dasselbe
+     Haus sieht - aber nie ein schlechtes. */
+  const auswahl = kand.slice(0, Math.min(3, kand.length));
+  return auswahl[randi(0, auswahl.length - 1)].v;
+}
+
+/* Liegt der Spieler (oder eine Figur) wirklich IM Innenraum? Nicht ueber
+   den Abstand zur Hausmitte - durch Wand oder Dach zaehlt nicht. */
+function imVersteck(v, x, z, y) {
+  if (!v) return false;
+  const r = v.raum;
+  if (x <= r.x0 || x >= r.x1 || z <= r.z0 || z >= r.z1) return false;
+  if (y === undefined) return true;
+  return y > r.boden - 1.0 && y < r.boden + 4.0;
+}
+
+/* n Standpunkte aus dem Raum, mit Mindestabstand untereinander und zum
+   Spieler. Die Liste ist vorgeprueft; hier wird nur noch verteilt. */
+function versteckPlaetze(v, n, weg, minAbstand) {
+  const frei = v.punkte.slice();
+  const raus = [];
+  const mind = minAbstand === undefined ? 2.2 : minAbstand;
+  for (let versuch = 0; versuch < 200 && raus.length < n; versuch++) {
+    if (!frei.length) break;
+    const i = randi(0, frei.length - 1);
+    const p = frei[i];
+    frei.splice(i, 1);
+    if (weg && Math.hypot(p.x - weg.x, p.z - weg.z) < (weg.r || 3)) continue;
+    let ok = true;
+    for (const q of raus) if (Math.hypot(p.x - q.x, p.z - q.z) < mind) { ok = false; break; }
+    if (ok) raus.push(p);
+  }
+  return raus;
+}
+
 /* Einen POI als Storyort verwenden - Phase 10 hat vierzig davon. */
 function stPoi(arten, minAbstand) {
   const kand = POI.liste.filter((p) => arten.indexOf(p.art) >= 0 &&
@@ -32206,30 +32493,7 @@ if (window.__WEBHERO_TEST__ === true) {
        steht - also wird er hier einmal ausgerechnet, statt die Rechnung
        im Pruefskript zu wiederholen (die Kopie waere sonst das, was
        geprueft wird, nicht das Spiel). */
-    tuerStellen() {
-      const aus = [];
-      for (const e of HAUS_STELLEN) {
-        const t = KIT_HAEUSER.find((k) => k.name === e.name);
-        if (!t || !t.tuer) continue;
-        const ry = e.ry + (t.dreh || 0);
-        /* Der Durchgang liegt in der Front des Modells, also auf z1. */
-        const r = kitRechteck(e.x, e.z, ry, t.tuer.x0, t.tuer.x1,
-                              t.z1 - KIT_WAND, t.z1);
-        /* Und der Streifen DAVOR, in den nichts hineinragen darf: die
-           1,4 m lichte Weite mal 1,6 m Anlauf nach aussen. */
-        const c = Math.cos(ry), si = Math.sin(ry);
-        const aussen = kitRechteck(e.x, e.z, ry, t.tuer.x0 - 0.25, t.tuer.x1 + 0.25,
-                                   t.z1, t.z1 + 1.6);
-        aus.push({ haus: e.name, x: +e.x.toFixed(2), z: +e.z.toFixed(2),
-                   ry: +ry.toFixed(3),
-                   nx: +(-si).toFixed(3), nz: +c.toFixed(3),
-                   durchgang: { x0: +r.x0.toFixed(2), x1: +r.x1.toFixed(2),
-                                z0: +r.z0.toFixed(2), z1: +r.z1.toFixed(2) },
-                   vorfeld: { x0: +aussen.x0.toFixed(2), x1: +aussen.x1.toFixed(2),
-                              z0: +aussen.z0.toFixed(2), z1: +aussen.z1.toFixed(2) } });
-      }
-      return aus;
-    },
+    tuerStellen() { return hausTueren(); },
     beetStellen() { return BEET_STELLEN; },
     neonZahl() { return NEON_KISTEN.length; },
     zeigeKulisse(an) { for (const m of KULISSE_MESHES) m.visible = !!an; },
@@ -32709,9 +32973,10 @@ if (window.__WEBHERO_TEST__ === true) {
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
-    /* Die Sichtpruefung direkt, damit ein Pruefstand die Geometrie
-       befragen kann, ohne eine Figur laufen zu lassen. */
-    freieSicht,
+    /* Die Verstecke fuer Mission 6 - damit der Pruefstand dieselbe Liste
+       bewertet, die das Spiel benutzt, und keine Kopie davon. */
+    versteckListe, versteckWert, versteckPunkte, versteckFrei, versteckPlaetze,
+    imVersteck, freieFlaeche, stVersteck,
     /* Die Nebenauftraege pausieren. Ein Pruefstand, der EINE Figur laufen
        laesst, bekommt sonst nach rund 18 Sekunden den Geiselauftrag
        dazwischen: der sucht sich den naechsten Zivilisten und setzt ihn an
