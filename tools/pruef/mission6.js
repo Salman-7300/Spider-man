@@ -336,7 +336,7 @@ const TEIL = process.argv[2] || '1-3';
         let gegnerMax = 0, geiselOk = null, chaseWeg = 0, chaseT = 0;
         let vorF = null, vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
         let fest = 0, festGemeldet = 0;
-        let anlaufPhase = -1, gesetzt = 0;
+        let anlaufPhase = -1, gesetzt = 0, tuerErreicht = false;
         const phMess = {};
         /* Das Haus wird WAEHREND des Laufs festgehalten, nicht danach:
            storyAufraeumen() loescht die Missionsdaten beim Abschluss, und
@@ -453,7 +453,15 @@ const TEIL = process.argv[2] || '1-3';
           if (!d.innenAktiv && !d.innen.phase && m.v && d.story.phase === 2) {
             const vt = m.v.vorTuer;
             const dv = Math.hypot(P.pos.x - vt.x, P.pos.z - vt.z);
-            if (dv > 1.2) {
+            /* ---- Genau EINMAL setzen ----
+               Der erste Anlauf setzte die Figur in JEDEM Bild zurueck, in
+               dem sie weiter als 1,2 m von vorTuer entfernt war. Sie
+               laeuft aber von dort weg - in die Tuer hinein. Ergebnis:
+               1,2 m laufen, zurueckgesetzt werden, wieder laufen. Beide
+               Varianten blieben 2,7 m vor der Tuer stehen. Sobald sie
+               einmal da war, wird nicht mehr gesetzt. */
+            if (dv <= 1.2) tuerErreicht = true;
+            if (!tuerErreicht && dv > 1.2) {
               const gy2 = d.groundYAt(vt.x, vt.z, 2);
               d.setzePos(vt.x, (gy2 === null || gy2 === undefined ? 0 : gy2) + 0.05, vt.z);
               P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
