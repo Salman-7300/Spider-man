@@ -6,15 +6,63 @@ so da, und wo mein eigenes Messgeraet danebenlag, steht auch das.
 
 ---
 
+## PHASE 13 TECHNISCH FREIGEGEBEN
+
+Alles, was sich ohne einen Menschen am Steuer pruefen laesst, ist
+gelaufen und gruen. Die Aussage bezieht sich ausdruecklich auf die
+**technische** Seite; sie sagt nichts darueber, ob Akt 1 Spass macht.
+
+**Wofuer die Freigabe gilt:**
+
+    node --check (3 Dateien)                sauber
+    node --test                             141 von 141
+    git diff --check                        sauber
+    Test A  30 Minuten aktives Spiel        alle 26 Punkte vorgekommen,
+                                            kein Wachstumstrend, 0 JS-Fehler
+    Test B  60 Minuten Weltbelastung        kein Wachstumstrend, 0 Lecks
+    Test C  Uebergangsmatrix                20 von 20
+    Test D  NPC-Hindernisse                 A 0, B 0, C 0
+    Test E  Freigaengigkeit der Stadt       alle neun Flaechen frei
+    Kernsysteme                             sieben Bereiche, alle ok
+    Verkehrsstunde                          14.400 Proben, 0 Geisterfahrer
+    Bewegung (7 Einzelpruefstaende)         0 fehlerhafte Anlaeufe
+
+**Was die Freigabe NICHT abdeckt — und was daran haengt:**
+
+1. **HUMAN PLAYTEST AUSSTEHEND.** Akt 1 ist nie von einem Menschen
+   durchgespielt worden. Ein Bot kann alle acht Missionen durchklicken,
+   aber nicht beurteilen, ob das Ziel verstanden wird und ob die Kette
+   aus Anfahrt, Kampf und Abschluss traegt. Der Pruefmodus dafuer steht
+   bereit (`?playtest=1`, siehe `docs/PLAYTEST-AKT1.md`). **Das ist kein
+   technischer Blocker, sondern der einzige Punkt des Auftrags, den ich
+   nicht selbst erledigen kann.**
+2. `assets/haeuser.glb` hat keinen Herkunftsnachweis. Die Nachforschung
+   ist vollstaendig dokumentiert (Abschnitt 20 und
+   `docs/MODELL-QUELLEN.md`) und bleibt **OFFEN**; nur der Projekt-
+   inhaber kann sagen, woher die Datei stammt. Eine Lizenz zu erfinden,
+   waere schlimmer als die Luecke.
+3. Sieben statt fuenf Higgsfield-Objekte — eine Ueberschreitung der
+   Auftragsvorgabe, die benannt und nicht rueckgaengig gemacht ist.
+
+**Offene, benannte technische Punkte** (keiner davon blockiert, alle in
+Abschnitt 30 mit Messwerten): das Fussrutschen von `kriechen` (99 %,
+Ursache gemessen, kein Fix ohne neue Animation oder Fuss-IK), die
+Verfolgung an langen Hindernissen (Luftlinie mit 3,6 m Vorausschau), und
+kein Zuschauerverhalten bei Ereignissen.
+
+**Akt 2 wird nicht begonnen.**
+
+---
+
 ## 1. Ausgangsstand / HEAD
 
 Phase 13 beginnt nach `9826ebf` ("Kulisse: die Stadt hoert nicht mehr am
-Kartenrand auf"). Seitdem 22 Commits auf `claude/spider-man-game-dev-8cepen`.
+Kartenrand auf"). Seitdem 46 Commits auf `claude/spider-man-game-dev-8cepen`.
 
-Umfang der Aenderungen: 37 Dateien, +5.112 / −51 Zeilen. Der groesste Teil
-davon ist **neuer Pruefstand** (`tools/pruef/`, 22 Skripte) und
-Dokumentation (`docs/`, 5 neue Notizen). Am Spiel selbst: `game.js`
-+495/−44, `city-visuals.js` 15 Zeilen, `index.html` 18 Zeilen.
+Umfang der Aenderungen: 48 Dateien, +8.253 / −61 Zeilen. Der groesste Teil
+davon ist **neuer Pruefstand** (`tools/pruef/`, 26 Skripte) und
+Dokumentation (`docs/`). Am Spiel selbst: `game.js` +692/−54,
+`city-visuals.js` 13 Zeilen, `index.html` 17 Zeilen.
 
 ## 2. Groesste tatsaechlich gefundene sichtbare Probleme
 
@@ -368,8 +416,34 @@ gefallen und wurden beim Bauen abgelehnt.
     git diff --check                                 sauber
 
 Neu in dieser Phase: `test-bruecke.cjs` (8), `test-verkehr.cjs` (7) und
-`test-testfenster.cjs` (Doppelschluessel im `__dbg`-Objekt), dazu 24
+`test-testfenster.cjs` (Doppelschluessel im `__dbg`-Objekt), dazu 25
 Browser-Pruefstaende unter `tools/pruef/`.
+
+### Vollregression nach der letzten Aenderung
+Alle Zahlen sind **neu gelaufen**, nicht aus frueheren Abschnitten
+uebernommen.
+
+| Pruefstand | Ergebnis |
+|---|---|
+| `node --check` game.js / city-visuals.js / menu.js | sauber |
+| `cd tools && node --test` | 141 Tests, 141 gruen |
+| `git diff --check` | sauber |
+| Test A `aktivspiel.js` (30 min) | alle 26 Punkte vorgekommen, kein Wachstumstrend, 0 JS-Fehler, Fail-Logger 150 |
+| Test B `welt-stunde.js` (60 min) | kein Wachstumstrend, Lecks 0, Fehler 0, Kollider konstant 1932 |
+| Test C `uebergangsmatrix.js` | 20 von 20 Uebergaengen erreicht |
+| Test D `npc-wege.js` | A 0, B 0, C 0, D 84–93/100, E 80–83/100 |
+| Test E `freigang.js` | alle neun Flaechen frei, 0 Pfade gesperrt, alle 728 Netzknoten im Gebiet |
+| `kernsysteme.js` | sieben Bereiche, alle ok, Seitenfehler 0 |
+| `verkehr-stunde.js` (60 min) | 14.400 Proben: neben der Fahrbahn 0, im Wasser 0, im Haus 1, Ortssprung 0, Geisterfahrer 0 |
+| `bruecke-gehen.js` | 10 Spuren, 0 fehlerhaft |
+| `wandlauf.js` | 0 von 14 Anlaeufen fehlerhaft, Fuesse 0,087 m Mittelabstand |
+| `wandkriechen.js` | 0 Richtungen fehlerhaft, **0 Meldungen des Fail-Loggers** |
+| `landung-hocke.js` | 0 von 7 Landungen fehlerhaft |
+| `schwingen.js` | 0 von 6 Fluegen fehlerhaft, 31 Anker, alle an einem Bauwerk |
+| `sprung-gleiten.js` | Kette Sprung → Sturzflug → Gleiten → Boden vollstaendig |
+| `spielstand.js` | 0 Pruefungen fehlerhaft |
+| `touch-bedienung.js` | 0 Pruefungen fehlerhaft |
+| `fuss-rutschen.js` | siehe Abschnitt 8 und `docs/DUCKGANG-MESSUNG.md` |
 
 ## 28. Verworfenes / bewusst nicht geaendert
 
