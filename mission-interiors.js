@@ -72,7 +72,7 @@
 
   /* Ein Bauhelfer: Kasten setzen, optional als Kollisionskasten melden.
      mittig in x/z, Unterkante bei y. */
-  function bau(ziel, mat, x, y, z, bx, by, bz, kollision, klein) {
+  function bau(ziel, mat, x, y, z, bx, by, bz, kollision, klein, keinKlettern) {
     const m = new THREE.Mesh(kastenGeo, mat);
     m.position.set(x, y + by / 2, z);
     m.scale.set(bx, by, bz);
@@ -82,7 +82,8 @@
     if (kollision) {
       ziel.kollider.push({ x0: x - bx / 2, x1: x + bx / 2,
                            z0: z - bz / 2, z1: z + bz / 2,
-                           h: y + by, y0: y, klein: !!klein, innen: true });
+                           h: y + by, y0: y, klein: !!klein,
+                           keinKlettern: !!keinKlettern, innen: true });
       ziel.massiv++;
     }
     return m;
@@ -146,11 +147,22 @@
        Geschlossen, auch dort, wo eine Tuer zu sehen ist. Die Tuer ist ein
        Sichtobjekt; hindurch geht es ueber den Uebergang, nicht ueber ein
        Loch. Ein echtes Loch waere ein Weg in die leere Welt. */
+    /* ---- Nicht kletterbar ----
+       Die Waende sind gewoehnliche Kollisionskaesten, und das Wandkleben
+       des Helden greift an gewoehnlichen Kollisionskaesten. Der erste
+       Dauerlauf im Raum endete deshalb auf 11,52 m Hoehe in einem 5,2 m
+       hohen Raum: die Figur kletterte innen an der Wand hoch und stand
+       ueber der Decke, 149 Bilder lang ausserhalb des Raums.
+
+       keinKlettern ist kein neues Feld - die U-Bahn-Innenwaende benutzen
+       es seit Phase 10 aus demselben Grund. Kisten und Werkbaenke bleiben
+       ausgenommen: auf die soll man steigen duerfen. */
     const wy = M.hoehe;
-    bau(ziel, mat.wand, X(-hx - M.wand / 2), oy, Z(0), M.wand, wy, M.breite + M.wand * 2, true);
-    bau(ziel, mat.wand, X(hx + M.wand / 2), oy, Z(0), M.wand, wy, M.breite + M.wand * 2, true);
-    bau(ziel, mat.wand, X(0), oy, Z(-hz - M.wand / 2), M.laenge, wy, M.wand, true);
-    bau(ziel, mat.wand, X(0), oy, Z(hz + M.wand / 2), M.laenge, wy, M.wand, true);
+    const WAND = [true, false, true];   // kollision, klein, keinKlettern
+    bau(ziel, mat.wand, X(-hx - M.wand / 2), oy, Z(0), M.wand, wy, M.breite + M.wand * 2, ...WAND);
+    bau(ziel, mat.wand, X(hx + M.wand / 2), oy, Z(0), M.wand, wy, M.breite + M.wand * 2, ...WAND);
+    bau(ziel, mat.wand, X(0), oy, Z(-hz - M.wand / 2), M.laenge, wy, M.wand, ...WAND);
+    bau(ziel, mat.wand, X(0), oy, Z(hz + M.wand / 2), M.laenge, wy, M.wand, ...WAND);
 
     /* ---- Deckel gegen das Herausspringen ----
        Ein Kasten mit Unterkante auf Deckenhoehe. collideBody laesst ihn
@@ -158,7 +170,8 @@
        begrenzt erst, wenn die Figur wirklich hinaufkommt. Ohne ihn waere
        ein Doppelsprung an der Wand ein Weg nach draussen. */
     ziel.kollider.push({ x0: X(-hx), x1: X(hx), z0: Z(-hz), z1: Z(hz),
-                         y0: oy + M.hoehe, h: oy + M.hoehe + 1.4, innen: true });
+                         y0: oy + M.hoehe, h: oy + M.hoehe + 1.4,
+                         keinKlettern: true, innen: true });
 
     /* ---- Tuerblaetter (nur Optik) ---- */
     bau(ziel, mat.stahl, X(-hx + 0.12), oy, Z(0), 0.16, 2.7, 2.2, false);
@@ -170,8 +183,8 @@
     /* ---- Zone A: Vorraum ----
        Zwei Wandstuecke mit einem Durchlass in der Mitte. Der Eingang ist
        damit ein Flur und nicht die Kante der Halle. */
-    bau(ziel, mat.wand, X(-9), oy, Z(-hz / 2 - 1.75), M.trennwand, 4.0, hz - 3.5, true);
-    bau(ziel, mat.wand, X(-9), oy, Z(hz / 2 + 1.75), M.trennwand, 4.0, hz - 3.5, true);
+    bau(ziel, mat.wand, X(-9), oy, Z(-hz / 2 - 1.75), M.trennwand, 4.0, hz - 3.5, ...WAND);
+    bau(ziel, mat.wand, X(-9), oy, Z(hz / 2 + 1.75), M.trennwand, 4.0, hz - 3.5, ...WAND);
 
     /* ---- Stahltraeger unter der Decke ---- */
     for (const tx of [-9, -3, 3, 9]) {
@@ -181,7 +194,7 @@
        Bewusst aus der Mittelachse heraus: der Hauptweg vom Eingang zum
        Hinterausgang bleibt frei. */
     for (const [px, pz] of [[-3, -6.5], [-3, 6.5], [5.5, -6.5], [5.5, 6.5]]) {
-      bau(ziel, mat.beton, X(px), oy, Z(pz), 0.8, M.hoehe, 0.8, true);
+      bau(ziel, mat.beton, X(px), oy, Z(pz), 0.8, M.hoehe, 0.8, ...WAND);
     }
 
     /* ---- Industrieleuchten ---- */
@@ -193,8 +206,8 @@
     /* ---- Zone C: der abgeschirmte Geiselbereich ----
        Niedrige Trennwand, damit man von der Halle aus hinueber sieht -
        der Spieler soll wissen, dass dort jemand ist, bevor er hingeht. */
-    bau(ziel, mat.metall, X(4), oy, Z(5.5), 6.0, 2.4, 0.4, true);
-    bau(ziel, mat.metall, X(1.05), oy, Z(8.2), 0.4, 2.4, 5.0, true);
+    bau(ziel, mat.metall, X(4), oy, Z(5.5), 6.0, 2.4, 0.4, ...WAND);
+    bau(ziel, mat.metall, X(1.05), oy, Z(8.2), 0.4, 2.4, 5.0, ...WAND);
 
     /* ---- Massive Requisiten ----
        Regel aus dem Playtest: was sichtbar massiv ist und groesser als ein

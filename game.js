@@ -12147,6 +12147,12 @@ function gangTempo() {
 
 /* ======================= Kamera ======================= */
 let camYaw = Math.PI * 0.85, camPitch = 0.22, camDist = 5.6, camShake = 0;
+/* Fester Kameraabstand im Missionsinnenraum. Der Wert ist gemessen, nicht
+   gewaehlt: tools/pruef/interior.js faehrt den ganzen Raum ab und meldet,
+   wie oft die Kamera von einer Wand unter zwei Meter an die Figur
+   herangezogen wird - genau das liest sich als staendiges Hineinzoomen.
+   Veraenderbar, damit der Pruefstand mehrere Werte vergleichen kann. */
+let INNEN_KAM_DIST = 4.0;
 const camPos = V3(0, 8, 20);
 
 function camForward() {
@@ -12346,7 +12352,16 @@ function updateCamera(dt) {
     const tief = clamp((player.swing.anchor.y - player.pos.y) / Math.max(4, player.swing.len), 0, 1);
     schwungWeit = tief * 1.0;
   }
+  /* ---- Kamera im Missionsinnenraum ----
+     Kein zweites Kamerasystem, nur eine andere Einstellung derselben
+     Kamera. Draussen faehrt sie mit dem Tempo von 5,6 auf 6,6 m heraus;
+     in einem 30 x 22 m grossen Raum steht sie damit staendig in einer
+     Wand und wird von kameraFreierAnteil hereingezogen - das liest sich
+     als staendiges Hineinzoomen. Drinnen ist der Abstand deshalb fest
+     und kleiner, und der Tempo-Zoom faellt weg. Die Wandpruefung selbst
+     bleibt unveraendert: die Innenwaende sind gewoehnliche Kollider. */
   const targetDist = kamZwang > 0 ? kamZwang
+                   : MISSION_INTERIOR.active ? INNEN_KAM_DIST
                    : wand ? 6.4
                    : (player.state === 'swing' ? 6.8 + schwungWeit
                                               : lerp(5.6, 6.6, clamp(speed / 25, 0, 1)));
@@ -12755,7 +12770,11 @@ function unterTage() {
 }
 
 function startSwing() {
-  if (unterTage()) {
+  /* Im Missionsinnenraum gibt es keinen Anker, an dem ein Netz sinnvoll
+     haelt - 30 x 22 m sind keine Schwungstrecke. Dieselbe Regel wie unter
+     Tage, und aus demselben Grund. Springen, Ausweichen und Kampf bleiben
+     unveraendert. */
+  if (unterTage() || MISSION_INTERIOR.active) {
     popupScreen('Hier ist nichts, woran ein Netz halten koennte');
     return false;
   }
@@ -14631,6 +14650,18 @@ function damagePlayer(dmg, srcPos) {
 }
 
 function respawn() {
+  /* ---- Tod im Missionsinnenraum ----
+     Ohne die erste Zeile setzt respawn() die Figur auf (25, 25) - mitten
+     in die Stadt, waehrend die Welt noch unsichtbar und der Innenraum
+     noch aktiv ist.
+
+     Die zweite Sache ist wichtiger: nach dem Tod stuende der Spieler
+     draussen vor einem Auftrag, den nur der Innenraum erfuellen kann -
+     die Gegner haengen im Raum bei x = 1000, und "Das Versteck sichern"
+     waere nie zu schaffen. Die Mission setzt deshalb auf ihrem
+     Kontrollpunkt neu auf. Genau dafuer gibt es ihn. */
+  const warDrinnen = MISSION_INTERIOR.active || !!MISSION_INTERIOR.phase;
+  if (warDrinnen) innenSofortRaus();
   player.pos.set(25, 0.05, 25);
   player.vel.set(0, 0, 0);
   player.hp = CFG.playerHP;
@@ -14640,6 +14671,18 @@ function respawn() {
   player.zip = null;
   document.getElementById('msg').style.display = 'none';
   updateHUD();
+  if (warDrinnen && STORY.aktiv) storyPhaseNeu();
+}
+
+/* Die laufende Storyphase noch einmal von vorn aufbauen. Kein neues
+   Speicherformat und kein neuer Kontrollpunkt - dieselbe Phase, dieselbe
+   Wiedereinstiegslogik wie nach dem Laden. */
+function storyPhaseNeu() {
+  const d = STORY.aktiv;
+  if (!d) return false;
+  const ph = STORY.phase;
+  storyAufraeumen();
+  return storyStarte(d.id, ph);
 }
 
 /* ======================= Fortschritt =======================
@@ -16466,9 +16509,19 @@ function updatePlayer(dt) {
     player.state = 'ground';
     updateHUD();
   }
-  // Spielfeldgrenzen
-  player.pos.x = clamp(player.pos.x, -193, SHORE_X1 - 5);
-  player.pos.z = clamp(player.pos.z, -193, 193);
+  /* ---- Spielfeldgrenzen ----
+     Drinnen gelten die Raumgrenzen. Das ist die EINZIGE Stelle, an der
+     der Innenraum in die Spielerphysik eingreift: groundY liefert an
+     seinem Ort ohnehin schon 0, und die Waende sind gewoehnliche
+     Kollisionskaesten. */
+  if (MISSION_INTERIOR.active && MISSION_INTERIOR.raum) {
+    const g = MISSION_INTERIOR.raum.grenzen;
+    player.pos.x = clamp(player.pos.x, g.x0, g.x1);
+    player.pos.z = clamp(player.pos.z, g.z0, g.z1);
+  } else {
+    player.pos.x = clamp(player.pos.x, -193, SHORE_X1 - 5);
+    player.pos.z = clamp(player.pos.z, -193, 193);
+  }
 
   /* ---- Timer ---- */
   if (player.keinHaltCd > 0) player.keinHaltCd -= dt;
@@ -22955,6 +23008,12 @@ function updateCivilians(dtBild) {
   let liegen = 0;
   for (let ci = 0; ci < civilians.length; ci++) {
     const c = civilians[ci];
+    /* Im Missionsinnenraum gibt es genau eine zivile Person: die Geisel.
+       Der Playtest hat als Erstes gemeldet, dass Zivilisten waehrend des
+       Kampfes unbeeindruckt herumsitzen - drinnen gibt es sie nicht mehr.
+       Die Geisel laeuft weiter, damit sie nicht mitten in ihrer Animation
+       einfriert. */
+    if (MISSION_INTERIOR.active && !c.geisel) continue;
     /* Der Zähler muss FEST an der Figur hängen. Ein mitlaufender Zähler,
        der nur bei manchen Figuren hochgezählt wird, verteilt die Bilder
        ungleich – einzelne Zivilisten kamen dann kaum noch dran und
@@ -24311,6 +24370,13 @@ function aufBrueckendeck(x, z) {
   return !inWater(x, z);
 }
 function imGebiet(x, z) {
+  /* Waehrend der Missionsinnenraum aktiv ist, gehoert er ZUSAETZLICH zum
+     gueltigen Gebiet. Ohne diese Zeile zieht haltenImGebiet jeden
+     Storygegner aus dem Raum an den Stadtrand zurueck - der Raum liegt
+     bei x = 1000, und die Stadt endet bei 395. Additiv, nicht ersetzend:
+     die Aussenwelt bleibt gueltig, damit der Rueckkehrpunkt noch
+     waehrend des Aufenthalts drinnen gesucht werden kann. */
+  if (MISSION_INTERIOR.active && imInnenraum(x, z)) return true;
   if (Math.abs(z) > GEBIET_Z) return false;
   if (x >= -STADT_RAND - 6 && x <= RIVER_X0 - 3) return true;
   if (x >= SHORE_X0 + 3 && x <= SHORE_X1 - 3) return true;
@@ -25353,6 +25419,10 @@ function updateEnemies(dtBild) {
   verteileAngriffsrechte(dtBild);
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
+    /* Im Missionsinnenraum zaehlt nur, wer zur Mission gehoert. Die
+       Ambient-Ganoven der Stadt stehen unsichtbar draussen und werden
+       eingefroren - nicht abgebaut. */
+    if (MISSION_INTERIOR.active && !e.storyGegner) continue;
     if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, e.boss ? 'enforcer' : e.typ.art);
     /* Siehe zeigeWickel: die Netzwickel haengen an den Knochen und
        folgen der Sichtbarkeit der Kokongruppe nicht von selbst. Hier
@@ -26550,6 +26620,10 @@ function updateEnemies(dtBild) {
       }
     }
   }
+  /* Hygiene, Bosslebenszyklus und Nachschub gehoeren zur Aussenwelt.
+     Drinnen wuerden sie Gegner abbauen und nachliefern, die dort gar
+     nicht sein sollen. Mission und Story laufen darunter weiter. */
+  if (!MISSION_INTERIOR.active) {
   gegnerHygiene(dtBild);
   bossLebenszyklus(dtBild);
 
@@ -26563,6 +26637,7 @@ function updateEnemies(dtBild) {
   if (alive < CFG.maxEnemies - 3 && gangRespawnT <= 0) {
     spawnGangAwayFromPlayer();
     gangRespawnT = 12;
+  }
   }
 
   updateMission(dtBild);
@@ -29927,6 +30002,233 @@ function stOrt(minAbstand) {
    Die Stadt hat davon neunzehn. Welches davon taugt, wird nicht geraten,
    sondern aus der gebauten Stadt ausgerechnet - Innenflaeche, gueltige
    Standpunkte, freies Vorfeld, erreichbarer Hof fuer den Schluss. */
+/* ===================== Der Missions-Innenraum =====================
+   Der Human-Playtest hat den physischen Hausinnenraum verworfen: dort
+   stehen Tische, Stuehle und eine Bar, es sitzen unbeteiligte Zivilisten
+   mitten im Kampf, sichtbare Moebel hatten teilweise keine Kollision, der
+   Boden flackerte, und die Figur stand gelegentlich ploetzlich wieder
+   neben dem Haus. Open-World-Geometrie und Innenraumlogik haben
+   gegeneinander gearbeitet.
+
+   Mission 6 bekommt deshalb einen eigenen instanzierten Raum. Er muss
+   geometrisch NICHT in das Aussenhaus passen - er stellt denselben Ort
+   spielerisch dar und ist technisch ein getrennter Bereich. Zwischen
+   aussen und innen liegt eine kurze Blende.
+
+   WARUM (1000, 1000) UND KEIN ANDERER PUNKT
+   Gemessen mit tools/pruef/weltgrenzen.js: alle 1932 Weltkollider liegen
+   in x -181,6 .. 395,6 und z -188,1 .. 189,8; der Spieler wird in
+   updatePlayer auf x [-193, 395] und z [-193, 193] geklemmt. Bei
+   (1000, 1000) liefert groundY bereits exakt 0, inWater ist falsch, und
+   der naechste Kollider ist 1020,9 m entfernt.
+
+   Daraus folgt das Wichtigste an dieser Loesung: der Fussboden liegt auf
+   y = 0, und damit braucht es KEINEN Sonderfall in groundY und KEINEN in
+   collideBody. Die Innenwaende sind gewoehnliche Kollisionskaesten im
+   vorhandenen Raster. Nur die Spielfeldklemme schaltet um.
+
+   Die Kollisionskaesten des Raums werden EINMAL angemeldet und bleiben.
+   Fuenfzig Ein- und Austritte duerfen keine fuenfzig Raeume und keine
+   fuenfzig Kastensaetze hinterlassen. */
+const INNEN_ORT = { x: 1000, y: 0, z: 1000 };
+/* Je Haelfte des Uebergangs. Zusammen 0,26 s - der Auftrag nennt 0,15 bis
+   0,35 s, und alles ist bereits im Speicher, es wird nichts geladen. */
+const INNEN_BLENDE = 0.13;
+
+const MISSION_INTERIOR = {
+  active: false,
+  id: null,
+  raum: null,
+  eintritt: null, eintrittYaw: 0,      // wo der Spieler draussen stand
+  austritt: null, austrittYaw: 0,      // wohin es beim Verlassen zurueckgeht
+  versteckt: null,                     // was wir unsichtbar gemacht haben
+  himmel: null,
+  blende: 0, phase: null, t: 0, ziel: null, sperre: false,
+  nachWechsel: null,
+  zyklen: 0,
+};
+
+function innenRaum() {
+  const I = MISSION_INTERIOR;
+  if (I.raum) return I.raum;
+  if (typeof WEB_HERO_INTERIORS === 'undefined' || !WEB_HERO_INTERIORS) return null;
+  const r = WEB_HERO_INTERIORS.createHideout(INNEN_ORT);
+  r.gruppe.visible = false;
+  scene.add(r.gruppe);
+  for (const c of r.kollider) addCollider(c);
+  I.raum = r;
+  return r;
+}
+
+/* ---- Die Welt ausblenden ----
+   Nicht abbauen, nur unsichtbar. Gemerkt wird genau, was WIR ausgeblendet
+   haben; beim Verlassen wird genau das wieder gezeigt. Lichter bleiben an
+   - ein unsichtbares Licht leuchtet in three.js nicht mehr, und der Raum
+   waere schwarz. Der Held bleibt ebenfalls sichtbar. */
+function innenWeltVerbergen() {
+  const I = MISSION_INTERIOR;
+  I.versteckt = [];
+  const heldWurzel = heroVisual && heroVisual.root;
+  for (const obj of scene.children) {
+    if (obj.isLight) continue;
+    if (I.raum && obj === I.raum.gruppe) continue;
+    if (heldWurzel && obj === heldWurzel) continue;
+    if (!obj.visible) continue;
+    obj.visible = false;
+    I.versteckt.push(obj);
+  }
+  I.himmel = scene.background;
+  /* Eigener Hintergrund: der Himmel wuerde durch jede Ritze blitzen und
+     updateTagNacht schreibt ihn im Innenraum ohnehin nicht mehr fort. */
+  scene.background = new THREE.Color(0x0b0c0f);
+}
+function innenWeltZeigen() {
+  const I = MISSION_INTERIOR;
+  if (I.versteckt) for (const o of I.versteckt) o.visible = true;
+  I.versteckt = null;
+  if (I.himmel) { scene.background = I.himmel; I.himmel = null; }
+}
+/* Eine Figur, die zur Mission gehoert, muss drinnen zu sehen sein, auch
+   wenn sie beim Ausblenden schon dastand - die Geisel ist ein echter
+   Zivilist aus der Welt. */
+function innenZeigen(obj) {
+  const I = MISSION_INTERIOR;
+  if (!obj) return;
+  obj.visible = true;
+  if (!I.versteckt) return;
+  const i = I.versteckt.indexOf(obj);
+  if (i >= 0) I.versteckt.splice(i, 1);
+}
+
+/* Figur und Kamera an einen Punkt setzen, ohne sichtbaren Schwenk. Das
+   passiert immer im schwarzen Bild. */
+function innenSpielerSetzen(p, yaw) {
+  stopSwing(false);
+  player.zip = null;
+  player.state = 'ground'; player.onGround = true;
+  player.vel.set(0, 0, 0);
+  player.gleiten = false;
+  player.wallInfo = null; player.wall = null;
+  const gy = p.y === undefined || p.y === null ? groundY(p.x, p.z, 2) : p.y;
+  player.pos.set(p.x, gy, p.z);
+  player.facing = yaw;
+  if (heroVisual && heroVisual.root) heroVisual.root.position.copy(player.pos);
+  camYaw = yaw + Math.PI;
+  camPitch = 0.18;
+  kamFrei = camDist;
+  camPos.set(player.pos.x - Math.sin(yaw) * camDist,
+             player.pos.y + 1.7 + Math.sin(camPitch) * camDist,
+             player.pos.z - Math.cos(yaw) * camDist);
+  camera.position.copy(camPos);
+}
+
+/* ---- Der Wechsel selbst ----
+   Laeuft ausschliesslich im schwarzen Bild. Wer hier teleportiert,
+   waehrend das Bild offen ist, zeigt einen Positionssprung. */
+function innenWechsel() {
+  const I = MISSION_INTERIOR;
+  if (I.ziel === 'rein') {
+    const r = innenRaum();
+    if (!r) { I.ziel = null; return; }
+    I.active = true; I.id = r.id;
+    r.gruppe.visible = true;
+    innenWeltVerbergen();
+    innenSpielerSetzen(r.spielerStart, r.spielerBlick);
+    I.zyklen++;
+  } else if (I.ziel === 'raus') {
+    I.active = false; I.id = null;
+    if (I.raum) I.raum.gruppe.visible = false;
+    innenWeltZeigen();
+    const z = I.austritt || I.eintritt;
+    if (z) innenSpielerSetzen(z, I.austrittYaw);
+  }
+  /* Ein Haken fuer den Augenblick des Wechsels. Die Mission muss GENAU
+     DANN handeln koennen - etwa den Funker von drinnen nach draussen
+     stellen. Ausserhalb des schwarzen Bildes waere das ein sichtbarer
+     Sprung. Der Haken gilt einmal. */
+  const fn = I.nachWechsel;
+  I.nachWechsel = null;
+  if (fn) { try { fn(); } catch (e) { console.warn('nachWechsel:', e); } }
+  I.ziel = null;
+}
+
+let innenBlendeEl = null;
+function innenBlendeZeichnen() {
+  if (typeof document === 'undefined') return;
+  if (!innenBlendeEl) innenBlendeEl = document.getElementById('blende');
+  if (!innenBlendeEl) return;
+  const b = MISSION_INTERIOR.blende;
+  innenBlendeEl.style.display = b > 0.002 ? 'block' : 'none';
+  innenBlendeEl.style.opacity = b.toFixed(3);
+}
+
+function innenTakt(dt) {
+  const I = MISSION_INTERIOR;
+  if (!I.phase) return;
+  I.t += dt;
+  if (I.phase === 'zu') {
+    I.blende = clamp(I.t / INNEN_BLENDE, 0, 1);
+    if (I.blende >= 1) { innenWechsel(); I.phase = 'auf'; I.t = 0; }
+  } else {
+    I.blende = clamp(1 - I.t / INNEN_BLENDE, 0, 1);
+    if (I.blende <= 0) { I.phase = null; I.t = 0; I.sperre = false; }
+  }
+  innenBlendeZeichnen();
+}
+
+/* Waehrend des Uebergangs nimmt das Spiel keine Eingabe an. Geraeumt wird
+   nach updateGamepad, damit auch Gamepad und Touch erfasst sind. */
+function innenEingabeSperren() {
+  for (const k in keys) keys[k] = false;
+  player.vel.x = 0; player.vel.z = 0;
+  mouseDX = 0; mouseDY = 0;
+}
+
+function innenBetreten(aussenPos, aussenYaw, austrittPos, austrittYaw) {
+  const I = MISSION_INTERIOR;
+  if (I.active || I.phase) return false;
+  I.eintritt = aussenPos ? { x: aussenPos.x, y: aussenPos.y, z: aussenPos.z }
+                         : { x: player.pos.x, y: player.pos.y, z: player.pos.z };
+  I.eintrittYaw = aussenYaw === undefined ? player.facing : aussenYaw;
+  I.austritt = austrittPos ? { x: austrittPos.x, y: austrittPos.y, z: austrittPos.z } : null;
+  I.austrittYaw = austrittYaw === undefined ? I.eintrittYaw : austrittYaw;
+  I.ziel = 'rein'; I.phase = 'zu'; I.t = 0; I.sperre = true;
+  return true;
+}
+function innenVerlassen(zielPos, zielYaw) {
+  const I = MISSION_INTERIOR;
+  if (!I.active || I.phase) return false;
+  if (zielPos) I.austritt = { x: zielPos.x, y: zielPos.y, z: zielPos.z };
+  if (zielYaw !== undefined) I.austrittYaw = zielYaw;
+  I.ziel = 'raus'; I.phase = 'zu'; I.t = 0; I.sperre = true;
+  return true;
+}
+
+/* ---- Ohne Blende sofort heraus ----
+   Fuer Tod, Missionsabbruch, Storywechsel und Neustart. Kein Zustand darf
+   dauerhaft auf active bleiben; genau das waere der Fehler, nach dem in
+   Task 20 gesucht wird. */
+function innenSofortRaus(zielPos, zielYaw) {
+  const I = MISSION_INTERIOR;
+  I.phase = null; I.t = 0; I.blende = 0; I.sperre = false; I.ziel = null;
+  innenBlendeZeichnen();
+  if (!I.active) return false;
+  I.active = false; I.id = null;
+  if (I.raum) I.raum.gruppe.visible = false;
+  innenWeltZeigen();
+  const z = zielPos || I.austritt || I.eintritt;
+  if (z) innenSpielerSetzen(z, zielYaw === undefined ? I.austrittYaw : zielYaw);
+  return true;
+}
+
+/* Liegt ein Punkt im Innenraum? Fuer Mission und Pruefstand. */
+function imInnenraum(x, z) {
+  const I = MISSION_INTERIOR;
+  if (!I.active || !I.raum) return false;
+  const g = I.raum.grenzen;
+  return x > g.x0 - 1 && x < g.x1 + 1 && z > g.z0 - 1 && z < g.z1 + 1;
+}
+
 const VERSTECK_RAND = 1.3;      // Abstand zur Wand, den eine Figur braucht
 const VERSTECK_RASTER = 1.5;    // Schrittweite, in der der Raum abgetastet wird
 const VERSTECK_FIGUR = 0.55;    // Platzbedarf einer Figur
@@ -30342,6 +30644,160 @@ function stTreffpunkt(m) {
   return best;
 }
 
+/* ---- Der Rueckkehrpunkt hinter dem Versteck ----
+   Das Aussenhaus hat KEINE Hintertuer und bekommt auch keine. Der kurze
+   Schwarzfilm vermittelt, dass der Spieler das Gebaeude hinten verlaesst;
+   innen und aussen sind bewusst getrennte Darstellungen desselben Ortes.
+
+   Der Punkt selbst ist aber nicht erfunden: gesucht wird auf der der Tuer
+   abgewandten Seite des Hauses mit freieFlaeche - derselben Pruefung, die
+   auch den Treffpunkt findet. Sie verlangt Gehweg statt Fahrbahn, kein
+   Wasser, im Gebiet, und einen wirklich freien Radius. Findet sie dort
+   nichts, wird der Ring um das Haus groesser; als letztes bleibt das
+   Vorfeld der Tuer, das die Versteckauswahl ohnehin geprueft hat. */
+function stAussenHinterHaus(v) {
+  if (!v) return null;
+  const t = v.tuer;
+  const tiefe = Math.max(v.raum.x1 - v.raum.x0, v.raum.z1 - v.raum.z0) * 0.5 + 5;
+  const hx = v.mitte.x - t.nx * tiefe, hz = v.mitte.z - t.nz * tiefe;
+  let p = freieFlaeche(hx, hz, 12, 2.5);
+  if (!p) p = freieFlaeche(v.mitte.x, v.mitte.z, 28, 2.5);
+  if (!p) {
+    const y = v.vorTuer.y;
+    p = { x: v.vorTuer.x, z: v.vorTuer.z, y: y === null || y === undefined ? 0 : y, radius: 2 };
+  }
+  return p;
+}
+
+/* Der Weg ueber das Gehnetz, ohne die Tuerpunkte des Hauses - fuer eine
+   Figur, die schon draussen steht. */
+function stAussenWeg(vonX, vonZ, ziel) {
+  const weg = [];
+  if (!ziel) return weg;
+  const a = gehNaechster(vonX, vonZ, 40);
+  const b = gehNaechster(ziel.x, ziel.z, 40);
+  if (a >= 0 && b >= 0) {
+    const route = gehRoute(a, b);
+    if (route) for (const k of route) {
+      const kn = GEH.knoten[k];
+      if (kn) weg.push({ x: kn.x, z: kn.z, r: 2.0 });
+    }
+  }
+  weg.push({ x: ziel.x, z: ziel.z, r: 2.5 });
+  return weg;
+}
+
+/* Steht an dieser Stelle im Innenraum schon jemand? Die Kollisionskaesten
+   pruefte der Raum beim Bauen; hier geht es um die beweglichen Figuren. */
+function innenPlatzFrei(x, z, r) {
+  const rr = r === undefined ? 1.6 : r;
+  if (Math.hypot(x - player.pos.x, z - player.pos.z) < rr + 1.2) return false;
+  for (const e of enemies) {
+    if (e.dead) continue;
+    if (Math.hypot(x - e.pos.x, z - e.pos.z) < rr) return false;
+  }
+  for (const c of civilians) {
+    if (!c.geisel) continue;
+    if (Math.hypot(x - c.pos.x, z - c.pos.z) < rr) return false;
+  }
+  return true;
+}
+
+/* ---- Gegner im Innenraum aufstellen ----
+   Die Plaetze kommen fertig geprueft aus mission-interiors.js: im Raster
+   abgetastet, gegen jeden Kollisionskasten geprueft, mit Abstand zum
+   Spielerstart und untereinander. Hier wird nur noch verteilt und gegen
+   die beweglichen Figuren geprueft. Nichts wird gewuerfelt ohne Pruefung. */
+function stInnenGegner(m, n, arten, wegVon) {
+  const r = MISSION_INTERIOR.raum;
+  if (!r || !r.gegnerPunkte.length) return 0;
+  const frei = r.gegnerPunkte.slice();
+  const plaetze = [];
+  for (let versuch = 0; versuch < 300 && plaetze.length < n; versuch++) {
+    if (!frei.length) break;
+    const i = randi(0, frei.length - 1);
+    const p = frei[i];
+    frei.splice(i, 1);
+    if (wegVon && Math.hypot(p.x - wegVon.x, p.z - wegVon.z) < (wegVon.r || 6)) continue;
+    let ok = true;
+    for (const q of plaetze) if (Math.hypot(p.x - q.x, p.z - q.z) < 3.0) { ok = false; break; }
+    if (!ok || !innenPlatzFrei(p.x, p.z)) continue;
+    plaetze.push(p);
+  }
+  for (let i = 0; i < plaetze.length; i++) {
+    const p = plaetze[i];
+    const g = stGang(p.x, p.z, 1, 'story');
+    const e = g.enemies[0];
+    if (!e) continue;
+    e.pos.set(p.x, p.y, p.z);
+    if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
+    stArt(e, arten[i % arten.length]);
+    e.state = 'chase'; e.target = 'player';
+    innenZeigen(e.visual && e.visual.root);
+  }
+  return plaetze.length;
+}
+
+/* Den Funker beim Verlassen des Innenraums nach draussen stellen - im
+   schwarzen Bild, auf gepruefter Flaeche, ein Stueck vor dem Spieler in
+   Richtung Treffpunkt. */
+function stFunkerAussenSetzen(m, von, ziel) {
+  const f = m && m.funker;
+  if (!f || f.dead || !von) return false;
+  const dx = ziel ? ziel.x - von.x : 1, dz = ziel ? ziel.z - von.z : 0;
+  const l = Math.hypot(dx, dz) || 1;
+  for (const weite of [11, 8, 14, 6, 17]) {
+    const x = von.x + (dx / l) * weite, z = von.z + (dz / l) * weite;
+    if (!imGebiet(x, z) || inWater(x, z)) continue;
+    const gy = groundY(x, z, 2);
+    if (gy === null || gy === undefined) continue;
+    if (!versteckFrei(x, z, gy, 0.6)) continue;
+    f.pos.set(x, gy, z);
+    if (f.visual && f.visual.root) f.visual.root.position.copy(f.pos);
+    f.flieht = true; f.state = 'flee'; f.eventFlucht = true;
+    f.fluchtWeg = stAussenWeg(x, z, ziel);
+    innenZeigen(f.visual && f.visual.root);
+    return true;
+  }
+  return false;
+}
+
+/* ---- Eine Phase, die im Innenraum spielt ----
+   Beim Wiedereinstieg am Kontrollpunkt laeuft NUR die aktuelle Phase auf.
+   Steht der Spieler dann draussen - nach einem Neustart, nach einem Tod,
+   nach dem Laden -, gibt es keinen Innenraum, und eine Phase wie "Das
+   Versteck sichern" haette keinen Ort.
+
+   Deshalb gilt fuer jede Innenraumphase: steht der Raum, wird sofort
+   aufgebaut. Steht er nicht, wird er betreten und der Aufbau im ersten
+   Bild danach nachgeholt. Gespeichert wird davon nichts - nur die
+   Missionsphase, wie bisher. Der Raum entsteht jedes Mal gleich. */
+function innenPhase(m, aufbau) {
+  if (MISSION_INTERIOR.active) { aufbau(); return true; }
+  m._innenAufbau = aufbau;
+  if (!MISSION_INTERIOR.phase) {
+    const v = stVersteckSichern(m);
+    if (v) {
+      if (!m.austritt) m.austritt = stAussenHinterHaus(v);
+      const t = v.tuer;
+      const yaw = Math.atan2(-t.nx, -t.nz);
+      innenBetreten({ x: v.vorTuer.x, y: v.vorTuer.y, z: v.vorTuer.z }, yaw,
+        m.austritt ? { x: m.austritt.x, y: m.austritt.y, z: m.austritt.z } : null, yaw);
+    }
+  }
+  return false;
+}
+/* Im Takt der Phase: sobald der Raum steht, den aufgeschobenen Aufbau
+   nachholen. Gibt zurueck, ob die Phase jetzt arbeiten darf. */
+function innenPhaseTakt(m) {
+  if (m._innenAufbau && MISSION_INTERIOR.active) {
+    const fn = m._innenAufbau;
+    m._innenAufbau = null;
+    fn();
+  }
+  return MISSION_INTERIOR.active && !MISSION_INTERIOR.phase;
+}
+
 /* Einen POI als Storyort verwenden - Phase 10 hat vierzig davon. */
 function stPoi(arten, minAbstand) {
   const kand = POI.liste.filter((p) => arten.indexOf(p.art) >= 0 &&
@@ -30715,7 +31171,9 @@ const STORY_DEF = [
                      stArt(e, arten[i % arten.length]); n++; }
           }
           if (!n) stGang(v.vorTuer.x, v.vorTuer.z, 2, 'story');
-          stFunk('Zwei am Eingang. Sie haben dich gesehen.');
+          /* Keine Funkmeldung hier: das Textbudget sind eine Start-, zwei
+             Zwischen- und eine Abschlussmeldung. Zwei Waechter vor einer
+             Tuer erklaeren sich selbst. */
         },
         pruef: (m) => {
           stGeflohenAufraeumen(m, m.ort, 45);
@@ -30725,47 +31183,69 @@ const STORY_DEF = [
       { ziel: 'Ins Versteck eindringen',
         auf: (m) => {
           if (!stVersteckSichern(m)) return;
-          /* Der Leuchtturm zeigt INS Haus - aber auf den Punkt direkt
-             hinter der Tuer, nicht auf die Raummitte. Auf die Mitte
-             gezeigt fuehrt er quer durch die Fassade: wer ihm folgt,
-             laeuft gegen die Wand und faengt an zu klettern. Genau das
-             ist im Botlauf passiert. Hinter der Tuer liegt der Punkt
-             drinnen UND in der Fluchtlinie des Durchgangs. */
+          /* Der Leuchtturm zeigt auf den Punkt direkt hinter der Tuer,
+             nicht auf die Raummitte. Auf die Mitte gezeigt fuehrt er quer
+             durch die Fassade: wer ihm folgt, laeuft gegen die Wand. */
           m.zielPos = { x: m.v.hinterTuer.x, y: m.v.raum.boden + 1,
                         z: m.v.hinterTuer.z };
+          m.reinGestartet = false;
         },
-        /* Drin ist drin: die Spielerposition muss wirklich im Innenraum
-           liegen. Abstand zur Hausmitte wuerde auch durch Wand und Dach
-           zaehlen. */
-        pruef: (m) => (!m.v || imVersteck(m.v, player.pos.x, player.pos.z, player.pos.y))
-          ? 'weiter' : null },
+        /* ---- Die Tuer fuehrt jetzt in einen eigenen Raum ----
+           Vorher endete diese Phase, sobald die Spielerposition im
+           physischen Hausinnenraum lag - und genau der hat im Playtest
+           nicht getragen. Jetzt loest die Tuerzone eine kurze Blende aus,
+           und dahinter liegt der Missionsinnenraum.
 
-      { ziel: 'Das Erdgeschoss sichern',
-        auf: (m) => {
-          const v = stVersteckSichern(m);
-          if (!v) { stGang(m.ort.x, m.ort.z, 3, 'story'); return; }
-          /* So viele, wie der Raum glaubwuerdig traegt: die freie Flaeche
-             entscheidet, nicht eine feste Zahl. */
-          const anzahl = clamp(Math.round(v.freiFlaeche / 28), 2, 4);
-          const arten = ['schlaeger', 'flink', 'waechter', 'schlaeger'];
-          const plaetze = versteckPlaetze(v, anzahl,
-            { x: player.pos.x, z: player.pos.z, r: 5 }, 2.8);
-          plaetze.forEach((p2, i) => {
-            const g = stGang(p2.x, p2.z, 1, 'story');
-            const e = g.enemies[0];
-            if (e) { e.pos.set(p2.x, p2.y, p2.z);
-                     if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
-                     stArt(e, arten[i % arten.length]); }
-          });
-          /* Die Geisel: ein ECHTER Zivilist aus der Welt, tief im Raum,
-             ueber das vorhandene Geiselsystem gebunden. Sie steht damit
-             still und wird von keiner Ambient-Routine mehr angefasst -
-             kein Zug, kein Auto, keine Aktivitaet, kein Gespraech. */
-          const tief = versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 6 })[0];
-          const civ = tief ? stGeisel(tief) : null;
-          if (civ) m.geisel = civ;
-          stFunk('Innen sind noch mehr. Da ist außerdem ein Zivilist.');
-        },
+           Die Tuerzone ist an der Tuerachse gemessen, nicht an der
+           Hausmitte: quer hoechstens 1,6 m von der Achse, laengs von 1,2 m
+           davor bis 3,5 m dahinter. Wer seitlich an der Fassade steht,
+           loest nichts aus. */
+        pruef: (m) => {
+          if (MISSION_INTERIOR.active) return 'weiter';
+          if (m.reinGestartet || MISSION_INTERIOR.phase) return null;
+          if (!m.v) return 'weiter';
+          const t = m.v.tuer;
+          const dx = player.pos.x - m.v.tuerMitte.x, dz = player.pos.z - m.v.tuerMitte.z;
+          const laengs = dx * t.nx + dz * t.nz;          // > 0 = draussen
+          const quer = Math.abs(dx * -t.nz + dz * t.nx);
+          if (quer < 1.6 && laengs < 1.2 && laengs > -3.5 && player.onGround) {
+            /* Der Rueckkehrpunkt wird JETZT bestimmt, solange die Welt
+               noch sichtbar ist - nicht spaeter unter Zeitdruck. */
+            m.austritt = stAussenHinterHaus(m.v);
+            m.reinGestartet = innenBetreten(
+              { x: player.pos.x, y: player.pos.y, z: player.pos.z }, player.facing,
+              m.austritt ? { x: m.austritt.x, y: m.austritt.y, z: m.austritt.z } : null,
+              Math.atan2(-t.nx, -t.nz));
+          }
+          return null;
+        } },
+
+      { ziel: 'Das Versteck sichern',
+        auf: (m) => innenPhase(m, () => {
+          const r = MISSION_INTERIOR.raum;
+          if (!r) {
+            /* Sollte der Innenraum fehlen, bleibt die Mission spielbar -
+               dann eben vor dem Haus. Keine halbe Phase. */
+            const v = stVersteckSichern(m);
+            if (v) stGang(v.vorTuer.x, v.vorTuer.z, 3, 'story');
+            else stGang(m.ort.x, m.ort.z, 3, 'story');
+            return;
+          }
+          /* Erste Gruppe: drei, gemischt, verteilt ueber die Haupthalle
+             und mit Abstand zum Eingang - der Spieler soll hineinkommen,
+             bevor der erste Schlag faellt. */
+          m.welle = 1;
+          m.innenGesamt = stInnenGegner(m, 3, ['schlaeger', 'flink', 'waechter'],
+            { x: r.spielerStart.x, z: r.spielerStart.z, r: 7 });
+          /* Die Geisel: ein ECHTER Zivilist aus der Welt, im abgeschirmten
+             Bereich, ueber das vorhandene Geiselsystem gebunden. Sie ist
+             die EINZIGE zivile Person im Raum - der Playtest hat als
+             Erstes gemeldet, dass Zivilisten waehrend des Kampfes
+             unbeeindruckt herumsitzen. */
+          const civ = stGeisel(r.geiselPunkt);
+          if (civ) { m.geisel = civ; innenZeigen(civ.visual && civ.visual.root); }
+          stFunk('Das ist kein Lagerhaus. Das ist ihr Hauptquartier.');
+        }),
         /* ---- Auch hier kann einer davonrennen ----
            Der Aufraeumer stand bisher nur in den beiden letzten Phasen.
            Die Phasenmessung des Botlaufs zeigt aber, dass auch im
@@ -30777,44 +31257,69 @@ const STORY_DEF = [
            kaempft nicht mehr mit. 45 m statt 50, weil hier ein Haus der
            Bezugspunkt ist und kein Platz. */
         pruef: (m) => {
-          stGeflohenAufraeumen(m, m.ort, 45);
+          if (!innenPhaseTakt(m)) {
+            /* Der Raum wird gerade betreten - oder er fehlt ganz, dann
+               laeuft die Ersatzfassung vor dem Haus. */
+            if (m._innenAufbau || MISSION_INTERIOR.phase) return null;
+            stGeflohenAufraeumen(m, m.ort, 45);
+            return stAlleGangsTot() ? 'weiter' : null;
+          }
+          /* ---- Zweite Welle statt einer Wand aus Gegnern ----
+             Sechs auf einmal in einem Raum sind ein Gedraenge, kein Kampf.
+             Die Verstaerkung kommt, wenn die erste Gruppe steht. Im
+             geschlossenen Raum kann niemand wirklich fliehen - wer den Mut
+             verliert, laeuft in eine Ecke, fasst sich und kommt zurueck.
+             Deshalb braucht es hier keinen Aufraeumer. */
+          if (m.welle === 1 && stAlleGangsTot()) {
+            m.welle = 2;
+            m.innenGesamt = (m.innenGesamt || 0) +
+              stInnenGegner(m, randi(2, 3), ['brecher', 'flink', 'schlaeger'],
+                { x: player.pos.x, z: player.pos.z, r: 6 });
+            return null;
+          }
           return stAlleGangsTot() ? 'weiter' : null;
         } },
 
-      { ziel: 'Die Geisel in Sicherheit bringen',
-        auf: (m) => {
-          /* Wiedereinstieg direkt in diese Phase: dann gibt es noch keine
-             Geisel - sie wird hier nachgeholt, sonst waere die Phase ohne
-             Inhalt und der Auftragstext eine Luege. */
-          const v = stVersteckSichern(m);
-          if (!m.geisel && v) {
-            const p3 = versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 6 })[0];
-            if (p3) m.geisel = stGeisel(p3);
+      { ziel: 'Die Geisel befreien',
+        /* Wiedereinstieg direkt in diese Phase: dann gibt es weder Raum
+           noch Geisel - beides wird hier nachgeholt, sonst waere die Phase
+           ohne Inhalt und der Auftragstext eine Luege. */
+        auf: (m) => innenPhase(m, () => {
+          const r = MISSION_INTERIOR.raum;
+          if (!m.geisel && r) {
+            const civ = stGeisel(r.geiselPunkt);
+            if (civ) { m.geisel = civ; innenZeigen(civ.visual && civ.visual.root); }
           }
           if (m.geisel) m.zielPos = { x: m.geisel.pos.x, y: m.geisel.pos.y + 1,
                                       z: m.geisel.pos.z };
-        },
+        }),
         /* Keine Eskorte: der Bereich ist gesichert, der Spieler geht hin,
            die Geisel ist gerettet. Zehn Minuten NPC begleiten waere die
            andere Sorte Fehler. */
         pruef: (m) => {
+          if (!innenPhaseTakt(m)) return null;
           if (!m.geisel) return 'weiter';
-          if (stNah(m.zielPos, 4.5)) { stGeiselFrei(m); return 'weiter'; }
+          if (stNah(m.zielPos, 3.5)) { stGeiselFrei(m); return 'weiter'; }
           return null;
         },
         ende: (m) => stGeiselFrei(m) },
 
       { ziel: 'Den Funker stellen',
-        auf: (m) => {
+        auf: (m) => innenPhase(m, () => {
           const v = stVersteckSichern(m);
-          const p2 = v ? versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 5 })[0]
-                       : null;
+          const r = MISSION_INTERIOR.raum;
+          const drin = r && MISSION_INTERIOR.active;
+          /* Am Kommandopunkt: Funktisch, Karten, Geraet. Der Ort ist
+             lesbar, bevor der Auftragstext ihn nennt. */
+          const p2 = drin ? r.funkPunkt
+                   : (v ? versteckPlaetze(v, 1, { x: v.tuerMitte.x, z: v.tuerMitte.z, r: 5 })[0]
+                        : null);
           const g = p2 ? stGang(p2.x, p2.z, 1, 'story')
                        : stGang(m.ort.x, m.ort.z, 1, 'story');
           const f = g.enemies[0];
           m.funker = f || null;
           if (f) {
-            if (p2) { f.pos.set(p2.x, p2.y, p2.z);
+            if (p2) { f.pos.set(p2.x, p2.y === undefined ? f.pos.y : p2.y, p2.z);
                       if (f.visual && f.visual.root) f.visual.root.position.copy(f.pos); }
             stArt(f, 'flink');
             f.funker = true;
@@ -30823,15 +31328,32 @@ const STORY_DEF = [
                ihn frueh erwischen. */
             f.hpMax = Math.round(f.hpMax * 1.25); f.hp = f.hpMax;
             f.flieht = true; f.state = 'flee'; f.eventFlucht = true;
-            f.fluchtWeg = stFunkerWeg(m);
+            /* Drinnen braucht er keine Hausnavigation mehr: der Raum ist
+               bekannt, und sein Weg zum Hinterausgang ist beim Bauen
+               abgetastet und geprueft worden. */
+            f.fluchtWeg = drin ? r.funkWeg.map((w) => ({ x: w.x, z: w.z, r: w.r }))
+                               : stFunkerWeg(m);
+            innenZeigen(f.visual && f.visual.root);
           }
           stFunk('Der mit dem Funkgerät. Nicht entkommen lassen.');
-        },
+        }),
         pruef: (m) => {
+          if (!innenPhaseTakt(m)) return null;
           const f = m.funker;
           if (!f) return 'weiter';
           if (stGefangen(f)) { m.fruehGefangen = true; return 'weiter'; }
-          /* Draussen und auf Abstand: ab hier ist es eine Verfolgung. */
+          const r = MISSION_INTERIOR.raum;
+          if (r && MISSION_INTERIOR.active) {
+            /* Am Hinterausgang ist er durch. Die naechste Phase bringt
+               beide nach draussen. */
+            if (Math.hypot(f.pos.x - r.hinterausgang.x,
+                           f.pos.z - r.hinterausgang.z) < 2.2) {
+              m.funkerDurch = true;
+              return 'weiter';
+            }
+            return null;
+          }
+          /* Ohne Innenraum wie bisher: draussen und auf Abstand. */
           if (m.v && !imVersteck(m.v, f.pos.x, f.pos.z, f.pos.y) &&
               Math.hypot(f.pos.x - m.v.tuerMitte.x, f.pos.z - m.v.tuerMitte.z) > 12)
             return 'weiter';
@@ -30841,6 +31363,25 @@ const STORY_DEF = [
       { ziel: 'Den Funker verfolgen',
         auf: (m) => {
           stVersteckSichern(m);
+          /* ---- Zurueck in die Aussenwelt ----
+             Beide Wege fuehren hier hinaus: der Funker ist durch den
+             Hinterausgang, oder er wurde drinnen gefasst. In beiden
+             Faellen endet der Innenraum an dieser Stelle - er darf keine
+             Phase ueberdauern, in der draussen gespielt wird.
+
+             Der Rueckkehrpunkt wurde beim Betreten bestimmt, als die Welt
+             noch sichtbar war (stAussenHinterHaus). Der Funker wird im
+             schwarzen Bild mitgesetzt, nicht davor und nicht danach. */
+          if (MISSION_INTERIOR.active) {
+            if (!m.austritt) m.austritt = stAussenHinterHaus(m.v);
+            const ziel = m.austritt;
+            const durch = !!(m.funker && !m.funker.dead && !stGefangen(m.funker));
+            MISSION_INTERIOR.nachWechsel = () => {
+              const t = m.treff || stTreffpunkt(m);
+              if (durch) stFunkerAussenSetzen(m, ziel || player.pos, t);
+            };
+            innenVerlassen(ziel ? { x: ziel.x, y: ziel.y, z: ziel.z } : null);
+          }
           m.treff = stTreffpunkt(m);
           /* ---- Wiedereinstieg mitten in der Verfolgung ----
              Nach einem Neustart am Kontrollpunkt gibt es keinen Funker
@@ -30863,10 +31404,25 @@ const STORY_DEF = [
             return;
           }
           m.jagdT = 150;
-          if (m.funker) m.funker.fluchtWeg = stFunkerWeg(m, m.treff);
+          /* Draussen laeuft er ueber das Gehnetz zum Treffpunkt - die
+             gepruefte freie Navigation der Stadt. Ohne Innenraum wie
+             bisher ueber die Tuerpunkte des Hauses. */
+          /* ---- Reihenfolge, die schon einmal falsch war ----
+             Laeuft gerade der Wechsel, steht der Funker in diesem
+             Augenblick noch IM Innenraum bei x = 1000. Ein Fluchtweg aus
+             dieser Position heraus fuehrt quer durch die halbe Karte.
+             Sein Aussenweg wird deshalb dort gesetzt, wo er auch nach
+             draussen gestellt wird: in stFunkerAussenSetzen, im schwarzen
+             Bild. Hier nur der Fall ohne Innenraum. */
+          if (m.funker && !MISSION_INTERIOR.active && !MISSION_INTERIOR.phase) {
+            m.funker.fluchtWeg = stFunkerWeg(m, m.treff);
+          }
           m.zielPos = null;              // der Leuchtturm folgt dem Funker
         },
         pruef: (m, dt) => {
+          /* Solange die Blende laeuft, wird nichts entschieden: der
+             Funker steht in diesem Augenblick noch drinnen. */
+          if (MISSION_INTERIOR.active || MISSION_INTERIOR.phase) return null;
           if (m.fruehGefangen) return stNah(m.zielPos, 12) ? 'weiter' : null;
           const f = m.funker;
           if (!f || stGefangen(f)) return 'weiter';
@@ -31179,6 +31735,12 @@ function storyAufraeumen() {
     }
     if (m.wachen) m.wachen.length = 0;
   }
+  /* ---- Der Innenraum darf eine Mission nie ueberleben ----
+     Abschluss, Abbruch, Tod, Storywechsel - in jedem dieser Faelle geht
+     es sofort und ohne Blende nach draussen. Bliebe MISSION_INTERIOR auf
+     active, waere die Aussenwelt dauerhaft unsichtbar und der Spieler
+     stuende in einem Raum ohne Auftrag. */
+  if (MISSION_INTERIOR.active || MISSION_INTERIOR.phase) innenSofortRaus();
   MISSION.art = null; MISSION.daten = null; MISSION.zeit = 0;
   setzeBeacon(null);
   hideObjective();
@@ -32669,24 +33231,45 @@ const BEIN_HOCH_CLIPS = new Set(['sturzflug', 'wandsprung', 'fall',
 
 function simuliere(dt) {
   updateGamepad();
+  /* Der Uebergang zwischen Aussenwelt und Missionsinnenraum laeuft hier -
+     vor allem anderen und mit echter Spielzeit, damit er auch im
+     Pruefstand mit festen Schritten funktioniert. Waehrend er laeuft,
+     nimmt das Spiel keine Eingabe an. */
+  innenTakt(dt);
+  if (MISSION_INTERIOR.sperre) innenEingabeSperren();
   if (hitstopT > 0) { hitstopT -= dt; dt *= 0.12; }
   /* Zeitlupe nach einem geglückten Konter – der Moment soll sich groß
      anfühlen und man bekommt Zeit für den Gegenschlag. */
   if (zeitlupe > 0) { zeitlupe -= dt; dt *= 0.34; }
   elapsed += dt;
 
+  /* ---- Was im Innenraum weiterlaufen MUSS und was pausiert ----
+     Im Innenraum ist die Aussenwelt nicht zu sehen. Sie weiterzurechnen
+     kostet Zeit fuer ein Bild, das niemand sieht. Pausieren heisst hier
+     ausdruecklich NICHT abbauen: kein Auto wird geloescht, kein Zivilist
+     dupliziert, kein Ereignis verworfen. Beim Verlassen machen alle
+     Systeme dort weiter, wo sie aufgehoert haben.
+
+     Weiter laufen: Spieler, Heldenanimation, Kamera, Mission und Story,
+     Storygegner, Kampf, Geisel, Effekte, Klang, HUD, Messungen.
+     Pausiert: Verkehr, Ambient-Zivilisten, Ambient-Gegner, Ereignisse,
+     Polizei und Rettung, Zug, U-Bahn, Aufzuege, Helikopter, Wetter,
+     Tageszeit, Voegel, Stadtmoebel-Sicht, Flecken, Dampf und Spritzer.
+     Wetter und Tageszeit werden bewusst eingefroren: sonst waeren nach
+     einem kurzen Innenraumbesuch draussen Stunden vergangen. */
+  const welt = !MISSION_INTERIOR.active;
   // Moving rope anchors and landing decks must use this frame's helicopter transform.
-  updateHelis(dt);
+  if (welt) updateHelis(dt);
   updatePlayer(dt);
-  updateWetter(dt);
-  updateTagNacht(dt);
-  updateCars(dt);
+  if (welt) { updateWetter(dt); updateTagNacht(dt); updateCars(dt); }
+  /* Zivilisten und Gegner laufen weiter, filtern drinnen aber selbst:
+     nur die Geisel und nur Storygegner. Ein voelliger Stopp liesse die
+     Geisel mitten in ihrer Animation einfrieren. */
   updateCivilians(dt);
   updateEnemies(dt);
   if (COMBAT_DEBUG) zeigeKampfTafel(dt);
   if (PED_DEBUG) zeigeGehnetz(dt);
-  updateWeltEreignisse(dt);
-  updateResponders(dt);
+  if (welt) { updateWeltEreignisse(dt); updateResponders(dt); }
   if (VALID._diag) {
     for (const e of enemies) {
       if (e.dead) continue;
@@ -32708,34 +33291,36 @@ function simuliere(dt) {
   updateZiehObjekte(dt);
   updateGriff(dt);
   updateGeschosse(dt);
-  updateKlatscher(dt);
-  updateUnterwelt();
-  updateMoebelSicht(dt);
-  updateZug(dt);
-  updateAufzuege(dt);
+  if (welt) {
+    updateKlatscher(dt);
+    updateUnterwelt();
+    updateMoebelSicht(dt);
+    updateZug(dt);
+    updateAufzuege(dt);
+    updateAnkerZeichen(dt);
+    updateAutoFahrer(dt);
+    updateZugGaeste(dt);
+    updateBusGaeste(dt);
+    updateInnenLeute(dt);
+    updateKitHaeuser(dt);
+    updateFlecken();
+    updateDampf(dt);
+    updateSpritzer(dt);
+  }
   updateKatapult(dt);
-  updateAnkerZeichen(dt);
   updateSpinnenSinn(dt);
   updateSymbiont(dt);
-  updateAutoFahrer(dt);
-  updateZugGaeste(dt);
-  updateBusGaeste(dt);
-  updateInnenLeute(dt);
-  updateKitHaeuser(dt);
-  updateFlecken();
   updateKlang(dt);
-  updateDampf(dt);
-  updateSpritzer(dt);
   /* Die Touch-Knöpfe zeigen an, was gerade geht. Das ändert sich nicht von
      Bild zu Bild – fünfmal je Sekunde reicht und kostet nichts. */
   if (touchAktiv) {
     knopfCd -= dt;
     if (knopfCd <= 0) { knopfCd = 0.2; aktualisiereTouchKnoepfe(); }
   }
-  updateVoegel(dt);
+  if (welt) updateVoegel(dt);
 
   // Wasser-Animation
-  if (waterMesh) waterTex.offset.x = elapsed * 0.015;
+  if (welt && waterMesh) waterTex.offset.x = elapsed * 0.015;
 
   // Netzschuss-Blitze ausblenden
   for (let i = activeShots.length - 1; i >= 0; i--) {
@@ -33517,6 +34102,21 @@ if (window.__WEBHERO_TEST__ === true) {
     versteckListe, versteckWert, versteckPunkte, versteckFrei, versteckPlaetze,
     stGeisel, stFunkerWeg, stTreffpunkt,
     imVersteck, freieFlaeche, stVersteck,
+    /* ---- Missions-Innenraum ---- */
+    innen: MISSION_INTERIOR, innenRaum, innenBetreten, innenVerlassen,
+    innenSofortRaus, imInnenraum, innenZeigen,
+    get innenAktiv() { return MISSION_INTERIOR.active; },
+    get innenKamDist() { return INNEN_KAM_DIST; },
+    setzeInnenKamDist(v) { INNEN_KAM_DIST = v; },
+    get innenBlende() { return MISSION_INTERIOR.blende; },
+    get innenZyklen() { return MISSION_INTERIOR.zyklen; },
+    /* Wie viele Objekte direkt an der Szene gerade sichtbar sind - die
+       Zahl, an der sich Weltausblendung und Rueckkehr messen lassen. */
+    szeneSichtbar() {
+      let n = 0;
+      for (const o of scene.children) if (o.visible) n++;
+      return n;
+    },
     /* Die Nebenauftraege pausieren. Ein Pruefstand, der EINE Figur laufen
        laesst, bekommt sonst nach rund 18 Sekunden den Geiselauftrag
        dazwischen: der sucht sich den naechsten Zivilisten und setzt ihn an

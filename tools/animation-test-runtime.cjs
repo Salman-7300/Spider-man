@@ -118,6 +118,11 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
     WANDLAUF_ARM: JSON.parse(lies(/let WANDLAUF_ARM = (\[[^\]]*\])/, '[0.02,0.16,0.34,0.4,0.16,0.06,0.12,0.12]')),
     SCHWUNG_KOPF: JSON.parse(lies(/let SCHWUNG_KOPF = (\[[^\]]*\])/, '[0.55,0.3,0.22,0]')),
     EINST: { maus: 100, autokam: 'aus' }, mouseDX: 0, mouseDY: 0, touchAktiv: false,
+    /* updateCamera fragt seit dem Missions-Innenraum, ob dieser aktiv ist -
+       drinnen gilt ein fester, kleinerer Kameraabstand. Fuer die
+       Kameratests der Aussenwelt steht er auf aus. Ohne diesen Eintrag
+       stirbt jeder Kameratest mit "MISSION_INTERIOR is not defined". */
+    MISSION_INTERIOR: { active: false, phase: null, raum: null },
     KAT: { aktiv: false }, groundY: () => 0, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(),
     camera: new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1000),
     sun: { position: new THREE.Vector3(), target: new THREE.Object3D() },
