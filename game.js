@@ -12492,20 +12492,46 @@ function collideBody(body, prevY, radiusExtra) {
 /* ======================= Netzschwung & Netz-Aktionen ======================= */
 /* Läuft der Faden frei zum Anker, oder steckt ein Haus dazwischen?
    Ohne diese Prüfung schoss das Netz gern durch die Nachbarfassade. */
+const _fsA = new THREE.Vector3(), _fsB = new THREE.Vector3();
+const _fsGesehen = new Set();
+/* ---- Freie Sicht: als Strecke, nicht als Stichprobe ----
+   Bis hierher wurde der Strahl in hoechstens 26 Punkten abgetastet. Bei
+   26 m Sichtweite liegen die Punkte damit ueber zwei Meter auseinander -
+   und die Waende der Baukasten-Haeuser sind 0,8 m dick (KIT_WAND). Der
+   Strahl sprang also regelmaessig UEBER eine Wand hinweg, und der Ganove
+   sah durch sie hindurch.
+
+   Gemessen in sechs Haeusern (tools/pruef/innenraum.js): der Spieler
+   stand hinten im Raum, ein Ganove acht Meter vor der Fassade. In DREI
+   von sechs Faellen wurde er trotz geschlossener Wand gesehen. Ob es
+   auffiel, haing allein davon ab, wo zufaellig ein Stichpunkt lag.
+
+   Jetzt wird dieselbe Strecken-Kasten-Pruefung benutzt, die die Kamera
+   schon benutzt (kameraKastenTreffer): ein echter Schnitt, keine
+   Stichprobe. Das nimmt zugleich die Hoehe UNTEN mit (c.y0) - und genau
+   die braucht ein Tuerdurchgang, damit der Sturz ueber der Tuer den
+   Blick durch die offene Tuer nicht faelschlich sperrt. */
 function freieSicht(ax, ay, az, bx, by, bz, ziel) {
-  const dx = bx - ax, dy = by - ay, dz = bz - az;
-  const len = Math.hypot(dx, dy, dz);
-  const schritte = Math.min(26, Math.max(4, Math.round(len / 2.5)));
-  for (let i = 1; i < schritte; i++) {
-    const t = i / schritte;
-    const x = ax + dx * t, y = ay + dy * t, z = az + dz * t;
-    for (const c of collidersNear(x, z)) {
-      if (c === ziel || c.klein) continue;
-      if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1 && y < c.h) return false;
+  _fsA.set(ax, ay, az); _fsB.set(bx, by, bz);
+  const i0 = Math.floor((Math.min(ax, bx) - ORIGIN) / PITCH);
+  const i1 = Math.floor((Math.max(ax, bx) - ORIGIN) / PITCH);
+  const j0 = Math.floor((Math.min(az, bz) - ORIGIN) / PITCH);
+  const j1 = Math.floor((Math.max(az, bz) - ORIGIN) / PITCH);
+  _fsGesehen.clear();
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const zelle = colliderGrid.get(i + ',' + j);
+      if (!zelle) continue;
+      for (const c of zelle) {
+        if (c === ziel || c.klein || _fsGesehen.has(c)) continue;
+        _fsGesehen.add(c);
+        if (kameraKastenTreffer(_fsA, _fsB, c, 0) < 0.999) return false;
+      }
     }
   }
   return true;
 }
+
 
 // Moving anchors use the same world collision boxes as the camera. Test
 // every crossed cell and the exact segment, including thin projections.
@@ -32683,6 +32709,9 @@ if (window.__WEBHERO_TEST__ === true) {
     DAMPF_STELLEN,
     fluegelSicht() { return +fluegelSicht.toFixed(2); },
     groundYAt: groundY,
+    /* Die Sichtpruefung direkt, damit ein Pruefstand die Geometrie
+       befragen kann, ohne eine Figur laufen zu lassen. */
+    freieSicht,
     /* Die Nebenauftraege pausieren. Ein Pruefstand, der EINE Figur laufen
        laesst, bekommt sonst nach rund 18 Sekunden den Geiselauftrag
        dazwischen: der sucht sich den naechsten Zivilisten und setzt ihn an
