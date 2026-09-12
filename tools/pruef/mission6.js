@@ -337,6 +337,7 @@ const TEIL = process.argv[2] || '1-3';
         let vorF = null, vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
         let fest = 0, festGemeldet = 0;
         let anlaufPhase = -1, gesetzt = 0, tuerErreicht = false;
+        let seitT = 0, seitSeite = 1;
         const phMess = {};
         /* Das Haus wird WAEHREND des Laufs festgehalten, nicht danach:
            storyAufraeumen() loescht die Missionsdaten beim Abschluss, und
@@ -523,7 +524,8 @@ const TEIL = process.argv[2] || '1-3';
                   laufZiel = { x: m.v.tuerMitte.x - t2.nx * 4.0,
                                z: m.v.tuerMitte.z - t2.nz * 4.0 };
               }
-              const w = Math.atan2(laufZiel.x - P.pos.x, laufZiel.z - P.pos.z);
+              let w = Math.atan2(laufZiel.x - P.pos.x, laufZiel.z - P.pos.z);
+              if (seitT > 0) { seitT--; w += seitSeite * 1.35; }
               P.facing = w; d.setzeKamYaw(w + Math.PI);
               const d2 = Math.hypot(laufZiel.x - P.pos.x, laufZiel.z - P.pos.z);
               if (d2 > 1.6) d.taste('KeyW', true); else d.taste('KeyW', false);
@@ -533,7 +535,18 @@ const TEIL = process.argv[2] || '1-3';
               if (weg < 0.08) fest++; else fest = 0;
               vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
               if (fest === 60) d.tippeSprung && d.tippeSprung();
-              if (fest > 240) { anlaufPhase = -1; fest = 0; festGemeldet++; }
+              /* ---- Ein allgemeiner Seitenschritt statt weiterer Sonderfaelle ----
+                 Der Bot laeuft geradeaus. Im Innenraum steht Mobiliar:
+                 dreimal ist er an einem Tisch, einer Trennwand und einem
+                 Regal haengengeblieben, und jedes Mal habe ich einen
+                 eigenen Wegpunkt dafuer gebaut. Das skaliert nicht.
+                 Kommt er nicht voran, geht er stattdessen kurz zur Seite -
+                 abwechselnd links und rechts, wie ein Mensch. */
+              if (fest > 45) {
+                seitT = 36; seitSeite = -seitSeite;
+                fest = 0; festGemeldet++;
+              }
+              if (fest > 240) { anlaufPhase = -1; fest = 0; }
             }
           }
           /* Variante B: den Funker sofort einnetzen, sobald es geht. */
@@ -592,6 +605,16 @@ const TEIL = process.argv[2] || '1-3';
                       phasen: spur.length, spur, funkerGefangen, gegnerMax,
                       geiselGebunden: geiselOk,
                       chaseWeg: +chaseWeg.toFixed(0), chaseT: +chaseT.toFixed(1),
+                      /* Wie lang der Weg zum Treffpunkt laut Gehnetz IST -
+                         die Zahl, an der das Zielband 120 bis 250 m
+                         haengt. Ohne sie laesst sich eine kurze
+                         Verfolgung nicht von einem kurzen Weg
+                         unterscheiden. */
+                      treffWeg: mEnd && mEnd.treff && mEnd.treff.weg !== undefined
+                        ? mEnd.treff.weg : null,
+                      treffLuft: mEnd && mEnd.treff && mEnd.austritt
+                        ? Math.round(Math.hypot(mEnd.treff.x - mEnd.austritt.x,
+                                                mEnd.treff.z - mEnd.austritt.z)) : null,
                       festGemeldet, gesetzt,
                       restGegner: d.enemies.filter((e) => !e.dead).length,
                       restStory: d.enemies.filter((e) => e.storyGegner).length,
@@ -712,7 +735,8 @@ const TEIL = process.argv[2] || '1-3';
         '   Mission 7 frei ' + l.m7frei);
       p('    Phasen durchlaufen: ' + l.phasen + '   Gegner gleichzeitig hoechstens: ' + l.gegnerMax);
       p('    Funker gefangen: ' + l.funkerGefangen +
-        '   Fluchtweg ' + l.chaseWeg + ' m in ' + l.chaseT + ' s');
+        '   Fluchtweg ' + l.chaseWeg + ' m in ' + l.chaseT + ' s' +
+        '   Treffpunkt laut Gehnetz ' + l.treffWeg + ' m (Luftlinie ' + l.treffLuft + ' m)');
       p('    Haus: ' + l.haus + ' ' + JSON.stringify(l.hausMitte));
       if (!l.beendet)
         p('    STEHENGEBLIEBEN in Phase ' + l.endPhase + ' (' + l.endZiel + ')' +
