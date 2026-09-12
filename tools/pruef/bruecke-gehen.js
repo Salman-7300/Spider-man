@@ -30,6 +30,7 @@ const { starte } = require('./basis');
         d.taste('KeyW', true);
         let festX = null, festT = 0, vx = P.pos.x, vy = P.pos.y;
         let festUmfeld = null, festOrt = null;
+        let festBlick = null, festBoden = null, festGebiet = null;
         let stufe = 0, stufeX = null, tiefY = P.pos.y, driftZ = 0, driftX = null;
         for (let i = 0; i < 60 * 90; i++) {
           d.schritt(1 / 60);
@@ -63,20 +64,39 @@ const { starte } = require('./basis');
                 const dd2 = Math.hypot(e.pos.x - P.pos.x, e.pos.z - P.pos.z);
                 if (dd2 < 4) nah.push('Gegner ' + dd2.toFixed(1) + ' m');
               }
+              /* Kollider sind Kaesten aus x0/x1/z0/z1 mit y0 (unten, sonst
+                 -1) und h (oben, sonst 0) - NICHT aus einer Box mit
+                 min/max. Der erste Anlauf hier fragte c.box ab und sprang
+                 damit ueber jeden einzelnen Kollider hinweg: die Meldung
+                 "nichts in Reichweite" war keine Messung, sondern eine
+                 leere Schleife. */
               let best = null;
               for (const c of d.colliders || []) {
-                if (!c.box) continue;
-                const bx = Math.max(c.box.min.x - P.pos.x, 0, P.pos.x - c.box.max.x);
-                const bz = Math.max(c.box.min.z - P.pos.z, 0, P.pos.z - c.box.max.z);
+                const unten = c.y0 === undefined ? -1 : c.y0;
+                const oben = c.h === undefined ? 0 : c.h;
+                /* Was unter dem Knie endet, ist eine Stufe; was ueber dem
+                   Kopf anfaengt, laeuft man drunter durch. Beides ist kein
+                   Grund stehenzubleiben. */
+                if (oben < P.pos.y + 0.35 || unten > P.pos.y + 1.8) continue;
+                const bx = Math.max(c.x0 - P.pos.x, 0, P.pos.x - c.x1);
+                const bz = Math.max(c.z0 - P.pos.z, 0, P.pos.z - c.z1);
                 const dd2 = Math.hypot(bx, bz);
-                if (!best || dd2 < best.d) best = { d: dd2, c };
+                if (!best || dd2 < best.d) best = { d: dd2, c, unten, oben };
               }
               if (best && best.d < 3) {
                 nah.push('Kollider ' + best.d.toFixed(2) + ' m ' +
                   (best.c.art || best.c.typ || best.c.name || '?') +
-                  ' y ' + best.c.box.min.y.toFixed(1) + '..' + best.c.box.max.y.toFixed(1) +
+                  ' x ' + best.c.x0.toFixed(1) + '..' + best.c.x1.toFixed(1) +
+                  ' z ' + best.c.z0.toFixed(1) + '..' + best.c.z1.toFixed(1) +
+                  ' y ' + best.unten.toFixed(1) + '..' + best.oben.toFixed(1) +
                   (best.c.klein ? ' klein' : ''));
               }
+              festBlick = +P.facing.toFixed(2);
+              festBoden = d.groundYAt(P.pos.x + Math.sin(P.facing) * 0.6,
+                                      P.pos.z + Math.cos(P.facing) * 0.6, 2);
+              festGebiet = d.imGebiet
+                ? d.imGebiet(P.pos.x + Math.sin(P.facing) * 0.6,
+                             P.pos.z + Math.cos(P.facing) * 0.6) : null;
               festUmfeld = nah.join(' | ') || 'nichts in Reichweite';
               festOrt = [+P.pos.x.toFixed(1), +P.pos.y.toFixed(2), +P.pos.z.toFixed(1)];
             }
@@ -89,7 +109,7 @@ const { starte } = require('./basis');
           durch: dir > 0 ? P.pos.x > zielX : P.pos.x < zielX,
           endeX: +P.pos.x.toFixed(1), tiefY: +tiefY.toFixed(2),
           maxStufe: +stufe.toFixed(3), stufeX, driftZ: +driftZ.toFixed(2), driftX,
-          festBei: festX, festUmfeld, festOrt });
+          festBei: festX, festUmfeld, festOrt, festBlick, festBoden, festGebiet });
       }
     }
     return berichte;
@@ -103,7 +123,9 @@ const { starte } = require('./basis');
       ' groesste Stufe=' + r.maxStufe + (r.stufeX !== null ? '@x' + r.stufeX : '') +
       ' Abdrift z=' + r.driftZ + '@x' + r.driftX + (r.festBei !== null ? ' FEST bei x=' + r.festBei : ''));
     if (r.festBei !== null)
-      console.log('       steht bei ' + JSON.stringify(r.festOrt) + ': ' + r.festUmfeld);
+      console.log('       steht bei ' + JSON.stringify(r.festOrt) + ': ' + r.festUmfeld +
+        ' | Blick ' + r.festBlick + ', Boden 0,6 m voraus ' + r.festBoden +
+        ', im Gebiet ' + r.festGebiet);
   }
   console.log('Spuren:', aus.length, '| fehlerhaft:', schlimm);
   await b.close();
