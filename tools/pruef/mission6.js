@@ -337,7 +337,7 @@ const TEIL = process.argv[2] || '1-3';
         let vorF = null, vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
         let fest = 0, festGemeldet = 0;
         let anlaufPhase = -1, gesetzt = 0, tuerErreicht = false;
-        let seitT = 0, seitSeite = 1;
+        let seitT = 0, seitSeite = 1, geiselWp = 0;
         const phMess = {};
         /* Das Haus wird WAEHREND des Laufs festgehalten, nicht danach:
            storyAufraeumen() loescht die Missionsdaten beim Abschluss, und
@@ -423,11 +423,25 @@ const TEIL = process.argv[2] || '1-3';
             const ichInGeisel = P.pos.x > gz.x0 && P.pos.x < gz.x1 &&
                                 P.pos.z > gz.z0 && P.pos.z < gz.z1;
             if (!ichInGeisel) {
-              for (const w of iRaum.geiselWeg) {
-                if (Math.hypot(P.pos.x - w.x, P.pos.z - w.z) > (w.r || 1.2)) {
-                  innenAnlauf = { x: w.x, z: w.z };
-                  break;
-                }
+              /* ---- Erreichte Stationen werden VERBRAUCHT ----
+                 Der erste Anlauf suchte jedes Bild neu die erste Station,
+                 die weiter als ihr Radius entfernt ist. Sobald der Bot
+                 Station 1 erreichte, zielte er auf Station 2, lief los,
+                 war damit wieder mehr als 1,2 m von Station 1 entfernt -
+                 und zielte wieder auf Station 1. Beide Varianten blieben
+                 1,6 m vor der ersten Station stehen und pendelten.
+
+                 Das Spiel macht es bei fluchtWeg richtig: erreichte Punkte
+                 werden aus der Liste genommen. Genau das hier mit einem
+                 Zeiger, der nur vorwaerts geht. */
+              const weg = iRaum.geiselWeg;
+              while (geiselWp < weg.length &&
+                     Math.hypot(P.pos.x - weg[geiselWp].x,
+                                P.pos.z - weg[geiselWp].z) <= (weg[geiselWp].r || 1.2)) {
+                geiselWp++;
+              }
+              if (geiselWp < weg.length) {
+                innenAnlauf = { x: weg[geiselWp].x, z: weg[geiselWp].z };
               }
             }
           }
