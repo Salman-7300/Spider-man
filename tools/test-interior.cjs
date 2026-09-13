@@ -283,3 +283,19 @@ test('Der Weg vom Eingang zum Hinterausgang ist deutlich laenger als vorher', ()
                        h.hinterausgang.z - h.spielerStart.z);
   assert.ok(d >= 34, 'nur ' + d.toFixed(1) + ' m vom Start zum Hinterausgang');
 });
+
+/* Ein Test, der hier stand, ist wieder weggefallen: "kein Gegnerplatz
+   naeher als 1,2 m an der Hauptachse". Er hat angeschlagen (6 von 58
+   Plaetzen) - aber die Regel war erfunden. Frei bleiben muss der
+   Hauptweg von MOEBELN, und das prueft "Die Hauptwege sind breit genug".
+   Gegner sollen sehr wohl im Weg stehen; das ist der Kampf. */
+
+test('Deko hat nie einen Kollisionskasten', () => {
+  /* Die Umkehrung des Moebeltests: was absichtlich klein ist, darf
+     einen nicht aufhalten. Gezaehlt wird ueber den eigenen Zaehler des
+     Raums - so faellt auf, wenn Deko versehentlich massiv gebaut wird. */
+  const h = bau();
+  assert.ok(h.zahlen.klein > 0, 'keine Deko gebaut - der Test prueft nichts');
+  assert.strictEqual(h.zahlen.massiv + 1, h.zahlen.kollider,
+    'Zahl der Kollisionskaesten passt nicht zu den massiven Teilen (+ Deckendeckel)');
+});

@@ -337,7 +337,8 @@ const TEIL = process.argv[2] || '1-3';
         let vorF = null, vorP = { x: P.pos.x, y: P.pos.y, z: P.pos.z };
         let fest = 0, festGemeldet = 0;
         let anlaufPhase = -1, gesetzt = 0, tuerErreicht = false;
-        let seitT = 0, seitSeite = 1, geiselWp = 0;
+        let seitT = 0, seitSeite = 1, geiselWp = 0, obenT = 0;
+        let geiselWpGesetzt = false;
         const phMess = {};
         /* Das Haus wird WAEHREND des Laufs festgehalten, nicht danach:
            storyAufraeumen() loescht die Missionsdaten beim Abschluss, und
@@ -436,6 +437,24 @@ const TEIL = process.argv[2] || '1-3';
                  werden aus der Liste genommen. Genau das hier mit einem
                  Zeiger, der nur vorwaerts geht. */
               const weg = iRaum.geiselWeg;
+              /* ---- Einstieg an der NAECHSTEN Station, nicht an der
+                 ersten ----
+                 Der Leitweg beginnt in der Lagergasse. Steht der Bot nach
+                 dem Kampf schon weiter oestlich oder noerdlich, laeuft er
+                 mit Station 0 als Ziel wieder zurueck - und im Botlauf
+                 quer in den Nordcontainer. Ein Mensch nimmt die Station,
+                 die ihm am naechsten liegt; genau das macht der Zeiger
+                 jetzt EINMAL beim ersten Aufruf. Danach geht er wie
+                 bisher nur vorwaerts. */
+              if (!geiselWpGesetzt) {
+                geiselWpGesetzt = true;
+                let best = 0, bestD = Infinity;
+                for (let k = 0; k < weg.length; k++) {
+                  const dk = Math.hypot(P.pos.x - weg[k].x, P.pos.z - weg[k].z);
+                  if (dk < bestD) { bestD = dk; best = k; }
+                }
+                geiselWp = best;
+              }
               while (geiselWp < weg.length &&
                      Math.hypot(P.pos.x - weg[geiselWp].x,
                                 P.pos.z - weg[geiselWp].z) <= (weg[geiselWp].r || 1.2)) {
@@ -576,6 +595,29 @@ const TEIL = process.argv[2] || '1-3';
                 fest = 0; festGemeldet++;
               }
               if (fest > 240) { anlaufPhase = -1; fest = 0; }
+              /* ---- Drinnen: nicht auf den Containern wohnen ----
+                 Im groesseren Raum stehen 2,5 m hohe Container und 2,6 m
+                 hohe Regale mitten in der Kampfzone. Der Bot rennt mit
+                 gedrueckter Vorwaertstaste dagegen, die Figur klebt an
+                 und klettert hinauf - gemessen stand sie in Variante B
+                 auf 3,3 m Hoehe, waehrend die Gegner unten suchten, und
+                 die Phase "Das Versteck sichern" lief in beiden
+                 Varianten aus.
+                 Das ist kein Spielfehler: an Kisten hochzuklettern ist
+                 erlaubt und richtig. Es ist eine Luecke im Bot. Steht er
+                 drinnen hoeher als einen halben Meter ueber dem
+                 Hallenboden, laesst er die Taste los und laesst sich
+                 fallen; bleibt er oben, wird er wie draussen einmal
+                 heruntergesetzt. */
+              if (d.innenAktiv && iRaum && P.pos.y > iRaum.bodenY + 0.6) {
+                d.taste('KeyW', false);
+                obenT++;
+                if (obenT > 90) {
+                  d.setzePos(P.pos.x, iRaum.bodenY + 0.05, P.pos.z);
+                  P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
+                  gesetzt++; obenT = 0;
+                }
+              } else obenT = 0;
             }
           }
           /* Variante B: den Funker sofort einnetzen, sobald es geht. */

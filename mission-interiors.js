@@ -270,7 +270,7 @@
     /* ---- Saeulen ----
        Bewusst aus der Mittelachse heraus: der Hauptweg vom Eingang zum
        Hinterausgang bleibt frei. */
-    for (const [px, pz] of [[-10, -10], [-10, 10], [3, -10], [3, 10], [16, -11.5]]) {
+    for (const [px, pz] of [[-10, -10], [-10, 10], [1.5, -6.5], [1.5, 6.5], [16, -11.5]]) {
       bau(ziel, mat.beton, X(px), oy, Z(pz), 0.85, M.hoehe, 0.85, ...WAND);
     }
 
@@ -348,7 +348,7 @@
       [mat.palette,    -9.0,   2.5, 1.6, 0.55, 1.2],  // Palette mit Sackware
       /* --- Zone C: Lager, Welle 2 --- */
       [mat.metall,      0.5,  -9.5, 6.0, 2.6, 1.0],   // Regalreihe Sued
-      [mat.metall,      0.5,   9.5, 6.0, 2.6, 1.0],   // Regalreihe Nord
+      [mat.metall,     -1.0,   9.5, 6.0, 2.6, 1.0],   // Regalreihe Nord
       [mat.container,   7.5, -11.8, 5.2, 2.5, 2.3],   // Container Sued
       [mat.container,   7.5,   9.2, 5.2, 2.5, 2.3],   // Container Nord
       [mat.holz,       -0.5,   0.5, 2.0, 1.55, 2.0],  // Deckung Mitte
@@ -389,7 +389,7 @@
     /* Absperrgitter: schmal, huefthoch, mit Kollision - sie sind das
        einzige Moebel, das mitten in einer Kampfzone stehen darf, weil man
        um sie herum kaempft statt gegen sie zu laufen. Bewusst WENIGE. */
-    for (const [px, pz, bx] of [[-8.0, 9.5, 2.4], [3.0, 7.5, 2.6], [11.5, -2.0, 2.2]]) {
+    for (const [px, pz, bx] of [[-8.0, 9.5, 2.4], [-5.0, 7.5, 2.6], [11.5, -2.0, 2.2]]) {
       bau(ziel, mat.metall, X(px), oy, Z(pz), bx, 1.05, 0.28, true);
     }
 
@@ -508,11 +508,19 @@
        jeden Kollisionskasten geprueft. Das ist keine Botkruecke - es ist
        dieselbe Loesung, die der Funker benutzt, und sie steht dem Spiel
        genauso zur Verfuegung. */
+    /* Die Stationen liegen in zwei Gassen, die im Bauplan absichtlich
+       frei bleiben:
+         - eine Nord-Sued-Gasse bei x = 3,9 zwischen der Regalreihe Nord
+           (endet bei x = 2) und dem Nordcontainer (beginnt bei x = 4,9),
+         - ein Nordgang bei z = 12,5, noerdlich von Regal und Container.
+       Der erste Entwurf fuehrte bei x = 6 nach Norden - mitten durch den
+       Nordcontainer. Der Botlauf blieb daraufhin bei (6 | 7,6) haengen
+       und beendete die Phase "Die Geisel befreien" nicht. */
     const geiselWeg = [
-      { x: X(6.0), z: Z(12.8), r: 1.3 },
-      { x: X(12.8), z: Z(12.8), r: 1.3 },
-      { x: geiselPunkt.x, z: Z(12.2), r: 1.3 },
-      { x: geiselPunkt.x, z: geiselPunkt.z + 1.3, r: 1.3 },
+      { x: X(3.9), z: Z(6.5), r: 1.2 },
+      { x: X(3.9), z: Z(12.5), r: 1.2 },
+      { x: X(12.8), z: Z(12.5), r: 1.3 },
+      { x: geiselPunkt.x, z: Z(11.9), r: 1.2 },
     ];
 
     /* ---- Die vorgegebenen Wege werden BEIM BAUEN geprueft ----

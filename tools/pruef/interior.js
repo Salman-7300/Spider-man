@@ -355,6 +355,65 @@ const will = (n) => TEIL === String(n) || TEIL === 'alle';
         sichtbar: d.szeneSichtbar() };
       vorbereiten();
       R.t7 = { phasen, vorTod, totDrin, nachTod, vorAbbruch, nachAbbruch };
+
+      /* ---- 8: Die Geisel: Sitz, Fesseln, Befreiung ----
+         Der Playtest hat "schwebt und ist nicht gefesselt" gemeldet.
+         Geprueft wird am Skelett, nicht am Augenmass: Becken auf der
+         Kistenoberkante, tiefster Fusspunkt auf dem Fussboden, Fesseln
+         VOR der Befreiung da und DANACH weg. */
+      vorbereiten();
+      d.storyStarte('m6', 3);
+      for (let i = 0; i < 90; i++) d.schritt(1 / 60);
+      const raum = d.innen.raum;
+      const findeFessel = () => {
+        let f = null;
+        if (raum) raum.gruppe.traverse((o) => { if (o.name === 'GeiselFessel') f = o; });
+        return f;
+      };
+      const civ = d.civilians.find((c) => c.geisel);
+      let vorher = null, nachher = null;
+      if (civ && raum) {
+        /* Naeher heran, damit die Nah-Behandlung greift (ab FERN wird
+           nur jedes dritte Bild gerechnet). */
+        d.setzePos(raum.geiselPunkt.x - 4, 0, raum.geiselPunkt.z + 2.5);
+        P.state = 'ground'; P.onGround = true;
+        for (let i = 0; i < 60; i++) d.schritt(1 / 60);
+        const sm = civ.visual.sitzMasse ? civ.visual.sitzMasse() : null;
+        const f = findeFessel();
+        vorher = {
+          sitzY: raum.geiselSitzY,
+          pos: [+civ.pos.x.toFixed(2), +civ.pos.y.toFixed(2), +civ.pos.z.toFixed(2)],
+          soll: [+raum.geiselPunkt.x.toFixed(2), +raum.geiselPunkt.z.toFixed(2)],
+          huefte: sm ? +sm.huefte.toFixed(3) : null,
+          fuss: sm ? +sm.fuss.toFixed(3) : null,
+          fesselDa: !!(f && f.visible && f.parent),
+          handAbstand: (() => {
+            const a = civ.visual.handPos && civ.visual.handPos('L', new THREE.Vector3());
+            const b2 = civ.visual.handPos && civ.visual.handPos('R', new THREE.Vector3());
+            return a && b2 ? +a.distanceTo(b2).toFixed(3) : null;
+          })(),
+        };
+        /* Befreien: hingehen, bis die Phase umschlaegt. */
+        for (let i = 0; i < 600 && d.civilians.some((c) => c.geisel); i++) {
+          const zx = raum.geiselPunkt.x, zz = raum.geiselPunkt.z;
+          const w = Math.atan2(zx - P.pos.x, zz - P.pos.z);
+          P.facing = w; d.setzeKamYaw(w + Math.PI);
+          const dd = Math.hypot(zx - P.pos.x, zz - P.pos.z);
+          if (dd > 2.0) d.taste('KeyW', true); else d.taste('KeyW', false);
+          d.schritt(1 / 60);
+        }
+        d.taste('KeyW', false);
+        for (let i = 0; i < 30; i++) d.schritt(1 / 60);
+        const f2 = findeFessel();
+        nachher = {
+          nochGeisel: d.civilians.filter((c) => c.geisel).length,
+          fesselDa: !!(f2 && f2.visible && f2.parent),
+          y: +civ.pos.y.toFixed(2),
+          phase: d.story.phase,
+        };
+      }
+      R.t8 = { vorher, nachher };
+      vorbereiten();
     }
     return R;
   }, TEIL);
@@ -459,6 +518,20 @@ const will = (n) => TEIL === String(n) || TEIL === 'alle';
     p(z('A aussen davor', aus.lastA));
     p(z('B im Innenraum', aus.lastB));
     p(z('C aussen danach', aus.lastC));
+  }
+  if (aus.t8) {
+    p('');
+    p('== 8: Geisel, Sitz und Fesseln ==');
+    const v = aus.t8.vorher, n = aus.t8.nachher;
+    if (!v) p('  keine Geisel gefunden - der Test prueft nichts');
+    else {
+      p('  Sitzflaeche ' + v.sitzY + ' m   Becken ' + v.huefte +
+        '   tiefster Fusspunkt ' + v.fuss);
+      p('  Standort ' + JSON.stringify(v.pos) + '   Sollpunkt ' + JSON.stringify(v.soll));
+      p('  Fesseln da: ' + v.fesselDa + '   Handabstand ' + v.handAbstand + ' m');
+    }
+    if (n) p('  nach der Befreiung: Geiseln ' + n.nochGeisel + ', Fesseln da ' +
+      n.fesselDa + ', y ' + n.y + ', Phase ' + n.phase);
   }
   await b.close();
 })();
