@@ -86,7 +86,11 @@
        liesse alle Materialien neu uebersetzen. */
     lampe: new THREE.MeshBasicMaterial({ color: 0xffe6b4 }),
     /* Bodenmarkierung: eigener Offset, siehe Kopfkommentar. */
-    farbe: new THREE.MeshLambertMaterial({ color: 0xb9a441,
+    /* Etwas dunkler als im kleinen Raum (vorher 0xb9a441): dort waren
+       die Streifen 5 bis 6 m lang, hier bis 13 m - und in der
+       Uebersichtsaufnahme war der helle Streifen das auffaelligste
+       Objekt im ganzen Bild. */
+    farbe: new THREE.MeshLambertMaterial({ color: 0x8e7c33,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     /* Das Seil an den Haenden der Geisel. Hell, damit man auf einen Blick
        sieht, dass sie gefesselt ist - der Playtest hat genau das
@@ -360,7 +364,11 @@
          Die Kiste, auf der die Geisel sitzt. Ihre Oberkante ist die
          Sitzflaeche; die Mission setzt das Becken mit sitzMasse genau
          darauf. */
-      [mat.holz,       15.5,  10.5, 1.1, 0.52, 1.1],  // Sitzkiste
+      /* 0,62 m breit, nicht 1,1: auf der grossen Kiste sass die Geisel
+         in der MITTE und ihre Beine verschwanden im Kasten. Auf der
+         schmalen haengen Knie und Fuesse vorn ueber die Kante - die
+         Sitzhaltung legt die Knie gemessen 0,43 m vor das Becken. */
+      [mat.holz,       15.5,  10.5, 0.62, 0.52, 0.62],  // Sitzkiste
       [mat.holz,       19.0,  13.5, 1.6, 1.4, 1.6],   // Kistenstapel dahinter
     ];
     for (const [mt, px, pz, bx, by, bz] of massiv) {
@@ -407,15 +415,17 @@
     for (const [mt, px, pz, py, bx, by, bz] of klein) {
       deko(ziel, mt, X(px), oy + py, Z(pz), bx, by, bz);
     }
-    /* Kabelstraenge an der Decke und an den Waenden: lange duenne Kaesten,
-       reine Deko. Sie geben der Halle Tiefe, ohne dass man an ihnen
-       haengenbleibt. */
+    /* Leitungen AN DEN WAENDEN, reine Deko.
+       Der erste Entwurf spannte zusaetzlich drei 18 bis 27 m lange
+       Kabel frei unter der Decke durch den Raum. Im Bild waren das keine
+       Kabel, sondern haarduenne schwarze Striche quer ueber die ganze
+       Halle - sie sahen aus wie ein Kratzer im Bild. Sie sind weg;
+       was bleibt, liegt dicht an der Wand und ist dicker. */
     const kabelDeko = [
-      [ -8, M.hoehe - 1.05,   0, 27, 0.09, 0.09],
-      [ -8, M.hoehe - 1.05, 0.3, 27, 0.07, 0.07],
-      [ 12, M.hoehe - 1.05,  -6, 18, 0.09, 0.09],
-      [-20.6, 2.6,  5, 0.08, 0.08, 12],
-      [ 20.6, 2.2, -8, 0.08, 0.08, 10],
+      [-20.5, 2.6,   5, 0.12, 0.12, 14],
+      [-20.5, 2.9,   5, 0.10, 0.10, 14],
+      [ 20.5, 2.2,  -8, 0.12, 0.12, 11],
+      [   -8, 0.35, -14.5, 24, 0.12, 0.12],
     ];
     for (const [px, py, pz, bx, by, bz] of kabelDeko) {
       deko(ziel, mat.kabel, X(px), oy + py, Z(pz), bx, by, bz);
@@ -424,8 +434,8 @@
     /* ---- Bodenmarkierungen ----
        Zwei Zentimeter ueber dem Boden UND mit polygonOffset. Eine von
        beiden Massnahmen allein hat in der Stadt schon geflackert. */
-    for (const [px, pz, bx, bz] of [[GA, 0, 0.25, 5.0], [GB, 0, 0.25, 13.0],
-                                    [GC, -1.5, 0.25, 9.0], [hx - 1.6, -1.5, 1.8, 0.25]]) {
+    for (const [px, pz, bx, bz] of [[GA, 0, 0.25, 5.0], [GB, 0, 0.25, 9.0],
+                                    [GC, -1.5, 0.25, 7.0], [hx - 1.6, -1.5, 1.8, 0.25]]) {
       const m = new THREE.Mesh(flaecheGeo, mat.farbe);
       m.rotation.x = -Math.PI / 2;
       m.position.set(X(px), oy + 0.02, Z(pz));

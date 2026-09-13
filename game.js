@@ -23712,7 +23712,14 @@ function updateCivilians(dtBild) {
     }
     /* Die eigene Hoehe zaehlt mit: sonst zieht es die Wartenden auf dem
        Bahnsteig durch die Decke auf die Strasse. */
-    const cGrund = groundY(c.pos.x, c.pos.z, c.pos.y);
+    /* ---- Die Geisel sitzt auf einer Kiste ----
+       Fuer sie ist deren Oberkante der Boden. OHNE diese Zeile zieht die
+       Hoehenfuehrung sie auf den Fussboden, collideBody schiebt sie
+       danach seitlich aus der Kiste heraus, und im Bild sitzt sie NEBEN
+       der Kiste in der Luft. Genau so gemessen: Sollpunkt x 1015,5 -
+       tatsaechlich 1014,6; y 0 statt 0,52. */
+    const cGrund = c.geiselSitzY !== undefined ? c.geiselSitzY
+                 : groundY(c.pos.x, c.pos.z, c.pos.y);
     /* ---- Kleine Stufen weich, grosse Spruenge als FALL ----
        Die Hoehe wurde immer mit derselben weichen Glaettung nachgefuehrt.
        Bei einer Bordsteinkante ist das richtig; laeuft aber jemand ueber
@@ -23774,33 +23781,7 @@ function updateCivilians(dtBild) {
     c.visual.play(zAnim,
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), speed,
         t: elapsed + c.phase }, dt);
-    /* ---- Die Geisel sitzt auf der Kiste, gefesselt ----
-       Zweiter Human-Playtest: "schwebt sichtbar und ist nicht gefesselt".
-       Gemessen war beides richtig - sie stand in der Warte-Haltung auf
-       Bodenhoehe, ohne Sitzflaeche und ohne Fesseln.
 
-       Gesetzt wird nach play(), sonst ueberschriebe die Bewegungsdatei
-       die Haltung wieder. Die Hoehe wird GEMESSEN, nicht abgezogen: die
-       Figuren sind unterschiedlich gross, ein fester Wert liesse die
-       einen schweben und die anderen einsinken - derselbe Fehler, der im
-       U-Bahn-Wagen schon einmal gemessen wurde.
-
-       Zwei Bedingungen, und es gilt die staerkere: das Becken sitzt auf
-       der Kistenoberkante, und die Fuesse gehen nicht durch den Boden.
-       Die Kiste ist 0,52 m hoch, weil die Sitzhaltung das Becken
-       gemessen 0,53 m ueber die Fuesse legt - beides faellt damit fast
-       zusammen. */
-    if (c.geisel && c.geiselSitzY !== undefined && c.visual.poseSitzen) {
-      c.visual.poseSitzen(1);
-      const sm = c.visual.sitzMasse ? c.visual.sitzMasse() : null;
-      if (sm) {
-        const bodenY = MISSION_INTERIOR.active && MISSION_INTERIOR.raum
-          ? MISSION_INTERIOR.raum.bodenY : groundY(c.pos.x, c.pos.z, c.pos.y);
-        c.visual.root.position.y +=
-          Math.max(c.geiselSitzY - sm.huefte, (bodenY || 0) - sm.fuss);
-      }
-      geiselFesselSetzen(c);
-    }
     /* Beim Filmen wird der Arm mit dem Handy zum Helden gestreckt –
        vorher hing der Arm herunter und das Handy schwebte davor. */
     /* Die Feinarbeit an Handy und Schirm (Arm ausrichten, Faust schließen,
@@ -23830,7 +23811,8 @@ function updateCivilians(dtBild) {
     const handyStark = clamp((HANDY_FERN - dRaum) / HANDY_BAND, 0, 1);
     if (handyStark <= 0) c.handy.visible = false;
     const nah = dHeld < 30 && Math.abs(player.pos.y - c.pos.y) < 14;
-    if (handyStark > 0 && c.handy.visible && c.visual.poseGreifen) {
+    if (c.geisel) { c.handy.visible = false; if (c.schirm) c.schirm.visible = false; }
+    if (handyStark > 0 && c.handy.visible && !c.geisel && c.visual.poseGreifen) {
       /* Wer filmt, haelt das Geraet vor das GESICHT und schaut darauf -
          Ellbogen angewinkelt, Oberarm dicht am Koerper. Vorher zeigte der
          ganze Arm ausgestreckt auf den Helden, und das Handy klebte am
@@ -23911,8 +23893,42 @@ function updateCivilians(dtBild) {
         c.visual.haltAusgerichtet(c.schirm, c.facing, 0.1, _v2.set(0, 0, 0));
       } else if (c.visual.haltAufrecht) c.visual.haltAufrecht(c.schirm, 0.12);
     }
+    /* ---- Die Geisel sitzt auf der Kiste, gefesselt ----
+       Zweiter Human-Playtest: "schwebt sichtbar und ist nicht gefesselt".
+       Gemessen war beides richtig.
+
+       Diese Haltung steht am ENDE der Figurarbeit, nicht gleich nach
+       play(). Der erste Versuch stand weiter oben - und die Feinarbeit
+       am Handyarm hat den rechten Arm gleich danach wieder ans Gesicht
+       gezogen: gemessen linke Hand auf 0,58 m (richtig, im Schoss),
+       rechte auf 1,29 m (falsch, am Ohr). Handy und Schirm werden der
+       Geisel jetzt ausserdem ganz abgenommen.
+
+       Die Hoehe wird GEMESSEN, nicht abgezogen: die Figuren sind
+       unterschiedlich gross, ein fester Wert liesse die einen schweben
+       und die anderen einsinken - derselbe Fehler, der im U-Bahn-Wagen
+       schon einmal gemessen wurde. Zwei Bedingungen, und es gilt die
+       staerkere: das Becken sitzt auf der Kistenoberkante, und die
+       Fuesse gehen nicht durch den Boden. Die Kiste ist 0,52 m hoch,
+       weil die Sitzhaltung das Becken gemessen 0,53 m ueber die Fuesse
+       legt - beides faellt damit fast zusammen. */
+    const sitzt = c.geisel && c.geiselSitzY !== undefined && c.visual.poseSitzen;
+    if (sitzt) {
+      c.visual.poseSitzen(1);
+      const sm = c.visual.sitzMasse ? c.visual.sitzMasse() : null;
+      if (sm) {
+        const bodenY = MISSION_INTERIOR.active && MISSION_INTERIOR.raum
+          ? MISSION_INTERIOR.raum.bodenY : groundY(c.pos.x, c.pos.z, c.pos.y);
+        c.visual.root.position.y +=
+          Math.max(c.geiselSitzY - sm.huefte, (bodenY || 0) - sm.fuss);
+      }
+      geiselFesselSetzen(c);
+    }
     if (haltenImGebiet(c.pos)) c.waypoint = null;
-    if (c.visual.bodenAusgleich) {
+    /* Der Bodenausgleich zieht die Fuesse auf die Bodenhoehe unter der
+       Figur. Bei einer SITZENDEN Figur ist das falsch - ihre Fuesse
+       haengen schon richtig. */
+    if (c.visual.bodenAusgleich && !sitzt) {
       c.visual.bodenAusgleich(Math.min(1, dt * 12));
       if (c.visual.zehenAusgleich && c.state !== 'hurt')
         c.visual.zehenAusgleich(groundY(c.pos.x, c.pos.z, c.pos.y), 1);

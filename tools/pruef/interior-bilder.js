@@ -47,16 +47,29 @@ const ZIEL = process.argv[2] || path.resolve(__dirname, '..', '..', 'bilder-inte
   /* Neun Blicke: jede Zone aus Spielerhoehe, dazu zwei flache Blicke
      ueber den Boden (dort faellt Flackern am ehesten auf) und einer von
      oben auf den ganzen Raum. */
+  /* Die Stellen sind an den neuen 42 x 30 m ausgerichtet, nicht mehr an
+     den alten 30 x 22 - sonst stuenden die Kameras in Waenden. */
   const blicke = [
-    ['1-eingang', [-13.0, 1.7, 0], [-2, 1.4, 0]],
-    ['2-halle-ost', [-7.0, 1.7, 0], [8, 1.4, 0]],
-    ['3-halle-west', [7.0, 1.7, 0], [-9, 1.4, 0]],
-    ['4-geisel', [3.0, 1.7, 2.0], [6.5, 1.2, 8.5]],
-    ['5-funkpunkt', [7.0, 1.7, -2.0], [12.4, 1.2, -4.2]],
-    ['6-hinterausgang', [8.0, 1.7, 1.0], [14.6, 1.6, 0]],
-    ['7-boden-flach', [-6.0, 0.22, -4.0], [10, 0.16, 4.0]],
-    ['8-boden-flach2', [10.0, 0.20, 6.0], [-12, 0.14, -6.0]],
-    ['9-uebersicht', [-12.0, 4.6, -8.0], [4, 0.6, 2.0]],
+    ['01-eingang', [-18.5, 1.7, 0], [-6, 1.4, 0]],
+    ['02-halle-ost', [-12.0, 1.7, 0], [2, 1.4, 0]],
+    ['03-halle-west', [0.0, 1.7, 0], [-16, 1.4, 0]],
+    ['04-hallentor', [-8.0, 1.7, 3.0], [6, 1.4, -1.0]],
+    ['05-lager', [-1.0, 1.7, -2.0], [10, 1.3, 2.0]],
+    ['06-geisel-zone', [11.5, 1.7, 13.0], [16.5, 1.1, 10.0]],
+    ['07-geisel-nah', [14.6, 1.25, 12.6], [15.5, 0.85, 10.5]],
+    ['08-funkpunkt', [11.5, 1.7, -2.0], [17, 1.2, -7.0]],
+    ['09-hinterausgang', [13.5, 1.7, -1.5], [20.5, 1.5, -1.5]],
+    ['10-boden-flach', [-8.0, 0.22, -6.0], [12, 0.16, 6.0]],
+    ['11-boden-flach2', [14.0, 0.20, 8.0], [-16, 0.14, -6.0]],
+    /* Der Uebersichtsblick lag im ersten Anlauf bei (-17 | -11) - das
+       ist im Vorraum HINTER der Trennwand, und im Bild stand ein
+       schwarzer Keil vor der halben Halle. Jetzt unter der Decke auf der
+       Hauptachse. */
+    /* Zweiter Anlauf stand bei (-6 | 0) auf 5,4 m - das ist die Stelle
+       einer Deckenleuchte, und das halbe Bild war ihre Leuchtflaeche aus
+       naechster Naehe. Jetzt zwischen den Leuchten. */
+    ['12-uebersicht', [-9.0, 5.1, 3.6], [12, 0.5, -1.0]],
+    ['13-geisel-seite', [17.5, 1.3, 12.8], [15.5, 0.75, 10.5]],
   ];
 
   for (const [name, kam, blick] of blicke) {
