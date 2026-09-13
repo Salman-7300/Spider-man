@@ -61,22 +61,45 @@ Geändert werden musste allein die Spielfeldklemme in `updatePlayer`.
 `mission-interiors.js` — eigene Datei, gleiche Offline-Bauweise wie
 `city-visuals.js`, kein Spielzustand, kein Zugriff auf `game.js`.
 
-    Maße            30 × 22 × 5,2 m
-    Sichtbare Teile 53
-    davon massiv    23  (mit Kollisionskasten)
-    davon klein     7   (bewusst ohne)
-    Kollisionskästen 24  (23 + Deckel gegen das Herausspringen)
-    Gegnerplätze    25  (abgetastet und geprüft)
+> **Zweiter Human-Playtest:** „Innen sieht gut aus, ist aber deutlich zu
+> klein" und „die Mission ist viel zu schnell". Der Raum ist daraufhin
+> von 30 × 22 auf **42 × 30 m** gewachsen, die Decke von 5,2 auf 6,0 m,
+> und aus vier Zonen sind sechs geworden. Die Zahlen unten sind die
+> neuen.
+
+    Maße            42 × 30 × 6,0 m
+    Sichtbare Teile 96
+    davon massiv    45  (mit Kollisionskasten)
+    davon klein     17  (bewusst ohne)
+    Kollisionskästen 46  (45 + Deckel gegen das Herausspringen)
+    Gegnerplätze    58  (abgetastet und geprüft, mit Zonenvermerk)
+    Lichter          8  (1 Halbkugellicht + 7 Punktlichter)
+    Start → Hinterausgang  38,6 m  (vorher 26,6)
 
 ### Zonen
 
-| | Zone | Inhalt |
-|---|---|---|
-| A | Eingang | schmaler Vorraum, Durchlass in der Mitte |
-| B | Haupthalle | Kampffläche, Säulen, Kisten, Werkbänke |
-| C | Geisel | abgeschirmte Ecke hinter einer niedrigen Trennwand |
-| D | Funker | Kommandopunkt mit Funktisch, Karten, Gerät |
-| | Hinterausgang | Stahltür mit Leuchtschild an der Ostwand |
+| | Zone | x (lokal) | Inhalt |
+|---|---|---|---|
+| A | Eingang | −21 … −15,5 | schmaler Vorraum, Durchlass in der Mitte |
+| B | Haupthalle | −15,5 … −3 | erste Kampffläche (Welle 1), Werkbänke, Regal, Kisten |
+| C | Lager | −3 … +10,5 | zweite Kampffläche (Welle 2), Regalreihen, Container, Paletten |
+| D | Geisel | +11 … +21, z +6 … +15 | abgeschirmte Ecke, L-förmiger Sichtschutz, Sitzkiste |
+| E | Kommando | +10,5 … +21, z −15 … +6 | Funktisch, Karten, Gerät, Regal an der Ostwand |
+| F | Hinterausgang | Ostwand, z −1,5 | Stahltür mit Leuchtschild |
+
+Zwischen B und C steht ein **Hallentor**: zwei Wandstücke außen, 13 m
+offen in der Mitte. Wer Welle 1 gewonnen hat, geht sichtbar in den
+nächsten Abschnitt — das ist der räumliche Fortschritt, der die Mission
+verlängert, ohne dass ein einziger Lebenspunkt dazukommt.
+
+### Die vorgegebenen Wege werden beim Bauen geprüft
+
+`createHideout` tastet Funkerweg und Geiselweg gegen die eigenen
+Requisiten ab und gibt `wegFehler` zurück. Der erste Durchlauf des neuen
+Raums meldete sofort zwei echte Blockaden — ein Kistenstapel auf dem
+Funkerweg und ein Container auf dem Nordgang. Beide sind versetzt; der
+Test besteht darauf, dass die Liste leer bleibt. Früher fand das erst
+der Botlauf, und das ist zu spät und zu teuer.
 
 ### Kein Bodenflackern
 
@@ -190,26 +213,90 @@ der Ring größer; als letztes bleibt das Vorfeld der Tür.
 ## Kamera
 
 Kein zweites Kamerasystem, nur eine andere Einstellung derselben Kamera.
-Der Abstand ist gemessen, 72 Proben je Wert (neun Standorte × acht
-Blickrichtungen):
+Der Abstand ist gemessen; gewählt ist **4,6 m**, deutlich unter dem
+Außenwert von 5,6 bis 6,6 m.
 
-    Abstand  außerhalb des Raums  unter 2 m  min   Median  max
-     3,2             0               24      0,08   2,36   3,15
-     3,6             0               22      0,08   2,37   3,54
-     4,0             0               22      0,08   2,42   3,93
-     4,6             0               22      0,08   2,78   4,52
-     5,2             0               22      0,08   2,90   5,11
+### Ausweichen statt heranziehen
 
-Zwei Dinge stehen damit fest. Die Kamera **verlässt den Raum bei keinem
-Wert** — das erledigt die vorhandene Wandprüfung, weil die Innenwände
-gewöhnliche Kollider sind. Und die Fälle, in denen sie ganz an die Figur
-herangezogen wird, hängen **nicht** am Abstand: es sind immer dieselben
-22 von 72, nämlich Standorte anderthalb Meter vor einer Wand mit Blick
-genau in diese Wand. Das ist dasselbe Verhalten wie draußen vor einer
-Fassade.
+> **Zweiter Human-Playtest:** „An der linken Wand ist die Kamera viel zu
+> nah dran."
 
-Gewählt ist **4,6** — der beste gemessene Median, der noch deutlich unter
-dem Außenwert von 5,6 bis 6,6 m liegt.
+Die Ursache steckte in `kameraFreierAnteil`: steht eine Wand im Weg,
+wird der Abstand gekürzt — und weil im Innenraum immer eine Wand in der
+Nähe ist, rutschte die Kamera regelmäßig bis auf gut einen Meter an den
+Rücken.
+
+Die Reihenfolge ist umgedreht. Bevor der freie Abstand unter **2,3 m**
+fällt, werden elf Lagen probiert: etwas nach links, etwas nach rechts,
+höher, und die Kombinationen. Nur wenn keine davon frei ist, gilt wieder
+die alte Kürzung. Die gefundene Abweichung wird geglättet und fällt von
+selbst auf null zurück.
+
+`tools/pruef/innen-kamera.js` misst elf Stellen × acht Blickrichtungen ×
+40 Bilder, **beide Zustände in einem Lauf**:
+
+| Stelle | Median ohne | Median mit |
+|---|---|---|
+| Mitte | 4,51 | 4,53 |
+| Westwand | 4,53 | 4,53 |
+| Ostwand | 4,53 | 4,53 |
+| Südwand | 2,96 | 2,96 |
+| Nordwand | 2,95 | 2,95 |
+| Ecke SW | 1,94 | 2,53 |
+| Ecke NW | 1,94 | 2,53 |
+| Ecke SO | 1,23 | 2,48 |
+| Ecke NO | 1,94 | 3,72 |
+| Hallentor | 4,53 | 4,53 |
+| Geiselwand | 1,37 | 3,97 |
+
+    Bilder unter 2,3 m          1760 von 3520  ->  800 von 3520
+    Bilder mit Kamera IN Wand      0           ->    0
+    größter Drehsprung je Bild   0,00 Grad
+    größter Ortssprung je Bild   0,008 m
+
+Es gibt also **keine harten Sprünge**, nur eine geglättete Abweichung von
+höchstens 39 Grad seitlich und 21 Grad nach oben. Was bleibt: in einer
+echten Ecke, 1,2 m von zwei Wänden entfernt, gibt es für einen
+4,6-m-Ausleger keine freie Bahn — dort muss die Kamera nach wie vor
+heran. Das betrifft eine bis drei der acht Blickrichtungen je Ecke.
+
+## Die Geisel
+
+Sie ist ein echter Zivilist der Welt, über `c.geisel` stillgestellt.
+
+> **Zweiter Human-Playtest:** „Geisel schwebt sichtbar und ist nicht
+> gefesselt."
+
+Beides stimmte. Sie stand in der Warte-Haltung auf Bodenhöhe, ohne
+Sitzfläche und ohne Fesseln. Jetzt sitzt sie auf einer Kiste — Becken auf
+deren Oberkante, Füße auf dem Boden, beides über `sitzMasse()`
+**gemessen** statt abgezogen (dieselbe Rechnung wie bei den Fahrgästen im
+U-Bahn-Wagen; ein fester Abzug ließe die einen schweben und die anderen
+einsinken). Dazu zwei Bänder um die Handgelenke und eine Schnur
+dazwischen, an den Handknochen ausgerichtet. Bei der Befreiung
+verschwinden sie, beim Abbruch der Mission auch.
+
+Drei echte Ursachen steckten darin, alle gemessen:
+
+1. Die Höhenführung der Zivilisten zieht jede Figur auf `groundY`. Im
+   Innenraum ist das der Fußboden, also fiel sie von der Kiste; danach
+   schob `collideBody` sie seitlich heraus. Gemessen: Sollpunkt
+   x 1015,50 — tatsächlich 1014,60; y 0 statt 0,52. Für eine sitzende
+   Geisel ist jetzt die Sitzfläche der Boden.
+2. Die Sitzhaltung stand direkt nach `visual.play()` — und die Feinarbeit
+   am Handyarm zog den rechten Arm gleich danach wieder ans Gesicht
+   (linke Hand 0,58 m richtig, rechte 1,29 m falsch). Sie steht jetzt am
+   Ende der Figurarbeit; Handy und Schirm bekommt die Geisel gar nicht
+   mehr in die Hand.
+3. Der Bodenausgleich zieht die Füße auf die Höhe unter der Figur. Bei
+   einer sitzenden Figur ist das falsch; er läuft für sie nicht mehr.
+
+Und zwei Dinge, die erst das Bild gezeigt hat: die Sitzkiste war 1,1 m
+breit, die Geisel saß in ihrer Mitte und die Beine verschwanden im
+Kasten (jetzt 0,62 m — die Sitzhaltung legt die Knie gemessen 0,43 m vor
+das Becken), und drei bis zu 27 m lange Deko-Kabel unter der Decke waren
+im Bild keine Kabel, sondern haardünne schwarze Striche quer über das
+ganze Bild.
 
 ## Netzschwung und Wandkleben drinnen
 
@@ -319,10 +406,128 @@ Die Namen standen nur auf der falschen Seite.
     vorher   100 vermeidbare 404-Anfragen je Seitenaufruf
     nachher    0
 
+### Die beiden letzten Konsolenmeldungen
+
+Aus dem zweiten Playtest blieben zwei übrig, beide behoben, keine
+unterdrückt:
+
+* `favicon.ico 404` — die Seite hatte kein Sinnbild, also fragte jeder
+  Browser von sich aus `/favicon.ico` an. Es liegt jetzt als
+  Datenadresse (`data:image/svg+xml,…`) im Kopf von `index.html`: keine
+  Anfrage mehr, keine zusätzliche Datei.
+* `THREE.MeshLambertMaterial: 'flatShading' is not a property of this
+  material` — die Warnung war richtig. `MeshLambertMaterial` kennt
+  `flatShading` in r128 nicht; die Eigenschaft wurde nie ausgewertet. Sie
+  ist entfernt, das Bild ändert sich dadurch nicht. (Wer dort wirklich
+  Facetten will, braucht Phong oder Standard und damit ein teureres
+  Material — für einen Kokon ist das nicht angemessen.)
+
 Kein Fallback, keine leeren Dummy-Dateien: es wird schlicht nicht mehr
 angefragt, was es nicht gibt. Die Figuren bekommen genau dieselben
 Animationen wie vorher — der Held 94, die Zivilisten 50 und 42, die
 Ganoven 42. `tools/test-animationen.cjs` prüft das in beide Richtungen.
+
+---
+
+## Der Takt des Kampfes
+
+> **Zweiter Human-Playtest:** 56 s für die ganze Mission. Versteck
+> sichern 9,4 s, Hinterhalt 9,9 s, Anführer 3,6 s. „Viel zu schnell",
+> „Hinterhalt zu leicht".
+
+Die Antwort ist überall dieselbe und sie heißt **nicht** mehr
+Lebenspunkte: mehr echte Situationen.
+
+| Phase | vorher | jetzt |
+|---|---|---|
+| Versteck sichern | 3 + 2–3 Gegner, beide Wellen irgendwo im Raum | Welle 1: 3 **nur in der Haupthalle**, Welle 2: 3–4 **nur im Lager** |
+| Hinterhalt | eine Gruppe von 3 bis 5 | Welle A: 3, Welle B: 3–4 aus der entgegengesetzten Richtung |
+| Anführer | einer, allein | einer + zwei Leibwächter (Wächter, flink) |
+
+Zwischen Welle 1 und Welle 2 liegt das Hallentor: der Spieler muss den
+Raum wechseln. Nie stehen mehr als vier Gegner gleichzeitig im Raum.
+Lebenspunkte, Deckung, Standfestigkeit und das Kampfmarkensystem sind
+unverändert.
+
+### Warum der Anführer nach 3,6 s lag
+
+Erst gemessen, dann geändert. `tools/pruef/anfuehrer.js` stellt genau den
+Gegner auf, den die Mission aufstellt, und lässt den Helden so schnell
+schlagen, wie das Spiel es zulässt:
+
+    Gegner      HP  Deck  Stand  Elite  Sek   Schläge  Treffer  je Treffer
+    Anführer    62    40     34     ja  2,35        5        6        15,5
+    Brecher     62    40     34   nein  1,68        4        4        16,7
+    Wächter     44    95     20   nein  0,78        1        2        27,2
+    Schläger    34    55     10   nein  0,75        2        2        18,4
+
+Keine der vermuteten Ursachen trifft zu:
+
+* Das Elite-Verhalten **ist** an — blockChance 0,32 statt 0,20, kombo 2
+  statt 1, Reaktion 0,53 statt 0,62.
+* Beschädigt kommt er **nicht** an; er wird in dieser Phase neu
+  aufgestellt, 62 von 62.
+* Mehrere gleichzeitige Treffer kommen vor, aber selten: genau ein Bild
+  mit mehr als 22 Schaden auf einmal.
+
+Was zählt, ist das Verhältnis Schaden zu Lebenspunkten. Der Held richtet
+15,5 Schaden je Treffer und 39,5 je Sekunde an; 62 Lebenspunkte sind vier
+bis sechs Treffer. Der Anführer kommt in 2,35 s **einmal** zum Schlagen —
+sein besseres Blocken kann sich gar nicht auswirken. Mehr Lebenspunkte
+würden daran nichts ändern, sie würden nur länger dauern. Deshalb zwei
+Leibwächter.
+
+**Nebenbefund, ein echter Fehler:** `stArt()` setzt `e.typ` auf den
+Grundeintrag der Ganoventabelle zurück — und damit auch die Zuschläge,
+die `machElite()` in eine Kopie davon geschrieben hatte. `machElite()`
+steigt danach sofort wieder aus, weil `e.elite` schon `true` ist. Ein
+Gegner, den `spawnGang` mit 15 % Wahrscheinlichkeit zum Eliten macht und
+den eine Mission danach umtypt, trug also das Elitezeichen über dem Kopf
+und kämpfte wie ein gewöhnlicher Ganove (gemessen blockChance 0,20 statt
+0,32). Die Zuschläge liegen jetzt in `eliteWerte()` und werden in
+`stArt()` neu gesetzt.
+
+---
+
+## Flucht: Körper und Bewegung zeigen in dieselbe Richtung
+
+> **Zweiter Human-Playtest:** „Gegner bewegen sich vom Spieler weg,
+> während Körper, Blick und Laufanimation zu ihm zeigen."
+
+Der Audit trennt zwei Fälle, wie im Auftrag verlangt:
+
+**Rückzug** (`e.rueckzugT > 0`) — das Gesicht *darf* beim Helden bleiben,
+aber dann muss die Darstellung rückwärts laufen. Gemessen lief in
+**107 von 107** Bildern der Vorwärtslauf ab. Jetzt wird das Skalarprodukt
+aus Blickrichtung und Bewegung gerechnet und bei unter −0,35 der
+vorhandene Schalter `p.rueckwaerts` gesetzt (derselbe, den das Katapult
+benutzt): 107 von 107 Bildern laufen rückwärts.
+
+**Echte Flucht** (`e.flieht`) — der Körper muss sich wegdrehen. Der
+Fluchtzweig drehte das Gesicht in die *gewollte* Richtung; danach drehten
+`ausweichRichtung()` und der Umweg die Bewegung noch einmal um ein Haus
+oder eine Wand herum, und das Gesicht wusste davon nichts. Jetzt zeigt
+der Körper bei echter Flucht dorthin, wo er wirklich hinläuft.
+
+`tools/pruef/flucht-facing.js`, Skalarprodukt aus Blickrichtung und
+Bewegungsrichtung, Median und Anteil über 0,7:
+
+| Fall | vorher | nachher |
+|---|---|---|
+| gerade | 0,67 / 48 % | 1,00 / 98 % |
+| diagonal | 1,00 / 98 % | 1,00 / 98 % |
+| Ecke | 1,00 / 100 % | 1,00 / 100 % |
+| Uferseite | 1,00 / 100 % | 1,00 / 100 % |
+| **Innenraum** | 0,49 / 40 % | 1,00 / 82 % |
+| Rückzug | −1,00 (soll so sein) | −1,00, Clip läuft rückwärts |
+
+Das gemeldete Fehlerbild — vom Helden weg laufen, zum Helden schauen,
+dabei den Vorwärtslauf abspielen — kommt in keinem der sechs Fälle mehr
+vor (0 von 1330 Bildern).
+
+Die geführte Flucht des Funkers ist davon nicht betroffen: sie läuft über
+`e.fluchtWeg` im selben Zweig und profitiert nur davon, dass der Körper
+jetzt der tatsächlichen Richtung folgt.
 
 ---
 
