@@ -34,9 +34,15 @@ test('Der Innenraum entsteht mit allen Punkten, die die Mission braucht', () => 
   assert.strictEqual(h.bodenY, 0);
   assert.ok(h.gegnerPunkte.length >= 6,
     'nur ' + h.gegnerPunkte.length + ' Gegnerplaetze - der Hauptkampf braucht mindestens 6');
-  assert.ok(h.masse.laenge >= 28 && h.masse.laenge <= 32, 'Laenge ausserhalb der Vorgabe');
-  assert.ok(h.masse.breite >= 20 && h.masse.breite <= 24, 'Breite ausserhalb der Vorgabe');
-  assert.ok(h.masse.hoehe >= 4.5 && h.masse.hoehe <= 6, 'Hoehe ausserhalb der Vorgabe');
+  /* Vorgabe aus dem zweiten Human-Playtest: 40-44 m lang, 28-32 m breit.
+     Der alte Raum (30 x 22) war dem Spieler zu klein. */
+  assert.ok(h.masse.laenge >= 40 && h.masse.laenge <= 44,
+    'Laenge ' + h.masse.laenge + ' m - Vorgabe 40 bis 44 m');
+  assert.ok(h.masse.breite >= 28 && h.masse.breite <= 32,
+    'Breite ' + h.masse.breite + ' m - Vorgabe 28 bis 32 m');
+  assert.ok(h.masse.hoehe >= 4.5 && h.masse.hoehe <= 7, 'Hoehe ausserhalb der Vorgabe');
+  assert.strictEqual(h.wegFehler.length, 0,
+    'Der Raum meldet beim Bauen blockierte Wege: ' + h.wegFehler.join(' | '));
 });
 
 test('Es gibt genau EINE waagerechte Flaeche auf Bodenhoehe', () => {
@@ -133,10 +139,15 @@ test('Kein Gegnerplatz steckt in einem Kollisionskasten', () => {
 
 test('Geisel, Funker und Hinterausgang stehen frei', () => {
   const h = bau();
-  for (const [name, p] of [['Geisel', h.geiselPunkt], ['Funker', h.funkPunkt],
-                           ['Hinterausgang', h.hinterausgang],
-                           ['Spielerstart', h.spielerStart]]) {
-    const treffer = h.kollider.filter((k) => stecktDrin(k, p.x, p.z, 0.5));
+  for (const [name, p, unten] of [['Geisel', h.geiselPunkt, h.geiselSitzY],
+                           ['Funker', h.funkPunkt, undefined],
+                           ['Hinterausgang', h.hinterausgang, undefined],
+                           ['Spielerstart', h.spielerStart, undefined]]) {
+    /* Die Geisel SITZT auf einer Kiste. Ihr Platz wird deshalb ab der
+       Sitzflaeche geprueft und nicht ab dem Boden - genau so rechnet
+       auch collideBody: ein Kasten, dessen Oberkante unter den Fuessen
+       liegt, schiebt nicht mehr weg. */
+    const treffer = h.kollider.filter((k) => stecktDrin(k, p.x, p.z, 0.5, unten));
     assert.deepStrictEqual(treffer.map((k) => [k.x0, k.x1, k.z0, k.z1]), [],
       name + ' steckt in einem Kollisionskasten');
     assert.ok(p.x > h.grenzen.x0 && p.x < h.grenzen.x1 &&
@@ -169,11 +180,13 @@ test('Der Weg in den Geiselbereich ist frei', () => {
      eigenen Weg dorthin mit; abgetastet wird die Strecke, nicht nur die
      Stationen. */
   const h = bau();
-  /* Von der Hallenmitte aus - von dort kommt der Spieler. */
-  let vor = { x: (h.zonen.halle.x0 + h.zonen.halle.x1) / 2,
-              z: (h.grenzen.z0 + h.grenzen.z1) / 2 };
+  /* Ab der ERSTEN Station: der Weg ist ein Leitweg, den man von ueberall
+     her betritt. Die Luftlinie aus der Hallenmitte quer durch das Lager
+     zu pruefen haette nur den Test selbst rot gemacht - die Regale
+     stehen absichtlich dort. */
+  let vor = { x: h.geiselWeg[0].x, z: h.geiselWeg[0].z };
   const blockiert = [];
-  for (const w of h.geiselWeg) {
+  for (const w of h.geiselWeg.slice(1)) {
     const n2 = Math.ceil(Math.hypot(w.x - vor.x, w.z - vor.z) / 0.3);
     for (let i = 1; i <= n2; i++) {
       const x = vor.x + (w.x - vor.x) * (i / n2), z = vor.z + (w.z - vor.z) * (i / n2);
@@ -213,4 +226,60 @@ test('Zwei Aufrufe liefern denselben Raum - nichts wird gewuerfelt', () => {
     assert.deepStrictEqual(a.gegnerPunkte[i], b.gegnerPunkte[i],
       'Gegnerplatz ' + i + ' unterscheidet sich zwischen zwei Aufrufen');
   }
+});
+
+test('Die Geisel sitzt auf einer Flaeche, die es wirklich gibt', () => {
+  /* Zweiter Human-Playtest: "Geisel schwebt sichtbar." Der Raum muss
+     deshalb eine Sitzhoehe liefern UND an dieser Stelle einen
+     Kollisionskasten haben, dessen Oberkante genau diese Hoehe ist. */
+  const h = bau();
+  assert.ok(typeof h.geiselSitzY === 'number', 'geiselSitzY fehlt');
+  assert.ok(h.geiselSitzY > h.bodenY + 0.3 && h.geiselSitzY < h.bodenY + 0.8,
+    'Sitzhoehe ' + h.geiselSitzY + ' - eine Kiste zum Sitzen ist rund 0,5 m hoch');
+  const sitz = h.kollider.filter((k) =>
+    /* Der Deckendeckel spannt ueber den ganzen Raum und liegt bei jedem
+       Punkt darueber - er wird hier ausgenommen. */
+    k.h < h.bodenY + 2 &&
+    h.geiselPunkt.x > k.x0 && h.geiselPunkt.x < k.x1 &&
+    h.geiselPunkt.z > k.z0 && h.geiselPunkt.z < k.z1);
+  assert.strictEqual(sitz.length, 1,
+    sitz.length + ' Kollisionskaesten unter der Geisel - es soll genau die Sitzkiste sein');
+  assert.ok(Math.abs(sitz[0].h - h.geiselSitzY) < 0.001,
+    'Die Kiste ist ' + sitz[0].h + ' m hoch, die Sitzhoehe ist ' + h.geiselSitzY);
+});
+
+test('Jeder Gegnerplatz kennt seine Zone, und beide Kampfzonen tragen eine Welle', () => {
+  /* Welle 1 steht in der Haupthalle, Welle 2 im Lager. Ohne genug
+     Plaetze je Zone faellt stInnenGegner auf den ganzen Raum zurueck -
+     dann waere der raeumliche Fortschritt weg, ohne dass es auffaellt. */
+  const h = bau();
+  const je = {};
+  for (const p of h.gegnerPunkte) {
+    assert.ok(typeof p.zone === 'string', 'Gegnerplatz ohne Zone');
+    je[p.zone] = (je[p.zone] || 0) + 1;
+  }
+  assert.ok((je.halle || 0) >= 4, 'nur ' + (je.halle || 0) + ' Plaetze in der Haupthalle');
+  assert.ok((je.lager || 0) >= 5, 'nur ' + (je.lager || 0) + ' Plaetze im Lager');
+});
+
+test('Die sechs Zonen liegen hintereinander und ueberlappen nicht in x', () => {
+  const h = bau();
+  const z = h.zonen;
+  assert.ok(z.eingang.x1 <= z.halle.x0 + 0.001, 'Eingang und Halle ueberlappen');
+  assert.ok(z.halle.x1 <= z.lager.x0 + 0.001, 'Halle und Lager ueberlappen');
+  assert.ok(z.lager.x1 <= z.kommando.x0 + 0.001, 'Lager und Kommando ueberlappen');
+  assert.ok(z.lager.x1 <= z.geisel.x0 + 0.001, 'Lager und Geiselbereich ueberlappen');
+  /* Der Geiselbereich liegt NEBEN dem Kommandobereich, nicht darin. */
+  assert.ok(z.geisel.z0 >= z.kommando.z1 - 0.001,
+    'Geiselbereich und Kommandobereich liegen uebereinander');
+});
+
+test('Der Weg vom Eingang zum Hinterausgang ist deutlich laenger als vorher', () => {
+  /* Der Playtest fand die Mission "viel zu schnell". Ein Teil davon ist
+     reine Wegstrecke. Gemessen wird die Luftlinie Start -> Hinterausgang;
+     im alten Raum waren es 26,6 m. */
+  const h = bau();
+  const d = Math.hypot(h.hinterausgang.x - h.spielerStart.x,
+                       h.hinterausgang.z - h.spielerStart.z);
+  assert.ok(d >= 34, 'nur ' + d.toFixed(1) + ' m vom Start zum Hinterausgang');
 });

@@ -12285,6 +12285,62 @@ function kameraKastenTreffer(von, nach, c, radius) {
 
 /* Alle beruehrten Rasterzellen statt einzelner Punkte abfragen. Die
    Set-Liste vermeidet mehrfache Tests grosser Gebaeude. */
+/* ---- Kamera an der Innenwand: ausweichen statt heranziehen ----
+   Zweiter Human-Playtest: "An der linken Wand ist die Kamera viel zu nah
+   dran." Der Grund steckt in kameraFreierAnteil: steht eine Wand im Weg,
+   wird der Abstand gekuerzt - und weil im Innenraum IMMER eine Wand in
+   der Naehe ist, rutscht die Kamera regelmaessig bis auf gut einen Meter
+   an den Ruecken.
+
+   Die Reihenfolge wird umgedreht: bevor der Abstand unter INNEN_KAM_MIN
+   faellt, werden Ausweichlagen probiert - etwas nach links, etwas nach
+   rechts, hoeher, und die Kombination aus beidem. Nur wenn KEINE davon
+   frei ist, wird wie bisher herangezogen. Die gefundene Abweichung wird
+   geglaettet (kein harter Sprung) und faellt von selbst wieder auf null
+   zurueck, sobald wieder Platz ist.
+
+   dir wird an Ort und Stelle gedreht; die Laenge bleibt eins. */
+const INNEN_KAM_MIN = 2.3;
+let innenKamGier = 0, innenKamNeig = 0;
+const _ikDir = new THREE.Vector3(), _ikZiel = new THREE.Vector3();
+/* Die Ausweichlagen, in der Reihenfolge, in der sie probiert werden:
+   erst wenig seitlich, dann mehr, dann hoeher, dann beides. Gier in
+   Bogenmass um die Hochachse, Neigung nach oben. */
+const INNEN_KAM_LAGEN = [
+  [0, 0],
+  [0.21, 0], [-0.21, 0],
+  [0.42, 0], [-0.42, 0],
+  [0, 0.20], [0, 0.36],
+  [0.42, 0.20], [-0.42, 0.20],
+  [0.68, 0.30], [-0.68, 0.30],
+];
+function innenKamLage(target, gier, neig, dist) {
+  const y = camYaw + gier, p2 = clamp(camPitch + neig, -1.2, 1.2);
+  _ikDir.set(Math.sin(y) * Math.cos(p2), Math.sin(p2), Math.cos(y) * Math.cos(p2));
+  _ikZiel.copy(target).addScaledVector(_ikDir, dist);
+  return dist * kameraFreierAnteil(target, _ikZiel);
+}
+function innenKamAusweichen(target, dir, dist, dt) {
+  let bestG = 0, bestN = 0, bestFrei = innenKamLage(target, 0, 0, dist);
+  if (bestFrei < INNEN_KAM_MIN) {
+    for (let i = 1; i < INNEN_KAM_LAGEN.length; i++) {
+      const [g, n] = INNEN_KAM_LAGEN[i];
+      const f = innenKamLage(target, g, n, dist);
+      if (f > bestFrei + 0.05) { bestFrei = f; bestG = g; bestN = n; }
+      if (bestFrei >= INNEN_KAM_MIN) break;
+    }
+  }
+  /* Geglaettet, und zwar in beide Richtungen mit derselben Zeitkonstante:
+     ein schnelles Hineinspringen und ein langsames Zurueckgleiten waeren
+     zwei verschiedene Bewegungen im selben Bild. */
+  const k = 1 - Math.exp(-dt * 4);
+  innenKamGier = lerp(innenKamGier, bestG, k);
+  innenKamNeig = lerp(innenKamNeig, bestN, k);
+  if (Math.abs(innenKamGier) < 0.001 && Math.abs(innenKamNeig) < 0.001) return;
+  const y = camYaw + innenKamGier, p2 = clamp(camPitch + innenKamNeig, -1.2, 1.2);
+  dir.set(Math.sin(y) * Math.cos(p2), Math.sin(p2), Math.cos(y) * Math.cos(p2));
+}
+
 function kameraFreierAnteil(von, nach) {
   const laenge = von.distanceTo(nach);
   if (laenge < 1e-8) return 1;
@@ -12447,6 +12503,8 @@ function updateCamera(dt) {
     Math.cos(camYaw) * Math.cos(camPitch)
   );
   kameraWandRichtung(target, dir, camDist, wand);
+  /* ---- Im Innenraum zuerst AUSWEICHEN, dann erst heranziehen ---- */
+  if (MISSION_INTERIOR.active) innenKamAusweichen(target, dir, camDist, dt);
   const desired = _v3.copy(target).addScaledVector(dir, camDist);
   const d = camDist * kameraFreierAnteil(target, desired);
   /* Bei einem Hindernis sofort davor bleiben, bei freier Sicht sanft
@@ -23711,6 +23769,33 @@ function updateCivilians(dtBild) {
     c.visual.play(zAnim,
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), speed,
         t: elapsed + c.phase }, dt);
+    /* ---- Die Geisel sitzt auf der Kiste, gefesselt ----
+       Zweiter Human-Playtest: "schwebt sichtbar und ist nicht gefesselt".
+       Gemessen war beides richtig - sie stand in der Warte-Haltung auf
+       Bodenhoehe, ohne Sitzflaeche und ohne Fesseln.
+
+       Gesetzt wird nach play(), sonst ueberschriebe die Bewegungsdatei
+       die Haltung wieder. Die Hoehe wird GEMESSEN, nicht abgezogen: die
+       Figuren sind unterschiedlich gross, ein fester Wert liesse die
+       einen schweben und die anderen einsinken - derselbe Fehler, der im
+       U-Bahn-Wagen schon einmal gemessen wurde.
+
+       Zwei Bedingungen, und es gilt die staerkere: das Becken sitzt auf
+       der Kistenoberkante, und die Fuesse gehen nicht durch den Boden.
+       Die Kiste ist 0,52 m hoch, weil die Sitzhaltung das Becken
+       gemessen 0,53 m ueber die Fuesse legt - beides faellt damit fast
+       zusammen. */
+    if (c.geisel && c.geiselSitzY !== undefined && c.visual.poseSitzen) {
+      c.visual.poseSitzen(1);
+      const sm = c.visual.sitzMasse ? c.visual.sitzMasse() : null;
+      if (sm) {
+        const bodenY = MISSION_INTERIOR.active && MISSION_INTERIOR.raum
+          ? MISSION_INTERIOR.raum.bodenY : groundY(c.pos.x, c.pos.z, c.pos.y);
+        c.visual.root.position.y +=
+          Math.max(c.geiselSitzY - sm.huefte, (bodenY || 0) - sm.fuss);
+      }
+      geiselFesselSetzen(c);
+    }
     /* Beim Filmen wird der Arm mit dem Handy zum Helden gestreckt –
        vorher hing der Arm herunter und das Handy schwebte davor. */
     /* Die Feinarbeit an Handy und Schirm (Arm ausrichten, Faust schließen,
@@ -23974,8 +24059,15 @@ const huelleMat = new THREE.MeshBasicMaterial({
   map: huelleTex, transparent: true, alphaTest: 0.06, depthWrite: false,
   side: THREE.DoubleSide, opacity: 0.85,
 });
+/* Ohne flatShading: MeshLambertMaterial kennt die Eigenschaft in r128
+   gar nicht. Sie wurde nie ausgewertet, three.js hat sie jedes Mal mit
+   "'flatShading' is not a property of this material" in die Konsole
+   geschrieben - die Warnung war richtig. Das Bild aendert sich durch das
+   Entfernen nicht, weil der Kokon schon immer weich schattiert war. Wer
+   hier wirklich Facetten will, braucht Phong oder Standard und damit ein
+   teureres Material; das ist es fuer einen Kokon nicht wert. */
 const cocoonMat = new THREE.MeshLambertMaterial({
-  map: wickelTex, transparent: true, opacity: 0.88, flatShading: true,
+  map: wickelTex, transparent: true, opacity: 0.88,
   color: 0xdfe6ee,
 });
 const bandMat = new THREE.MeshLambertMaterial({ color: 0xf4f8fc });
@@ -26527,6 +26619,23 @@ function updateEnemies(dtBild) {
       moveX /= l; moveZ /= l;
     }
     e.vel.x = moveX * speed; e.vel.z = moveZ * speed;
+    /* ---- Bei echter Flucht zeigt der Koerper dorthin, wo er WIRKLICH
+       hinlaeuft ----
+       Der Fluchtzweig weiter oben dreht das Gesicht in die GEWOLLTE
+       Richtung. Danach drehen ausweichRichtung() und der Umweg die
+       Bewegung noch einmal, um ein Haus oder eine Wand herum - das
+       Gesicht wusste davon nichts mehr. Gemessen: im Innenraum lag das
+       Skalarprodukt aus Blickrichtung und Bewegung im Median bei 0,49,
+       in 69 von 218 Bildern sogar unter -0,35; draussen "gerade" bei
+       0,67 mit 82 Seitwaertsbildern. Sichtbar war genau das, was der
+       Playtest gemeldet hat: die Beine rennen geradeaus, waehrend der
+       Koerper seitlich wegrutscht.
+       Nur fuer die echte Flucht, nur wenn er wirklich laeuft - im Kampf
+       und im Rueckzug bleibt die Ausrichtung unberuehrt. */
+    if ((e.flieht || e.dieb) && speed > 1.2 && (moveX || moveZ) &&
+        !e.attack && (e.staggerT || 0) <= 0 && !e.gepackt) {
+      e.facing = dampAngle(e.facing, Math.atan2(moveX, moveZ), dt * 8);
+    }
     const vorX = e.pos.x, vorZ = e.pos.z;
     merkeVorPos(e);
     e.pos.x += e.vel.x * dt; e.pos.z += e.vel.z * dt;
@@ -26631,9 +26740,35 @@ function updateEnemies(dtBild) {
         e.visual.hatClip && e.visual.hatClip('block')) ganovAnim = 'block';
     else if (e.blockT > 0 && e.visual.hatClip && e.visual.hatClip('block')) ganovAnim = 'block';
     else if (e.warnT > 0 && e.visual.hatClip && e.visual.hatClip('taunt')) ganovAnim = 'taunt';
+    /* ---- Laeuft er rueckwaerts? Gerechnet, nicht geraten ----
+       Human-Playtest: "Gegner laufen teilweise VOM Spieler weg, aber
+       Koerper und Laufanimation zeigen ZUM Spieler." Das stimmt, und es
+       ist kein Fehler der Flucht - die dreht den Koerper laengst in die
+       Laufrichtung. Es sind die Zweige, in denen ein Ganove den Helden
+       ANSEHEN SOLL und trotzdem Abstand vergroessert: Rueckzug,
+       Deckungswechsel des Werfers, Umstellen im Ring.
+
+       Statt jeden dieser Zweige einzeln zu kennzeichnen, wird hier an der
+       EINEN Stelle gerechnet, an der die Bewegung ausgewaehlt wird:
+       Skalarprodukt aus Blickrichtung und tatsaechlicher
+       Bewegungsrichtung. Das deckt auch jeden Zweig ab, den es spaeter
+       gibt, und es korrigiert sich selbst - dreht ein Zweig den Koerper
+       richtig, wird der Wert positiv und die Kennzeichnung faellt weg.
+
+       Rueckwaerts heisst: der Gang laeuft rueckwaerts ab (timeScale
+       negativ, dieselbe Mechanik, die der Held beim Spannen des
+       Katapults benutzt). Seitwaerts gibt es fuer den Ganoven keine
+       eigene Bewegungsdatei; dort bleibt der Vorwaertsschritt, wird aber
+       nicht faelschlich umgedreht. */
+    const _bx = Math.sin(e.facing), _bz = Math.cos(e.facing);
+    const _vl = Math.hypot(e.vel.x, e.vel.z);
+    let _punkt = 1;
+    if (_vl > 0.8) _punkt = (_bx * e.vel.x + _bz * e.vel.z) / _vl;
+    e.laufPunkt = _punkt;                       // fuer den Pruefstand
     e.visual.play(ganovAnim,
       { phase: e.phase, speed01: clamp(speed / 5, 0, 1), speed,
-        t: elapsed + e.phase }, dt);
+        t: elapsed + e.phase,
+        rueckwaerts: _punkt < -0.35 && ganovAnim === 'run' }, dt);
     if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
     else if (e.visual.bodenAusgleich) {
       e.visual.bodenAusgleich(Math.min(1, dt * 12));
@@ -30242,6 +30377,9 @@ function innenWechsel() {
     const r = innenRaum();
     if (!r) { I.ziel = null; return; }
     I.active = true; I.id = r.id;
+    /* Die Kamera-Ausweichlage gilt nur drinnen und faengt bei null an -
+       sonst uebernaehme ein neuer Besuch die Abweichung des letzten. */
+    innenKamGier = 0; innenKamNeig = 0;
     r.gruppe.visible = true;
     innenWeltVerbergen();
     innenSpielerSetzen(r.spielerStart, r.spielerBlick);
@@ -30588,7 +30726,7 @@ function stGefangen(e) {
    Sozialpartner fragen alle danach. Zivilisten werden ausserdem nie
    abgebaut - es gibt kein civilians.splice -, die Welt-Hygiene kann die
    Geisel also nicht wegraeumen. */
-function stGeisel(punkt) {
+function stGeisel(punkt, sitzY) {
   if (!punkt) return null;
   let civ = null, best = 1e9;
   for (const c of civilians) {
@@ -30601,7 +30739,21 @@ function stGeisel(punkt) {
   civ.geisel = true;
   civ.route = null; civ.routeI = 0; civ.waypoint = null;
   civ.sozialPartner = null;
-  civ.pos.set(punkt.x, punkt.y === undefined ? groundY(punkt.x, punkt.z, 2) : punkt.y, punkt.z);
+  /* ---- Sie SITZT, und zwar auf einer Flaeche, die es wirklich gibt ----
+     Der zweite Human-Playtest: "Geisel schwebt sichtbar und ist nicht
+     gefesselt." Gemessen war das genau so: die Figur stand auf
+     Bodenhoehe in der Warte-Haltung, ohne Sitzflaeche und ohne
+     Fesseln - sie sah aus wie eine Passantin, die dort zufaellig
+     herumsteht.
+     Jetzt sitzt sie auf einer Kiste. Deren Oberkante (geiselSitzY aus
+     dem Raum) ist die Sitzflaeche; die Figur wird darauf gesetzt statt
+     auf den Boden. Die Kiste behaelt ihren Kollisionskasten: collideBody
+     schiebt nur waagerecht weg, solange die FUESSE unter der Oberkante
+     sind (p.y < c.h), und genau das ist hier nicht der Fall. */
+  civ.geiselSitzY = sitzY;
+  const gy = sitzY !== undefined ? sitzY
+           : (punkt.y === undefined ? groundY(punkt.x, punkt.z, 2) : punkt.y);
+  civ.pos.set(punkt.x, gy, punkt.z);
   civ.vel.set(0, 0, 0);
   if (civ.visual && civ.visual.root) civ.visual.root.position.copy(civ.pos);
   return civ;
@@ -30609,9 +30761,75 @@ function stGeisel(punkt) {
 function stGeiselFrei(m) {
   if (m && m.geisel) {
     m.geisel.geisel = false;
+    /* Die Fesseln gehoeren zum Zustand "gefangen". Wer befreit ist, hat
+       keine mehr - der Playtest soll den Unterschied SEHEN. */
+    m.geisel.geiselSitzY = undefined;
+    geiselFesselWeg();
+    /* Zurueck auf den Boden: sie stand auf der Kiste. Ohne diese Zeile
+       liefe sie danach einen halben Meter ueber dem Fussboden davon. */
+    m.geisel.pos.y = groundY(m.geisel.pos.x, m.geisel.pos.z, 2) || 0;
     m.geiselGerettet = true;
     m.geisel = null;
   }
+}
+
+/* ---- Die Fesseln ----
+   Bewusst KEINE neue Gefangenenmechanik: ein Band um jedes Handgelenk
+   und eine kurze Schnur dazwischen, an die Handknochen der Figur
+   gehaengt. Es gibt genau eines davon - es kann immer nur eine Geisel
+   geben -, es haengt in der Raumgruppe (also drinnen sichtbar, draussen
+   mit dem Raum unsichtbar) und es verschwindet bei der Befreiung. */
+let geiselFessel = null;
+const _fes1 = new THREE.Vector3(), _fes2 = new THREE.Vector3();
+const _fes3 = new THREE.Vector3(), _fesQ = new THREE.Quaternion();
+const _ex = new THREE.Vector3(1, 0, 0), _ey = new THREE.Vector3(0, 1, 0);
+function geiselFesselBauen() {
+  if (geiselFessel) return geiselFessel;
+  const mat = new THREE.MeshLambertMaterial({ color: 0xc9b48a });
+  const g = new THREE.Group();
+  g.name = 'GeiselFessel';
+  const ringGeo = new THREE.CylinderGeometry(0.062, 0.062, 0.05, 8, 1, true);
+  for (let i = 0; i < 2; i++) g.add(new THREE.Mesh(ringGeo, mat));
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 0.022, 0.022), mat));
+  geiselFessel = g;
+  return g;
+}
+function geiselFesselWeg() {
+  if (geiselFessel && geiselFessel.parent) geiselFessel.parent.remove(geiselFessel);
+}
+/* Wird in jedem Bild aufgerufen, in dem die Geisel gezeichnet wird. Die
+   Handpositionen kommen aus dem Skelett - nicht geschaetzt. */
+function geiselFesselSetzen(c) {
+  if (!c.visual || !c.visual.handPos) return;
+  const hl = c.visual.handPos('L', _fes1), hr = c.visual.handPos('R', _fes2);
+  if (!hl || !hr) return;
+  const g = geiselFesselBauen();
+  const raum = MISSION_INTERIOR.raum;
+  const eltern = raum ? raum.gruppe : scene;
+  if (g.parent !== eltern) { geiselFesselWeg(); eltern.add(g); }
+  g.visible = true;
+  /* Die Raumgruppe steht ohne eigene Verschiebung in der Szene - ihre
+     Kinderkoordinaten SIND Weltkoordinaten. Geprueft in
+     mission-interiors.js: dort wird alles schon in Welt gebaut. */
+  const [ringL, ringR, band] = g.children;
+  /* Die Baender liegen quer zum Unterarm. Der zeigt beim Sitzen nach
+     vorn, also wird die Zylinderachse (+y) auf die Blickrichtung
+     gedreht. */
+  _fes3.set(Math.sin(c.facing), 0, Math.cos(c.facing));
+  _fesQ.setFromUnitVectors(_ey, _fes3);
+  ringL.position.copy(hl); ringL.quaternion.copy(_fesQ);
+  ringR.position.copy(hr); ringR.quaternion.copy(_fesQ);
+  /* Die Schnur dazwischen: Mitte, Laenge gleich dem Handabstand,
+     Laengsachse (+x) auf die Verbindungslinie gedreht. */
+  _fes3.subVectors(hr, hl);
+  const d = _fes3.length();
+  band.position.copy(hl).addScaledVector(_fes3, 0.5);
+  if (d > 0.001) {
+    _fes3.divideScalar(d);
+    _fesQ.setFromUnitVectors(_ex, _fes3);
+    band.quaternion.copy(_fesQ);
+  }
+  band.scale.set(Math.max(0.02, d), 1, 1);
 }
 
 /* ---- Der Weg des Funkers nach draussen ----
@@ -30826,10 +31044,43 @@ function innenPlatzFrei(x, z, r) {
    abgetastet, gegen jeden Kollisionskasten geprueft, mit Abstand zum
    Spielerstart und untereinander. Hier wird nur noch verteilt und gegen
    die beweglichen Figuren geprueft. Nichts wird gewuerfelt ohne Pruefung. */
-function stInnenGegner(m, n, arten, wegVon) {
+/* ---- Eine Hinterhaltswelle um den Treffpunkt herum ----
+   Verteilt auf einem Ring, jeder Platz gegen Boden und Hindernisse
+   geprueft. dreh verschiebt den ganzen Ring - so kommt die zweite Welle
+   aus einer anderen Richtung als die erste. Gibt zurueck, wie viele
+   wirklich standen; null heisst "kein Platz", und die Phase darf daran
+   nicht haengenbleiben. */
+function stHinterhaltWelle(m, t, n, arten, dreh) {
+  let gesetzt = 0;
+  for (let i = 0; i < n; i++) {
+    const w = (i / n) * TAU + (dreh || 0) + rand(-0.3, 0.3);
+    const d2 = t.radius * rand(0.5, 0.9);
+    const x = t.x + Math.sin(w) * d2, z = t.z + Math.cos(w) * d2;
+    const gy = groundY(x, z, 2);
+    if (gy === null || gy === undefined || !versteckFrei(x, z, gy, 0.6)) continue;
+    const g = stGang(x, z, 1, 'story');
+    const e = g.enemies[0];
+    if (!e) continue;
+    e.pos.set(x, gy, z);
+    if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
+    stArt(e, arten[i % arten.length]);
+    e.state = 'chase'; e.target = 'player';
+    gesetzt++;
+  }
+  return gesetzt;
+}
+
+/* zone: Name einer Raumzone ('halle', 'lager', ...). Der Raum liefert die
+   Zugehoerigkeit jedes Gegnerplatzes schon beim Bauen mit, damit hier
+   nichts nachgerechnet werden muss.
+   Findet sich in der Zone nicht genug Platz, wird der ganze Raum
+   genommen - eine Phase darf nie daran haengenbleiben, dass eine Zone
+   voll ist. */
+function stInnenGegner(m, n, arten, wegVon, zone) {
   const r = MISSION_INTERIOR.raum;
   if (!r || !r.gegnerPunkte.length) return 0;
-  const frei = r.gegnerPunkte.slice();
+  let frei = zone ? r.gegnerPunkte.filter((p) => p.zone === zone) : r.gegnerPunkte.slice();
+  if (frei.length < n) frei = r.gegnerPunkte.slice();
   const plaetze = [];
   for (let versuch = 0; versuch < 300 && plaetze.length < n; versuch++) {
     if (!frei.length) break;
@@ -31349,18 +31600,24 @@ const STORY_DEF = [
             else stGang(m.ort.x, m.ort.z, 3, 'story');
             return;
           }
-          /* Erste Gruppe: drei, gemischt, verteilt ueber die Haupthalle
-             und mit Abstand zum Eingang - der Spieler soll hineinkommen,
-             bevor der erste Schlag faellt. */
+          /* Erste Gruppe: drei, gemischt, NUR in der Haupthalle und mit
+             Abstand zum Eingang - der Spieler soll hineinkommen, bevor
+             der erste Schlag faellt.
+             Die Zone ist neu: vorher standen die drei ueber den ganzen
+             Raum verteilt, und der Kampf war nach 9,4 s vorbei, weil er
+             an einer Stelle stattfand. Jetzt liegt zwischen Welle 1 und
+             Welle 2 ein Raumwechsel - das ist die Verlaengerung, die der
+             Playtest verlangt, und sie kommt NICHT aus Lebenspunkten. */
           m.welle = 1;
+          m.welle1T = 0; m.welle2T = 0;
           m.innenGesamt = stInnenGegner(m, 3, ['schlaeger', 'flink', 'waechter'],
-            { x: r.spielerStart.x, z: r.spielerStart.z, r: 7 });
+            { x: r.spielerStart.x, z: r.spielerStart.z, r: 8 }, 'halle');
           /* Die Geisel: ein ECHTER Zivilist aus der Welt, im abgeschirmten
              Bereich, ueber das vorhandene Geiselsystem gebunden. Sie ist
              die EINZIGE zivile Person im Raum - der Playtest hat als
              Erstes gemeldet, dass Zivilisten waehrend des Kampfes
              unbeeindruckt herumsitzen. */
-          const civ = stGeisel(r.geiselPunkt);
+          const civ = stGeisel(r.geiselPunkt, r.geiselSitzY);
           if (civ) { m.geisel = civ; innenZeigen(civ.visual && civ.visual.root); }
           stFunk('Das ist kein Lagerhaus. Das ist ihr Hauptquartier.');
         }),
@@ -31391,14 +31648,28 @@ const STORY_DEF = [
              geschlossenen Raum kann niemand wirklich fliehen - wer den Mut
              verliert, laeuft in eine Ecke, fasst sich und kommt zurueck.
              Deshalb braucht es hier keinen Aufraeumer. */
+          if (m.welle === 1) m.welle1T = (m.welle1T || 0) + dt;
+          else m.welle2T = (m.welle2T || 0) + dt;
           if (m.welle === 1 && stAlleGangsTot()) {
             m.welle = 2;
+            ptMarke('m6Welle1s', +(m.welle1T || 0).toFixed(1));
+            /* Welle 2 steht im LAGER, nicht neben dem Spieler. Er muss
+               durch das Hallentor gehen, um sie zu erreichen - drei bis
+               vier gemischte Gegner in einer Zone mit Regalen und
+               Containern als Deckung. Kein Gedraenge von zehn Gegnern auf
+               einmal, und keine kuenstlich erhoehten Lebenspunkte. */
             m.innenGesamt = (m.innenGesamt || 0) +
-              stInnenGegner(m, randi(2, 3), ['brecher', 'flink', 'schlaeger'],
-                { x: player.pos.x, z: player.pos.z, r: 6 });
+              stInnenGegner(m, randi(3, 4), ['brecher', 'flink', 'schlaeger', 'waechter'],
+                { x: player.pos.x, z: player.pos.z, r: 6 }, 'lager');
+            stFunk('Weiter hinten sind noch welche. Lagerbereich.');
             return null;
           }
-          return stAlleGangsTot() ? 'weiter' : null;
+          if (stAlleGangsTot()) {
+            ptMarke('m6Welle2s', +(m.welle2T || 0).toFixed(1));
+            ptMarke('m6InnenGegner', m.innenGesamt || 0);
+            return 'weiter';
+          }
+          return null;
         } },
 
       { ziel: 'Die Geisel befreien',
@@ -31408,7 +31679,7 @@ const STORY_DEF = [
         auf: (m) => innenPhase(m, () => {
           const r = MISSION_INTERIOR.raum;
           if (!m.geisel && r) {
-            const civ = stGeisel(r.geiselPunkt);
+            const civ = stGeisel(r.geiselPunkt, r.geiselSitzY);
             if (civ) { m.geisel = civ; innenZeigen(civ.visual && civ.visual.root); }
           }
           if (m.geisel) m.zielPos = { x: m.geisel.pos.x, y: m.geisel.pos.y + 1,
@@ -31556,31 +31827,38 @@ const STORY_DEF = [
         } },
 
       { ziel: 'Den Hinterhalt überstehen',
+        /* ---- Zwei kurze Wellen statt einer Gruppe ----
+           Zweiter Human-Playtest: der Hinterhalt war "zu leicht" - 9,9 s
+           fuer die ganze Phase. Die Antwort ist NICHT mehr Lebenspunkte
+           und auch nicht mehr Gegner auf einmal, sondern eine zweite
+           Welle aus einer anderen Richtung, sobald die erste steht. Die
+           Mischung wird breiter (Brecher und Waechter in Welle B), das
+           Kampfmarkensystem bleibt unangetastet. */
         auf: (m) => {
           stVersteckSichern(m);
           const t = m.treff || (m.treff = stTreffpunkt(m));
-          /* Drei bis fuenf, bewusst gemischt, verteilt um den Platz -
-             nicht alle auf einem Punkt. */
-          const arten = ['waechter', 'flink', 'brecher', 'schlaeger', 'flink'];
-          const n = clamp(Math.round(t.radius / 1.6), 3, 5);
-          for (let i = 0; i < n; i++) {
-            const w = (i / n) * TAU + rand(-0.3, 0.3);
-            const d2 = t.radius * rand(0.45, 0.85);
-            const x = t.x + Math.sin(w) * d2, z = t.z + Math.cos(w) * d2;
-            const gy = groundY(x, z, 2);
-            if (gy === null || gy === undefined || !versteckFrei(x, z, gy, 0.6)) continue;
-            const g = stGang(x, z, 1, 'story');
-            const e = g.enemies[0];
-            if (e) { e.pos.set(x, gy, z);
-                     if (e.visual && e.visual.root) e.visual.root.position.copy(e.pos);
-                     stArt(e, arten[i % arten.length]);
-                     e.state = 'chase'; e.target = 'player'; }
-          }
+          m.hinterhaltWelle = 1;
+          m.hinterhaltA = stHinterhaltWelle(m, t, 3,
+            ['waechter', 'flink', 'schlaeger'], 0);
           m.hinterhaltDa = true;
         },
         pruef: (m) => {
           stGeflohenAufraeumen(m, m.treff, 50);
-          return stAlleGangsTot() ? 'weiter' : null;
+          if (!stAlleGangsTot()) return null;
+          if (m.hinterhaltWelle === 1) {
+            m.hinterhaltWelle = 2;
+            /* Die zweite Welle kommt um eine halbe Umdrehung versetzt -
+               aus dem Ruecken des Platzes, nicht aus derselben Ecke. */
+            m.hinterhaltB = stHinterhaltWelle(m, m.treff, randi(3, 4),
+              ['brecher', 'flink', 'waechter', 'schlaeger'], Math.PI);
+            ptMarke('m6HinterhaltA', m.hinterhaltA || 0);
+            ptMarke('m6HinterhaltB', m.hinterhaltB || 0);
+            if (m.hinterhaltB > 0) {
+              stFunk('Da kommen noch mehr. Von hinten.');
+              return null;
+            }
+          }
+          return 'weiter';
         } },
 
       { ziel: 'Den Anführer stellen',
@@ -31848,7 +32126,15 @@ function storyAufraeumen() {
        Der Funker wird mit seiner Gruppe ohnehin entfernt; seine Felder
        werden trotzdem geloescht, damit kein halber Fluchtweg an einer
        Figur haengen bleibt, die noch jemand in der Hand hat. */
-    if (m.geisel) { m.geisel.geisel = false; m.geisel = null; }
+    if (m.geisel) {
+      m.geisel.geisel = false;
+      m.geisel.geiselSitzY = undefined;
+      m.geisel.pos.y = groundY(m.geisel.pos.x, m.geisel.pos.z, 2) || 0;
+      m.geisel = null;
+    }
+    /* Auch beim Abbruch: die Fesseln duerfen nicht im Raum haengen
+       bleiben, wenn die Mission ohne Befreiung endet. */
+    geiselFesselWeg();
     if (m.funker) {
       m.funker.funker = false; m.funker.fluchtWeg = null;
       m.funker.flieht = false; m.funker.eventFlucht = false;
@@ -34281,6 +34567,9 @@ if (window.__WEBHERO_TEST__ === true) {
     get innenAktiv() { return MISSION_INTERIOR.active; },
     get innenKamDist() { return INNEN_KAM_DIST; },
     setzeInnenKamDist(v) { INNEN_KAM_DIST = v; },
+    /* Wie weit die Kamera drinnen gerade ausweicht - fuer den Wandtest. */
+    innenKamAbweichung() { return { gier: innenKamGier, neig: innenKamNeig,
+                                    min: INNEN_KAM_MIN }; },
     get innenBlende() { return MISSION_INTERIOR.blende; },
     get innenZyklen() { return MISSION_INTERIOR.zyklen; },
     /* Wie viele Objekte direkt an der Szene gerade sichtbar sind - die
