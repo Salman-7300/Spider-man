@@ -233,6 +233,86 @@ function rasterLinieNah(v, a) {
 function imRaster(x, z) {
   return x >= RASTER_X0 && x <= RASTER_X1 && z >= RASTER_Z0 && z <= RASTER_Z1;
 }
+
+/* ---- CITY V2, Stufe 3: die Strassenhierarchie ----
+   Bis hierher war jede Strasse gleich: 12 m Asphalt, zwei Spuren auf
+   +/-3 m, Tempo 8 bis 13. In einer Stadt von 110 Bloecken sieht das aus
+   wie ein Millimeterpapier - es gibt keine Hauptstrasse, an der man sich
+   orientieren koennte, und keine ruhige Nebenstrasse.
+
+   Die Hierarchie aendert NICHT die Asphaltbreite. Ein globales
+   ROAD_WIDTH * 1,8 wuerde jeden Block schmaler machen und damit den
+   gesamten Kern verschieben - genau das darf nicht passieren. Alle
+   Spurmitten liegen innerhalb von ROAD_HALF; die 12 m waren fuer zwei
+   Spuren ohnehin uebertrieben breit (6 m je Spur, wo 3 bis 3,5 m
+   ueblich sind). Vier Spuren zu 2,8 m passen also ohne einen einzigen
+   Meter mehr Asphalt hinein.
+
+     LOCAL       2 Spuren, aussen bleibt Platz zum Parken
+     STREET      2 Spuren auf +/-3 - genau wie bisher
+     AVENUE      4 Spuren
+     BOULEVARD   4 Spuren mit Mittelstreifen
+
+   spurMitten ist IMMER von der Rasterlinie aus gerechnet und nach
+   Vorzeichen sortiert: negative Werte gehoeren zur Fahrtrichtung -1,
+   positive zu +1 (Rechtsverkehr, angenaehert wie bisher). */
+const STR_TEMPO = {
+  langsam: [6.5, 9.5], normal: [8, 13], zuegig: [10, 15], schnell: [12, 17],
+};
+const STR_KLASSEN = {
+  LOCAL:     { spuren: 2, spurBreite: 3.2, mitten: [-2.4, 2.4], tempo: 'langsam' },
+  STREET:    { spuren: 2, spurBreite: 3.6, mitten: [-3.0, 3.0], tempo: 'normal' },
+  AVENUE:    { spuren: 4, spurBreite: 2.8, mitten: [-4.4, -1.6, 1.6, 4.4], tempo: 'zuegig' },
+  BOULEVARD: { spuren: 4, spurBreite: 2.6, mitten: [-4.6, -1.9, 1.9, 4.6], tempo: 'schnell',
+               mittelstreifen: 1.2 },
+};
+/* Welche Linie welche Klasse traegt - aus dem Raster abgeleitet, nicht
+   von Hand aufgezaehlt. Alle Rasterlinien liegen auf 25 + k * 50; der
+   Index k zaehlt sie durch, jede dritte wird zur Avenue. */
+function strasseKlasse(achse, linie) {
+  /* Die aeusseren Linien sind Randstrassen: wenig Verkehr, langsam. */
+  if (Math.abs(linie - rasterO(achse)) < 0.5) return 'LOCAL';
+  if (achse === 'z' && Math.abs(linie - rasterE('z')) < 0.5) return 'LOCAL';
+  /* ---- Zwei Linien behalten ihre alten Spuren ----
+     Die Uferstrasse (x = 175): oestlich davon beginnt bei 181 die
+     Promenade, und AUTO_X_MAX haelt die Wagen bei 179. Eine vierte Spur
+     auf 179,4 laege hinter dieser Grenze.
+     Die Brueckenstrasse (z = -25): das Brueckendeck ist 15 m breit, der
+     Gehweg beginnt 5,6 m neben der Achse. Eine Spur auf 4,6 waere mit
+     halber Wagenbreite schon im Bordstein. */
+  if (achse === 'x' && Math.abs(linie - RASTER_X1) < 0.5) return 'STREET';
+  if (achse === 'z' && Math.abs(linie - BRIDGE_Z) < 0.5) return 'STREET';
+  /* Die beiden Hauptachsen der Stadt. */
+  if (achse === 'x' && Math.abs(linie + 125) < 0.5) return 'BOULEVARD';
+  if (achse === 'z' && Math.abs(linie - 25) < 0.5) return 'BOULEVARD';
+  const k = Math.round((linie - 25) / PITCH);
+  return (((k % 3) + 3) % 3) === 0 ? 'AVENUE' : 'STREET';
+}
+function strasseInfo(achse, linie) {
+  return STR_KLASSEN[strasseKlasse(achse, linie)];
+}
+/* Alle Spurmitten einer Linie in EINER Fahrtrichtung, als Weltwert.
+   dir = +1 sind die positiven Abstaende, dir = -1 die negativen. */
+function spurMitten(achse, linie, dir) {
+  const inf = strasseInfo(achse, linie);
+  const aus = [];
+  for (const m of inf.mitten) if ((m > 0 ? 1 : -1) === dir) aus.push(linie + m);
+  return aus;
+}
+/* Die Spurmitte, die einem Wert am naechsten liegt - und ihre Richtung. */
+function spurNah(achse, linie, wert) {
+  const inf = strasseInfo(achse, linie);
+  let best = null, bd = Infinity;
+  for (const m of inf.mitten) {
+    const d = Math.abs(linie + m - wert);
+    if (d < bd) { bd = d; best = m; }
+  }
+  return { lane: linie + best, dir: best > 0 ? 1 : -1, abstand: bd };
+}
+/* Tempobereich einer Strasse. */
+function strasseTempo(achse, linie) {
+  return STR_TEMPO[strasseInfo(achse, linie).tempo];
+}
 /* Die Uferpromenade zwischen der Uferstrasse und der Kaimauer.
    Sie liegt als Gehweg auf SLAB_H - der Bodenhoehe war das aber nie
    bekannt: dort galt weiter das Strassenraster, und in den Fahrbahnbaendern
@@ -2720,16 +2800,60 @@ function buildCity() {
      (die der x-Achse). Bei einer quadratischen Stadt war das dasselbe;
      sobald sie in x und z verschieden weit reicht, fehlen sonst die
      Striche der neuen Strassen. */
-  for (const L of rasterLinien('x'))                 // Nord-Sued-Strassen
+  /* ---- Die Striche folgen der Strassenklasse ----
+     Eine zweispurige Strasse bekommt wie bisher eine Mittellinie. Auf
+     einer Avenue kommen die beiden Spurtrenner dazu, auf einem
+     Boulevard ein durchgehender Mittelstreifen statt der Mittellinie.
+     Die Versaetze werden aus den Spurmitten GERECHNET, nicht von Hand
+     eingetragen: ein Spurtrenner liegt genau zwischen zwei Spurmitten
+     derselben Richtung. */
+  function strichVersaetze(achse, linie) {
+    const inf = strasseInfo(achse, linie);
+    const aus = [];
+    if (!inf.mittelstreifen) aus.push({ v: 0, farbe: 0xd9c979, breit: 0.35 });
+    for (let i = 0; i + 1 < inf.mitten.length; i++) {
+      const a = inf.mitten[i], b = inf.mitten[i + 1];
+      if ((a > 0) !== (b > 0)) continue;            // das ist die Mitte
+      aus.push({ v: (a + b) / 2, farbe: 0xe8e8e0, breit: 0.3 });
+    }
+    return aus;
+  }
+  for (const L of rasterLinien('x')) {              // Nord-Sued-Strassen
+    const striche = strichVersaetze('x', L);
     for (let s = RASTER_Z0 - 11; s < RASTER_Z1 + 11; s += 10) {
       if (nearCrossing(s, 'z')) continue;
-      deko(0.35, 0.04, 4, L, 0.02, s, 0xd9c979);
+      for (const st of striche) deko(st.breit, 0.04, 4, L + st.v, 0.02, s, st.farbe);
     }
-  for (const L of rasterLinien('z'))                 // Ost-West-Strassen
+    const mst = strasseInfo('x', L).mittelstreifen;
+    if (mst) mittelstreifen('x', L, mst);
+  }
+  for (const L of rasterLinien('z')) {              // Ost-West-Strassen
+    const striche = strichVersaetze('z', L);
     for (let s = RASTER_X0 - 11; s < RASTER_X1 + 11; s += 10) {
       if (nearCrossing(s, 'x')) continue;
-      deko(4, 0.04, 0.35, s, 0.02, L, 0xd9c979);
+      for (const st of striche) deko(4, 0.04, st.breit, s, 0.02, L + st.v, st.farbe);
     }
+    const mst = strasseInfo('z', L).mittelstreifen;
+    if (mst) mittelstreifen('z', L, mst);
+  }
+  /* Der Mittelstreifen eines Boulevards: ein flaches, helles Band auf
+     der Fahrbahn, an jeder Kreuzung unterbrochen - sonst laege er quer
+     ueber dem Zebrastreifen (derselbe Fehler wie beim Bordstein an der
+     Promenade). Flach, damit kein Wagen und keine Figur daran haengt. */
+  function mittelstreifen(achse, linie, breite) {
+    /* Die Strasse LAEUFT auf der Querachse: eine Linie auf x ist eine
+       Nord-Sued-Strasse, ihre Kreuzungen liegen auf den z-Linien. */
+    const laengs = querAchse(achse);
+    const o = rasterO(laengs), n = rasterN(laengs);
+    for (let i = 0; i < n; i++) {
+      const a = o + i * PITCH + ROAD_HALF + 3.5;
+      const b = o + (i + 1) * PITCH - ROAD_HALF - 3.5;
+      if (b <= a) continue;
+      const mitte = (a + b) / 2, laenge = b - a;
+      if (achse === 'x') deko(breite, 0.05, laenge, linie, 0.025, mitte, 0xbfc4c9);
+      else deko(laenge, 0.05, breite, mitte, 0.025, linie, 0xbfc4c9);
+    }
+  }
 
   /* Zebrastreifen an jeder Kreuzung – vorher hörten die Fahrbahnlinien
      einfach auf und die Kreuzungen waren leere graue Flächen.
@@ -20426,7 +20550,9 @@ function spawnCars() {
        gross ist, sind es zwei verschiedene Listen. */
     const line = pick(rasterLinien(querAchse(axis)));
     const laneSign = Math.random() < 0.5 ? 1 : -1;
-    const lane = line + laneSign * 3;
+    /* Die Spur kommt aus der Strassenklasse: eine Nebenstrasse hat zwei
+       Spuren, eine Avenue vier. Vorher stand hier fest +/-3. */
+    const lane = pick(spurMitten(querAchse(axis), line, laneSign));
     const isBridgeRoad = axis === 'x' && line === BRIDGE_Z;
     const typ = waehleFahrzeug();
     /* Ein Polizeiwagen im normalen Verkehr ist eine Streife: er faehrt
@@ -20461,7 +20587,9 @@ function spawnCars() {
          draussen anfangen, dort geht es ja ueber den Fluss. */
       s: isBridgeRoad ? rand(sMin, sMax)
                       : rand(rasterO(axis), rasterE(axis)), sMin, sMax,
-      speed: rand(8, 13) * (typ.art === 'bus' || typ.art === 'lkw' ? 0.72 : 1),
+      /* Auf einer Avenue faehrt man zuegiger als in der Nebenstrasse. */
+      speed: rand(...strasseTempo(querAchse(axis), line)) *
+             (typ.art === 'bus' || typ.art === 'lkw' ? 0.72 : 1),
       tempoJetzt: 0, hupCd: 0,
       typ,
       mesh: makeFahrzeugMesh(typ, typ.art === 'bus' ? pick([0x2f6fc8, 0x3b7a3f, 0xc23b30])
@@ -21282,7 +21410,7 @@ function autoKreuzung(car, linie) {
        Spur ist die oestliche Fahrspur der Bruecke. */
     car.s = car.lane;
     car.axis = 'x';
-    car.lane = BRIDGE_Z + 3;
+    car.lane = spurMitten('z', BRIDGE_Z, 1)[0];
     car.dir = 1;
     car.kreuzung = null;
     car.tempoJetzt *= 0.55;
@@ -21293,7 +21421,12 @@ function autoKreuzung(car, linie) {
   if (drin && Math.random() > (car.flucht ? 0.30 : 0.14)) return false;
   /* Am Rand geht es in die Stadt hinein, sonst nach Lust und Laune. */
   const nd = !drin ? (car.lane > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
-  const neueLane = linie + nd * 3;
+  /* Die Zielstrasse hat ihre eigene Spurzahl. Vorher stand hier fest
+     linie + nd * 3, also immer die Spur einer zweispurigen Strasse - auf
+     einer Avenue waere der Wagen damit auf der Mittellinie gelandet.
+     ACHTUNG Achse: linie ist eine Linie auf der BISHERIGEN Fahrachse,
+     und genau dort liegt nach dem Abbiegen die neue Spur. */
+  const neueLane = pick(spurMitten(car.axis, linie, nd));
   const neuesS = car.lane;
   /* Nicht ins Wasser und nicht aus der Karte abbiegen.
      Welche der beiden Zahlen eine x-Koordinate ist, haengt von der
@@ -21553,7 +21686,10 @@ function updateCars(dt) {
          dabei gespiegelt (aus L+3 wird L-3), also die Gegenspur. */
       car.s = clamp(car.s, car.sMin + 2, car.sMax - 2);
       car.dir = -car.dir;
-      car.lane += car.dir * 6;                 // auf die Gegenspur
+      /* Gespiegelt an der Rasterlinie, nicht um feste 6 m versetzt: auf
+         einer vierspurigen Strasse liegen die Gegenspuren woanders. */
+      const kl = rasterLinieNah(car.lane, querAchse(car.axis));
+      car.lane = 2 * kl - car.lane;
       car.tempoJetzt *= 0.4;
       car.kurve = 0.7;                         // Bild zieht weich nach
       car.kreuzung = null;
@@ -21566,12 +21702,16 @@ function updateCars(dt) {
        auf die Gegenspur, wo er hingehoert. Greift nur im Stillstand,
        damit der laufende Verkehr unberuehrt bleibt. */
     if ((car.tempoJetzt || 0) < 0.05) {
-      const kl = rasterLinieNah(car.lane, querAchse(car.axis));
+      const qa = querAchse(car.axis);
+      const kl = rasterLinieNah(car.lane, qa);
       const soll = car.lane > kl ? 1 : -1;
-      if (car.dir !== soll && Math.abs(Math.abs(car.lane - kl) - 3) < 1.5) {
+      if (car.dir !== soll && spurNah(qa, kl, car.lane).abstand < 1.5) {
         car.stauT = (car.stauT || 0) + dt;
         if (car.stauT > 1.5) {
-          car.lane = kl + car.dir * 3;         // auf die eigene Gegenspur
+          /* Auf die naechste Spur der eigenen Richtung. */
+          const eigene = spurMitten(qa, kl, car.dir);
+          car.lane = eigene.reduce((a, b) =>
+            Math.abs(b - car.lane) < Math.abs(a - car.lane) ? b : a);
           car.stauT = 0; car.kurve = 0.6; car.kreuzung = null;
           setzeAutoGrenzen(car);
         }
@@ -28377,7 +28517,10 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
     const qa = querAchse(achse);
     const linie = rasterLinieNah(quer, qa);
     for (const seite of [1, -1]) {
-      const lane = linie + seite * 3;
+      /* Die aeussere Spur dieser Richtung: dort haelt ein Einsatzwagen,
+         nicht auf der Ueberholspur. Vorher stand hier fest linie +/- 3. */
+      const mitten = spurMitten(qa, linie, seite);
+      const lane = mitten[seite > 0 ? mitten.length - 1 : 0];
       const dQuer = Math.abs(lane - quer);
       if (dQuer > fern) continue;
       /* So weit muss es laengs noch sein, damit der Abstand stimmt. */
@@ -28482,7 +28625,9 @@ function respStartQuer(halt, zLinie) {
   const kand = [];
   for (const linie of rasterLinien(halt.achse)) {
     for (const seite of [1, -1]) {
-      const spur = linie + seite * 3;              // Spur auf der Querachse
+      /* Spur auf der Querachse - aus der Klasse dieser Linie. */
+      const spurAus = spurMitten(halt.achse, linie, seite);
+      const spur = spurAus[seite > 0 ? spurAus.length - 1 : 0];
       if ((halt.s - spur) * fahrt < 15) continue;  // nach dem Abbiegen zu spaet
       for (const weit of [70, 100, 45, 130]) {
         const st = zLinie - seite * weit;          // Anlauf bis zur Linie
@@ -29055,7 +29200,9 @@ function respLenke(car, linie) {
        Fahrten kommen also nicht von dieser Richtungswahl. */
     if (aufZielspur) nd = Math.random() < 0.5 ? 1 : -1;   // umkehren
   }
-  const neueLane = linie + nd * 3;
+  /* Wie in autoKreuzung: linie liegt auf der bisherigen Fahrachse, und
+     dort liegt nach dem Abbiegen die neue Spur. */
+  const neueLane = pick(spurMitten(car.axis, linie, nd));
   const neuesS = car.lane;
   const neuesX = car.axis === 'x' ? neueLane : neuesS;
   const neuesZ = car.axis === 'x' ? neuesS : neueLane;
@@ -35019,6 +35166,20 @@ if (window.__WEBHERO_TEST__ === true) {
     innenPlaetze() { return INNEN_PLAETZE; },
     autoFahrer() { return AUTO_FAHRER; },
     imKitHaus,
+    /* CITY V2: die Strassenhierarchie, Linie fuer Linie. */
+    strassen() {
+      const aus = [];
+      for (const achse of ['x', 'z'])
+        for (const linie of rasterLinien(achse)) {
+          const inf = strasseInfo(achse, linie);
+          aus.push({ achse, linie, klasse: strasseKlasse(achse, linie),
+                     spuren: inf.spuren, spurBreite: inf.spurBreite,
+                     spurMitten: inf.mitten.map((m) => linie + m),
+                     tempoKlasse: inf.tempo, tempo: STR_TEMPO[inf.tempo],
+                     mittelstreifen: inf.mittelstreifen || 0 });
+        }
+      return aus;
+    },
     renderInfo() { return { calls: renderer.info.render.calls,
       dreiecke: renderer.info.render.triangles,
       programme: renderer.info.programs ? renderer.info.programs.length : -1,

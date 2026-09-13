@@ -87,3 +87,116 @@ test('Eine andere Kreuzung zaehlt nicht', () => {
   const anderswo = { axis: 'z', lane: 128, s: -33.9, dir: 1, aus: false };
   assert.strictEqual(warten(brueckenWagen, dBruecke, [brueckenWagen, anderswo]), false);
 });
+
+/* ======================= Strassenhierarchie (CITY V2, Stufe 3) =======
+   Geprueft wird die ECHTE Einteilung aus game.js, nicht eine Kopie: der
+   Abschnitt wird herausgeschnitten und ausgefuehrt. Die Zusage lautet,
+   dass die Hierarchie OHNE einen Meter mehr Asphalt auskommt - das ist
+   eine Rechnung, die sich hier offline pruefen laesst. */
+const hier = quelle.match(
+  /const STR_TEMPO = \{[\s\S]*?\nfunction strasseTempo\(achse, linie\) \{[\s\S]*?\n\}/);
+assert.ok(hier, 'die Strassenhierarchie wurde in game.js nicht gefunden');
+const kasten2 = {
+  Math, PITCH: 50, RASTER_X0: -325, RASTER_X1: 175, RASTER_Z0: -275, RASTER_Z1: 275,
+  BLOCKS_X: 10, BLOCKS_Z: 11, BRIDGE_Z: -25,
+  clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
+};
+kasten2.rasterO = (a) => (a === 'x' ? kasten2.RASTER_X0 : kasten2.RASTER_Z0);
+kasten2.rasterE = (a) => (a === 'x' ? kasten2.RASTER_X1 : kasten2.RASTER_Z1);
+kasten2.rasterN = (a) => (a === 'x' ? kasten2.BLOCKS_X : kasten2.BLOCKS_Z);
+kasten2.querAchse = (a) => (a === 'x' ? 'z' : 'x');
+kasten2.rasterLinien = (a) => {
+  const o = kasten2.rasterO(a), n = kasten2.rasterN(a), aus = [];
+  for (let i = 0; i <= n; i++) aus.push(o + i * 50);
+  return aus;
+};
+vm.createContext(kasten2);
+/* const-Deklarationen landen in einer vm nicht auf dem Kontextobjekt -
+   sie liegen im lexikalischen Bereich des Skripts. Deshalb werden sie
+   ausdruecklich herausgereicht. */
+vm.runInContext(hier[0] + '\nglobalThis.__H = { STR_TEMPO, STR_KLASSEN };', kasten2);
+const KLASSEN = kasten2.__H.STR_KLASSEN;
+const ROAD_HALF_T = 6;
+
+test('Keine Spur liegt ausserhalb des Asphalts', () => {
+  /* Das ist die ganze Begruendung dafuer, dass die Hierarchie den Kern
+     nicht verschiebt: sie braucht keinen Millimeter mehr Strasse. */
+  for (const [name, k] of Object.entries(KLASSEN)) {
+    for (const m of k.mitten) {
+      const rand = Math.abs(m) + k.spurBreite / 2;
+      assert.ok(rand <= ROAD_HALF_T,
+        name + ': Spurmitte ' + m + ' reicht bis ' + rand.toFixed(2) +
+        ' m, der Asphalt endet bei ' + ROAD_HALF_T);
+    }
+    assert.strictEqual(k.mitten.length, k.spuren,
+      name + ': spuren sagt ' + k.spuren + ', es sind ' + k.mitten.length + ' Spurmitten');
+  }
+});
+
+test('Spuren derselben Richtung ueberlappen sich nicht', () => {
+  for (const [name, k] of Object.entries(KLASSEN)) {
+    const s = [...k.mitten].sort((a, b) => a - b);
+    for (let i = 0; i + 1 < s.length; i++)
+      assert.ok(s[i + 1] - s[i] >= k.spurBreite - 0.01,
+        name + ': Spuren bei ' + s[i] + ' und ' + s[i + 1] +
+        ' liegen enger als ihre Breite ' + k.spurBreite);
+  }
+});
+
+test('spurMitten liefert nur Spuren der gefragten Richtung', () => {
+  for (const achse of ['x', 'z'])
+    for (const linie of kasten2.rasterLinien(achse))
+      for (const dir of [1, -1]) {
+        const m = kasten2.spurMitten(achse, linie, dir);
+        assert.ok(m.length >= 1, achse + ' ' + linie + ': keine Spur fuer Richtung ' + dir);
+        for (const v of m)
+          assert.ok(Math.sign(v - linie) === dir,
+            achse + ' ' + linie + ': Spur ' + v + ' gehoert nicht zu Richtung ' + dir);
+      }
+});
+
+test('Uferstrasse und Brueckenstrasse behalten ihre zwei Spuren', () => {
+  /* Beide sind eingebaut: oestlich der Uferstrasse liegt die Promenade,
+     und das Brueckendeck hat ab 5,6 m Gehweg. Vier Spuren passen dort
+     nicht - das ist keine Geschmacksfrage, sondern Geometrie. */
+  assert.strictEqual(kasten2.strasseKlasse('x', 175), 'STREET');
+  assert.strictEqual(kasten2.strasseKlasse('z', -25), 'STREET');
+  /* Aus der vm kommen fremde Array-Prototypen - deshalb kopiert
+     vergleichen, nicht als Verweis. */
+  assert.deepStrictEqual([...kasten2.strasseInfo('x', 175).mitten], [-3, 3]);
+  assert.deepStrictEqual([...kasten2.strasseInfo('z', -25).mitten], [-3, 3]);
+});
+
+test('Die Randstrassen sind Nebenstrassen', () => {
+  assert.strictEqual(kasten2.strasseKlasse('x', -325), 'LOCAL');
+  assert.strictEqual(kasten2.strasseKlasse('z', -275), 'LOCAL');
+  assert.strictEqual(kasten2.strasseKlasse('z', 275), 'LOCAL');
+});
+
+test('Es gibt von jeder Klasse mindestens eine Strasse', () => {
+  const zaehl = {};
+  for (const achse of ['x', 'z'])
+    for (const linie of kasten2.rasterLinien(achse)) {
+      const k = kasten2.strasseKlasse(achse, linie);
+      zaehl[k] = (zaehl[k] || 0) + 1;
+    }
+  for (const k of ['LOCAL', 'STREET', 'AVENUE', 'BOULEVARD'])
+    assert.ok(zaehl[k] > 0, 'keine einzige Strasse der Klasse ' + k);
+  /* Die Stadt darf nicht nur aus Hauptstrassen bestehen. */
+  const gesamt = Object.values(zaehl).reduce((a, b) => a + b, 0);
+  assert.ok(zaehl.STREET / gesamt > 0.4,
+    'nur ' + zaehl.STREET + ' von ' + gesamt + ' Linien sind normale Strassen');
+});
+
+test('Abgebogen wird auf die Linie der BISHERIGEN Fahrachse', () => {
+  /* Die Falle: linie ist eine Linie auf der Achse, auf der das Auto
+     GERADE faehrt - dort liegt nach dem Abbiegen seine neue Spur. Mit
+     querAchse(car.axis) landet es auf Linien, die es dort nicht gibt.
+     Im quadratischen Raster faellt so etwas nie auf. */
+  const ak = quelle.match(/function autoKreuzung\(car, linie\)[\s\S]*?\n\}/);
+  assert.ok(ak, 'autoKreuzung nicht gefunden');
+  assert.match(ak[0], /const neueLane = pick\(spurMitten\(car\.axis, linie, nd\)\);/);
+  const rl = quelle.match(/function respLenke\(car, linie\)[\s\S]*?\n\}/);
+  assert.ok(rl, 'respLenke nicht gefunden');
+  assert.match(rl[0], /const neueLane = pick\(spurMitten\(car\.axis, linie, nd\)\);/);
+});

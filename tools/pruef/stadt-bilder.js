@@ -35,6 +35,12 @@ fs.mkdirSync(ziel, { recursive: true });
     ['strasse-west',  R.x0 + 25, 2.2, mz, R.x0 + 120, 8, mz],
     ['strasse-nord',  mx, 2.2, R.z0 + 25, mx, 8, R.z0 + 120],
     ['uferstrasse',   R.x1, 2.2, mz, R.x1, 8, mz + 120],
+    /* CITY V2 Stufe 3: eine Strasse jeder Klasse von oben, damit sich
+       Spuren und Mittelstreifen vergleichen lassen. */
+    ['boulevard-x',  -125, 22, mz - 40, -125, 2, mz + 60],
+    ['boulevard-z',  mx - 40, 22, 25, mx + 60, 2, 25],
+    ['avenue-z',     mx - 40, 22, -125, mx + 60, 2, -125],
+    ['local-rand',   R.x0, 22, mz - 40, R.x0, 2, mz + 60],
   ];
   for (const [name, px, py, pz, zx, zy, zz] of bilder) {
     /* Dreimal zeichnen: SwiftShader liefert sonst einen halb fertigen

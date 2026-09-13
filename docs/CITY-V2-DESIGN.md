@@ -125,6 +125,84 @@ ohne Befund wird hier nichts repariert.
 
 ---
 
+## 4b. Die Strassenhierarchie (Stufe 3)
+
+Bis Stufe 2 war jede Strasse gleich: 12 m Asphalt, zwei Spuren auf
++/-3 m, Tempo 8 bis 13. Bei 49 Bloecken faellt das nicht auf. Bei 110
+sieht die Stadt aus wie Millimeterpapier - es gibt keine Hauptstrasse, an
+der man sich orientieren koennte, und keine ruhige Nebenstrasse.
+
+### Keine breiteren Strassen
+
+Ein globales `ROAD_WIDTH * 1,8` haette jeden Block schmaler gemacht und
+damit den gesamten Kern verschoben. Es war auch nicht noetig: 12 m
+Asphalt fuer zwei Spuren sind 6 m je Spur, wo 3 bis 3,5 m ueblich sind.
+Vier Spuren zu 2,8 m passen ohne einen einzigen Meter mehr hinein.
+
+`tools/pruef/strassen.js` misst genau das nach: der aeusserste Spurrand
+liegt bei **5,90 m**, der Asphalt endet bei 6,00 m. Der engste Abstand
+zwischen zwei Spurmitten betraegt 2,70 m.
+
+### Die vier Klassen
+
+| Klasse | Spuren | Spurbreite | Spurmitten | Tempo |
+|--------|--------|-----------|------------|-------|
+| LOCAL | 2 | 3,2 m | +/-2,4 | 6,5 - 9,5 |
+| STREET | 2 | 3,6 m | +/-3,0 | 8 - 13 |
+| AVENUE | 4 | 2,8 m | +/-1,6, +/-4,4 | 10 - 15 |
+| BOULEVARD | 4 | 2,6 m | +/-1,9, +/-4,6 | 12 - 17 |
+
+STREET traegt genau die alten Werte. Die meisten Strassen der Stadt
+aendern sich dadurch ueberhaupt nicht.
+
+### Wer welche Klasse bekommt
+
+Abgeleitet, nicht aufgezaehlt. Alle Rasterlinien liegen auf 25 + k * 50;
+jede dritte (k durch 3 teilbar) wird zur Avenue, der Rest zur Strasse.
+Darueber liegen vier Ausnahmen:
+
+* die aeussersten Linien sind Randstrassen: **LOCAL**
+* `x = -125` und `z = 25` sind die beiden Hauptachsen: **BOULEVARD**
+* die **Uferstrasse** (`x = 175`) bleibt **STREET**: oestlich davon
+  beginnt bei 181 die Promenade, und `AUTO_X_MAX` haelt die Wagen bei
+  179 - eine vierte Spur auf 179,4 laege hinter dieser Grenze
+* die **Brueckenstrasse** (`z = -25`) bleibt **STREET**: das Deck ist
+  15 m breit, der Gehweg beginnt 5,6 m neben der Achse - eine Spur auf
+  4,6 waere mit halber Wagenbreite schon im Bordstein
+
+Gemessen ueber alle 23 Linien: 3 LOCAL, 14 STREET, 4 AVENUE,
+2 BOULEVARD.
+
+```
+x  -325:L2  -275:A4  -225:S2  -175:S2  -125:B4  -75:S2  -25:S2
+    25:A4   75:S2   125:S2   175:S2
+z  -275:L2  -225:S2  -175:S2  -125:A4  -75:S2  -25:S2   25:B4
+    75:S2  125:S2  175:A4  225:S2  275:L2
+```
+
+### Was daran haengt
+
+* **Verkehr**: Startspur, Tempo, Abbiegen, Umkehren am Strassenende und
+  das Sicherheitsnetz gegen Geisterfahrer holen ihre Spuren jetzt aus
+  `spurMitten(achse, linie, richtung)` statt aus einer festen 3.
+* **Einsatzwagen**: Halteplatz und Anfahrt nehmen die AEUSSERE Spur
+  ihrer Richtung - ein Rettungswagen haelt nicht auf der Ueberholspur.
+* **Markierungen**: die Strichversaetze werden aus den Spurmitten
+  GERECHNET (ein Spurtrenner liegt genau zwischen zwei Spurmitten
+  derselben Richtung), nicht von Hand eingetragen. Ein Boulevard bekommt
+  statt der Mittellinie einen durchgehenden Mittelstreifen, an jeder
+  Kreuzung unterbrochen - sonst laege er quer ueber dem Zebrastreifen.
+
+### Eine Achsenfalle beim Abbiegen
+
+`linie` in `autoKreuzung` und `respLenke` ist eine Linie auf der
+**bisherigen** Fahrachse, und genau dort liegt nach dem Abbiegen die
+neue Spur. Der erste Anlauf nahm `querAchse(car.axis)` - im
+quadratischen Raster faellt so etwas nie auf, hier waeren die Wagen auf
+Linien gelandet, die es auf dieser Achse gar nicht gibt.
+
+---
+
 ## 5. Leistung
 
 Gemessen wird mit `tools/pruef/stadt-leistung.js` an 300 festen

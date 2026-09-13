@@ -46,6 +46,10 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `fuss-rutschen.js` | Wie weit der tragende Fuß während des Bodenkontakts wandert, je Gangart. Erstes Argument ist das Bodenfenster in Metern (Vorgabe 0,12) |
 | `anim-klassen.js` | Welcher Heldenclip läuft ab, welcher wird als Haltung an einer gesetzten Stelle gehalten |
 | `anim-eigentempo.js` | Eigengeschwindigkeit der Gangclips im Animationslabor |
+| `stadtraster.js` | CITY V2: der LOCKED CORE, alle Rastermaße und Weltgrenzen |
+| `strassen.js` | CITY V2: die Straßenhierarchie und ob jeder Wagen auf einer Spur seiner Straße fährt |
+| `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor |
+| `stadt-bilder.js` | CITY V2: vierzehn feste Aufnahmen zum Vergleich zweier Ausbaustufen |
 
 Aufruf jeweils aus diesem Ordner, z. B.
 
