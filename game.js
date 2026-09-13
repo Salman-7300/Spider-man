@@ -12302,6 +12302,10 @@ function kameraKastenTreffer(von, nach, c, radius) {
    dir wird an Ort und Stelle gedreht; die Laenge bleibt eins. */
 const INNEN_KAM_MIN = 2.3;
 let innenKamGier = 0, innenKamNeig = 0;
+/* Nur fuer den Pruefstand: damit sich der Vorher-Nachher-Vergleich in
+   EINEM Lauf messen laesst, statt zwei Staende gegeneinander zu stellen.
+   Im Spiel steht der Schalter immer auf an. */
+let innenKamAusweichenAn = true;
 const _ikDir = new THREE.Vector3(), _ikZiel = new THREE.Vector3();
 /* Die Ausweichlagen, in der Reihenfolge, in der sie probiert werden:
    erst wenig seitlich, dann mehr, dann hoeher, dann beides. Gier in
@@ -12321,6 +12325,7 @@ function innenKamLage(target, gier, neig, dist) {
   return dist * kameraFreierAnteil(target, _ikZiel);
 }
 function innenKamAusweichen(target, dir, dist, dt) {
+  if (!innenKamAusweichenAn) { innenKamGier = 0; innenKamNeig = 0; return; }
   let bestG = 0, bestN = 0, bestFrei = innenKamLage(target, 0, 0, dist);
   if (bestFrei < INNEN_KAM_MIN) {
     for (let i = 1; i < INNEN_KAM_LAGEN.length; i++) {
@@ -34569,7 +34574,8 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeInnenKamDist(v) { INNEN_KAM_DIST = v; },
     /* Wie weit die Kamera drinnen gerade ausweicht - fuer den Wandtest. */
     innenKamAbweichung() { return { gier: innenKamGier, neig: innenKamNeig,
-                                    min: INNEN_KAM_MIN }; },
+                                    min: INNEN_KAM_MIN, an: innenKamAusweichenAn }; },
+    setzeInnenKamAusweichen(v) { innenKamAusweichenAn = !!v; },
     get innenBlende() { return MISSION_INTERIOR.blende; },
     get innenZyklen() { return MISSION_INTERIOR.zyklen; },
     /* Wie viele Objekte direkt an der Szene gerade sichtbar sind - die
