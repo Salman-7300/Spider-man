@@ -10,8 +10,8 @@ function section(r, a, b) {
   assert.ok(start >= 0 && end > start, a); return r.source.slice(start, end);
 }
 function box(env, c) {
-  for (let x = Math.floor((c.x0 - env.ORIGIN) / env.PITCH); x <= Math.floor((c.x1 - env.ORIGIN) / env.PITCH); x++)
-    for (let z = Math.floor((c.z0 - env.ORIGIN) / env.PITCH); z <= Math.floor((c.z1 - env.ORIGIN) / env.PITCH); z++) {
+  for (let x = Math.floor((c.x0 - env.HASH_O) / env.PITCH); x <= Math.floor((c.x1 - env.HASH_O) / env.PITCH); x++)
+    for (let z = Math.floor((c.z0 - env.HASH_O) / env.PITCH); z <= Math.floor((c.z1 - env.HASH_O) / env.PITCH); z++) {
       const key = x + ',' + z; env.colliderGrid.set(key, [...env.colliderGrid.get(key) || [], c]);
     }
 }

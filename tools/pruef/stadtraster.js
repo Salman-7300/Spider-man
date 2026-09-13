@@ -45,10 +45,8 @@ const SOLL = {
     const r = d.raster();
     /* Welche Rasterlinien gibt es wirklich? */
     const linienX = [], linienZ = [];
-    for (let i = 0; i <= r.blocks; i++) {
-      linienX.push(+(r.x0 + i * r.pitch).toFixed(3));
-      linienZ.push(+(r.z0 + i * r.pitch).toFixed(3));
-    }
+    for (let i = 0; i <= r.blocksX; i++) linienX.push(+(r.x0 + i * r.pitch).toFixed(3));
+    for (let i = 0; i <= r.blocksZ; i++) linienZ.push(+(r.z0 + i * r.pitch).toFixed(3));
     /* Liegt jede Kernlinie noch im Raster? */
     const fehlendX = kernLinien.filter((v) => !linienX.some((w) => Math.abs(w - v) < 1e-6));
     const fehlendZ = kernLinien.filter((v) => !linienZ.some((w) => Math.abs(w - v) < 1e-6));
@@ -76,7 +74,7 @@ const SOLL = {
       r, linienX, linienZ, fehlendX, fehlendZ,
       kreuzFalsch: kreuzFalsch.slice(0, 8), kreuzN: kreuzFalsch.length,
       mitteFalsch: mitteFalsch.slice(0, 8), mitteN: mitteFalsch.length,
-      bloecke: r.blocks * r.blocks,
+      bloecke: r.blocksX * r.blocksZ,
       ubahn,
       kollider: d.colliders.length,
     };
@@ -93,9 +91,13 @@ const SOLL = {
   };
   p('');
   p('== Raster ==');
-  p('  Bloecke ' + aus.bloecke + ' (' + R.blocks + ' x ' + R.blocks + ')' +
+  p('  Bloecke ' + aus.bloecke + ' (' + R.blocksX + ' x ' + R.blocksZ + ')' +
     '   Raster x ' + R.x0 + '...' + R.x1 + '   z ' + R.z0 + '...' + R.z1);
-  p('  Kollider ' + aus.kollider);
+  /* Gemessen ueber vier Laeufe: 1929, 1932, 1932, 1935. Die Zahl
+     schwankt, weil Fahrzeuge beim Laden schon fahren und ihre Kollider
+     mitzaehlen. Sie ist deshalb ein Anhaltspunkt, KEINE Sollgroesse -
+     der Kern wird ueber Rasterlinien und Boden geprueft, nicht hierueber. */
+  p('  Kollider ' + aus.kollider + ' (inkl. Fahrzeuge, schwankt um ~1930)');
   p('');
   p('== Feste Masse (duerfen sich NIE aendern) ==');
   pruefe('pitch', R.pitch, SOLL.pitch);

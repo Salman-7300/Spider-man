@@ -322,9 +322,7 @@ test('Die Decke der Zwischenebene bleibt unter dem Gehweg', () => {
    steckten im Ampelmast, 12 Bahnsteigbaenke standen paarweise exakt
    uebereinander, 10 Baenke standen im Aufzug. Diese Tests rechnen die
    Orte aus denselben Zahlen nach, mit denen game.js sie setzt. */
-const BLOCKS = zahl(/const BLOCKS = (\d+)/, 'BLOCKS');
 const PITCH = zahl(/const PITCH = (\d+)/, 'PITCH');
-const ORIGIN = zahl(/const ORIGIN = (-?\d+)/, 'ORIGIN');
 const ROAD_HALF = zahl(/const ROAD_HALF = ([\d.]+)/, 'ROAD_HALF');
 const POLLER_AB = zahl(/const POLLER_AB = ([\d.]+)/, 'POLLER_AB');
 const POLLER_LUECKE = zahl(/POLLER_AB = [\d.]+, POLLER_LUECKE = ([\d.]+)/, 'POLLER_LUECKE');

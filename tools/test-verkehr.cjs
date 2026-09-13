@@ -17,8 +17,17 @@ const quelle = fs.readFileSync(path.resolve(__dirname, '..', 'game.js'), 'utf8')
 const t = quelle.match(/function querverkehrWarten\(car, dKreuz, liste\) \{[\s\S]*?\n\}/);
 assert.ok(t, 'querverkehrWarten nicht in game.js gefunden');
 
-const kasten = { ORIGIN: -175, PITCH: 50, ROAD_HALF: 6, RIVER_X0: 192 };
+const kasten = {
+  Math, PITCH: 50, ROAD_HALF: 6, RIVER_X0: 192,
+  /* CITY V2: das Raster hat getrennte Achsen. Die Helfer werden aus
+     game.js ausgefuehrt, nicht hier nachgebaut. */
+  RASTER_X0: -175, RASTER_X1: 175, RASTER_Z0: -175, RASTER_Z1: 175,
+  BLOCKS_X: 7, BLOCKS_Z: 7, clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
+};
 vm.createContext(kasten);
+const helfer = quelle.match(/const rasterO = [\s\S]*?\n\}\n(?=\/\* Liegt ein Punkt)/);
+assert.ok(helfer, 'Rasterhelfer nicht in game.js gefunden');
+vm.runInContext(helfer[0], kasten);
 vm.runInContext(t[0], kasten);
 const warten = kasten.querverkehrWarten;
 
@@ -53,7 +62,7 @@ test('Beide Wagen rechnen mit derselben Kreuzung', () => {
   /* Der Kern des Fehlers: wird der Kreuzungspunkt aus der eigenen SPUR
      gebildet, sieht jeder den anderen drei Meter naeher. Deshalb muss die
      Querlage aus der Gitterlinie kommen. */
-  assert.match(t[0], /const kQuer = ORIGIN \+ Math\.round\(\(car\.lane - ORIGIN\) \/ PITCH\) \* PITCH;/);
+  assert.match(t[0], /const kQuer = rasterLinieNah\(car\.lane, querAchse\(car\.axis\)\);/);
   assert.ok(!/car\.axis === 'x' \? car\.s \+ car\.dir \* dKreuz : car\.lane/.test(t[0]),
     'der Kreuzungspunkt wird wieder aus der eigenen Spur gebildet');
 });

@@ -51,16 +51,22 @@ const fs = require('fs');
     const flachDrin = dinge.filter((g) => FLACH.has(g.art));
 
     /* ---- Die Flaechen, die frei bleiben muessen ---- */
-    const ORIGIN = -175, PITCH = 50, BLOCKS = 7, ROAD_HALF = 6;
-    const RASTER_X1 = ORIGIN + BLOCKS * PITCH;          // 175
-    const linien = [];
-    for (let i = 0; i <= BLOCKS; i++) linien.push(ORIGIN + i * PITCH);
+    /* CITY V2: die Rastermasse kommen aus dem Spiel, nicht aus einer
+       Kopie hier. Abgeschrieben wuerde dieser Pruefstand nach der
+       Erweiterung stillschweigend die alte, kleine Stadt vermessen. */
+    const R = __dbg.raster();
+    const ROAD_HALF = 6;
+    const RASTER_X0 = R.x0, RASTER_X1 = R.x1, RASTER_Z0 = R.z0, RASTER_Z1 = R.z1;
+    const linienX = [], linienZ = [];
+    for (let i = 0; i <= R.blocksX; i++) linienX.push(R.x0 + i * R.pitch);
+    for (let i = 0; i <= R.blocksZ; i++) linienZ.push(R.z0 + i * R.pitch);
     /* Das Raster hoert auf. Es endet an der Uferstrasse; ab PROM_X0 = 181
        beginnt die Promenade, und ab dem Fluss gibt es gar nichts mehr.
        Der erste Durchlauf hatte die x-Strassen unbegrenzt nach Osten
        verlaengert und deshalb jede Laterne auf der Promenade bei x = 183
        als "auf der Fahrbahn" gemeldet. */
-    const GITTER_MIN = ORIGIN - ROAD_HALF, GITTER_MAX = RASTER_X1 + ROAD_HALF;
+    const GIT_X0 = RASTER_X0 - ROAD_HALF, GIT_X1 = RASTER_X1 + ROAD_HALF;
+    const GIT_Z0 = RASTER_Z0 - ROAD_HALF, GIT_Z1 = RASTER_Z1 + ROAD_HALF;
     /* Eigenes, engeres Raster am anderen Ufer. */
     const SHORE_PITCH = 32, SHORE_ROAD = 5, SHORE_OX = 336, SHORE_OZ = -192;
     const SHORE_NX = 2, SHORE_NZ = 12;
@@ -72,16 +78,16 @@ const fs = require('fs');
     function aufFahrbahn(x, z, r) {
       const eng = r + LUFT;
       /* Stadtraster */
-      if (x > GITTER_MIN && x < GITTER_MAX && z > GITTER_MIN && z < GITTER_MAX) {
-        for (const l of linien) {
+      if (x > GIT_X0 && x < GIT_X1 && z > GIT_Z0 && z < GIT_Z1) {
+        for (const l of linienZ)
           if (Math.abs(z - l) < ROAD_HALF - eng) return { wo: 'x-Strasse bei z=' + l,
             tief: +(ROAD_HALF - eng - Math.abs(z - l)).toFixed(2) };
+        for (const l of linienX)
           if (Math.abs(x - l) < ROAD_HALF - eng) return { wo: 'z-Strasse bei x=' + l,
             tief: +(ROAD_HALF - eng - Math.abs(x - l)).toFixed(2) };
-        }
       }
       /* Uferstrasse: die beiden Spuren liegen bei 172 und 178. */
-      if (z > GITTER_MIN && z < GITTER_MAX && Math.abs(x - RASTER_X1) < ROAD_HALF - eng)
+      if (z > GIT_Z0 && z < GIT_Z1 && Math.abs(x - RASTER_X1) < ROAD_HALF - eng)
         return { wo: 'Uferstrasse', tief: +(ROAD_HALF - eng - Math.abs(x - RASTER_X1)).toFixed(2) };
       /* Raster am anderen Ufer */
       if (x > SHORE_OX - SHORE_ROAD && x < SHORE_OX + SHORE_NX * SHORE_PITCH + SHORE_ROAD &&

@@ -7,7 +7,13 @@ const { starte } = require('./basis');
   const aus = await page.evaluate(async () => {
     const d = __dbg, P = d.player;
     d.frier(true);
-    const ORIGIN = -175, PITCH = 50, BLOCKS = 7, ROAD_HALF = 6;
+    /* CITY V2: Rastermasse aus dem Spiel lesen, nicht abschreiben. */
+    const R = __dbg.raster(), PITCH = R.pitch, ROAD_HALF = 6;
+    const rasterO = (a) => (a === 'x' ? R.x0 : R.z0);
+    const rasterN = (a) => (a === 'x' ? R.blocksX : R.blocksZ);
+    const quer = (a) => (a === 'x' ? 'z' : 'x');
+    const linieNah = (v, a) => rasterO(a) +
+      Math.max(0, Math.min(rasterN(a), Math.round((v - rasterO(a)) / PITCH))) * PITCH;
     const BZ = -25, BR_X0 = 181, BR_X1 = 334;
     const RIVER_X0 = 192, RIVER_X1 = 330, SHORE_X0 = 330;
     const onBridge = (x, z) => Math.abs(z - BZ) < 10 && x > BR_X0 - 6 && x < BR_X1 + 6;
@@ -15,9 +21,9 @@ const { starte } = require('./basis');
     function aufStrasse(x, z) {
       if (onBridge(x, z)) return true;
       if (x > RIVER_X0 && x < SHORE_X0) return false;         // Fluss
-      if (x > 175 + 6) return x >= SHORE_X0;                  // Promenade / drueben
-      const u = ((x - ORIGIN) % PITCH + PITCH) % PITCH;
-      const v = ((z - ORIGIN) % PITCH + PITCH) % PITCH;
+      if (x > R.x1 + 6) return x >= SHORE_X0;                 // Promenade / drueben
+      const u = ((x - R.x0) % PITCH + PITCH) % PITCH;
+      const v = ((z - R.z0) % PITCH + PITCH) % PITCH;
       return u <= ROAD_HALF + 1 || u >= PITCH - ROAD_HALF - 1 ||
              v <= ROAD_HALF + 1 || v >= PITCH - ROAD_HALF - 1;
     }
@@ -62,7 +68,7 @@ const { starte } = require('./basis');
         if (v && Math.hypot(x - v[0], z - v[1]) > 12) { Z.ortsSprung++; merk('ortsSprung', x, z); }
         vorher.set(c, [x, z]);
         /* Geisterfahrer: Spur und Richtung passen nicht zusammen. */
-        const kl = ORIGIN + Math.round((c.lane - ORIGIN) / PITCH) * PITCH;
+        const kl = linieNah(c.lane, quer(c.axis));
         const soll = c.lane > kl ? 1 : -1;
         if (!c.flucht && !c.notfall && !onBridge(x, z) && c.kurve <= 0 && c.dir !== soll) {
           Z.geisterfahrer++; merk('geisterfahrer', x, z);

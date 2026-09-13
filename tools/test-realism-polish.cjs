@@ -6,8 +6,8 @@ const { cityRuntime } = require('./city-test-runtime.cjs');
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 function worldBox(env, c) {
-  for (let i = Math.floor((c.x0 - env.ORIGIN) / env.PITCH); i <= Math.floor((c.x1 - env.ORIGIN) / env.PITCH); i++)
-    for (let j = Math.floor((c.z0 - env.ORIGIN) / env.PITCH); j <= Math.floor((c.z1 - env.ORIGIN) / env.PITCH); j++) {
+  for (let i = Math.floor((c.x0 - env.HASH_O) / env.PITCH); i <= Math.floor((c.x1 - env.HASH_O) / env.PITCH); i++)
+    for (let j = Math.floor((c.z0 - env.HASH_O) / env.PITCH); j <= Math.floor((c.z1 - env.HASH_O) / env.PITCH); j++) {
       const key = i + ',' + j; env.colliderGrid.set(key, [...(env.colliderGrid.get(key) || []), c]);
     }
 }

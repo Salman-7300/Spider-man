@@ -105,9 +105,29 @@ if (typeof window !== 'undefined') {
     return _seed / 4294967296;
   };
 }
-const BLOCKS = 7;           // 7x7 Häuserblöcke
+/* ---- CITY V2, Stufe 1: das Raster hat zwei Achsen ----
+   Bis hierher war die Stadt quadratisch, und ein einziges ORIGIN/BLOCKS
+   hat fuer x und z gereicht. Sie kann aber nicht in beide Richtungen
+   gleich wachsen: im Osten liegt bei x = 192 der Fluss, und die
+   Uferstrasse bei x = 175 ist ein fester Punkt, an dem Bruecke,
+   Promenade und Kaimauer haengen. Nach Westen, Norden und Sueden ist
+   dagegen Platz.
+
+   Deshalb getrennte Zahlen je Achse. Diese Stufe aendert die WERTE
+   nicht - sie sind beide noch 7 und -175, und tools/pruef/stadtraster.js
+   besteht darauf. Erst die naechste Stufe laesst die Stadt wachsen. */
+const BLOCKS_X = 7;         // Bloecke in x
+const BLOCKS_Z = 7;         // Bloecke in z
 const PITCH = 50;           // Rasterabstand (Block + Straße)
-const ORIGIN = -175;        // Rasterursprung (Straßenlinien bei -175..175)
+const ORIGIN_X = -175;      // westlichste Rasterlinie
+const ORIGIN_Z = -175;      // suedlichste Rasterlinie
+/* ---- Der Ursprung des Kollisions-Hashs ----
+   Er hat mit der Stadtgroesse NICHTS zu tun: collidersNear rechnet
+   daraus nur einen Schluesselnamen, und negative Felder sind in einer
+   Map genauso gut wie positive. Er bleibt deshalb fest, auch wenn die
+   Stadt waechst - so bleiben die Hashfelder ueber alle Ausbaustufen
+   dieselben. */
+const HASH_O = -175;
 const ROAD_HALF = 6;        // halbe Asphaltbreite
 /* ======================= Zaehler des Regression Gates =======================
    Nicht "0 JS-Fehler", sondern was im BILD schiefgehen kann. Jeder Zaehler
@@ -131,7 +151,7 @@ const VALID = {
 const SLAB_H = 0.25;        // Gehweg-/Blocksockelhöhe
 const RIVER_X0 = 192, RIVER_X1 = 330;   // Fluss
 /* Aeusserste Rasterlinie der Stadt: die Uferstrasse. */
-const RASTER_X1 = ORIGIN + BLOCKS * PITCH;    // 175
+const RASTER_X1 = ORIGIN_X + BLOCKS_X * PITCH;    // 175
 /* ---- CITY V2, Stufe 0: die Grenzen der Welt kommen aus dem Raster ----
    Bisher standen dieselben Zahlen an acht Stellen als 170, 190, 192 und
    193 im Code. Solange das Raster 7 x 7 war, stimmten sie; sobald es
@@ -149,9 +169,9 @@ const RASTER_X1 = ORIGIN + BLOCKS * PITCH;    // 175
 
    NICHT hier hinein gehoert der Hoerbereich der Sirene (ebenfalls 170):
    das ist eine Lautstaerke, keine Weltgrenze. */
-const RASTER_X0 = ORIGIN;                        // -175
-const RASTER_Z0 = ORIGIN;                        // -175
-const RASTER_Z1 = ORIGIN + BLOCKS * PITCH;       //  175
+const RASTER_X0 = ORIGIN_X;                      // -175
+const RASTER_Z0 = ORIGIN_Z;                      // -175
+const RASTER_Z1 = ORIGIN_Z + BLOCKS_Z * PITCH;   //  175
 const RAND_GEH = 15;
 const RAND_SPIEL = 18;
 const PROM_Z0 = RASTER_Z0 - RAND_GEH;            // -190
@@ -160,6 +180,31 @@ const SPIEL_X0 = RASTER_X0 - RAND_SPIEL;         // -193
 const SPIEL_Z0 = RASTER_Z0 - RAND_SPIEL;         // -193
 const SPIEL_Z1 = RASTER_Z1 + RAND_SPIEL;         //  193
 const LUFT_RAND = RASTER_Z1 - 5;                 //  170
+/* ---- Rasterhilfen je Achse ----
+   'x' heisst: der Wert liegt auf der x-Achse. Bei einem Fahrzeug ist
+   car.axis die Achse, ENTLANG der es faehrt (also die von car.s); seine
+   Spur car.lane liegt auf der jeweils anderen. Das war bei einem
+   quadratischen Raster egal und ist es jetzt nicht mehr. */
+const rasterO = (a) => (a === 'x' ? RASTER_X0 : RASTER_Z0);
+const rasterE = (a) => (a === 'x' ? RASTER_X1 : RASTER_Z1);
+const rasterN = (a) => (a === 'x' ? BLOCKS_X : BLOCKS_Z);
+const querAchse = (a) => (a === 'x' ? 'z' : 'x');
+/* Alle Rasterlinien einer Achse, von aussen nach aussen. */
+function rasterLinien(a) {
+  const o = rasterO(a), n = rasterN(a), aus = [];
+  for (let i = 0; i <= n; i++) aus.push(o + i * PITCH);
+  return aus;
+}
+/* Die naechstgelegene Rasterlinie einer Achse - begrenzt auf die, die es
+   wirklich gibt. */
+function rasterLinieNah(v, a) {
+  const o = rasterO(a), n = rasterN(a);
+  return o + clamp(Math.round((v - o) / PITCH), 0, n) * PITCH;
+}
+/* Liegt ein Punkt im Strassenraster? */
+function imRaster(x, z) {
+  return x >= RASTER_X0 && x <= RASTER_X1 && z >= RASTER_Z0 && z <= RASTER_Z1;
+}
 /* Die Uferpromenade zwischen der Uferstrasse und der Kaimauer.
    Sie liegt als Gehweg auf SLAB_H - der Bodenhoehe war das aber nie
    bekannt: dort galt weiter das Strassenraster, und in den Fahrbahnbaendern
@@ -1529,8 +1574,8 @@ function nimmPlatz(x, z, r) {
    im Strassenraster - Promenade, Bruecke und Park haben eigene Flaechen
    und fragen nicht danach. */
 function aufGehweg(x, z, r) {
-  const ux = ((x - ORIGIN) % PITCH + PITCH) % PITCH;
-  const uz = ((z - ORIGIN) % PITCH + PITCH) % PITCH;
+  const ux = ((x - RASTER_X0) % PITCH + PITCH) % PITCH;
+  const uz = ((z - RASTER_Z0) % PITCH + PITCH) % PITCH;
   return Math.min(ux - ROAD_HALF, PITCH - ROAD_HALF - ux,
                   uz - ROAD_HALF, PITCH - ROAD_HALF - uz) >= r;
 }
@@ -1576,8 +1621,8 @@ const colliderGrid = new Map(); // "ci,cj" -> [collider,...]
 
 function addCollider(c) {
   colliders.push(c);
-  const ci0 = Math.floor((c.x0 - 1 - ORIGIN) / PITCH), ci1 = Math.floor((c.x1 + 1 - ORIGIN) / PITCH);
-  const cj0 = Math.floor((c.z0 - 1 - ORIGIN) / PITCH), cj1 = Math.floor((c.z1 + 1 - ORIGIN) / PITCH);
+  const ci0 = Math.floor((c.x0 - 1 - HASH_O) / PITCH), ci1 = Math.floor((c.x1 + 1 - HASH_O) / PITCH);
+  const cj0 = Math.floor((c.z0 - 1 - HASH_O) / PITCH), cj1 = Math.floor((c.z1 + 1 - HASH_O) / PITCH);
   for (let i = ci0; i <= ci1; i++) for (let j = cj0; j <= cj1; j++) {
     const k = i + ',' + j;
     if (!colliderGrid.has(k)) colliderGrid.set(k, []);
@@ -1585,7 +1630,7 @@ function addCollider(c) {
   }
 }
 function collidersNear(x, z) {
-  const k = Math.floor((x - ORIGIN) / PITCH) + ',' + Math.floor((z - ORIGIN) / PITCH);
+  const k = Math.floor((x - HASH_O) / PITCH) + ',' + Math.floor((z - HASH_O) / PITCH);
   return colliderGrid.get(k) || [];
 }
 
@@ -2286,11 +2331,10 @@ function groundY(x, z, yRef) {
         v > SHORE_ROAD && v < SHORE_PITCH - SHORE_ROAD) return SLAB_H;
     return 0;
   }
-  const GRID_END = ORIGIN + BLOCKS * PITCH;
-  if (x < ORIGIN || x > GRID_END || z < ORIGIN || z > GRID_END) return 0;
+  if (x < RASTER_X0 || x > RASTER_X1 || z < RASTER_Z0 || z > RASTER_Z1) return 0;
   // Stadtraster: Gehweg-/Blocksockel
-  const u = ((x - ORIGIN) % PITCH + PITCH) % PITCH;
-  const v = ((z - ORIGIN) % PITCH + PITCH) % PITCH;
+  const u = ((x - RASTER_X0) % PITCH + PITCH) % PITCH;
+  const v = ((z - RASTER_Z0) % PITCH + PITCH) % PITCH;
   if (u > ROAD_HALF && u < PITCH - ROAD_HALF && v > ROAD_HALF && v < PITCH - ROAD_HALF) return SLAB_H;
   return 0;
 }
@@ -2631,13 +2675,13 @@ function buildCity() {
   /* Fahrbahnmarkierungen. Sie gehen ins gemeinsame Sammel-Mesh: einzeln
      gezeichnet waren das über 500 Zeichenaufrufe allein für die Striche –
      der mit Abstand größte Posten der ganzen Stadt. */
-  const nearCrossing = (s) => {
-    const u = ((s - ORIGIN) % PITCH + PITCH) % PITCH;
+  const nearCrossing = (s, a) => {
+    const u = ((s - rasterO(a)) % PITCH + PITCH) % PITCH;
     return u < ROAD_HALF + 3 || u > PITCH - ROAD_HALF - 3;
   };
-  for (let i = 0; i <= BLOCKS; i++) {
-    const L = ORIGIN + i * PITCH;
-    for (let s = -186; s < 186; s += 10) {
+  for (let i = 0; i <= BLOCKS_Z; i++) {
+    const L = RASTER_Z0 + i * PITCH;
+    for (let s = RASTER_X0 - 11; s < RASTER_X1 + 11; s += 10) {
       if (nearCrossing(s)) continue;
       deko(0.35, 0.04, 4, L, 0.02, s, 0xd9c979);
       deko(4, 0.04, 0.35, s, 0.02, L, 0xd9c979);
@@ -2648,9 +2692,9 @@ function buildCity() {
      einfach auf und die Kreuzungen waren leere graue Flächen.
      Die Flaechen werden gemerkt: ueber einem Zebrastreifen darf spaeter
      keine erhoehte Schwelle und kein Bordstein liegen (Vorgabe Bug 4). */
-  for (let i = 0; i <= BLOCKS; i++) {
-    for (let j = 0; j <= BLOCKS; j++) {
-      const cx = ORIGIN + i * PITCH, cz = ORIGIN + j * PITCH;
+  for (let i = 0; i <= BLOCKS_X; i++) {
+    for (let j = 0; j <= BLOCKS_Z; j++) {
+      const cx = RASTER_X0 + i * PITCH, cz = RASTER_Z0 + j * PITCH;
       for (const seite of [-1, 1]) {
         /* ---- Am Kartenrand gibt es keine Gegenseite ----
            Der Ueberweg liegt 8,4 m neben der Kreuzungsmitte, der Gehweg
@@ -2665,8 +2709,8 @@ function buildCity() {
            Fahrbahn. Dort unterdrueckte das Spiel Bordsteine, die es geben
            sollte - und Test E meldete fuenf Laternen als "steht im
            Zebrastreifen", obwohl dort gar keiner ist. */
-        const querRandX = (j === 0 && seite < 0) || (j === BLOCKS && seite > 0);
-        const querRandZ = (i === 0 && seite < 0) || (i === BLOCKS && seite > 0);
+        const querRandX = (j === 0 && seite < 0) || (j === BLOCKS_Z && seite > 0);
+        const querRandZ = (i === 0 && seite < 0) || (i === BLOCKS_X && seite > 0);
         /* Streifen quer zur x-Straße (nördlich und südlich der Kreuzung) */
         for (let k = -5; k <= 5; k++) {
           if (!querRandX)
@@ -2698,10 +2742,10 @@ function buildCity() {
      anders hin. Ihre Plaetze werden deshalb ZUERST belegt - alles
      andere weicht ihnen aus, nicht umgekehrt. */
   for (const mast of ampelMasten()) nimmPlatz(mast.x, mast.z, MOEBEL_RADIUS.Ampel);
-  for (let bi = 0; bi < BLOCKS; bi++) {
-    for (let bj = 0; bj < BLOCKS; bj++) {
-      const cx = ORIGIN + bi * PITCH + PITCH / 2;
-      const cz = ORIGIN + bj * PITCH + PITCH / 2;
+  for (let bi = 0; bi < BLOCKS_X; bi++) {
+    for (let bj = 0; bj < BLOCKS_Z; bj++) {
+      const cx = RASTER_X0 + bi * PITCH + PITCH / 2;
+      const cz = RASTER_Z0 + bj * PITCH + PITCH / 2;
       const size = PITCH - ROAD_HALF * 2; // 38
       /* Liegt hier ein U-Bahn-Eingang, bekommt der Sockel ein echtes Loch.
          Vorher lag der Gehweg als geschlossene Platte über dem Treppen-
@@ -2781,11 +2825,11 @@ function buildCity() {
 
   /* Gullis auswählen und ihre Deckel setzen – der Dampf selbst entsteht
      später, wenn alle Hilfsmittel geladen sind. */
-  for (let i = 0; i <= BLOCKS; i++) {
-    for (let j = 0; j <= BLOCKS; j++) {
+  for (let i = 0; i <= BLOCKS_X; i++) {
+    for (let j = 0; j <= BLOCKS_Z; j++) {
       if ((i * 5 + j) % 4 !== 0) continue;
-      const gx = ORIGIN + i * PITCH + rand(-2.5, 2.5);
-      const gz = ORIGIN + j * PITCH + rand(-2.5, 2.5);
+      const gx = RASTER_X0 + i * PITCH + rand(-2.5, 2.5);
+      const gz = RASTER_Z0 + j * PITCH + rand(-2.5, 2.5);
       DAMPF_STELLEN.push({ x: gx, z: gz, y: 0 });
       /* Echter Gullideckel aus dem Baukasten statt einer flachen Platte. */
       merkeTeil('Prop_ManholeCover', gx, 0.015, gz, rand(0, TAU));
@@ -4548,12 +4592,12 @@ function streu(a, b, c) {
    immer laengs einer Rasterlinie; die Aussenseite eines Hauses ist die,
    die zur naechsten Linie zeigt. */
 function neonAnHaus(w, h, d, x, z) {
-  const naheLinie = (v) => {
-    const u = ((v - ORIGIN) % PITCH + PITCH) % PITCH;
+  const naheLinie = (v, a) => {
+    const u = ((v - rasterO(a)) % PITCH + PITCH) % PITCH;
     return u < PITCH / 2 ? -u : PITCH - u;      // Vorzeichen = Richtung zur Linie
   };
   const seiten = [
-    { nx: Math.sign(naheLinie(x)) || 1, nz: 0, ab: Math.abs(naheLinie(x)) - w / 2 },
+    { nx: Math.sign(naheLinie(x, 'x')) || 1, nz: 0, ab: Math.abs(naheLinie(x, 'x')) - w / 2 },
     { nx: 0, nz: Math.sign(naheLinie(z)) || 1, ab: Math.abs(naheLinie(z)) - d / 2 },
   ].filter((s2) => s2.ab < 12);
   let k = 0;
@@ -11289,8 +11333,9 @@ const ZIEH_TEMPO_HIN = 34, ZIEH_TEMPO_WEG = 40;
    auf dem Gehweg endet - an einer Kreuzung muessen beide Achsen heraus. */
 const ZIEH_GEHWEG = ROAD_HALF + 1.4;
 /* Die beiden Gehwegkanten links und rechts der naechsten Strassenachse. */
-function fahrbahnRaus(a) {
-  const linie = Math.round((a - ORIGIN) / PITCH) * PITCH + ORIGIN;
+function fahrbahnRaus(a, achse) {
+  const o = rasterO(achse || 'x');
+  const linie = Math.round((a - o) / PITCH) * PITCH + o;
   return [linie + ZIEH_GEHWEG, linie - ZIEH_GEHWEG];
 }
 function aufDemGehweg(x, z, y) {
@@ -12378,10 +12423,10 @@ function kameraFreierAnteil(von, nach) {
   const laenge = von.distanceTo(nach);
   if (laenge < 1e-8) return 1;
   const r = KAMERA_RADIUS;
-  const i0 = Math.floor((Math.min(von.x, nach.x) - r - ORIGIN) / PITCH);
-  const i1 = Math.floor((Math.max(von.x, nach.x) + r - ORIGIN) / PITCH);
-  const j0 = Math.floor((Math.min(von.z, nach.z) - r - ORIGIN) / PITCH);
-  const j1 = Math.floor((Math.max(von.z, nach.z) + r - ORIGIN) / PITCH);
+  const i0 = Math.floor((Math.min(von.x, nach.x) - r - HASH_O) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + r - HASH_O) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - r - HASH_O) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + r - HASH_O) / PITCH);
   _kameraKandidaten.clear();
   let frei = 1;
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
@@ -12732,10 +12777,10 @@ const _fsGesehen = new Set();
    Blick durch die offene Tuer nicht faelschlich sperrt. */
 function freieSicht(ax, ay, az, bx, by, bz, ziel) {
   _fsA.set(ax, ay, az); _fsB.set(bx, by, bz);
-  const i0 = Math.floor((Math.min(ax, bx) - ORIGIN) / PITCH);
-  const i1 = Math.floor((Math.max(ax, bx) - ORIGIN) / PITCH);
-  const j0 = Math.floor((Math.min(az, bz) - ORIGIN) / PITCH);
-  const j1 = Math.floor((Math.max(az, bz) - ORIGIN) / PITCH);
+  const i0 = Math.floor((Math.min(ax, bx) - HASH_O) / PITCH);
+  const i1 = Math.floor((Math.max(ax, bx) - HASH_O) / PITCH);
+  const j0 = Math.floor((Math.min(az, bz) - HASH_O) / PITCH);
+  const j1 = Math.floor((Math.max(az, bz) - HASH_O) / PITCH);
   _fsGesehen.clear();
   for (let i = i0; i <= i1; i++) {
     for (let j = j0; j <= j1; j++) {
@@ -12756,10 +12801,10 @@ function freieSicht(ax, ay, az, bx, by, bz, ziel) {
 // every crossed cell and the exact segment, including thin projections.
 function netzWegFrei(von, nach, radius) {
   const seen = new Set(), r = radius || 0;
-  const i0 = Math.floor((Math.min(von.x, nach.x) - r - ORIGIN) / PITCH);
-  const i1 = Math.floor((Math.max(von.x, nach.x) + r - ORIGIN) / PITCH);
-  const j0 = Math.floor((Math.min(von.z, nach.z) - r - ORIGIN) / PITCH);
-  const j1 = Math.floor((Math.max(von.z, nach.z) + r - ORIGIN) / PITCH);
+  const i0 = Math.floor((Math.min(von.x, nach.x) - r - HASH_O) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + r - HASH_O) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - r - HASH_O) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + r - HASH_O) / PITCH);
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
     for (const c of colliderGrid.get(i + ',' + j) || []) {
       if (seen.has(c)) continue;
@@ -13953,10 +13998,10 @@ function starteLuftkombo(e) {
 function kampfFreierWeg(von, nach, radius, hoehe) {
   const len = von.distanceTo(nach);
   if (len < 1e-8) return 1;
-  const i0 = Math.floor((Math.min(von.x, nach.x) - radius - ORIGIN) / PITCH);
-  const i1 = Math.floor((Math.max(von.x, nach.x) + radius - ORIGIN) / PITCH);
-  const j0 = Math.floor((Math.min(von.z, nach.z) - radius - ORIGIN) / PITCH);
-  const j1 = Math.floor((Math.max(von.z, nach.z) + radius - ORIGIN) / PITCH);
+  const i0 = Math.floor((Math.min(von.x, nach.x) - radius - HASH_O) / PITCH);
+  const i1 = Math.floor((Math.max(von.x, nach.x) + radius - HASH_O) / PITCH);
+  const j0 = Math.floor((Math.min(von.z, nach.z) - radius - HASH_O) / PITCH);
+  const j1 = Math.floor((Math.max(von.z, nach.z) + radius - HASH_O) / PITCH);
   const gesehen = new Set(); let frei = 1;
   const pruefe = c => {
     const box = { x0: c.x0 - radius, x1: c.x1 + radius, z0: c.z0 - radius, z1: c.z1 + radius,
@@ -15284,8 +15329,8 @@ function meilenTakt(dt) {
    das Entdeckungsprinzip aus Phase 10 bleibt. */
 function bezirkSchluessel(x, z) {
   if (x > RASTER_X1) return 'UFER';
-  const bi = clamp(Math.floor((x - ORIGIN) / PITCH), 0, BLOCKS - 1);
-  const bj = clamp(Math.floor((z - ORIGIN) / PITCH), 0, BLOCKS - 1);
+  const bi = clamp(Math.floor((x - RASTER_X0) / PITCH), 0, BLOCKS_X - 1);
+  const bj = clamp(Math.floor((z - RASTER_Z0) / PITCH), 0, BLOCKS_Z - 1);
   return bi + ',' + bj;
 }
 function bezirkZaehle(x, z, feld) {
@@ -19964,9 +20009,9 @@ function moebelOrt(px, pz, dreh, lx, ly, lz, out) {
    gemessen stand an jeder Kreuzung ein Poller 0,28 m im Mast. */
 function ampelMasten() {
   const aus = [];
-  for (let i = 0; i <= BLOCKS; i++) {
-    for (let j = 0; j <= BLOCKS; j++) {
-      const x = ORIGIN + i * PITCH, z = ORIGIN + j * PITCH;
+  for (let i = 0; i <= BLOCKS_X; i++) {
+    for (let j = 0; j <= BLOCKS_Z; j++) {
+      const x = RASTER_X0 + i * PITCH, z = RASTER_Z0 + j * PITCH;
       if (x > RIVER_X0 - 20) continue;                 // nicht im Fluss
       for (const [sx, sz] of [[1, 1], [-1, -1]]) {
         /* Zwei Ausleger je Mast, einer fuer jede Fahrtrichtung. Der
@@ -20313,8 +20358,7 @@ function updateAmpeln(dt) {
 /* Nächste Kreuzung vor dem Fahrzeug (Abstand entlang der Fahrtrichtung). */
 function abstandZurKreuzung(car) {
   let best = Infinity;
-  for (let i = 0; i <= BLOCKS; i++) {
-    const linie = ORIGIN + i * PITCH;
+  for (const linie of rasterLinien(car.axis)) {
     const d = (linie - car.s) * car.dir;
     if (d > 0 && d < best) best = d;
   }
@@ -20322,11 +20366,13 @@ function abstandZurKreuzung(car) {
 }
 
 function spawnCars() {
-  const lines = [];
-  for (let i = 0; i <= BLOCKS; i++) lines.push(ORIGIN + i * PITCH);
   for (let n = 0; n < CFG.carCount; n++) {
     const axis = Math.random() < 0.5 ? 'x' : 'z';
-    const line = pick(lines);
+    /* ---- Die Spurlinie liegt QUER zur Fahrtrichtung ----
+       Wer entlang x faehrt, faehrt auf einer z-Linie. Beim quadratischen
+       Raster war das dasselbe; seit die Stadt in x und z verschieden
+       gross ist, sind es zwei verschiedene Listen. */
+    const line = pick(rasterLinien(querAchse(axis)));
     const laneSign = Math.random() < 0.5 ? 1 : -1;
     const lane = line + laneSign * 3;
     const isBridgeRoad = axis === 'x' && line === BRIDGE_Z;
@@ -20352,7 +20398,7 @@ function spawnCars() {
        plus oder minus drei.
        Die Brueckenstrasse laeuft weiter, bis sie drueben auf die erste
        Uferstrasse trifft - dort ist Platz zum Wenden. */
-    const RASTER_A = ORIGIN - 3, RASTER_E = ORIGIN + BLOCKS * PITCH + 3;
+    const RASTER_A = rasterO(axis) - 3, RASTER_E = rasterE(axis) + 3;
     const sMin = RASTER_A, sMax = isBridgeRoad ? SHORE_OX + 3 : RASTER_E;
     cars.push({
       axis, lane, dir: laneSign, // Rechtsverkehr angenähert
@@ -20362,7 +20408,7 @@ function spawnCars() {
          andere Seite gesetzt. Auf der Brueckenstrasse darf es weiter
          draussen anfangen, dort geht es ja ueber den Fluss. */
       s: isBridgeRoad ? rand(sMin, sMax)
-                      : rand(ORIGIN, ORIGIN + BLOCKS * PITCH), sMin, sMax,
+                      : rand(rasterO(axis), rasterE(axis)), sMin, sMax,
       speed: rand(8, 13) * (typ.art === 'bus' || typ.art === 'lkw' ? 0.72 : 1),
       tempoJetzt: 0, hupCd: 0,
       typ,
@@ -20531,12 +20577,12 @@ baueDachaufbauten();
    passiert: welche Voegel auffliegen, wo Dachdampf steht, wie oft man
    ueberhaupt jemanden trifft. */
 const BEZ_ARTEN = ['ZENTRUM', 'WOHN', 'PARK', 'UFER'];
-const BEZIRKE = [];           // BLOCKS x BLOCKS, Zeilenweise
+const BEZIRKE = [];           // BLOCKS_X x BLOCKS_Z, Zeilenweise
 function bezirkeLesen() {
-  for (let bi = 0; bi < BLOCKS; bi++) {
-    for (let bj = 0; bj < BLOCKS; bj++) {
-      const cx = ORIGIN + bi * PITCH + PITCH / 2;
-      const cz = ORIGIN + bj * PITCH + PITCH / 2;
+  for (let bi = 0; bi < BLOCKS_X; bi++) {
+    for (let bj = 0; bj < BLOCKS_Z; bj++) {
+      const cx = RASTER_X0 + bi * PITCH + PITCH / 2;
+      const cz = RASTER_Z0 + bj * PITCH + PITCH / 2;
       let summe = 0, zahl = 0, hoch = 0;
       for (const c of colliders) {
         if (c.klein) continue;
@@ -20551,7 +20597,7 @@ function bezirkeLesen() {
         if (Math.abs(p.x - cx) < PITCH / 2 && Math.abs(p.z - cz) < PITCH / 2) park = true;
       }
       const art = park ? 'PARK'
-                : (bi === BLOCKS - 1) ? 'UFER'
+                : (bi === BLOCKS_X - 1) ? 'UFER'
                 : (hoch >= 2 || mittel > 32) ? 'ZENTRUM'
                 : 'WOHN';
       BEZIRKE.push({ bi, bj, x: cx, z: cz, art, mittel: +mittel.toFixed(1),
@@ -20727,9 +20773,9 @@ function umgUpdate(dt) {
 function bezirkAn(x, z) {
   /* Die Uferpromenade und die Bruecke liegen ausserhalb des Rasters. */
   if (x > RASTER_X1) return 'UFER';
-  const bi = clamp(Math.floor((x - ORIGIN) / PITCH), 0, BLOCKS - 1);
-  const bj = clamp(Math.floor((z - ORIGIN) / PITCH), 0, BLOCKS - 1);
-  const b = BEZIRKE[bi * BLOCKS + bj];
+  const bi = clamp(Math.floor((x - RASTER_X0) / PITCH), 0, BLOCKS_X - 1);
+  const bj = clamp(Math.floor((z - RASTER_Z0) / PITCH), 0, BLOCKS_Z - 1);
+  const b = BEZIRKE[bi * BLOCKS_Z + bj];
   return b ? b.art : 'WOHN';
 }
 
@@ -21141,8 +21187,8 @@ function setzeAutoGrenzen(car) {
   const bruecke = autoAufBruecke(car);
   /* Die drei Meter Zuschlag sind der Spurversatz: wer an der aeussersten
      Kreuzung abbiegt, steht auf Linie plus oder minus drei. */
-  car.sMin = ORIGIN - 3;
-  car.sMax = bruecke ? SHORE_OX + 3 : ORIGIN + BLOCKS * PITCH + 3;
+  car.sMin = rasterO(car.axis) - 3;
+  car.sMax = bruecke ? SHORE_OX + 3 : rasterE(car.axis) + 3;
 }
 
 function autoKreuzung(car, linie) {
@@ -21239,7 +21285,7 @@ function autoKreuzung(car, linie) {
    und vergleichen damit dieselbe Strecke. */
 function querverkehrWarten(car, dKreuz, liste) {
   const kLaengs = car.s + car.dir * dKreuz;
-  const kQuer = ORIGIN + Math.round((car.lane - ORIGIN) / PITCH) * PITCH;
+  const kQuer = rasterLinieNah(car.lane, querAchse(car.axis));
   const kx = car.axis === 'x' ? kLaengs : kQuer;
   const kz = car.axis === 'x' ? kQuer : kLaengs;
   /* An der Uferstrasse steht keine Ampel; dort gilt reine Vorfahrt. */
@@ -21437,11 +21483,11 @@ function updateCars(dt) {
     const speed = car.tempoJetzt;
     car.s += car.dir * speed * dt;
     /* Auf einer Kreuzung? Dann wird ueber das Abbiegen entschieden. */
-    const kIdx = Math.round((car.s - ORIGIN) / PITCH);
-    if (car.kreuzung !== kIdx && Math.abs(car.s - (ORIGIN + kIdx * PITCH)) < 1.4) {
+    const kIdx = Math.round((car.s - rasterO(car.axis)) / PITCH);
+    if (car.kreuzung !== kIdx && Math.abs(car.s - (rasterO(car.axis) + kIdx * PITCH)) < 1.4) {
       car.kreuzung = kIdx;
-      if (car.notfall && car.notfallEinsatz) respLenke(car, ORIGIN + kIdx * PITCH);
-      else autoKreuzung(car, ORIGIN + kIdx * PITCH);
+      if (car.notfall && car.notfallEinsatz) respLenke(car, rasterO(car.axis) + kIdx * PITCH);
+      else autoKreuzung(car, rasterO(car.axis) + kIdx * PITCH);
     }
     /* Rueckfall: die Brueckenstrasse fuehrt ueber den Fluss zum anderen
        Ufer und hat dort keine Kreuzung mehr - dort bleibt es beim alten
@@ -21465,7 +21511,7 @@ function updateCars(dt) {
        auf die Gegenspur, wo er hingehoert. Greift nur im Stillstand,
        damit der laufende Verkehr unberuehrt bleibt. */
     if ((car.tempoJetzt || 0) < 0.05) {
-      const kl = ORIGIN + Math.round((car.lane - ORIGIN) / PITCH) * PITCH;
+      const kl = rasterLinieNah(car.lane, querAchse(car.axis));
       const soll = car.lane > kl ? 1 : -1;
       if (car.dir !== soll && Math.abs(Math.abs(car.lane - kl) - 3) < 1.5) {
         car.stauT = (car.stauT || 0) + dt;
@@ -21765,7 +21811,7 @@ function gehVerbinde(ia, ib, opt) {
 
 const GEH_RING = PITCH / 2 - ROAD_HALF - 2;      // 17 m von der Blockmitte
 function gehBlockMitte(bi, bj) {
-  return { x: ORIGIN + bi * PITCH + PITCH / 2, z: ORIGIN + bj * PITCH + PITCH / 2 };
+  return { x: RASTER_X0 + bi * PITCH + PITCH / 2, z: RASTER_Z0 + bj * PITCH + PITCH / 2 };
 }
 function baueGehnetz() {
   if (GEH.fertig) return;
@@ -21777,9 +21823,9 @@ function baueGehnetz() {
      sind wichtig: erst dort kann sich ein Passant entscheiden, ob er
      geradeaus geht, abbiegt oder die Strasse quert. */
   const ecken = [];        // [bi][bj] -> {sw, se, nw, ne} Knotennummern
-  for (let bi = 0; bi < BLOCKS; bi++) {
+  for (let bi = 0; bi < BLOCKS_X; bi++) {
     ecken[bi] = [];
-    for (let bj = 0; bj < BLOCKS; bj++) {
+    for (let bj = 0; bj < BLOCKS_Z; bj++) {
       const m = gehBlockMitte(bi, bj);
       const e = {};
       const paare = [['sw', -1, -1], ['se', 1, -1], ['nw', -1, 1], ['ne', 1, 1]];
@@ -21812,12 +21858,12 @@ function baueGehnetz() {
      auf den Gehweg gegenueber; die gequerte Strasse und ihre Achse
      stehen an der Kante, damit die Verkehrspruefung weiss, worauf sie
      achten muss. */
-  for (let bi = 0; bi < BLOCKS; bi++) {
-    for (let bj = 0; bj < BLOCKS; bj++) {
+  for (let bi = 0; bi < BLOCKS_X; bi++) {
+    for (let bj = 0; bj < BLOCKS_Z; bj++) {
       const m = gehBlockMitte(bi, bj);
       /* nach Osten: quert die Strasse auf der Linie x = m.x + PITCH/2,
          die Strasse laeuft in z-Richtung. */
-      if (bi + 1 < BLOCKS) {
+      if (bi + 1 < BLOCKS_X) {
         const nach = ecken[bi + 1][bj];
         for (const [hier, dort] of [['se', 'sw'], ['ne', 'nw']]) {
           if (ecken[bi][bj][hier] < 0 || nach[dort] < 0) continue;
@@ -21826,7 +21872,7 @@ function baueGehnetz() {
         }
       }
       /* nach Norden: Strasse auf z = m.z + PITCH/2, laeuft in x-Richtung. */
-      if (bj + 1 < BLOCKS) {
+      if (bj + 1 < BLOCKS_Z) {
         const nach = ecken[bi][bj + 1];
         for (const [hier, dort] of [['nw', 'sw'], ['ne', 'se']]) {
           if (ecken[bi][bj][hier] < 0 || nach[dort] < 0) continue;
@@ -21859,8 +21905,8 @@ function baueGehnetz() {
   /* Anschluss an die oestlichste Blockspalte: ein Ueberweg ueber die
      Uferstrasse. */
   {
-    const bi = BLOCKS - 1;
-    for (let bj = 0; bj < BLOCKS; bj++) {
+    const bi = BLOCKS_X - 1;
+    for (let bj = 0; bj < BLOCKS_Z; bj++) {
       const e = ecken[bi][bj];
       for (const name of ['se', 'ne']) {
         if (e[name] < 0) continue;
@@ -22833,13 +22879,13 @@ function sozialSchritt(c, dt) {
 
 function sidewalkLoop(bi, bj) {
   // Rechteckiger Gehwegpfad um Block (bi,bj)
-  const x0 = ORIGIN + bi * PITCH + ROAD_HALF + 2, x1 = ORIGIN + (bi + 1) * PITCH - ROAD_HALF - 2;
-  const z0 = ORIGIN + bj * PITCH + ROAD_HALF + 2, z1 = ORIGIN + (bj + 1) * PITCH - ROAD_HALF - 2;
+  const x0 = RASTER_X0 + bi * PITCH + ROAD_HALF + 2, x1 = RASTER_X0 + (bi + 1) * PITCH - ROAD_HALF - 2;
+  const z0 = RASTER_Z0 + bj * PITCH + ROAD_HALF + 2, z1 = RASTER_Z0 + (bj + 1) * PITCH - ROAD_HALF - 2;
   return [V3(x0, 0, z0), V3(x1, 0, z0), V3(x1, 0, z1), V3(x0, 0, z1)];
 }
 
 function spawnCivilian() {
-  const bi = randi(0, BLOCKS - 1), bj = randi(0, BLOCKS - 1);
+  const bi = randi(0, BLOCKS_X - 1), bj = randi(0, BLOCKS_Z - 1);
   /* Der alte Rundweg bleibt als Rueckfall erhalten - die Fahrgaeste der
      U-Bahn laufen weiter darauf, und wenn das Wegenetz einmal keinen Weg
      findet, hat jeder trotzdem noch ein Ziel. */
@@ -24554,7 +24600,7 @@ function makeBlockzeichen() {
 /* Grenzen des bespielbaren Gebiets: Stadtraster diesseits des Flusses und
    der Stadtteil am anderen Ufer. Alles andere ist nackte Grundfläche –
    dort hat weder eine Gang noch ein Zivilist etwas verloren. */
-const STADT_RAND = ORIGIN + BLOCKS * PITCH;      // 175
+const STADT_RAND = RASTER_X1;                    // 175
 /* ---- Das Gebiet muss zum Gehnetz passen ----
    Diese Grenzen sind aelter als der Brueckengehweg und die Uferpromenade.
    Gemessen (Frage E in docs/PHASE13-TESTS.md): 29 der 728 Netzknoten lagen
@@ -24947,9 +24993,9 @@ function zeigeBossLeiste(e) {
 
 function gangSpawnSpots() {
   const spots = [];
-  for (let bi = 0; bi < BLOCKS; bi++) for (let bj = 0; bj < BLOCKS; bj++) {
-    spots.push([ORIGIN + bi * PITCH + PITCH / 2, ORIGIN + bj * PITCH + ROAD_HALF + 3]);
-    spots.push([ORIGIN + bi * PITCH + ROAD_HALF + 3, ORIGIN + bj * PITCH + PITCH / 2]);
+  for (let bi = 0; bi < BLOCKS_X; bi++) for (let bj = 0; bj < BLOCKS_Z; bj++) {
+    spots.push([RASTER_X0 + bi * PITCH + PITCH / 2, RASTER_Z0 + bj * PITCH + ROAD_HALF + 3]);
+    spots.push([RASTER_X0 + bi * PITCH + ROAD_HALF + 3, RASTER_Z0 + bj * PITCH + PITCH / 2]);
   }
   return spots;
 }
@@ -25291,10 +25337,10 @@ const AUSWEICH_FAECHER = [0.34, -0.34, 0.68, -0.68, 1.02, -1.02,
 function freieStrecke(x, y, z, dx, dz, weit, r) {
   let best = weit;
   const ex = x + dx * weit, ez = z + dz * weit;
-  const i0 = Math.floor((Math.min(x, ex) - r - ORIGIN) / PITCH);
-  const i1 = Math.floor((Math.max(x, ex) + r - ORIGIN) / PITCH);
-  const j0 = Math.floor((Math.min(z, ez) - r - ORIGIN) / PITCH);
-  const j1 = Math.floor((Math.max(z, ez) + r - ORIGIN) / PITCH);
+  const i0 = Math.floor((Math.min(x, ex) - r - HASH_O) / PITCH);
+  const i1 = Math.floor((Math.max(x, ex) + r - HASH_O) / PITCH);
+  const j0 = Math.floor((Math.min(z, ez) - r - HASH_O) / PITCH);
+  const j1 = Math.floor((Math.max(z, ez) + r - HASH_O) / PITCH);
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
     const zellen = colliderGrid.get(i + ',' + j);
     if (!zellen) continue;
@@ -27037,9 +27083,9 @@ function evOrtTauglich(x, z) {
      Fussgaenger benutzen. */
   if (typeof gehPlatzFrei === 'function' && !gehPlatzFrei(x, z, 1.6)) return false;
   /* Nicht mitten auf einer Kreuzung. */
-  const u = ((x - ORIGIN) % PITCH + PITCH) % PITCH;
-  const v = ((z - ORIGIN) % PITCH + PITCH) % PITCH;
-  if (x > ORIGIN && x < ORIGIN + BLOCKS * PITCH && z > ORIGIN && z < ORIGIN + BLOCKS * PITCH) {
+  const u = ((x - RASTER_X0) % PITCH + PITCH) % PITCH;
+  const v = ((z - RASTER_Z0) % PITCH + PITCH) % PITCH;
+  if (x > RASTER_X0 && x < RASTER_X1 && z > RASTER_Z0 && z < RASTER_Z1) {
     if (u < ROAD_HALF + 2 && v < ROAD_HALF + 2) return false;
   }
   /* Nicht in einem gesperrten Bereich und nicht in einem laufenden Ereignis. */
@@ -28267,8 +28313,8 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
        Ein Ereignis am aeussersten Stadtrand (z = 200) liegt rechnerisch
        bei Linie 8 - die existiert nicht, und frueher fiel der Ort damit
        ganz heraus. Richtig ist die aeusserste vorhandene Linie. */
-    const k = clamp(Math.round((quer - ORIGIN) / PITCH), 0, BLOCKS);
-    const linie = ORIGIN + k * PITCH;
+    const qa = querAchse(achse);
+    const linie = rasterLinieNah(quer, qa);
     for (const seite of [1, -1]) {
       const lane = linie + seite * 3;
       const dQuer = Math.abs(lane - quer);
@@ -28279,18 +28325,18 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
       for (const vor of [1, -1]) {
         const s = laengs + vor * Math.max(rest, 4);
         /* Nicht auf einer Kreuzung halten. */
-        const kk = Math.round((s - ORIGIN) / PITCH);
-        if (Math.abs(s - (ORIGIN + kk * PITCH)) < kreuz) continue;
+        const kk = Math.round((s - rasterO(achse)) / PITCH);
+        if (Math.abs(s - (rasterO(achse) + kk * PITCH)) < kreuz) continue;
         /* ---- Erreichbarkeit ----
            Der Platz muss auf der Fahrbahn LIEGEN, nicht nur in ihrer
-           Naehe. Die Laengslage einer Spur endet bei ORIGIN - 3 bzw.
-           ORIGIN + BLOCKS * PITCH + 3 (siehe setzeAutoGrenzen). Fehlte
+           Naehe. Die Laengslage einer Spur endet bei rasterO(achse) - 3
+           bzw. rasterE(achse) + 3 (siehe setzeAutoGrenzen). Fehlte
            diese Pruefung, entstanden am Stadtrand Halteplaetze bei
            s = -183,4 - fuenf Meter hinter dem Ende des Asphalts. Der
            Wagen fuhr bis zum Fahrbahnende, stand dort 7,7 m vor seinem
            Ziel und kam nie an: gemessen 13 Zwangsankuenfte, alle mit
            genau diesem Halteplatz. */
-        if (s < ORIGIN - 3 || s > ORIGIN + BLOCKS * PITCH + 3) continue;
+        if (s < rasterO(achse) - 3 || s > rasterE(achse) + 3) continue;
         const px = achse === 'x' ? s : lane;
         const pz = achse === 'x' ? lane : s;
         if (Math.abs(px) > PROM_Z1 || Math.abs(pz) > PROM_Z1) continue;
@@ -28336,7 +28382,7 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
    Jetzt wird die Einbahnrichtung vorgegeben und der Startpunkt immer
    dahinter gelegt. */
 function respStartpunkt(halt) {
-  const zLinie = ORIGIN + Math.round((halt.lane - ORIGIN) / PITCH) * PITCH;
+  const zLinie = rasterLinieNah(halt.lane, querAchse(halt.achse));
   /* Nur die Zielspur selbst, in ihrer Einbahnrichtung, weit genug
      dahinter.
 
@@ -28373,17 +28419,17 @@ function respStartQuer(halt, zLinie) {
   const fahrt = halt.lane > zLinie ? 1 : -1;
   const quer = halt.achse === 'x' ? 'z' : 'x';
   const kand = [];
-  for (let i = 0; i <= BLOCKS; i++) {
-    const linie = ORIGIN + i * PITCH;
+  for (const linie of rasterLinien(halt.achse)) {
     for (const seite of [1, -1]) {
       const spur = linie + seite * 3;              // Spur auf der Querachse
       if ((halt.s - spur) * fahrt < 15) continue;  // nach dem Abbiegen zu spaet
       for (const weit of [70, 100, 45, 130]) {
         const st = zLinie - seite * weit;          // Anlauf bis zur Linie
-        if (st < ORIGIN - 3 || st > ORIGIN + BLOCKS * PITCH + 3) continue;
+        if (st < rasterO(quer) - 3 || st > rasterE(quer) + 3) continue;
         const px = quer === 'x' ? st : spur;
         const pz = quer === 'x' ? spur : st;
-        if (Math.abs(px) > 185 || Math.abs(pz) > 185) continue;
+        if (px < SPIEL_X0 || px > RASTER_X1 + 10) continue;
+        if (Math.abs(pz) > PROM_Z1 - 5) continue;
         if (px > AUTO_X_MAX) continue;
         if (inWater(px, pz) || inGebaeude(px, pz)) continue;
         if (evImBlick(px, pz)) continue;
@@ -28410,9 +28456,10 @@ function respStartAufSpur(halt, spur, zLinie) {
     const s = halt.s - fahrt * weit;
     const px = halt.achse === 'x' ? s : spur;
     const pz = halt.achse === 'x' ? spur : s;
-    if (Math.abs(px) > 185 || Math.abs(pz) > 185) continue;
+    if (px < SPIEL_X0 || px > RASTER_X1 + 10) continue;
+    if (Math.abs(pz) > PROM_Z1 - 5) continue;
     if (px > AUTO_X_MAX) continue;
-    if (s < ORIGIN - 3 || s > ORIGIN + BLOCKS * PITCH + 3) continue;
+    if (s < rasterO(halt.achse) - 3 || s > rasterE(halt.achse) + 3) continue;
     if (inWater(px, pz) || inGebaeude(px, pz)) continue;
     if (evImBlick(px, pz)) continue;             // nicht vor der Nase
     if (Math.hypot(px - player.pos.x, pz - player.pos.z) < 45) continue;
@@ -28436,7 +28483,7 @@ function respBaueWagen(ein, start) {
   const mesh = ein.art === 'ems' ? respBaueRtwMesh() : makeFahrzeugMesh(typ, 0xf0f0f2);
   const car = {
     axis: start.achse, lane: start.lane, s: start.s, dir: start.dir,
-    sMin: ORIGIN - 3, sMax: ORIGIN + BLOCKS * PITCH + 3,
+    sMin: rasterO(start.achse) - 3, sMax: rasterE(start.achse) + 3,
     speed: ein.art === 'ems' ? 13 : 15,
     tempoJetzt: 0, hupCd: 0, typ, mesh,
     vx: 0, vz: 0, hitCd: 0, kurve: 0, kreuzung: null,
@@ -28911,7 +28958,7 @@ function respLenke(car, linie) {
   const ein = car.notfallEinsatz;
   const ziel = (ein && ein.zustand !== 'ABFAHRT') ? ein.halt : null;
   if (!ziel) { respSpur(ein, 'ohneZiel', car, linie); return autoKreuzung(car, linie); }
-  const zLinie = ORIGIN + Math.round((ziel.lane - ORIGIN) / PITCH) * PITCH;
+  const zLinie = rasterLinieNah(ziel.lane, querAchse(ziel.achse));
   const ndZiel = ziel.lane > zLinie ? 1 : -1;
   const aufZielspur = car.axis === ziel.achse && Math.abs(car.lane - ziel.lane) < 0.6;
   /* Schon richtig unterwegs: geradeaus bis zum Halt. */
@@ -29085,7 +29132,7 @@ const RESP_STREIFE_MIN = 25;     // direkt daneben wirkt es wie gezaubert
    Zwangsankuenfte 0 bis 3 von 97 stiegen auf 11 von 97, p95 von 32 auf
    82 s. Deshalb dieselbe Erreichbarkeitsfrage wie beim Startpunkt. */
 function respStreifeTaugt(c, halt) {
-  const zLinie = ORIGIN + Math.round((halt.lane - ORIGIN) / PITCH) * PITCH;
+  const zLinie = rasterLinieNah(halt.lane, querAchse(halt.achse));
   const fahrt = halt.lane > zLinie ? 1 : -1;
   if (c.axis === halt.achse) {
     /* Gleiche Achse: nur auf der Zielspur selbst, und noch weit genug
@@ -32943,9 +32990,9 @@ function baueKarte() {
   /* Häuserblöcke der Stadtseite. */
   g.fillStyle = '#39414d';
   const bs = (PITCH - ROAD_HALF * 2) * m;
-  for (let bi = 0; bi < BLOCKS; bi++) {
-    for (let bj = 0; bj < BLOCKS; bj++) {
-      const cx = ORIGIN + bi * PITCH + PITCH / 2, cz = ORIGIN + bj * PITCH + PITCH / 2;
+  for (let bi = 0; bi < BLOCKS_X; bi++) {
+    for (let bj = 0; bj < BLOCKS_Z; bj++) {
+      const cx = RASTER_X0 + bi * PITCH + PITCH / 2, cz = RASTER_Z0 + bj * PITCH + PITCH / 2;
       g.fillRect(w2k(cx) - bs / 2, w2k(cz) - bs / 2, bs, bs);
     }
   }
@@ -34215,7 +34262,7 @@ if (window.__WEBHERO_TEST__ === true) {
        doppelt gepflegt. */
     raster() {
       return {
-        pitch: PITCH, blocks: BLOCKS,
+        pitch: PITCH, blocksX: BLOCKS_X, blocksZ: BLOCKS_Z,
         x0: RASTER_X0, x1: RASTER_X1, z0: RASTER_Z0, z1: RASTER_Z1,
         stadtRand: STADT_RAND, gebietZ: GEBIET_Z,
         promZ0: PROM_Z0, promZ1: PROM_Z1,

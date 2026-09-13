@@ -39,7 +39,12 @@ const BR_GEH_RAMPE = wert(/const BR_GEH_RAMPE = ([\d.]+)/, 'BR_GEH_RAMPE');
 const RASTER_X1 = 175, RIVER_X1 = 330;
 const BR_X0 = RASTER_X1 + 6, BR_X1 = RIVER_X1 + 4;
 const AUTO_X_MAX = RASTER_X1 + 4;
-const ORIGIN = -175, PITCH = 50, BLOCKS = 7, SHORE_OX = 336;
+const PITCH = 50, SHORE_OX = 336;
+/* CITY V2: das Raster hat getrennte Achsen. Die Randwerte kommen aus
+   game.js, die Helfer werden weiter unten aus game.js ausgefuehrt. */
+const RASTER_X0 = -175, RASTER_Z0 = -175, RASTER_Z1 = 175;
+const BLOCKS_X = wert(/const BLOCKS_X = (\d+)/, 'BLOCKS_X');
+const BLOCKS_Z = wert(/const BLOCKS_Z = (\d+)/, 'BLOCKS_Z');
 const PYL_X = JSON.parse(schnipsel(/const PYL_X = \[[\d, ]*\]/, 'PYL_X').replace('const PYL_X = ', ''));
 const PYL_LUECKE = wert(/const PYL_LUECKE = ([\d.]+)/, 'PYL_LUECKE');
 const PYL_BEIN_HALB = 1.5;      // halbe Breite eines Pylonbeins, siehe game.js
@@ -51,12 +56,15 @@ const kasten = {
   clamp: (v, a, b) => Math.max(a, Math.min(b, v)),
   BR_X0, BR_X1, BR_RAMPE, BR_HOCH, BR_GEH_H, BR_GEH_RAMPE,
   BRIDGE_Z, BRIDGE_HW, PYL_X, PYL_LUECKE,
-  ORIGIN, PITCH, BLOCKS, SHORE_OX, AUTO_X_MAX,
+  PITCH, SHORE_OX, AUTO_X_MAX, Math,
+  RASTER_X0, RASTER_X1, RASTER_Z0, RASTER_Z1, BLOCKS_X, BLOCKS_Z,
   /* Stellvertreter fuer die Bausteine, die brGehTextur benutzt. */
   sidewalkTex: { clone: () => ({ istKopie: true, repeat: { x: 1, y: 1, set(a, b) { this.x = a; this.y = b; } } }) },
   THREE: { MeshLambertMaterial: function (p) { Object.assign(this, p); } },
 };
 vm.createContext(kasten);
+/* Die Rasterhelfer aus game.js ausfuehren, nicht nachbauen. */
+vm.runInContext(schnipsel(/const rasterO = [\s\S]*?\n\}\n(?=\/\* Liegt ein Punkt)/, 'Rasterhelfer'), kasten);
 for (const [re, name] of [
   [/function bridgeY\(x\) \{[\s\S]*?\n\}/, 'bridgeY'],
   [/function bridgeGehwegY\(x\) \{[\s\S]*?\n\}/, 'bridgeGehwegY'],
@@ -154,7 +162,7 @@ test('Die Brueckenstrasse ist fuer den Verkehr nicht mehr gesperrt', () => {
   kasten.setzeAutoGrenzen(aufUfer);
   assert.strictEqual(aufBruecke.sMax, SHORE_OX + 3,
     'der Brueckenwagen darf bis ans Ostufer, nicht nur bis zum Raster');
-  assert.strictEqual(aufUfer.sMax, ORIGIN + BLOCKS * PITCH + 3);
+  assert.strictEqual(aufUfer.sMax, RASTER_X1 + 3);
 
   /* Und die Bedingung selbst: in der Mitte der Bruecke (x = 260, weit
      hinter AUTO_X_MAX = 179) faehrt der Brueckenwagen weiter, der Wagen

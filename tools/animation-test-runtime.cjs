@@ -123,7 +123,12 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
        Kameratests der Aussenwelt steht er auf aus. Ohne diesen Eintrag
        stirbt jeder Kameratest mit "MISSION_INTERIOR is not defined". */
     MISSION_INTERIOR: { active: false, phase: null, raum: null },
-    KAT: { aktiv: false }, groundY: () => 0, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(),
+    /* CITY V2: das Raster hat seit Stufe 1 getrennte Achsen, und der
+       Kollisions-Hash einen eigenen, festen Ursprung. Der Kamerateil,
+       den diese Tests ausschneiden, benutzt HASH_O. */
+    KAT: { aktiv: false }, groundY: () => 0, PITCH: 50, colliderGrid: new Map(),
+    HASH_O: -175, RASTER_X0: -175, RASTER_X1: 175, RASTER_Z0: -175, RASTER_Z1: 175,
+    BLOCKS_X: 7, BLOCKS_Z: 7,
     camera: new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1000),
     sun: { position: new THREE.Vector3(), target: new THREE.Object3D() },
     SONNE_RICHTUNG: new THREE.Vector3(1, 1, 0).normalize(), kamTelemetrie: () => {},
@@ -136,6 +141,9 @@ function runtime(source = fs.readFileSync(path.join(root, 'game.js'), 'utf8')) {
   };
   const context = vm.createContext(env);
   vm.runInContext([
+    /* CITY V2: die Rasterhelfer werden aus game.js GELESEN, nicht hier
+       nachgebaut - sonst prueft der Test eine zweite, eigene Stadt. */
+    between('const rasterO =', '/* Die Uferpromenade'),
     between('const GANG_REF =', 'const GLB_ANIM_PARTS ='),
     between('const ANGRIFF_FENSTER =', 'const GLB_CLIP_PATTERNS ='),
     between('const GLB_CLIP_PATTERNS =', '/* ---- Netz-Kostüm:'),

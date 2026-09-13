@@ -334,8 +334,8 @@ test('Das Handy sitzt in der Faust, nicht daneben', () => {
    Weg. Diese Tests halten die Richtung fest, nicht meinen Geschmack. */
 function wandKamera(r, nx, nz) {
   const e = r.env, c = { x0: -10, x1: 10, z0: -10, z1: 10, h: 70 };
-  for (let i = Math.floor((c.x0 - e.ORIGIN) / e.PITCH); i <= Math.floor((c.x1 - e.ORIGIN) / e.PITCH); i++)
-    for (let j = Math.floor((c.z0 - e.ORIGIN) / e.PITCH); j <= Math.floor((c.z1 - e.ORIGIN) / e.PITCH); j++) {
+  for (let i = Math.floor((c.x0 - e.HASH_O) / e.PITCH); i <= Math.floor((c.x1 - e.HASH_O) / e.PITCH); i++)
+    for (let j = Math.floor((c.z0 - e.HASH_O) / e.PITCH); j <= Math.floor((c.z1 - e.HASH_O) / e.PITCH); j++) {
       const key = i + ',' + j; e.colliderGrid.set(key, [...(e.colliderGrid.get(key) || []), c]);
     }
   e.player.pos.set(nx * 10.18, 30, nz * 10.18);
@@ -431,14 +431,14 @@ function ausweichRuntime() {
   const a = quelle.indexOf('/* ---- Vorausschauen statt anrennen ----');
   const b = quelle.indexOf('/* Weit genug weg, dass ein Versetzen nicht auffaellt? */');
   assert.ok(a > 0 && b > a, 'der Ausweich-Abschnitt fehlt in game.js');
-  const env = { Math, ORIGIN: -175, PITCH: 50, colliderGrid: new Map(), console };
+  const env = { Math, HASH_O: -175, PITCH: 50, colliderGrid: new Map(), console };
   vmA.createContext(env);
   vmA.runInContext(quelle.slice(a, b), env);
   env.setzeKlotz = (c) => {
-    for (let i = Math.floor((c.x0 - env.ORIGIN) / env.PITCH);
-         i <= Math.floor((c.x1 - env.ORIGIN) / env.PITCH); i++)
-      for (let j = Math.floor((c.z0 - env.ORIGIN) / env.PITCH);
-           j <= Math.floor((c.z1 - env.ORIGIN) / env.PITCH); j++) {
+    for (let i = Math.floor((c.x0 - env.HASH_O) / env.PITCH);
+         i <= Math.floor((c.x1 - env.HASH_O) / env.PITCH); i++)
+      for (let j = Math.floor((c.z0 - env.HASH_O) / env.PITCH);
+           j <= Math.floor((c.z1 - env.HASH_O) / env.PITCH); j++) {
         const k = i + ',' + j;
         env.colliderGrid.set(k, [...(env.colliderGrid.get(k) || []), c]);
       }
