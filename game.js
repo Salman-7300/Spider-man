@@ -24493,15 +24493,21 @@ function machEliteZeichen() {
 }
 /* Elite bekommt bessere Werte im VERHALTEN, nicht mehr Lebenspunkte.
    Der Typ wird dafuer einmal kopiert - es gibt nur wenige davon. */
-function machElite(e) {
-  if (!e || e.elite) return e;
-  e.elite = true;
+/* Die Zuschlaege allein, ohne Zeichen und ohne Groesse. Sie liegen in
+   einer KOPIE von e.typ - der Grundeintrag in GANOVEN wird geteilt und
+   darf nie veraendert werden. */
+function eliteWerte(e) {
   e.typ = Object.assign({}, e.typ, {
     ausweichen: Math.min(0.55, (e.typ.ausweichen || 0) + 0.12),
     reaktion: (e.typ.reaktion || 0.4) * 0.85,
     blockChance: Math.min(0.7, (e.typ.blockChance || 0.2) + 0.12),
     kombo: (e.typ.kombo || 2) + 1,
   });
+}
+function machElite(e) {
+  if (!e || e.elite) return e;
+  e.elite = true;
+  eliteWerte(e);
   if (e.visual && e.visual.root) {
     e.eliteZeichen = machEliteZeichen();
     e.visual.root.add(e.eliteZeichen);
@@ -30724,6 +30730,16 @@ function stArt(e, art) {
   const t = GANOVEN.find((g) => g.art === art);
   if (!t || e.typ === t) return e;
   e.typ = t;
+  /* ---- Elite bleibt Elite ----
+     Diese Zeile setzt e.typ auf den GRUNDeintrag der Tabelle zurueck -
+     und damit auch die Zuschlaege, die machElite() in eine Kopie davon
+     geschrieben hatte. machElite() selbst steigt danach sofort wieder
+     aus, weil e.elite schon true ist. Der Gegner behielt also das
+     Elitezeichen ueber dem Kopf und kaempfte wie ein gewoehnlicher
+     Ganove. Gefunden im Anfuehrer-Pruefstand: ein Gegner, den
+     spawnGang mit 15 Prozent Wahrscheinlichkeit zum Eliten gemacht
+     hatte, zeigte nach stArt() blockChance 0,20 statt 0,32. */
+  if (e.elite) eliteWerte(e);
   e.hpMax = t.hp; e.hp = t.hp;
   e.radius = 0.4 * t.groesse;
   e.mut = MUT_BASIS[t.art] === undefined ? 0.8 : MUT_BASIS[t.art];
@@ -31712,7 +31728,11 @@ const STORY_DEF = [
         pruef: (m) => {
           if (!innenPhaseTakt(m)) return null;
           if (!m.geisel) return 'weiter';
-          if (stNah(m.zielPos, 3.5)) { stGeiselFrei(m); return 'weiter'; }
+          if (stNah(m.zielPos, 3.5)) {
+            stGeiselFrei(m);
+            ptMarke('m6GeiselGerettet', true);
+            return 'weiter';
+          }
           return null;
         },
         ende: (m) => stGeiselFrei(m) },
@@ -31900,6 +31920,33 @@ const STORY_DEF = [
             g.chef = chef;
             chef.state = 'chase'; chef.target = 'player';
           }
+          /* ---- Warum der Anfuehrer zwei Leibwaechter bekommt ----
+             Der Human-Playtest hat diese Phase in 3,6 s beendet. Der
+             Pruefstand tools/pruef/anfuehrer.js sagt, warum - gemessen
+             an genau diesem Gegner, einzeln aufgestellt:
+
+               Anfuehrer   62 HP, 5 Schlaege, 6 Treffer, 15,5 Schaden
+                           je Treffer, 39,5 je Sekunde, 2,35 s bis k.o.,
+                           EIN eigener Angriff in der ganzen Zeit
+               Brecher     62 HP, 4 Schlaege, 4 Treffer, 1,68 s
+               Waechter    44 HP, 1 Schlag,   2 Treffer, 0,78 s
+
+             Es liegt also nicht an fehlenden Lebenspunkten des
+             Anfuehrers: der Held richtet 15 bis 31 Schaden je Treffer
+             an, und 62 Lebenspunkte sind vier Treffer. Auch das
+             Elite-Verhalten ist an (blockChance 0,32 statt 0,20,
+             kombo 2 statt 1) - es aendert nur nichts, weil der
+             Anfuehrer in 2,35 s genau einmal zum Schlagen kommt.
+             Beschaedigt kommt er nicht an; er wird in dieser Phase neu
+             aufgestellt.
+
+             Die Antwort ist deshalb NICHT "mehr Lebenspunkte", sondern
+             dieselbe wie in der Halle: eine echte Situation. Zwei
+             Leibwaechter, gemischt, an seiner Seite - damit ist die
+             Phase ein Kampf und keine Hinrichtung. */
+          m.leibwache = stHinterhaltWelle(m, { x: t.x, z: t.z, radius: 4.5 }, 2,
+            ['waechter', 'flink'], Math.PI / 2);
+          ptMarke('m6Leibwache', m.leibwache || 0);
         },
         pruef: (m) => {
           stGeflohenAufraeumen(m, m.treff, 50);
@@ -34089,6 +34136,9 @@ if (window.__WEBHERO_TEST__ === true) {
        Handwechsel beim Schwingen. */
     get netzHand() { return netzHand; },
     spawnGang,
+    /* Fuer den Anfuehrer-Pruefstand: dieselben zwei Aufrufe, die die
+       Mission macht - Archetyp setzen und zum Elitegegner machen. */
+    stArt, machElite,
     aufGehweg,
     /* Die Haustueren in WELTKOORDINATEN. Sie stehen nirgends als Liste:
        der Durchgang ist im Baukasten je Haustyp lokal beschrieben
