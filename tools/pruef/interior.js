@@ -232,14 +232,43 @@ const will = (n) => TEIL === String(n) || TEIL === 'alle';
         let ausserhalb = 0, proben = 0, minAbstand = 99, maxAbstand = 0, eng = 0;
         const alle = [];
         const stellen = [];
-        for (const px of [g.x0 + 1.5, (g.x0 + g.x1) / 2, g.x1 - 1.5]) {
-          for (const pz of [g.z0 + 1.5, (g.z0 + g.z1) / 2, g.z1 - 1.5]) {
+        for (const px0 of [g.x0 + 1.5, (g.x0 + g.x1) / 2, g.x1 - 1.5]) {
+          for (const pz0 of [g.z0 + 1.5, (g.z0 + g.z1) / 2, g.z1 - 1.5]) {
+            /* ---- Erst freien Boden suchen ----
+               Im groesseren Raum liegen Rastermitte und zwei Ecken MITTEN
+               in einem Requisit (Deckungskiste, Regal an der Ostwand).
+               Gemessene 0,12 m Kameraabstand waren dort kein
+               Kamerafehler, sondern eine Figur in einer Kiste. */
+            let px = px0, pz = pz0;
+            const freiHier = (x, z) => {
+              for (const kk of d.colliderNah(x, z)) {
+                if (kk.h <= 0.35) continue;
+                if (kk.y0 !== undefined && kk.y0 > 2.1) continue;
+                if (x > kk.x0 - 0.5 && x < kk.x1 + 0.5 &&
+                    z > kk.z0 - 0.5 && z < kk.z1 + 0.5) return false;
+              }
+              return true;
+            };
+            if (!freiHier(px, pz)) {
+              for (let rad = 0.5; rad <= 3.0 && !freiHier(px, pz); rad += 0.5) {
+                for (let q = 0; q < 12; q++) {
+                  const w2 = (q / 12) * Math.PI * 2;
+                  const nx = px0 + Math.sin(w2) * rad, nz = pz0 + Math.cos(w2) * rad;
+                  if (nx > g.x0 && nx < g.x1 && nz > g.z0 && nz < g.z1 && freiHier(nx, nz)) {
+                    px = nx; pz = nz; break;
+                  }
+                }
+              }
+            }
             for (let k = 0; k < 8; k++) {
               const yaw = (k / 8) * Math.PI * 2;
               d.setzePos(px, 0, pz);
               P.state = 'ground'; P.onGround = true; P.facing = yaw;
               d.setzeKamYaw(yaw + Math.PI);
-              schritte(30);
+              /* 120 Bilder statt 30: mit 30 lag ein fester Rest jeder
+                 Messung nur daran, dass camPos nach dem Teleport noch
+                 heranglitt. */
+              schritte(120);
               const c = d.camera.position;
               proben++;
               const drin = c.x > g.x0 - 0.9 && c.x < g.x1 + 0.9 &&
@@ -361,8 +390,12 @@ const will = (n) => TEIL === String(n) || TEIL === 'alle';
          Geprueft wird am Skelett, nicht am Augenmass: Becken auf der
          Kistenoberkante, tiefster Fusspunkt auf dem Fussboden, Fesseln
          VOR der Befreiung da und DANACH weg. */
+      /* Phase 4, nicht 3: in Phase 3 stehen noch die Wellen im Raum, die
+         Geiselphase beginnt erst danach. Der erste Anlauf startete bei 3
+         und meldete "nach der Befreiung: Geiseln 1, Phase 3" - er hatte
+         gar nicht befreit, sondern nur gewartet. */
       vorbereiten();
-      d.storyStarte('m6', 3);
+      d.storyStarte('m6', 4);
       for (let i = 0; i < 90; i++) d.schritt(1 / 60);
       const raum = d.innen.raum;
       const findeFessel = () => {
