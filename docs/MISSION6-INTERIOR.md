@@ -518,16 +518,50 @@ Bewegungsrichtung, Median und Anteil über 0,7:
 | diagonal | 1,00 / 98 % | 1,00 / 98 % |
 | Ecke | 1,00 / 100 % | 1,00 / 100 % |
 | Uferseite | 1,00 / 100 % | 1,00 / 100 % |
-| **Innenraum** | 0,49 / 40 % | 1,00 / 82 % |
+| **Innenraum** | 0,49 / 40 % | 0,96 / 71 % |
 | Rückzug | −1,00 (soll so sein) | −1,00, Clip läuft rückwärts |
 
 Das gemeldete Fehlerbild — vom Helden weg laufen, zum Helden schauen,
 dabei den Vorwärtslauf abspielen — kommt in keinem der sechs Fälle mehr
-vor (0 von 1330 Bildern).
+vor (0 von 1210 Bildern).
 
 Die geführte Flucht des Funkers ist davon nicht betroffen: sie läuft über
 `e.fluchtWeg` im selben Zweig und profitiert nur davon, dass der Körper
 jetzt der tatsächlichen Richtung folgt.
+
+---
+
+## Der Botlauf durch die ganze Mission
+
+Beide Varianten schließen ab und schalten Mission 7 frei, 9 von 9 Phasen,
+höchstens **5** Gegner gleichzeitig.
+
+| Phase | Variante A (Funker flieht) | Variante B (früh gefangen) |
+|---|---|---|
+| Eingangswache | 2,9 s | 2,5 s |
+| Eindringen | 1,0 s | 0,8 s |
+| Versteck sichern | 33,6 s | 11,0 s |
+| Geisel | 2,1 s | 4,4 s |
+| Funker stellen | 0,8 s | 0,4 s |
+| Verfolgung / Treffpunkt | 18,0 s | 0,9 s |
+| Hinterhalt | 10,0 s | 9,3 s |
+| Anführer | 2,8 s | 2,5 s |
+| **gesamt** | **71,2 s** | **31,8 s** |
+
+    Marken A: Welle1 3,8 s, Welle2 29,6 s, Innengegner 7, Geisel gerettet,
+              Hinterhalt A 3 / B 3, Leibwache 2
+    Marken B: Welle1 3,7 s, Welle2 7,2 s, Innengegner 6, Geisel gerettet,
+              Funker früh gefangen, Hinterhalt A 3 / B 4, Leibwache 2
+
+**Das sind Botzeiten.** Ein Bot stirbt nicht, ist nie ratlos und schlägt
+in jedem erlaubten Bild zu. Der menschliche Durchlauf dauert ein
+Vielfaches davon — die beiden Zahlen dürfen nicht verwechselt werden.
+
+Zwei Lücken im Bot mussten für den größeren Raum geschlossen werden, und
+beide sind Lücken im Bot, nicht im Spiel: er kletterte mit gedrückter
+Vorwärtstaste auf die 2,5 m hohen Container (gemessen 3,3 m Höhe,
+während die Gegner unten suchten), und er begann den Leitweg zur Geisel
+immer an Station 0, auch wenn er längst weiter östlich stand.
 
 ---
 
