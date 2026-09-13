@@ -33,8 +33,10 @@ const SOLL = {
   brueckeZ: -25, brueckeHW: 10,
   wasserY: -2.6,
   /* Grenzen, wie sie vor der Erweiterung galten. */
-  gebietZ: 192, spielZ0: -193, spielZ1: 193, spielX0: -193,
-  promZ0: -190, promZ1: 190, luftRand: 170,
+  gebietZ0: -192, gebietZ1: 192, gebietX0: -181,
+  spielZ0: -193, spielZ1: 193, spielX0: -193,
+  promZ0: -190, promZ1: 190, randX0: -190, randX1: 190,
+  luftX0: -170, luftX1: 170, luftZ0: -170, luftZ1: 170,
   stadtRandOst: 175,
 };
 
@@ -110,13 +112,20 @@ const SOLL = {
   pruefe('Uferstrasse', R.x1, SOLL.stadtRandOst);
   p('');
   p('== Abgeleitete Grenzen ==');
-  pruefe('Gebiet z', R.gebietZ, SOLL.gebietZ);
+  pruefe('Gebiet z0', R.gebietZ0, SOLL.gebietZ0);
+  pruefe('Gebiet z1', R.gebietZ1, SOLL.gebietZ1);
+  pruefe('Gebiet x0', R.gebietX0, SOLL.gebietX0);
   pruefe('Spieler z0', R.spielZ0, SOLL.spielZ0);
   pruefe('Spieler z1', R.spielZ1, SOLL.spielZ1);
   pruefe('Spieler x0', R.spielX0, SOLL.spielX0);
   pruefe('Promenade z0', R.promZ0, SOLL.promZ0);
   pruefe('Promenade z1', R.promZ1, SOLL.promZ1);
-  pruefe('Luftrand', R.luftRand, SOLL.luftRand);
+  pruefe('Gehwegrand x0', R.randX0, SOLL.randX0);
+  pruefe('Gehwegrand x1', R.randX1, SOLL.randX1);
+  pruefe('Luft x0', R.luftX0, SOLL.luftX0);
+  pruefe('Luft x1', R.luftX1, SOLL.luftX1);
+  pruefe('Luft z0', R.luftZ0, SOLL.luftZ0);
+  pruefe('Luft z1', R.luftZ1, SOLL.luftZ1);
   p('');
   p('== LOCKED CORE: die 8 Rasterlinien des alten 7x7-Kerns ==');
   p('  fehlende x-Linien: ' + (aus.fehlendX.length ? aus.fehlendX.join(', ') + '   BEFUND' : 'keine   ok'));

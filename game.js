@@ -163,8 +163,8 @@ const RASTER_X1 = ORIGIN_X + BLOCKS_X * PITCH;    // 175
      RASTER_X0/Z0, RASTER_Z1   aeusserste Rasterlinien
      RAND_GEH   15 m   Gehweg und Promenade jenseits der letzten Linie
      RAND_SPIEL 18 m   so weit darf der Spieler noch
-     GEBIET_Z          Grenze fuer Zivilisten, Gegner und das Gehnetz
-     LUFT_RAND         Umkreis, in dem der Hubschrauber seine Runden
+     GEBIET_X0/Z0/Z1   Grenze fuer Zivilisten, Gegner und das Gehnetz
+     LUFT_X0/X1/Z0/Z1  Rechteck, in dem der Hubschrauber seine Runden
                        fliegt - fuenf Meter INNERHALB der letzten Linie
 
    NICHT hier hinein gehoert der Hoerbereich der Sirene (ebenfalls 170):
@@ -179,7 +179,17 @@ const PROM_Z1 = RASTER_Z1 + RAND_GEH;            //  190
 const SPIEL_X0 = RASTER_X0 - RAND_SPIEL;         // -193
 const SPIEL_Z0 = RASTER_Z0 - RAND_SPIEL;         // -193
 const SPIEL_Z1 = RASTER_Z1 + RAND_SPIEL;         //  193
-const LUFT_RAND = RASTER_Z1 - 5;                 //  170
+const RAND_X0 = RASTER_X0 - RAND_GEH;            // -190
+const RAND_X1 = RASTER_X1 + RAND_GEH;            //  190
+/* ---- Der Flugkreis des Hubschraubers, je Achse ----
+   Bis hierher stand hier ein einziges LUFT_RAND und die Pruefung lautete
+   Math.abs(x) > LUFT_RAND || Math.abs(z) > LUFT_RAND. Bei einer
+   quadratischen Stadt kam dasselbe heraus wie jetzt; sobald sie in x und
+   z verschieden weit reicht, nicht mehr. */
+const LUFT_X0 = RASTER_X0 + 5;                   // -170
+const LUFT_X1 = RASTER_X1 - 5;                   //  170
+const LUFT_Z0 = RASTER_Z0 + 5;                   // -170
+const LUFT_Z1 = RASTER_Z1 - 5;                   //  170
 /* ---- Rasterhilfen je Achse ----
    'x' heisst: der Wert liegt auf der x-Achse. Bei einem Fahrzeug ist
    car.axis die Achse, ENTLANG der es faehrt (also die von car.s); seine
@@ -2679,14 +2689,21 @@ function buildCity() {
     const u = ((s - rasterO(a)) % PITCH + PITCH) % PITCH;
     return u < ROAD_HALF + 3 || u > PITCH - ROAD_HALF - 3;
   };
-  for (let i = 0; i <= BLOCKS_Z; i++) {
-    const L = RASTER_Z0 + i * PITCH;
-    for (let s = RASTER_X0 - 11; s < RASTER_X1 + 11; s += 10) {
-      if (nearCrossing(s)) continue;
+  /* Zwei Durchlaeufe, nicht einer. Vorher liefen beide Strichsorten ueber
+     DIESELBE Linienliste (die der z-Achse) und ueber dieselbe Laengslage
+     (die der x-Achse). Bei einer quadratischen Stadt war das dasselbe;
+     sobald sie in x und z verschieden weit reicht, fehlen sonst die
+     Striche der neuen Strassen. */
+  for (const L of rasterLinien('x'))                 // Nord-Sued-Strassen
+    for (let s = RASTER_Z0 - 11; s < RASTER_Z1 + 11; s += 10) {
+      if (nearCrossing(s, 'z')) continue;
       deko(0.35, 0.04, 4, L, 0.02, s, 0xd9c979);
+    }
+  for (const L of rasterLinien('z'))                 // Ost-West-Strassen
+    for (let s = RASTER_X0 - 11; s < RASTER_X1 + 11; s += 10) {
+      if (nearCrossing(s, 'x')) continue;
       deko(4, 0.04, 0.35, s, 0.02, L, 0xd9c979);
     }
-  }
 
   /* Zebrastreifen an jeder Kreuzung – vorher hörten die Fahrbahnlinien
      einfach auf und die Kreuzungen waren leere graue Flächen.
@@ -24609,7 +24626,9 @@ const STADT_RAND = RASTER_X1;                    // 175
    dabei sein Ziel; zu Fuss kam so nie jemand ueber den Fluss. Das Deck ist
    jetzt ausdruecklich erlaubt, und die z-Grenze reicht bis zum aeussersten
    Knoten der Promenade (|z| = 190). Das Wasser bleibt gesperrt. */
-const GEBIET_Z = RASTER_Z1 + 17;                   // 192
+const GEBIET_Z0 = RASTER_Z0 - 17;                  // -192
+const GEBIET_Z1 = RASTER_Z1 + 17;                  //  192
+const GEBIET_X0 = RASTER_X0 - 6;                   // -181
 /* Das Deck samt beider Brueckenkoepfe. Der Streifen ist absichtlich
    breiter als das Deck (BRIDGE_HW + 6): die Umgehungspunkte am Kopf
    liegen 12,5 bis 16 m neben der Brueckenachse. Ueber dem Wasser gilt er
@@ -24628,21 +24647,21 @@ function imGebiet(x, z) {
      die Aussenwelt bleibt gueltig, damit der Rueckkehrpunkt noch
      waehrend des Aufenthalts drinnen gesucht werden kann. */
   if (MISSION_INTERIOR.active && imInnenraum(x, z)) return true;
-  if (Math.abs(z) > GEBIET_Z) return false;
-  if (x >= -STADT_RAND - 6 && x <= RIVER_X0 - 3) return true;
+  if (z < GEBIET_Z0 || z > GEBIET_Z1) return false;
+  if (x >= GEBIET_X0 && x <= RIVER_X0 - 3) return true;
   if (x >= SHORE_X0 + 3 && x <= SHORE_X1 - 3) return true;
   return aufBrueckendeck(x, z);
 }
 function haltenImGebiet(pos) {
   if (imGebiet(pos.x, pos.z)) return false;
-  pos.z = clamp(pos.z, -GEBIET_Z, GEBIET_Z);
+  pos.z = clamp(pos.z, GEBIET_Z0, GEBIET_Z1);
   /* Der z-Zug kann schon auf das Brueckendeck gefuehrt haben - dann ist
      nichts weiter zu tun, sonst wuerde der naechste Schritt die Figur vom
      Deck ins Ufer schieben. */
   if (aufBrueckendeck(pos.x, pos.z)) return true;
   /* Zur nächstgelegenen erlaubten Zone zurückschieben. */
   if (pos.x > (RIVER_X0 + SHORE_X0) / 2) pos.x = clamp(pos.x, SHORE_X0 + 3, SHORE_X1 - 3);
-  else pos.x = clamp(pos.x, -STADT_RAND - 6, RIVER_X0 - 3);
+  else pos.x = clamp(pos.x, GEBIET_X0, RIVER_X0 - 3);
   return true;
 }
 
@@ -28339,7 +28358,7 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
         if (s < rasterO(achse) - 3 || s > rasterE(achse) + 3) continue;
         const px = achse === 'x' ? s : lane;
         const pz = achse === 'x' ? lane : s;
-        if (Math.abs(px) > PROM_Z1 || Math.abs(pz) > PROM_Z1) continue;
+        if (px < RAND_X0 || px > RAND_X1 || pz < PROM_Z0 || pz > PROM_Z1) continue;
         if (px > AUTO_X_MAX) continue;
         if (inWater(px, pz) || onBridge(px, pz) || inGebaeude(px, pz)) continue;
         const d = Math.hypot(px - ort.x, pz - ort.z);
@@ -28429,7 +28448,7 @@ function respStartQuer(halt, zLinie) {
         const px = quer === 'x' ? st : spur;
         const pz = quer === 'x' ? spur : st;
         if (px < SPIEL_X0 || px > RASTER_X1 + 10) continue;
-        if (Math.abs(pz) > PROM_Z1 - 5) continue;
+        if (pz < PROM_Z0 + 5 || pz > PROM_Z1 - 5) continue;
         if (px > AUTO_X_MAX) continue;
         if (inWater(px, pz) || inGebaeude(px, pz)) continue;
         if (evImBlick(px, pz)) continue;
@@ -28457,7 +28476,7 @@ function respStartAufSpur(halt, spur, zLinie) {
     const px = halt.achse === 'x' ? s : spur;
     const pz = halt.achse === 'x' ? spur : s;
     if (px < SPIEL_X0 || px > RASTER_X1 + 10) continue;
-    if (Math.abs(pz) > PROM_Z1 - 5) continue;
+    if (pz < PROM_Z0 + 5 || pz > PROM_Z1 - 5) continue;
     if (px > AUTO_X_MAX) continue;
     if (s < rasterO(halt.achse) - 3 || s > rasterE(halt.achse) + 3) continue;
     if (inWater(px, pz) || inGebaeude(px, pz)) continue;
@@ -29001,7 +29020,7 @@ function respLenke(car, linie) {
   if (neuesX > AUTO_X_MAX) { respSpur(ein, 'abgelehnt-xMax', car, linie); return false; }
   if (neuesS < car.sMin - 0.5 || neuesS > car.sMax + 0.5) {
     respSpur(ein, 'abgelehnt-grenzen', car, linie); return false; }
-  if (Math.abs(neuesX) > PROM_Z1 || Math.abs(neuesZ) > PROM_Z1) {
+  if (neuesX < RAND_X0 || neuesX > RAND_X1 || neuesZ < PROM_Z0 || neuesZ > PROM_Z1) {
     respSpur(ein, 'abgelehnt-rand', car, linie); return false; }
   if (inWater(neuesX, neuesZ)) { respSpur(ein, 'abgelehnt-wasser', car, linie); return false; }
   car.axis = car.axis === 'x' ? 'z' : 'x';
@@ -29662,7 +29681,7 @@ function herPunkte(art) {
            am Stadtrand zwei Punkte auf dieselbe Stelle - wer den
            vorletzten Ring durchflog, hatte den letzten gleich mit, und die
            Strecke war nur noch halb so lang wie die Zeit dafuer. */
-        if (Math.abs(x) > LUFT_RAND || Math.abs(z) > LUFT_RAND) break;
+        if (x < LUFT_X0 || x > LUFT_X1 || z < LUFT_Z0 || z > LUFT_Z1) break;
         if (inWater(x, z) && !onBridge(x, z)) break;
         punkte.push({ x, y: herLuftHoehe(x, z), z });
       }
@@ -34264,10 +34283,12 @@ if (window.__WEBHERO_TEST__ === true) {
       return {
         pitch: PITCH, blocksX: BLOCKS_X, blocksZ: BLOCKS_Z,
         x0: RASTER_X0, x1: RASTER_X1, z0: RASTER_Z0, z1: RASTER_Z1,
-        stadtRand: STADT_RAND, gebietZ: GEBIET_Z,
+        stadtRand: STADT_RAND, gebietX0: GEBIET_X0,
+        gebietZ0: GEBIET_Z0, gebietZ1: GEBIET_Z1,
         promZ0: PROM_Z0, promZ1: PROM_Z1,
         spielX0: SPIEL_X0, spielZ0: SPIEL_Z0, spielZ1: SPIEL_Z1,
-        luftRand: LUFT_RAND,
+        randX0: RAND_X0, randX1: RAND_X1,
+        luftX0: LUFT_X0, luftX1: LUFT_X1, luftZ0: LUFT_Z0, luftZ1: LUFT_Z1,
         flussX0: RIVER_X0, flussX1: RIVER_X1,
         uferX0: SHORE_X0, uferX1: SHORE_X1,
         promX0: PROM_X0, autoXMax: AUTO_X_MAX,
