@@ -33,10 +33,10 @@ const SOLL = {
   brueckeZ: -25, brueckeHW: 10,
   wasserY: -2.6,
   /* Grenzen, wie sie vor der Erweiterung galten. */
-  gebietZ0: -192, gebietZ1: 192, gebietX0: -181,
-  spielZ0: -193, spielZ1: 193, spielX0: -193,
-  promZ0: -190, promZ1: 190, randX0: -190, randX1: 190,
-  luftX0: -170, luftX1: 170, luftZ0: -170, luftZ1: 170,
+  /* Die abgeleiteten Grenzen werden NICHT als feste Zahl geprueft: sie
+     wachsen mit der Stadt mit, und genau das sollen sie. Geprueft wird
+     ihr ABSTAND zur aeussersten Rasterlinie - der darf sich nicht
+     aendern. Die Werte stammen aus dem Stand vor der Erweiterung. */
   stadtRandOst: 175,
 };
 
@@ -111,21 +111,22 @@ const SOLL = {
   pruefe('Auto x max', R.autoXMax, SOLL.autoXMax);
   pruefe('Uferstrasse', R.x1, SOLL.stadtRandOst);
   p('');
-  p('== Abgeleitete Grenzen ==');
-  pruefe('Gebiet z0', R.gebietZ0, SOLL.gebietZ0);
-  pruefe('Gebiet z1', R.gebietZ1, SOLL.gebietZ1);
-  pruefe('Gebiet x0', R.gebietX0, SOLL.gebietX0);
-  pruefe('Spieler z0', R.spielZ0, SOLL.spielZ0);
-  pruefe('Spieler z1', R.spielZ1, SOLL.spielZ1);
-  pruefe('Spieler x0', R.spielX0, SOLL.spielX0);
-  pruefe('Promenade z0', R.promZ0, SOLL.promZ0);
-  pruefe('Promenade z1', R.promZ1, SOLL.promZ1);
-  pruefe('Gehwegrand x0', R.randX0, SOLL.randX0);
-  pruefe('Gehwegrand x1', R.randX1, SOLL.randX1);
-  pruefe('Luft x0', R.luftX0, SOLL.luftX0);
-  pruefe('Luft x1', R.luftX1, SOLL.luftX1);
-  pruefe('Luft z0', R.luftZ0, SOLL.luftZ0);
-  pruefe('Luft z1', R.luftZ1, SOLL.luftZ1);
+  p('== Abgeleitete Grenzen: Abstand zur aeussersten Rasterlinie ==');
+  const ab = (name, ist, linie, soll) => pruefe(name, +(ist - linie).toFixed(6), soll);
+  ab('Gebiet z0', R.gebietZ0, R.z0, -17);
+  ab('Gebiet z1', R.gebietZ1, R.z1, 17);
+  ab('Gebiet x0', R.gebietX0, R.x0, -6);
+  ab('Spieler z0', R.spielZ0, R.z0, -18);
+  ab('Spieler z1', R.spielZ1, R.z1, 18);
+  ab('Spieler x0', R.spielX0, R.x0, -18);
+  ab('Promenade z0', R.promZ0, R.z0, -15);
+  ab('Promenade z1', R.promZ1, R.z1, 15);
+  ab('Gehwegrand x0', R.randX0, R.x0, -15);
+  ab('Gehwegrand x1', R.randX1, R.x1, 15);
+  ab('Luft x0', R.luftX0, R.x0, 5);
+  ab('Luft x1', R.luftX1, R.x1, -5);
+  ab('Luft z0', R.luftZ0, R.z0, 5);
+  ab('Luft z1', R.luftZ1, R.z1, -5);
   p('');
   p('== LOCKED CORE: die 8 Rasterlinien des alten 7x7-Kerns ==');
   p('  fehlende x-Linien: ' + (aus.fehlendX.length ? aus.fehlendX.join(', ') + '   BEFUND' : 'keine   ok'));

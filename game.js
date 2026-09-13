@@ -116,11 +116,16 @@ if (typeof window !== 'undefined') {
    Deshalb getrennte Zahlen je Achse. Diese Stufe aendert die WERTE
    nicht - sie sind beide noch 7 und -175, und tools/pruef/stadtraster.js
    besteht darauf. Erst die naechste Stufe laesst die Stadt wachsen. */
-const BLOCKS_X = 7;         // Bloecke in x
-const BLOCKS_Z = 7;         // Bloecke in z
+const BLOCKS_X = 10;        // Bloecke in x
+const BLOCKS_Z = 11;        // Bloecke in z
 const PITCH = 50;           // Rasterabstand (Block + Straße)
-const ORIGIN_X = -175;      // westlichste Rasterlinie
-const ORIGIN_Z = -175;      // suedlichste Rasterlinie
+/* Die Uferstrasse liegt fest bei x = 175: daran haengen Bruecke,
+   Promenade und Kaimauer. Der Westrand ergibt sich deshalb rueckwaerts
+   aus ihr, nicht umgekehrt: ORIGIN_X = 175 - BLOCKS_X * PITCH. In z ist
+   die Stadt um die Mitte gewachsen, nach Norden und Sueden gleich weit -
+   so bleibt jede alte Rasterlinie an ihrem Platz. */
+const ORIGIN_X = 175 - BLOCKS_X * PITCH;   // -325, westlichste Rasterlinie
+const ORIGIN_Z = -(BLOCKS_Z * PITCH) / 2;  // -275, suedlichste Rasterlinie
 /* ---- Der Ursprung des Kollisions-Hashs ----
    Er hat mit der Stadtgroesse NICHTS zu tun: collidersNear rechnet
    daraus nur einen Schluesselnamen, und negative Felder sind in einer
@@ -190,6 +195,19 @@ const LUFT_X0 = RASTER_X0 + 5;                   // -170
 const LUFT_X1 = RASTER_X1 - 5;                   //  170
 const LUFT_Z0 = RASTER_Z0 + 5;                   // -170
 const LUFT_Z1 = RASTER_Z1 - 5;                   //  170
+/* ---- Die Flaechen rund um das Raster ----
+   Asphaltboden, Wasser, Kaimauer, Promenade, das Ufer drueben und das
+   Loch in der Kulisse standen als feste Zahlen im Code: -207, 193, -200,
+   200, Tiefe 400 und 420. Das war genau das 7x7-Raster plus Rand. Sobald
+   die Stadt waechst, endet sonst der Asphalt mitten in einem Bezirk und
+   der Fluss hoert vor dem noerdlichsten Block auf. */
+const BODEN_X0 = RASTER_X0 - 32;                 // -207  Westrand des Asphalts
+const BODEN_X1 = RASTER_X1 + 18;                 //  193  Ostrand, an der Promenade
+const WELT_Z0 = RASTER_Z0 - 25;                  // -200  Nord- und Suedrand von
+const WELT_Z1 = RASTER_Z1 + 25;                  //  200  Wasser, Kai und Promenade
+const WELT_TIEFE = WELT_Z1 - WELT_Z0;            //  400
+const WELT_MITTE_Z = (WELT_Z0 + WELT_Z1) / 2;    //    0
+const WELT_X0 = RASTER_X0 - 25;                  // -200  Westrand des Kulissenlochs
 /* ---- Rasterhilfen je Achse ----
    'x' heisst: der Wert liegt auf der x-Achse. Bei einem Fahrzeug ist
    car.axis die Achse, ENTLANG der es faehrt (also die von car.s); seine
@@ -2318,8 +2336,16 @@ function groundY(x, z, yRef) {
   const ub = ubahnBoden(x, z, yRef);
   if (ub !== null) return ub;
   /* Uferpromenade: durchgehend Gehweghoehe, kein Strassenraster. */
-  if (x >= PROM_X0 && x <= RIVER_X0 && Math.abs(z) < 198 && !onBridge(x, z)) return SLAB_H;
-  if (x >= SHORE_X1 || x <= -195 || Math.abs(z) >= 195) return 0;
+  if (x >= PROM_X0 && x <= RIVER_X0 && z > PROM_Z0 - 8 && z < PROM_Z1 + 8 &&
+      !onBridge(x, z)) return SLAB_H;
+  /* ---- Die aeussere Schale ----
+     Hier standen -195 und +/-195, also die Spielergrenze der alten
+     7x7-Stadt. Beim Wachsen blieb sie stehen: in den neuen Randbloecken
+     kam schon aus dieser Zeile 0 heraus, es gab also keinen Gehweg, und
+     das Gehnetz fand dort keinen einzigen Knoten - gemessen 40 von 110
+     Bloecken ohne Netz. */
+  if (x >= SHORE_X1 || x <= SPIEL_X0 - 2 ||
+      z <= SPIEL_Z0 - 2 || z >= SPIEL_Z1 + 2) return 0;
   if (onBridge(x, z)) {
     /* Auf dem flachen Deck liegt der Gehweg zwanzig Zentimeter hoeher
        als die Fahrbahn. Auf den Rampen nicht - dort laeuft alles auf
@@ -2646,7 +2672,7 @@ function buildCity() {
        gerechnet. */
     /* Nur die OBERE Treppe durchbricht den Gehweg - ueber der
        Zwischenebene und der unteren Treppe liegt eine Decke. */
-    const teile = flaecheMitLoechern(-207, 193, -200, 200, ubahnLoecher('oben'));
+    const teile = flaecheMitLoechern(BODEN_X0, BODEN_X1, WELT_Z0, WELT_Z1, ubahnLoecher('oben'));
     const pos = new Float32Array(teile.length * 18);
     const nor = new Float32Array(teile.length * 18);
     const uv = new Float32Array(teile.length * 12);
@@ -4665,11 +4691,17 @@ function neonAnHaus(w, h, d, x, z) {
 /* Der erste Versuch begann bei 205 m vom Ursprung - das sind nur 12 m
    hinter der Spielgrenze (193). Vom Dach aus sah man dadurch keine Ferne,
    sondern riesige graue Platten direkt vor der Nase, und von der Strasse
-   eine geschlossene Wand. Jetzt beginnt sie 137 m HINTER der Grenze und
-   reicht weit hinaus; die naechsten Kulissenhaeuser sind damit so weit
-   weg wie die andere Seite der Stadt. */
-const KULISSE_VON = 330;      // so weit draussen beginnt sie
-const KULISSE_BIS = 900;      // und so weit reicht sie
+   eine geschlossene Wand. Sie beginnt deshalb 137 m HINTER der Grenze und
+   reicht 570 m weit hinaus.
+   CITY V2: der Abstand zaehlt ab der Spielgrenze JEDER SEITE, nicht mehr
+   ab dem Ursprung. Fest bei 330 gemessen stuende die Westkulisse nach dem
+   Wachsen 5 m hinter der letzten Strasse - genau der Fehler, den der
+   erste Versuch hatte, nur schlimmer. */
+const KULISSE_LUFT = 137;     // so weit hinter der Spielgrenze beginnt sie
+const KULISSE_TIEFE = 570;    // und so tief ist der Guertel
+const KUL_WEST = -SPIEL_X0 + KULISSE_LUFT;
+const KUL_NORD = -SPIEL_Z0 + KULISSE_LUFT;
+const KUL_SUED = SPIEL_Z1 + KULISSE_LUFT;
 const KULISSE_RASTER = 62;    // Abstand der Kulissenhaeuser
 const KULISSE_MESHES = [];
 function baueKulisse() {
@@ -4681,8 +4713,8 @@ function baueKulisse() {
      eine, 6 cm unter Null - und der Fluss liegt bei -2,6 m. Die Platte
      haette ihn also zugedeckt. Es ist deshalb ein RING mit einem Loch,
      das Spielflaeche UND Fluss samt Gegenufer frei laesst. */
-  const LOCH = { x0: -200, x1: SHORE_X1 + 14, z0: -200, z1: 200 };
-  const aussen = KULISSE_BIS * 1.4;
+  const LOCH = { x0: WELT_X0, x1: SHORE_X1 + 14, z0: WELT_Z0, z1: WELT_Z1 };
+  const aussen = (Math.max(KUL_WEST, KUL_NORD, KUL_SUED) + KULISSE_TIEFE) * 1.4;
   const platten = [];
   const platte = (x0, x1, z0, z1) => platten.push({
     w: x1 - x0, h: 0.12, d: z1 - z0,
@@ -4700,26 +4732,29 @@ function baueKulisse() {
   KULISSE_MESHES.push(grund);
   /* Fuer jede der drei Landseiten ein eigenes Mesh. */
   const seiten = [
-    { nx: -1, nz: 0 },        // Westen
-    { nx: 0, nz: -1 },        // Norden
-    { nx: 0, nz: 1 },         // Sueden
+    { nx: -1, nz: 0, von: KUL_WEST },        // Westen
+    { nx: 0, nz: -1, von: KUL_NORD },        // Norden
+    { nx: 0, nz: 1, von: KUL_SUED },         // Sueden
   ];
   for (const s2 of seiten) {
     const kisten = [];
+    const bis = s2.von + KULISSE_TIEFE;
     /* laengs = quer zur Blickrichtung, tief = von der Stadt weg. */
-    for (let t = KULISSE_VON; t < KULISSE_BIS; t += KULISSE_RASTER) {
-      const breite = KULISSE_BIS;      // die Reihe reicht seitlich weit hinaus
+    for (let t = s2.von; t < bis; t += KULISSE_RASTER) {
+      const breite = bis;              // die Reihe reicht seitlich weit hinaus
       for (let q = -breite; q <= breite; q += KULISSE_RASTER) {
         const x = s2.nx ? s2.nx * t : q;
         const z = s2.nz ? s2.nz * t : q;
-        /* Ecken doppelt: was in der Nachbarseite schon steht, faellt weg. */
-        if (s2.nz && Math.abs(x) > KULISSE_VON) continue;
+        /* Ecken doppelt: was in der Nachbarseite schon steht, faellt weg.
+           Im Osten liegt hinter SHORE_X0 der Fluss samt Gegenufer - dort
+           gab es nie eine Kulisse und braucht es auch keine. */
+        if (s2.nz && (x < -KUL_WEST || x > SHORE_X0)) continue;
         const r1 = streu(x, z, 1), r2 = streu(x, z, 2), r3 = streu(x, z, 3);
         if (r3 < 0.22) continue;                       // Luecken lassen
         /* Weiter draussen niedriger - das gibt Tiefe. Und keines der
            Kulissenhaeuser wird hoeher als der hoechste echte Turm (97 m),
            sonst zieht die Kulisse den Blick von der Stadt weg. */
-        const fern = clamp((t - KULISSE_VON) / (KULISSE_BIS - KULISSE_VON), 0, 1);
+        const fern = clamp((t - s2.von) / KULISSE_TIEFE, 0, 1);
         const h = (20 + r1 * 62) * (1 - fern * 0.42);
         const w = 26 + r2 * 22, d = 26 + r1 * 22;
         const jx = (r1 - 0.5) * KULISSE_RASTER * 0.45;
@@ -5054,20 +5089,20 @@ function ohnePylonen(a, b) {
 function buildRiverAndBridge() {
   // Wasser
   waterMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(RIVER_X1 - RIVER_X0 + 10, 400),
+    new THREE.PlaneGeometry(RIVER_X1 - RIVER_X0 + 10, WELT_TIEFE),
     new THREE.MeshLambertMaterial({ map: waterTex, transparent: true, opacity: 0.93 })
   );
   waterMesh.rotation.x = -Math.PI / 2;
-  waterMesh.position.set((RIVER_X0 + RIVER_X1) / 2, WATER_Y + 0.1, 0);
+  waterMesh.position.set((RIVER_X0 + RIVER_X1) / 2, WATER_Y + 0.1, WELT_MITTE_Z);
   cityGroup.add(waterMesh);
 
   // Uferkante (Kaimauer)
   const quayMat = new THREE.MeshLambertMaterial({ color: 0x6b6f75 });
-  const quay = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 400), quayMat);
-  quay.position.set(RIVER_X0 - 2, -2, 0);
+  const quay = new THREE.Mesh(new THREE.BoxGeometry(4, 4, WELT_TIEFE), quayMat);
+  quay.position.set(RIVER_X0 - 2, -2, WELT_MITTE_Z);
   cityGroup.add(quay);
-  const quay2 = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 400), quayMat);
-  quay2.position.set(SHORE_X0 + 2, -2, 0);
+  const quay2 = new THREE.Mesh(new THREE.BoxGeometry(4, 4, WELT_TIEFE), quayMat);
+  quay2.position.set(SHORE_X0 + 2, -2, WELT_MITTE_Z);
   cityGroup.add(quay2);
 
   /* ---- Uferpromenade ----
@@ -5078,18 +5113,18 @@ function buildRiverAndBridge() {
      Laternen entlang des Wassers. */
   const PROM_X1 = RIVER_X0;
   const prom = new THREE.Mesh(
-    new THREE.PlaneGeometry(PROM_X1 - PROM_X0, 400),
+    new THREE.PlaneGeometry(PROM_X1 - PROM_X0, WELT_TIEFE),
     new THREE.MeshLambertMaterial({ map: wegTex }));
   prom.rotation.x = -Math.PI / 2;
-  prom.position.set((PROM_X0 + PROM_X1) / 2, SLAB_H + 0.008, 0);
+  prom.position.set((PROM_X0 + PROM_X1) / 2, SLAB_H + 0.008, WELT_MITTE_Z);
   prom.receiveShadow = true;
   cityGroup.add(prom);
   /* Sockel, damit die Promenade wie ein Gehweg über der Straße liegt. */
-  deko(PROM_X1 - PROM_X0, SLAB_H * 2, 400, (PROM_X0 + PROM_X1) / 2, 0, 0, 0x9aa0a6);
+  deko(PROM_X1 - PROM_X0, SLAB_H * 2, WELT_TIEFE, (PROM_X0 + PROM_X1) / 2, 0, WELT_MITTE_Z, 0x9aa0a6);
   /* Bordstein zur Straße hin - aber NICHT vor der Bruecke. Dort faehrt
      man auf die Bruecke, und ein 38 cm hoher Bordstein quer ueber der
      Auffahrt waere genau die Kante, die es zu vermeiden gilt. */
-  for (const [a, b] of [[-200, BRIDGE_Z - BRIDGE_HW], [BRIDGE_Z + BRIDGE_HW, 200]]) {
+  for (const [a, b] of [[WELT_Z0, BRIDGE_Z - BRIDGE_HW], [BRIDGE_Z + BRIDGE_HW, WELT_Z1]]) {
     /* Der 34 cm hohe Bordstein wird an jedem Fussgaengerueberweg
        unterbrochen - sonst liegt er als Buckel quer ueber dem
        Zebrastreifen (Screenshot 4). Der Ueberweg selbst bleibt. */
@@ -20468,7 +20503,10 @@ function poiNeu(art, x, y, z, name) {
 
 /* Liegt der Punkt frei genug, um dort zu stehen? */
 function poiPlatzFrei(x, z, y) {
-  if (Math.abs(x) > 195 || Math.abs(z) > 195) return false;
+  /* Die Grenze stand als +/-195 fest - das war die Spielergrenze der
+     alten 7x7-Stadt. Jetzt kommt sie aus dem Raster, sonst bekommen die
+     neuen Bezirke keinen einzigen POI. */
+  if (x < SPIEL_X0 - 2 || x > SHORE_X1 || z < SPIEL_Z0 - 2 || z > SPIEL_Z1 + 2) return false;
   if (inWater(x, z) && !onBridge(x, z)) return false;
   for (const c of POI.liste) {
     if (Math.abs(c.y - y) < 8 && Math.hypot(c.x - x, c.z - z) < 26) return false;
@@ -24676,7 +24714,8 @@ function fluchtRichtung(e, dx, dz) {
     const c = Math.cos(w), sn = Math.sin(w);
     const nx = dx * c - dz * sn, nz = dx * sn + dz * c;
     const px = e.pos.x + nx * weite, pz = e.pos.z + nz * weite;
-    if (Math.abs(px) > 195 || Math.abs(pz) > 195) continue;
+    if (px < SPIEL_X0 - 2 || px > SHORE_X1 ||
+        pz < SPIEL_Z0 - 2 || pz > SPIEL_Z1 + 2) continue;
     if (inWater(px, pz) || inGebaeude(px, pz)) continue;
     return { x: nx, z: nz };
   }
@@ -27092,7 +27131,10 @@ function evImBlick(x, z) {
 
 /* Taugt die Stelle ueberhaupt fuer ein Ereignis? */
 function evOrtTauglich(x, z) {
-  if (Math.abs(x) > 190 && !(x > PROM_X0 && x < RIVER_X0)) return false;
+  /* Ereignisse nur im bebauten Gebiet - oder auf der Promenade. Die
+     Westgrenze stand als -190 fest und lag nach dem Wachsen mitten in
+     der Stadt. */
+  if ((x < RAND_X0 || x > RAND_X1) && !(x > PROM_X0 && x < RIVER_X0)) return false;
   if (inWater(x, z)) { EV.statistik.spawnImWasser++; return false; }
   if (onBridge(x, z)) return false;                 // schmales Deck
   if (inGebaeude(x, z)) { EV.statistik.spawnImHaus++; return false; }
@@ -32991,20 +33033,31 @@ function updateSpritzer(dt) {
    wird einmal in eine Bildkarte gezeichnet; pro Bild wird nur noch der
    Ausschnitt um den Helden herausgeschnitten und die Punkte darübergelegt.
    Norden ist oben, der Pfeil dreht sich. */
-const KARTE_WELT = 420;          // abgedeckter Bereich in Metern (−210 … 210)
-const KARTE_PX = 840;            // Auflösung der Bildkarte
+/* ---- Was die Karte abdeckt ----
+   Bis hierher war das ein Quadrat von -210 bis 210 in BEIDEN Richtungen.
+   Das Ufer drueben (bis x = 400) lag deshalb gar nicht auf der Karte, und
+   sobald die Stadt in x und z verschieden weit reicht, faellt der halbe
+   neue Westen heraus. Der Ausschnitt kommt jetzt aus der Welt, je Achse,
+   und wird mit 2 Bildpunkten je Meter gezeichnet - genau der Massstab,
+   den die alte 840-Punkte-Karte hatte. */
+const KARTE_M = 2;                              // Bildpunkte je Meter
+const KARTE_X0 = BODEN_X0 - 10, KARTE_X1 = SHORE_X1 + 10;
+const KARTE_Z0 = WELT_Z0 - 10, KARTE_Z1 = WELT_Z1 + 10;
+const KARTE_PX_X = Math.round((KARTE_X1 - KARTE_X0) * KARTE_M);
+const KARTE_PX_Z = Math.round((KARTE_Z1 - KARTE_Z0) * KARTE_M);
 const KARTE_SICHT = 150;         // Radius, den die Minikarte zeigt
 let karteBasis = null, karteCtx = null, karteEl = null, karteAn = true;
 
-function w2k(v) { return (v + KARTE_WELT / 2) / KARTE_WELT * KARTE_PX; }
+function w2kx(v) { return (v - KARTE_X0) * KARTE_M; }
+function w2kz(v) { return (v - KARTE_Z0) * KARTE_M; }
 
 function baueKarte() {
   karteBasis = document.createElement('canvas');
-  karteBasis.width = karteBasis.height = KARTE_PX;
+  karteBasis.width = KARTE_PX_X; karteBasis.height = KARTE_PX_Z;
   const g = karteBasis.getContext('2d');
-  const m = KARTE_PX / KARTE_WELT;
+  const m = KARTE_M;
 
-  g.fillStyle = '#1c2129'; g.fillRect(0, 0, KARTE_PX, KARTE_PX);   // Asphalt
+  g.fillStyle = '#1c2129'; g.fillRect(0, 0, KARTE_PX_X, KARTE_PX_Z);   // Asphalt
 
   /* Häuserblöcke der Stadtseite. */
   g.fillStyle = '#39414d';
@@ -33012,30 +33065,30 @@ function baueKarte() {
   for (let bi = 0; bi < BLOCKS_X; bi++) {
     for (let bj = 0; bj < BLOCKS_Z; bj++) {
       const cx = RASTER_X0 + bi * PITCH + PITCH / 2, cz = RASTER_Z0 + bj * PITCH + PITCH / 2;
-      g.fillRect(w2k(cx) - bs / 2, w2k(cz) - bs / 2, bs, bs);
+      g.fillRect(w2kx(cx) - bs / 2, w2kz(cz) - bs / 2, bs, bs);
     }
   }
   /* Parks grün einfärben. */
   g.fillStyle = '#2f5a34';
-  for (const p of parks) g.fillRect(w2k(p.x) - p.s * m / 2, w2k(p.z) - p.s * m / 2, p.s * m, p.s * m);
+  for (const p of parks) g.fillRect(w2kx(p.x) - p.s * m / 2, w2kz(p.z) - p.s * m / 2, p.s * m, p.s * m);
 
   /* Fluss und gegenüberliegendes Ufer. */
   g.fillStyle = '#14324d';
-  g.fillRect(w2k(RIVER_X0), 0, (SHORE_X0 - RIVER_X0) * m, KARTE_PX);
+  g.fillRect(w2kx(RIVER_X0), 0, (SHORE_X0 - RIVER_X0) * m, KARTE_PX_Z);
   g.fillStyle = '#1c2129';
-  g.fillRect(w2k(SHORE_X0), 0, KARTE_PX - w2k(SHORE_X0), KARTE_PX);
+  g.fillRect(w2kx(SHORE_X0), 0, KARTE_PX_X - w2kx(SHORE_X0), KARTE_PX_Z);
   g.fillStyle = '#39414d';
   const ss = (SHORE_PITCH - SHORE_ROAD * 2) * m;
   for (let bi = 0; bi < SHORE_NX; bi++) {
     for (let bj = 0; bj < SHORE_NZ; bj++) {
       const cx = SHORE_OX + bi * SHORE_PITCH + SHORE_PITCH / 2;
       const cz = SHORE_OZ + bj * SHORE_PITCH + SHORE_PITCH / 2;
-      g.fillRect(w2k(cx) - ss / 2, w2k(cz) - ss / 2, ss, ss);
+      g.fillRect(w2kx(cx) - ss / 2, w2kz(cz) - ss / 2, ss, ss);
     }
   }
   /* Brücke. */
   g.fillStyle = '#4a5361';
-  g.fillRect(w2k(RIVER_X0), w2k(BRIDGE_Z - BRIDGE_HW),
+  g.fillRect(w2kx(RIVER_X0), w2kz(BRIDGE_Z - BRIDGE_HW),
              (SHORE_X0 - RIVER_X0) * m, BRIDGE_HW * 2 * m);
 }
 
@@ -33058,10 +33111,10 @@ function updateKarte() {
   g.beginPath(); g.arc(cx, cy, cx, 0, TAU); g.clip();
 
   /* Ausschnitt der Bildkarte um den Helden. */
-  const m = KARTE_PX / KARTE_WELT;
+  const m = KARTE_M;
   const halb = KARTE_SICHT * m;
   g.imageSmoothingEnabled = true;
-  g.drawImage(karteBasis, w2k(player.pos.x) - halb, w2k(player.pos.z) - halb,
+  g.drawImage(karteBasis, w2kx(player.pos.x) - halb, w2kz(player.pos.z) - halb,
               halb * 2, halb * 2, 0, 0, W, W);
 
   /* Maßstab Bildschirm-Pixel je Meter. */
