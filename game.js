@@ -132,6 +132,34 @@ const SLAB_H = 0.25;        // Gehweg-/Blocksockelhöhe
 const RIVER_X0 = 192, RIVER_X1 = 330;   // Fluss
 /* Aeusserste Rasterlinie der Stadt: die Uferstrasse. */
 const RASTER_X1 = ORIGIN + BLOCKS * PITCH;    // 175
+/* ---- CITY V2, Stufe 0: die Grenzen der Welt kommen aus dem Raster ----
+   Bisher standen dieselben Zahlen an acht Stellen als 170, 190, 192 und
+   193 im Code. Solange das Raster 7 x 7 war, stimmten sie; sobald es
+   waechst, steht die Haelfte davon mitten in der Stadt und die andere
+   Haelfte im Nichts. Sie werden deshalb EINMAL aus dem Raster
+   abgeleitet. Die Werte sind absichtlich unveraendert - diese Stufe
+   baut nur um, sie aendert nichts.
+
+     RASTER_X0/Z0, RASTER_Z1   aeusserste Rasterlinien
+     RAND_GEH   15 m   Gehweg und Promenade jenseits der letzten Linie
+     RAND_SPIEL 18 m   so weit darf der Spieler noch
+     GEBIET_Z          Grenze fuer Zivilisten, Gegner und das Gehnetz
+     LUFT_RAND         Umkreis, in dem der Hubschrauber seine Runden
+                       fliegt - fuenf Meter INNERHALB der letzten Linie
+
+   NICHT hier hinein gehoert der Hoerbereich der Sirene (ebenfalls 170):
+   das ist eine Lautstaerke, keine Weltgrenze. */
+const RASTER_X0 = ORIGIN;                        // -175
+const RASTER_Z0 = ORIGIN;                        // -175
+const RASTER_Z1 = ORIGIN + BLOCKS * PITCH;       //  175
+const RAND_GEH = 15;
+const RAND_SPIEL = 18;
+const PROM_Z0 = RASTER_Z0 - RAND_GEH;            // -190
+const PROM_Z1 = RASTER_Z1 + RAND_GEH;            //  190
+const SPIEL_X0 = RASTER_X0 - RAND_SPIEL;         // -193
+const SPIEL_Z0 = RASTER_Z0 - RAND_SPIEL;         // -193
+const SPIEL_Z1 = RASTER_Z1 + RAND_SPIEL;         //  193
+const LUFT_RAND = RASTER_Z1 - 5;                 //  170
 /* Die Uferpromenade zwischen der Uferstrasse und der Kaimauer.
    Sie liegt als Gehweg auf SLAB_H - der Bodenhoehe war das aber nie
    bekannt: dort galt weiter das Strassenraster, und in den Fahrbahnbaendern
@@ -5012,7 +5040,7 @@ function buildRiverAndBridge() {
   const kroneMatU = new THREE.MeshLambertMaterial({ color: 0x2f6b38 });
   /* Abstand, den Promenadenmoebel von der Brueckenkonstruktion halten. */
   const BRIDGE_CLEARANCE = BRIDGE_HW + 6;
-  for (let z = -190; z < 190; z += 8) {
+  for (let z = PROM_Z0; z < PROM_Z1; z += 8) {
     /* Geprueft wird die STELLE, an der wirklich gebaut wird (z + 3,5),
        nicht die Schleifenvariable. Vorher stand deshalb eine Bank bei
        z = -34,5 mitten im Brueckenuebergang, obwohl die Schleife bei
@@ -5025,7 +5053,7 @@ function buildRiverAndBridge() {
        eine Mauer quer ueber die Uferstrasse - und er verstellte den Blick
        aufs Wasser. Die Kante bleibt jetzt offen. */
     /* Alle 24 m ein Baum mit Bank, dazwischen eine Laterne. */
-    const takt = Math.round((z + 190) / 8) % 3;
+    const takt = Math.round((z - PROM_Z0) / 8) % 3;
     if (takt === 0) {
       const bx = PROM_X0 + 4.5, bz = z + 3.5;
       if (CITY_LOOK && CITY_LOOK.createTree) {
@@ -16640,8 +16668,8 @@ function updatePlayer(dt) {
     player.pos.x = clamp(player.pos.x, g.x0, g.x1);
     player.pos.z = clamp(player.pos.z, g.z0, g.z1);
   } else {
-    player.pos.x = clamp(player.pos.x, -193, SHORE_X1 - 5);
-    player.pos.z = clamp(player.pos.z, -193, 193);
+    player.pos.x = clamp(player.pos.x, SPIEL_X0, SHORE_X1 - 5);
+    player.pos.z = clamp(player.pos.z, SPIEL_Z0, SPIEL_Z1);
   }
 
   /* ---- Timer ---- */
@@ -21814,7 +21842,7 @@ function baueGehnetz() {
      der Mitte des Streifens. */
   const promX = (PROM_X0 + RIVER_X0) / 2;
   const promKnoten = [];
-  for (let z = -190; z <= 190; z += 14) {
+  for (let z = PROM_Z0; z <= PROM_Z1; z += 14) {
     /* Auf dem Brueckendeck steht KEIN Promenadenknoten: dort verlaufen
        die Fahrspuren, und das Gelaender riegelt den Streifen ohnehin ab.
        Die Promenade ist an dieser Stelle wirklich unterbrochen - der
@@ -24535,7 +24563,7 @@ const STADT_RAND = ORIGIN + BLOCKS * PITCH;      // 175
    dabei sein Ziel; zu Fuss kam so nie jemand ueber den Fluss. Das Deck ist
    jetzt ausdruecklich erlaubt, und die z-Grenze reicht bis zum aeussersten
    Knoten der Promenade (|z| = 190). Das Wasser bleibt gesperrt. */
-const GEBIET_Z = 192;
+const GEBIET_Z = RASTER_Z1 + 17;                   // 192
 /* Das Deck samt beider Brueckenkoepfe. Der Streifen ist absichtlich
    breiter als das Deck (BRIDGE_HW + 6): die Umgehungspunkte am Kopf
    liegen 12,5 bis 16 m neben der Brueckenachse. Ueber dem Wasser gilt er
@@ -28265,7 +28293,7 @@ function respHaltepunktStufe(ort, belegt, fern, kreuz) {
         if (s < ORIGIN - 3 || s > ORIGIN + BLOCKS * PITCH + 3) continue;
         const px = achse === 'x' ? s : lane;
         const pz = achse === 'x' ? lane : s;
-        if (Math.abs(px) > 190 || Math.abs(pz) > 190) continue;
+        if (Math.abs(px) > PROM_Z1 || Math.abs(pz) > PROM_Z1) continue;
         if (px > AUTO_X_MAX) continue;
         if (inWater(px, pz) || onBridge(px, pz) || inGebaeude(px, pz)) continue;
         const d = Math.hypot(px - ort.x, pz - ort.z);
@@ -28926,7 +28954,7 @@ function respLenke(car, linie) {
   if (neuesX > AUTO_X_MAX) { respSpur(ein, 'abgelehnt-xMax', car, linie); return false; }
   if (neuesS < car.sMin - 0.5 || neuesS > car.sMax + 0.5) {
     respSpur(ein, 'abgelehnt-grenzen', car, linie); return false; }
-  if (Math.abs(neuesX) > 190 || Math.abs(neuesZ) > 190) {
+  if (Math.abs(neuesX) > PROM_Z1 || Math.abs(neuesZ) > PROM_Z1) {
     respSpur(ein, 'abgelehnt-rand', car, linie); return false; }
   if (inWater(neuesX, neuesZ)) { respSpur(ein, 'abgelehnt-wasser', car, linie); return false; }
   car.axis = car.axis === 'x' ? 'z' : 'x';
@@ -29587,7 +29615,7 @@ function herPunkte(art) {
            am Stadtrand zwei Punkte auf dieselbe Stelle - wer den
            vorletzten Ring durchflog, hatte den letzten gleich mit, und die
            Strecke war nur noch halb so lang wie die Zeit dafuer. */
-        if (Math.abs(x) > 170 || Math.abs(z) > 170) break;
+        if (Math.abs(x) > LUFT_RAND || Math.abs(z) > LUFT_RAND) break;
         if (inWater(x, z) && !onBridge(x, z)) break;
         punkte.push({ x, y: herLuftHoehe(x, z), z });
       }
@@ -34181,6 +34209,23 @@ if (window.__WEBHERO_TEST__ === true) {
        Damit laesst sich pruefen, ob zwei Gegenstaende ineinander stecken
        oder einer auf der Fahrbahn steht - ohne jede Sorte einzeln
        abzufragen und ohne im Bild danach zu suchen. */
+    /* ---- CITY V2: das Raster und seine Grenzen ----
+       Damit ein Pruefstand belegen kann, dass der gewachsene Stadtplan
+       den alten Kern NICHT verschoben hat. Alles abgeleitet, nichts
+       doppelt gepflegt. */
+    raster() {
+      return {
+        pitch: PITCH, blocks: BLOCKS,
+        x0: RASTER_X0, x1: RASTER_X1, z0: RASTER_Z0, z1: RASTER_Z1,
+        stadtRand: STADT_RAND, gebietZ: GEBIET_Z,
+        promZ0: PROM_Z0, promZ1: PROM_Z1,
+        spielX0: SPIEL_X0, spielZ0: SPIEL_Z0, spielZ1: SPIEL_Z1,
+        luftRand: LUFT_RAND,
+        flussX0: RIVER_X0, flussX1: RIVER_X1,
+        uferX0: SHORE_X0, uferX1: SHORE_X1,
+        promX0: PROM_X0, autoXMax: AUTO_X_MAX,
+      };
+    },
     strassenMoebel() {
       const aus = [];
       const zu = (art, x, z, r) => aus.push({ art, x, z, r });
