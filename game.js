@@ -5476,7 +5476,9 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
   if (zeile) letzteFassade[zeile] = texIdx;
   const visual = hausVisual(h, info);
   HAUS_KISTEN.push({ w, h, d, x, z, visual, textur: texIdx,
-                     zeile: info && info.zeile });
+                     zeile: info && info.zeile,
+                     art: (info && info.art) || null,
+                     ecke: !!(info && info.ecke) });
   sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx, visual === 'model');
   /* Die Häuserkollision endet einen Meter unter der Straße. Ohne diese
      Untergrenze reicht sie beliebig tief ins Erdreich – in der U-Bahn-
@@ -36021,7 +36023,8 @@ if (window.__WEBHERO_TEST__ === true) {
                                        x: +b.x.toFixed(2), z: +b.z.toFixed(2),
                                        visual: b.visual || 'model',
                                        textur: b.textur, modell: b.modell || null,
-                                       zeile: b.zeile || null }));
+                                       zeile: b.zeile || null,
+                                       art: b.art || null, ecke: !!b.ecke }));
     },
     /* CITY V2 Stufe 5: findet die Geschichte nach dem Umbau noch
        Plaetze? stOrt zieht 40 zufaellige Punkte und nimmt den
