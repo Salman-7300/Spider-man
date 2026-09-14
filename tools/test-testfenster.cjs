@@ -115,14 +115,16 @@ test('Das Testfenster hat keine doppelten Schluessel', () => {
   /* ---- Plausibilitaetsspanne fuer den PARSER, keine Obergrenze ----
      Gegenprobe gegen die Laufzeit: window.__dbg hatte 327 Schluessel,
      mit den Zugaengen fuer Mission 6 (Verstecke, Geisel, Funkerweg,
-     Treffpunkt, Gebietsgrenze, Missionstakt) sind es 342. Deutlich
+     Treffpunkt, Gebietsgrenze, Missionstakt) 342, und mit denen fuer
+     CITY V2 Stufe 5 (hausKisten, kitHaeuser, hausModelle, stadtteile,
+     lots, lotRegeln, kantenNutzung) sind es 370. Deutlich
      WENIGER hiesse, der Parser liest den Block nicht zu Ende; deutlich
      MEHR hiesse, er zaehlt Werte hinter einem Doppelpunkt mit. Beides
      ist in dieser Datei schon passiert, daher die Spanne.
      Sie waechst mit dem Testfenster - was sie nicht darf, ist still
      gross werden, ohne dass jemand hinsieht. */
-  assert.ok(k.length >= 320 && k.length <= 365,
-    k.length + ' Eintraege gefunden, erwartet rund 342 - der Parser stimmt nicht');
+  assert.ok(k.length >= 340 && k.length <= 395,
+    k.length + ' Eintraege gefunden, erwartet rund 370 - der Parser stimmt nicht');
   const zahl = {};
   for (const n of k) zahl[n] = (zahl[n] || 0) + 1;
   const doppelt = Object.keys(zahl).filter((n) => zahl[n] > 1);

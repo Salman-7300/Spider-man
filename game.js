@@ -396,6 +396,315 @@ function spurNah(achse, linie, wert) {
 function strasseTempo(achse, linie) {
   return STR_TEMPO[strasseInfo(achse, linie).tempo];
 }
+/* ======================= Stufe 5: Stadtteile =======================
+   Die Stadt hatte schon eine Einteilung (BEZIRKE, weiter unten). Sie
+   wird NACH dem Bauen aus der mittleren Kollisionshoehe je Block
+   gelesen - und genau daran ist sie gescheitert. Gemessen ueber alle
+   110 Bloecke lag der Manhattan-Abstand vom Stadtkern bei den
+   ZENTRUM-Bloecken im Median bei 300 m, bei den WOHN-Bloecken bei
+   250 m: die "Innenstadt" lag im Mittel WEITER draussen als die
+   Wohngegend. Der Grund ist kein Fehler im Lesen, sondern dass
+   buildBlockBuildings in 30 Prozent der Faelle einen einzelnen hohen
+   Turm setzt - ob ein Block als Zentrum gilt, war damit ein Wuerfelwurf.
+
+   Die gebaute Stadt hat aber sehr wohl ein Gefaelle. Gemessen, hoechstes
+   Haus je Block nach Abstand vom Kern:
+
+       100 m  Median 48,4 m     400 m  Median 37,1 m
+       200 m  Median 47,0 m     500 m  Median 31,2 m
+       300 m  Median 40,3 m
+
+   Das Gefaelle ist da - nur die Einteilung hat es nicht gesehen. Sie
+   wird deshalb nicht ersetzt, sondern auf Merkmale gestellt, die schon
+   VOR dem Bauen feststehen und die die Stadt wirklich hat: Abstand vom
+   Kern, Strassenklasse der vier Blockkanten, Park, Wasser.
+
+   Die Schwellen sind nicht gewaehlt, sondern gemessen: mit Kern <= 150
+   und Mischung <= 300 ordnet sich die bereits gebaute Stadt von selbst
+   richtig - hoechstes Haus im Median ZENTRUM 49,7 > GESCHAEFT 43,0 >
+   UFER 42,9 > MISCHUNG 38,0 > WOHN 32,6.
+
+   GESCHAEFT ist bewusst eng gefasst: an EINE Hauptachse grenzen 38 der
+   110 Bloecke. Waere das schon ein Geschaeftsviertel, waere ein Drittel
+   der Stadt eines. Ein Geschaeftsblock ist deshalb einer, an dem sich
+   Hauptachse und Avenue treffen - 12 Bloecke, 11 Prozent. Der
+   Ladencharakter einer einzelnen AVENUE- oder BOULEVARD-Kante haengt
+   dagegen an der KANTE, nicht am ganzen Block (siehe kantenNutzung). */
+const STADT_KERN_R = 150;      // Manhattan-Abstand: innerhalb davon Downtown
+const STADT_MISCH_R = 300;     // ... und bis hierhin Mischgebiet
+const STADTTEILE = ['ZENTRUM', 'GESCHAEFT', 'MISCHUNG', 'WOHN', 'UFER', 'PARK'];
+const STADTTEIL = [];          // BLOCKS_X x BLOCKS_Z, zeilenweise wie BEZIRKE
+
+/* Die vier Kanten eines Blocks: welche Rasterlinie, welche Klasse.
+   N/S liegen auf der z-Achse, O/W auf der x-Achse. */
+function blockKanten(cx, cz) {
+  return [
+    { seite: 'N', achse: 'z', linie: cz + PITCH / 2, nz: 1, nx: 0 },
+    { seite: 'S', achse: 'z', linie: cz - PITCH / 2, nz: -1, nx: 0 },
+    { seite: 'O', achse: 'x', linie: cx + PITCH / 2, nz: 0, nx: 1 },
+    { seite: 'W', achse: 'x', linie: cx - PITCH / 2, nz: 0, nx: -1 },
+  ].map((k) => Object.assign(k, { klasse: strasseKlasse(k.achse, k.linie) }));
+}
+
+function stadtteilArt(cx, cz, park) {
+  if (park) return 'PARK';
+  if (cx > RASTER_X1 - PITCH) return 'UFER';
+  const man = Math.abs(cx) + Math.abs(cz);
+  if (man <= STADT_KERN_R) return 'ZENTRUM';
+  const kl = blockKanten(cx, cz).map((k) => k.klasse);
+  const blv = kl.filter((k) => k === 'BOULEVARD').length;
+  const ave = kl.filter((k) => k === 'AVENUE').length;
+  if (blv >= 1 && ave >= 1) return 'GESCHAEFT';
+  if (man <= STADT_MISCH_R || blv >= 1) return 'MISCHUNG';
+  return 'WOHN';
+}
+function stadtteilMerken(bi, bj, cx, cz, park) {
+  STADTTEIL[bi * BLOCKS_Z + bj] = { bi, bj, x: cx, z: cz,
+                                    art: stadtteilArt(cx, cz, park) };
+}
+function stadtteilAn(x, z) {
+  if (x > RASTER_X1) return 'UFER';
+  const bi = clamp(Math.floor((x - RASTER_X0) / PITCH), 0, BLOCKS_X - 1);
+  const bj = clamp(Math.floor((z - RASTER_Z0) / PITCH), 0, BLOCKS_Z - 1);
+  const t = STADTTEIL[bi * BLOCKS_Z + bj];
+  return t ? t.art : 'WOHN';
+}
+
+/* ======================= Stufe 5: Parzellen =======================
+   Bis Stufe 4 bebaute buildBlockBuildings nur die inneren 30 der 38
+   Blockmeter und setzte die Haeuser frei in die Mitte. Gemessen hatte
+   deshalb KEINE der 440 Blockkanten eine geschlossene Strassenwand: die
+   Belegung lag im Median bei 0 Prozent (Mittel 19,6, hoechstens 69).
+
+   Die Parzellierung stellt die Haeuser stattdessen an eine Bauflucht.
+   Wie nah die an den Bordstein darf, ist NICHT Geschmack, sondern vom
+   Gehnetz vorgegeben: seine 1320 Knoten in den Bloecken liegen im
+   Median 17,0 m von der Blockmitte entfernt, der naechste bei 15,9 m.
+   Bei einer Bauflucht von 15,0 m liegt kein einziger Knoten im Haus,
+   bei 16,0 m waeren es vier. 15,0 m ist damit die Grenze, nicht 16.
+
+   Innerhalb dieser Grenze unterscheidet die Strassenklasse den
+   Vorbereich - die Strasse selbst wird dabei NICHT breiter, nur der
+   Gehweg davor:
+
+       LOCAL      15,0 m   ->  4,0 m Gehweg, Haus dicht an der Strasse
+       STREET     14,4 m   ->  4,6 m
+       AVENUE     13,6 m   ->  5,4 m
+       BOULEVARD  13,0 m   ->  6,0 m, grosszuegiger Vorbereich
+
+   Die Lotbreiten kommen aus den vorhandenen Modellen, nicht aus einer
+   Wunschliste: die drei begehbaren Haeuser sind gemessen 12,46 / 15,06
+   / 20,64 m breit, die selbstgebauten Quader reichen von 6,5 bis
+   26,4 m. Daraus die vier Klassen - ein Lot unter 12,5 m kann nur ein
+   Quader tragen, ab 12,5 auch ein fertiges Modell. */
+const BAUFLUCHT = { LOCAL: 15.0, STREET: 14.4, AVENUE: 13.6, BOULEVARD: 13.0 };
+/* Drei Klassen, nicht vier. Eine vierte "Eck"-Klasse ueber 18,5 m war
+   vorgesehen und ist wieder herausgeflogen, weil sie leer blieb: eine
+   Blockkante gibt hoechstens 30 m Front her, und auf 30 m passt kein
+   einzelnes Lot (das kleinste zulaessige waere dann 30 m breit). Eine
+   Klasse, die nie besetzt wird, gehoert nicht ins Modell.
+   Das Eckhaus bleibt trotzdem - als Merkmal (ecke) des ersten und
+   letzten Lots einer Zeile, nicht als eigene Breite. */
+const LOT_KLASSEN = [
+  { name: 'SCHMAL', min: 7.0,  max: 10.5, modell: false },
+  { name: 'MITTEL', min: 10.5, max: 14.0, modell: true },
+  { name: 'BREIT',  min: 14.0, max: 24.0, modell: true },
+];
+const LOT_MIN = LOT_KLASSEN[0].min;
+const LOT_MAX = LOT_KLASSEN[LOT_KLASSEN.length - 1].max;
+/* Wie tief darf ein Haus von der Bauflucht nach innen reichen? Diese
+   Zahl ist die knappste im ganzen System, und sie wird von zwei Seiten
+   eingeklemmt:
+
+     Zu flach, und die Haeuser sind Kulissen ohne Grundriss.
+     Zu tief, und die beiden QUER liegenden Blockkanten haben keine
+     Front mehr - was zwischen den Stirnseiten der langen Zeile
+     uebrig bleibt, ist 15,0 minus Tiefe.
+
+   Bei 11 m Tiefe bleiben den Querkanten 2 x 3,4 m, bei 8 m 2 x 5,9 m -
+   also ein bis zwei Haeuser. Bei den urspruenglich angesetzten 13 m
+   waeren es 2 x 1,4 m gewesen: gar keines. 8 bis 11 m ist damit nicht
+   gewaehlt, sondern das, was die 38 m Blockbreite hergibt. */
+const LOT_TIEFE = { min: 8.0, max: 11.0 };
+/* ---- Wie FEIN wird eine Kante geteilt? ----
+   Nicht per Wuerfel, sondern nach Stadtteil: das ist der eigentliche
+   Unterschied zwischen einer Wohnstrasse und einem Geschaeftsblock.
+   Im Zentrum stehen wenige grosse Baukoerper an der Strasse, im
+   Wohngebiet viele schmale Haeuser. Die Zielbreite wird je Kante
+   einmal gezogen, die Zahl der Lots ergibt sich daraus. */
+const LOT_ZIEL = {
+  ZENTRUM:   [14.0, 20.0],
+  GESCHAEFT: [13.0, 19.0],
+  UFER:      [11.0, 16.0],
+  MISCHUNG:  [ 9.5, 13.5],
+  WOHN:      [ 8.0, 12.0],
+};
+/* Ein Park wird nicht parzelliert. Das steht hier als eigene Regel und
+   nicht als Zielbreite 0 - mit 0 kam gesamt/0 heraus, also Unendlich,
+   also die groesstmoegliche Zahl von Lots: die beiden Parkbloecke
+   bekamen gemessen 8 Bauplaetze je Stueck. */
+const LOT_KEIN_BAU = ['PARK'];
+function lotKlasse(breite) {
+  for (const k of LOT_KLASSEN) if (breite >= k.min && breite < k.max) return k.name;
+  return breite < LOT_MIN ? null : 'BREIT';
+}
+
+/* ---- Die Kanten eines Blocks in Parzellen zerlegen ----
+   Ein Block ist innen 38 x 38 m gross, bebaubar sind davon 30 x 30 m.
+   Das ist der ganze Unterschied zu einem echten Haeuserblock, und er
+   bestimmt alles Weitere: legt man um ein 30-Meter-Quadrat einen Ring
+   von 10 m tiefen Haeusern, bleibt in der Mitte ein Hof von 10 x 10 m -
+   und die beiden QUER liegenden Kanten haben dann nur noch diese 10 m
+   Front. Vier gleich lange Haeuserzeilen passen hier nicht hinein; das
+   ist Geometrie, keine Entscheidung.
+
+   Jeder Block bekommt deshalb eine Hauptachse. Die beiden Kanten auf
+   dieser Achse tragen die lange Zeile und die Blockecken, die beiden
+   anderen bekommen, was zwischen den Stirnseiten uebrig bleibt - meist
+   ein bis zwei Haeuser. Welche Achse das ist, haengt am Ort und ist
+   damit bei jedem Start dieselbe, sonst stuende die Stadt nach einem
+   Neustart anders da.
+
+   loecher sind die U-Bahn-Treppenschaechte: was dort liegt, ist kein
+   Bauplatz. Sie kommen als Weltrechtecke herein, so wie sie
+   buildBlockBuildings schon bekommt. */
+function blockHauptachse(cx, cz) {
+  return (Math.abs(Math.round(cx / PITCH) + Math.round(cz / PITCH)) % 2) ? 'z' : 'x';
+}
+/* ---- Warum die Zeile NICHT bis in die Blockecke reicht ----
+   Der Gehweg ist 38 m breit, das Fussgaengernetz laeuft darin als Ring:
+   gemessen liegen seine 1320 Knoten im Median 17,0 m von der Blockmitte
+   entfernt, der naechste bei 15,9 m. Eine Zeile, die in der LAENGE bis
+   19 m reicht, schluckt damit die Knoten der QUER laufenden Gehwege an
+   den vier Blockecken - gemessen 410 Stueck.
+
+   Die Front endet deshalb an der Bauflucht der jeweils quer liegenden
+   Kante, also spaetestens bei 15,0 m. Damit ist die groesste Ausdehnung
+   eines Lots in jeder Richtung 15,0 m und liegt unter den 15,9 m des
+   naechsten Knotens - kein Knoten KANN mehr in einem Haus liegen.
+   Die Blockecken bleiben offener Gehweg.
+
+   Das kostet die Eckhaeuser als eigene Bauform. Sie waeren hier auch
+   nicht ehrlich: ein Eckhaus, das die Ecke wirklich besetzt, steht in
+   diesem Raster zwangslaeufig auf dem Gehweg. Die aeusseren Lots einer
+   Zeile duerfen dafuer breiter und hoeher werden (ecke = true). */
+function lotsAnKante(cx, cz, kante, laengsHalb, tiefe, art, loecher) {
+  const fl = BAUFLUCHT[kante.klasse] || BAUFLUCHT.STREET;
+  const laengsAchse = kante.achse === 'z' ? 'x' : 'z';
+  const mitte = laengsAchse === 'x' ? cx : cz;
+  const gesamt = laengsHalb * 2;
+  if (gesamt < LOT_MIN) return [];
+  /* Gleichmaessig teilen: die ZAHL der Lots wird gewuerfelt, die Breite
+     ergibt sich - so bleibt die Kante immer genau gefuellt. */
+  const nMin = Math.max(1, Math.ceil(gesamt / LOT_MAX));
+  const nMax = Math.floor(gesamt / LOT_MIN);
+  if (nMax < nMin) return [];
+  const ziel = LOT_ZIEL[art] || LOT_ZIEL.MISCHUNG;
+  const n = clamp(Math.round(gesamt / rand(ziel[0], ziel[1])), nMin, nMax);
+  const breite = gesamt / n;
+  const q = (kante.achse === 'z' ? cz : cx) +
+            (kante.achse === 'z' ? kante.nz : kante.nx) * (fl - tiefe / 2);
+  const aus = [];
+  for (let i = 0; i < n; i++) {
+    const m = mitte - laengsHalb + breite * (i + 0.5);
+    const x = laengsAchse === 'x' ? m : q;
+    const z = laengsAchse === 'x' ? q : m;
+    const w = laengsAchse === 'x' ? breite : tiefe;
+    const d = laengsAchse === 'x' ? tiefe : breite;
+    let frei = true;
+    for (const l of (loecher || [])) {
+      if (x + w / 2 > l.x0 - 1.6 && x - w / 2 < l.x1 + 1.6 &&
+          z + d / 2 > l.z0 - 1.6 && z - d / 2 < l.z1 + 1.6) { frei = false; break; }
+    }
+    aus.push({ seite: kante.seite, klasse: kante.klasse, i, n,
+               ecke: n > 1 && (i === 0 || i === n - 1),
+               breite: +breite.toFixed(2), tiefe: +tiefe.toFixed(2), flucht: fl,
+               lot: lotKlasse(breite), x: +x.toFixed(2), z: +z.toFixed(2),
+               w: +w.toFixed(2), d: +d.toFixed(2),
+               nx: kante.nx, nz: kante.nz, frei });
+  }
+  return aus;
+}
+function lotsFuerBlock(cx, cz, loecher) {
+  if (LOT_KEIN_BAU.indexOf(stadtteilAn(cx, cz)) >= 0) return [];
+  const haupt = blockHauptachse(cx, cz);
+  /* Hauptachse 'x' heisst: die Zeilen laufen in x-Richtung, also an der
+     Nord- und der Suedkante. Die liegen auf der z-Achse. */
+  const hauptAchse = haupt === 'x' ? 'z' : 'x';
+  const kanten = blockKanten(cx, cz);
+  const art = stadtteilAn(cx, cz);
+  const flucht = {};
+  for (const k of kanten) flucht[k.seite] = BAUFLUCHT[k.klasse] || BAUFLUCHT.STREET;
+  /* Die Zeile endet an der Bauflucht der quer liegenden Kanten. */
+  const querFlucht = (achse) => {
+    let m = 15;
+    for (const k of kanten) if (k.achse !== achse) m = Math.min(m, flucht[k.seite]);
+    return m;
+  };
+  const aus = [];
+  let tiefsteHaupt = 0, fluchtHaupt = 15;
+  for (const k of kanten) {
+    if (k.achse !== hauptAchse) continue;
+    /* EINE Tiefe je Kante, nicht je Haus: eine Strassenwand steht auf
+       einer Linie, nicht in Zacken. */
+    const tiefe = rand(LOT_TIEFE.min, LOT_TIEFE.max);
+    tiefsteHaupt = Math.max(tiefsteHaupt, tiefe);
+    fluchtHaupt = Math.min(fluchtHaupt, flucht[k.seite]);
+    aus.push(...lotsAnKante(cx, cz, k, querFlucht(hauptAchse), tiefe, art, loecher));
+  }
+  /* Was zwischen den beiden Stirnseiten der langen Zeile frei bleibt,
+     gehoert den beiden anderen Kanten. 0,6 m Luft an jeder Stirnseite. */
+  const rest = fluchtHaupt - tiefsteHaupt - 0.6;
+  if (rest >= LOT_MIN / 2) {
+    for (const k of kanten) {
+      if (k.achse === hauptAchse) continue;
+      aus.push(...lotsAnKante(cx, cz, k, rest,
+                              rand(LOT_TIEFE.min, LOT_TIEFE.max), art, loecher));
+    }
+  }
+  return aus;
+}
+/* ---- Die Parzellierung braucht einen EIGENEN Zufallsstrom ----
+   Math.random ist in diesem Spiel der Weltkeim: eine gezogene Zahl
+   verschiebt alles, was danach gezogen wird. Wer die Parzellen eines
+   Blocks zu einem anderen Zeitpunkt ausrechnet als beim Bauen, bekommt
+   deshalb andere Parzellen - ein Pruefstand haette Lots gemeldet, die
+   so nie gebaut werden, und jede Abfrage haette die Stadt verschoben.
+
+   Jeder Block bekommt deshalb seinen eigenen, aus Blockindex und
+   Weltkeim abgeleiteten Strom; der Hauptstrom wird davor gemerkt und
+   danach zurueckgesetzt. Damit ist die Parzellierung eines Blocks immer
+   dieselbe, egal wann man sie erfragt, und das Erfragen aendert an der
+   uebrigen Stadt nichts. */
+const LOTS = [];
+function lotsBlock(bi, bj) {
+  const k = bi * BLOCKS_Z + bj;
+  if (LOTS[k]) return LOTS[k];
+  const cx = RASTER_X0 + bi * PITCH + PITCH / 2;
+  const cz = RASTER_Z0 + bj * PITCH + PITCH / 2;
+  const merk = ZUFALL_SEED;
+  zufallKeimSetzen((WELT_KEIM + bi * 7919 + bj * 104729) >>> 0);
+  LOTS[k] = lotsFuerBlock(cx, cz, ubahnLoecherFuerBlock(cx, cz));
+  zufallKeimSetzen(merk);
+  return LOTS[k];
+}
+function lotsAn(x, z) {
+  const bi = clamp(Math.floor((x - RASTER_X0) / PITCH), 0, BLOCKS_X - 1);
+  const bj = clamp(Math.floor((z - RASTER_Z0) / PITCH), 0, BLOCKS_Z - 1);
+  return lotsBlock(bi, bj);
+}
+
+/* Wozu dient das Erdgeschoss an dieser Kante? Der Ladencharakter haengt
+   an der STRASSE, nicht am Block: eine Avenue durch ein Wohnviertel hat
+   trotzdem Laeden, eine Nebenstrasse im Zentrum nicht. */
+function kantenNutzung(art, klasse) {
+  if (art === 'PARK') return 'KEIN';
+  if (klasse === 'BOULEVARD' || klasse === 'AVENUE') return 'LADEN';
+  if (art === 'ZENTRUM' || art === 'GESCHAEFT') return 'BUERO';
+  if (klasse === 'LOCAL') return 'WOHNEN';
+  return art === 'MISCHUNG' ? 'GEMISCHT' : 'WOHNEN';
+}
+
 /* Eine Rasterlinie einer Achse ziehen, gewichtet nach Strassenklasse. */
 function zieheStrasse(achse) {
   const linien = rasterLinien(achse);
@@ -3028,7 +3337,11 @@ function buildCity() {
          bisher lückenlos zugebaut. */
       /* Kein Park auf einem Block mit U-Bahn-Eingang: der Rasen liegt als
          geschlossene Flaeche ueber dem Treppenloch. */
-      if (!loecher.length && ((bi === 2 && bj === 2) || (bi === 5 && bj === 1))) bauePark(cx, cz, size);
+      /* Stufe 5: welcher Stadtteil ist das? Die Antwort faellt HIER,
+         vor dem Bauen - die Bebauung soll ihr folgen, nicht umgekehrt. */
+      const istPark = !loecher.length && ((bi === 2 && bj === 2) || (bi === 5 && bj === 1));
+      stadtteilMerken(bi, bj, cx, cz, istPark);
+      if (istPark) bauePark(cx, cz, size);
       else if (!loecher.length && KIT_BLOCKS.some(([a3, b3]) => a3 === bi && b3 === bj)) {
         baueAltbauBlock(cx, cz, size);
       } else buildBlockBuildings(cx, cz, loecher);
@@ -21050,7 +21363,10 @@ baueDachaufbauten();
    Die Bezirke sind kein Selbstzweck - sie steuern, WAS an einem Ort
    passiert: welche Voegel auffliegen, wo Dachdampf steht, wie oft man
    ueberhaupt jemanden trifft. */
-const BEZ_ARTEN = ['ZENTRUM', 'WOHN', 'PARK', 'UFER'];
+/* Seit Stufe 5 kommen die Arten aus STADTTEILE - es gibt nur EINE
+   Einteilung. BEZIRKE traegt sie und ergaenzt sie um das, was sich erst
+   NACH dem Bauen messen laesst (mittlere Hoehe, Zahl der Hochhaeuser). */
+const BEZ_ARTEN = STADTTEILE;
 const BEZIRKE = [];           // BLOCKS_X x BLOCKS_Z, Zeilenweise
 function bezirkeLesen() {
   for (let bi = 0; bi < BLOCKS_X; bi++) {
@@ -21070,10 +21386,11 @@ function bezirkeLesen() {
       for (const p of parks) {
         if (Math.abs(p.x - cx) < PITCH / 2 && Math.abs(p.z - cz) < PITCH / 2) park = true;
       }
-      const art = park ? 'PARK'
-                : (bi === BLOCKS_X - 1) ? 'UFER'
-                : (hoch >= 2 || mittel > 32) ? 'ZENTRUM'
-                : 'WOHN';
+      /* Der Stadtteil steht schon fest - er wurde beim Bauen vergeben.
+         Sollte er fehlen (ein Block, den der Bauablauf nie gesehen hat),
+         wird er hier aus denselben Merkmalen nachgeholt. */
+      const t = STADTTEIL[bi * BLOCKS_Z + bj];
+      const art = t ? t.art : stadtteilArt(cx, cz, park);
       BEZIRKE.push({ bi, bj, x: cx, z: cz, art, mittel: +mittel.toFixed(1),
                      haeuser: zahl, hoch });
     }
@@ -35410,6 +35727,20 @@ if (window.__WEBHERO_TEST__ === true) {
                                        d: +b.d.toFixed(2),
                                        x: +b.x.toFixed(2), z: +b.z.toFixed(2) }));
     },
+    /* CITY V2 Stufe 5: die geplanten Stadtteile und die Parzellierung
+       einer Blockkante - beides reine Daten, damit ein Pruefstand sie
+       gegen die gebaute Stadt halten kann. */
+    stadtteile() {
+      return STADTTEIL.filter(Boolean).map((t) => ({ bi: t.bi, bj: t.bj,
+        x: +t.x.toFixed(1), z: +t.z.toFixed(1), art: t.art }));
+    },
+    lots(bi, bj) { return lotsBlock(bi, bj); },
+    lotRegeln() {
+      return { bauflucht: BAUFLUCHT, klassen: LOT_KLASSEN, tiefe: LOT_TIEFE,
+               ziel: LOT_ZIEL,
+               kernR: STADT_KERN_R, mischR: STADT_MISCH_R, arten: STADTTEILE };
+    },
+    kantenNutzung,
     /* CITY V2 Stufe 5: die Masse der fertigen Hausmodelle, so wie sie
        gemessen in KIT_HAEUSER stehen - Grundlage fuer die Lotbreiten. */
     kitHaeuser() {

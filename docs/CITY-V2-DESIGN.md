@@ -448,6 +448,7 @@ selbst dann nur, wenn die Spannen sich nicht ueberlappen.
 | `tools/pruef/verkehr-dichte.js` | Verkehrsdichte: sichtbare Wagen, harte Fehlerzaehler |
 | `tools/pruef/verkehr-stunde.js` | Langlauf des Verkehrs mit allen Zaehlern (siehe 5b) |
 | `tools/pruef/stadtbestand.js` | Bestandsaufnahme der Bebauung, Block fuer Block (Stufe 5) |
+| `tools/pruef/haeuserzeilen.js` | Parzellen und Haeuserzeilen: Plan und Bau getrennt (Stufe 5) |
 | `cd tools && node --test` | 162 Offline-Tests |
 
 Wichtig: `freigang.js` und `verkehr-stunde.js` lesen die Rastermasse
@@ -476,6 +477,126 @@ im Mittel bei knapp 20 %, hoechstens bei 69 % - die Haeuser stehen frei
 in der Blockmitte, weil `buildBlockBuildings` nur die inneren 30 von 38
 Metern bebaut. Und es gibt kein Haus unter 14,3 m: eine zwei- bis
 viergeschossige Bebauung existiert in dieser Stadt nicht.
+
+---
+
+## 6c. Stadtteile und Parzellen (Stufe 5, Teil B)
+
+### Die Einteilung kommt jetzt VOR dem Bauen
+
+Bis Stufe 4 wurden die Bezirke nach dem Bauen aus der mittleren
+Kollisionshoehe je Block gelesen. Gemessen ueber alle 110 Bloecke lag
+der Manhattan-Abstand vom Stadtkern bei den ZENTRUM-Bloecken im Median
+bei 300 m, bei den WOHN-Bloecken bei 250 m: die "Innenstadt" lag im
+Mittel weiter draussen als die Wohngegend. Der Grund war nicht das
+Lesen, sondern das Bauen - `buildBlockBuildings` setzt in 30 Prozent
+der Faelle einen einzelnen hohen Turm, und ob ein Block als Zentrum
+galt, war damit ein Wuerfelwurf.
+
+Ein Hoehengefaelle hat die Stadt sehr wohl (hoechstes Haus je Block,
+nach Abstand vom Kern): 100 m -> 48,4 m, 200 m -> 47,0, 300 m -> 40,3,
+400 m -> 37,1, 500 m -> 31,2. Nur gesehen hat es die Einteilung nicht.
+
+Es gibt weiterhin nur EINE Einteilung. `stadtteilArt` vergibt sie beim
+Bauen aus Merkmalen, die da schon feststehen - Abstand vom Kern,
+Strassenklasse der vier Blockkanten, Park, Wasser -, und
+`bezirkeLesen()` liest sie danach und ergaenzt sie um das, was sich
+erst hinterher messen laesst.
+
+| Stadtteil | Regel | Bloecke | Anteil |
+|-----------|-------|---------|--------|
+| PARK | Parkblock | 2 | 2 % |
+| UFER | oestlichste Blockspalte | 11 | 10 % |
+| ZENTRUM | Manhattan-Abstand <= 150 m | 24 | 22 % |
+| GESCHAEFT | Hauptachse UND Avenue an derselben Ecke | 12 | 11 % |
+| MISCHUNG | Abstand <= 300 m oder Hauptachse | 37 | 34 % |
+| WOHN | alles Uebrige | 24 | 22 % |
+
+Die beiden Schwellen sind nicht gewaehlt, sondern gemessen: mit 150 und
+300 ordnet sich die BEREITS GEBAUTE Stadt von selbst richtig ein -
+hoechstes Haus im Median ZENTRUM 49,7 > GESCHAEFT 43,0 > UFER 42,9 >
+MISCHUNG 38,0 > WOHN 32,6. Die Einteilung stimmt also mit der Stadt
+ueberein, noch bevor ein einziges Haus umgestellt wurde.
+
+GESCHAEFT ist bewusst eng: an eine der beiden Hauptachsen grenzen 38 der
+110 Bloecke. Waere das schon ein Geschaeftsviertel, waere ein Drittel
+der Stadt eines. Der Ladencharakter einer einzelnen AVENUE- oder
+BOULEVARD-Kante haengt deshalb an der KANTE (`kantenNutzung`), nicht am
+Block.
+
+### Die Bauflucht entscheidet das Gehnetz, nicht der Geschmack
+
+Die 1320 Gehnetz-Knoten in den Bloecken liegen im Median 17,0 m von der
+Blockmitte entfernt, der naechste bei 15,9 m. Bei einer Bauflucht von
+15,0 m liegt kein Knoten im Haus, bei 16,0 m waeren es vier. 15,0 m ist
+damit die Grenze. Innerhalb davon unterscheidet die Strassenklasse den
+Vorbereich - die Strasse selbst wird dabei nicht breiter:
+
+| Klasse | Bauflucht | Gehweg davor |
+|--------|-----------|--------------|
+| LOCAL | 15,0 m | 4,0 m |
+| STREET | 14,4 m | 4,6 m |
+| AVENUE | 13,6 m | 5,4 m |
+| BOULEVARD | 13,0 m | 6,0 m |
+
+### Was ein 38-Meter-Block hergibt
+
+Innen ist ein Block 38 x 38 m, bebaubar 30 x 30 m. Legt man darum einen
+Ring 10 m tiefer Haeuser, bleiben in der Mitte 10 x 10 m Hof - und die
+beiden QUER liegenden Kanten haben dann nur noch diese 10 m Front. Vier
+gleich lange Zeilen passen hier nicht hinein; das ist Geometrie.
+
+Jeder Block hat deshalb eine Hauptachse. Die beiden Kanten darauf
+tragen die lange Zeile, die beiden anderen bekommen, was zwischen den
+Stirnseiten frei bleibt. Aus demselben Grund ist die Bautiefe 8 bis
+11 m: bei 13 m haetten die Querkanten je 1,4 m Front gehabt, also gar
+kein Haus.
+
+Die Zeile endet an der Bauflucht der quer liegenden Kanten, also
+spaetestens bei 15,0 m - NICHT bei 19 m. Sonst schluckt sie an den vier
+Blockecken die Knoten der querlaufenden Gehwege; gemessen waren es 410.
+Damit ist die groesste Ausdehnung eines Lots in jeder Richtung 15,0 m
+und liegt unter den 15,9 m des naechsten Knotens: kein Knoten KANN mehr
+in einem Haus liegen. Die Blockecken bleiben offener Gehweg, und ein
+Eckhaus ist ein Merkmal des ersten und letzten Lots einer Zeile, keine
+eigene Bauform.
+
+### Lotklassen aus den vorhandenen Modellen
+
+Gemessen sind die drei begehbaren Haeuser 12,46 / 15,06 / 20,64 m breit,
+die selbstgebauten Quader reichen von 6,5 bis 26,4 m. Daraus:
+
+| Klasse | Breite | fertiges Modell moeglich |
+|--------|--------|--------------------------|
+| SCHMAL | 7,0 - 10,5 m | nein, nur Quader |
+| MITTEL | 10,5 - 14,0 m | ja |
+| BREIT | 14,0 - 24,0 m | ja |
+
+Eine vierte Klasse ueber 18,5 m ("ECK") war vorgesehen und ist wieder
+herausgeflogen: eine Blockkante gibt hoechstens 30 m Front her, und
+darauf passt kein einzelnes Lot. Eine Klasse, die nie besetzt wird,
+gehoert nicht ins Modell.
+
+Wie fein eine Kante geteilt wird, haengt am Stadtteil - das ist der
+eigentliche Unterschied zwischen Wohnstrasse und Geschaeftsblock
+(gemessen ueber alle 110 Bloecke):
+
+| Stadtteil | Zielbreite | Lots je Block | Lotbreite Median |
+|-----------|-----------|---------------|------------------|
+| ZENTRUM | 14 - 20 m | 4,1 | 13,6 m |
+| GESCHAEFT | 13 - 19 m | 4,2 | 13,0 m |
+| UFER | 11 - 16 m | 5,4 | 14,4 m |
+| MISCHUNG | 9,5 - 13,5 m | 5,3 | 9,6 m |
+| WOHN | 8 - 12 m | 6,2 | 9,1 m |
+| PARK | - | 0 | - |
+
+Zusammen 575 Parzellen, davon 554 bebaubar (die uebrigen liegen auf
+einem U-Bahn-Treppenschacht). Gegenueber den heutigen 274 Baukoerpern
+waere das gut die doppelte Zahl - was das kostet, entscheidet Teil C,
+gemessen, nicht geschaetzt.
+
+Teil B aendert am BILD noch nichts: die Parzellen sind Daten. Gebaut
+wird auf ihnen ab Teil C.
 
 ---
 
