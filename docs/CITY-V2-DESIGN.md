@@ -600,6 +600,81 @@ wird auf ihnen ab Teil C.
 
 ---
 
+## 6d. Die Haeuserzeile (Stufe 5, Teil C)
+
+Gebaut wird zunaechst nur in den NEUEN Aussenbloecken mit Wohn- oder
+Mischcharakter - 49 der 110 Bloecke. Der alte 7x7-Kern und die
+Zentrums- und Geschaeftsbloecke bleiben vorerst, wie sie sind; an ihnen
+laesst sich ablesen, was die Zeile ueberhaupt veraendert.
+
+Die Geschosszahl kommt aus dem Stadtteil, gerechnet mit 3,2 m je
+Geschoss - derselben Zahl, mit der auch die Bestandsaufnahme ihre
+Hoehenbaender bildet. Die Naehe zum Kern hebt das Band leicht an, ein
+Eckhaus darf ein Geschoss mehr:
+
+| Stadtteil | Geschosse |
+|-----------|-----------|
+| WOHN | 3 - 6 |
+| MISCHUNG | 4 - 10 |
+| UFER | 4 - 9 |
+| GESCHAEFT | 5 - 12 |
+| ZENTRUM | 6 - 14 |
+
+### Die 49 umgebauten Bloecke, vorher gegen nachher
+
+| | vorher | nachher |
+|---|--------|---------|
+| Gebaeude | 118 | 335 |
+| je Block | 2,41 | 6,84 |
+| Kantenbelegung (Kanten mit Haus) | 22,1 % | 74,2 % |
+| Kantenbelegung Median | 24 % | 75 % |
+| Hoehe Median | 28,0 m | 19,7 m |
+| LOW / MID / UPPER / HIGH | 0 / 36 / 49 / 14 % | 8 / 67 / 25 / 0 % |
+
+Die 75 Prozent sind nah am geometrischen Anschlag: eine Blockkante ist
+38 m lang, bebaut werden davon 30 - die vier Blockecken bleiben fuer die
+querlaufenden Gehwege frei. Mehr als 79 Prozent sind hier nicht
+erreichbar, ohne das Fussgaengernetz zu zerschneiden.
+
+### Die ganze Stadt
+
+| | vorher | nachher | |
+|---|--------|---------|---|
+| Gebaeude | 274 | 520 | + 90 % |
+| Kantenbelegung Mittel | 19,6 % | 43,3 % | |
+| Kantenbelegung Median | 0 % | 51 % | |
+| niedrigstes Haus | 14,3 m | 9,9 m | |
+| Zeichenaufrufe | 861 | 987 | + 14,6 % |
+| Dreiecke | 3,13 Mio | 3,48 Mio | + 11,2 % |
+| Kollider | 2888 | 3503 | |
+| Szenenobjekte | 16521 | 17522 | |
+
+Das Leistungstor liegt bei + 25 % Zeichenaufrufen und + 35 % Dreiecken -
+beides ist eingehalten, bei fast doppelt so vielen Gebaeuden.
+
+### Zwei Funde aus den Bildern
+
+**Das Gesims ragte in den Nachbarn.** `schmueckeHaus` setzte ringsum ein
+Gesims, das 45 cm ueber die Wand steht. Solange die Haeuser 2,6 m
+auseinander standen, fiel das nicht auf; in der Zeile stossen sie ohne
+Luecke aneinander, und das Gesims ragte 45 cm IN den Nachbarn. Auf dem
+Bild war das ein Gewirr ineinandersteckender Platten und Saeulen, dazu
+ein 90 cm breiter Kollisionsklotz auf Dachhoehe, der ins Nachbarhaus
+reichte. Ein Reihenhaus bekommt sein Gesims jetzt nur noch zur Strasse;
+weil alle Haeuser einer Zeile dieselbe Bauflucht haben, wird daraus ein
+durchgehendes Band.
+
+**72 Schlitze an den Stirnseiten.** Zwischen der langen Zeile und der
+kurzen stand ein Sicherheitsabstand von 0,6 m. Gemessen wurden daraus 72
+Spalte von 0,59 bis 0,78 m - zu schmal, um hineinzukommen (der Spieler
+ist 0,90 m breit), aber breit genug, um als Loch in der Strassenwand
+aufzufallen. Die Grenzen werden jetzt SEITENWEISE gerechnet statt
+symmetrisch: jede Kante kennt ihre eigene Bauflucht und ihre eigene
+Bautiefe, die Zeilen stossen stumpf aneinander. Engster Abstand zwischen
+zwei Haeusern eines Blocks danach: 5,86 m - der Hof.
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,

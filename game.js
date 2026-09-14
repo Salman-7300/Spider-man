@@ -588,14 +588,14 @@ function blockHauptachse(cx, cz) {
    nicht ehrlich: ein Eckhaus, das die Ecke wirklich besetzt, steht in
    diesem Raster zwangslaeufig auf dem Gehweg. Die aeusseren Lots einer
    Zeile duerfen dafuer breiter und hoeher werden (ecke = true). */
-function lotsAnKante(cx, cz, kante, laengsHalb, tiefe, art, loecher) {
+function lotsAnKante(cx, cz, kante, von, bis, tiefe, art, loecher) {
   const fl = BAUFLUCHT[kante.klasse] || BAUFLUCHT.STREET;
   const laengsAchse = kante.achse === 'z' ? 'x' : 'z';
-  const mitte = laengsAchse === 'x' ? cx : cz;
-  const gesamt = laengsHalb * 2;
+  const gesamt = bis - von;
   if (gesamt < LOT_MIN) return [];
-  /* Gleichmaessig teilen: die ZAHL der Lots wird gewuerfelt, die Breite
-     ergibt sich - so bleibt die Kante immer genau gefuellt. */
+  /* Gleichmaessig teilen: die ZAHL der Lots kommt aus der Zielbreite des
+     Stadtteils, die Breite ergibt sich - so bleibt die Kante immer genau
+     gefuellt, ohne Rest und ohne Luecke. */
   const nMin = Math.max(1, Math.ceil(gesamt / LOT_MAX));
   const nMax = Math.floor(gesamt / LOT_MIN);
   if (nMax < nMin) return [];
@@ -606,7 +606,7 @@ function lotsAnKante(cx, cz, kante, laengsHalb, tiefe, art, loecher) {
             (kante.achse === 'z' ? kante.nz : kante.nx) * (fl - tiefe / 2);
   const aus = [];
   for (let i = 0; i < n; i++) {
-    const m = mitte - laengsHalb + breite * (i + 0.5);
+    const m = von + breite * (i + 0.5);
     const x = laengsAchse === 'x' ? m : q;
     const z = laengsAchse === 'x' ? q : m;
     const w = laengsAchse === 'x' ? breite : tiefe;
@@ -625,42 +625,47 @@ function lotsAnKante(cx, cz, kante, laengsHalb, tiefe, art, loecher) {
   }
   return aus;
 }
+/* ---- Die vier Zeilen eines Blocks, ohne Schlitz an den Stirnseiten ----
+   Die lange Zeile laeuft bis an die Bauflucht der quer liegenden Kanten,
+   die kurze beginnt genau dort, wo die lange nach innen aufhoert. Beide
+   stossen damit stumpf aneinander.
+
+   Vorher stand hier ein Sicherheitsabstand von 0,6 m. Gemessen wurden
+   daraus 72 Schlitze von 0,59 bis 0,78 m Breite - zu schmal, um
+   hineinzukommen (der Spieler ist 0,90 m breit), aber breit genug, um
+   als Loch in der Strassenwand aufzufallen. Sie sind jetzt weg, weil die
+   Grenzen SEITENWEISE gerechnet werden statt symmetrisch: jede Kante
+   kennt ihre eigene Bauflucht und ihre eigene Bautiefe. */
 function lotsFuerBlock(cx, cz, loecher) {
   if (LOT_KEIN_BAU.indexOf(stadtteilAn(cx, cz)) >= 0) return [];
-  const haupt = blockHauptachse(cx, cz);
-  /* Hauptachse 'x' heisst: die Zeilen laufen in x-Richtung, also an der
-     Nord- und der Suedkante. Die liegen auf der z-Achse. */
-  const hauptAchse = haupt === 'x' ? 'z' : 'x';
-  const kanten = blockKanten(cx, cz);
   const art = stadtteilAn(cx, cz);
-  const flucht = {};
-  for (const k of kanten) flucht[k.seite] = BAUFLUCHT[k.klasse] || BAUFLUCHT.STREET;
-  /* Die Zeile endet an der Bauflucht der quer liegenden Kanten. */
-  const querFlucht = (achse) => {
-    let m = 15;
-    for (const k of kanten) if (k.achse !== achse) m = Math.min(m, flucht[k.seite]);
-    return m;
-  };
+  const K = {};
+  for (const k of blockKanten(cx, cz)) K[k.seite] = k;
+  const fl = (seite) => BAUFLUCHT[K[seite].klasse] || BAUFLUCHT.STREET;
+  /* 'x' heisst: die langen Zeilen laufen in x-Richtung und liegen damit
+     an der Nord- und der Suedkante. */
+  const laengs = blockHauptachse(cx, cz);
+  const lang = laengs === 'x' ? ['N', 'S'] : ['O', 'W'];
+  const kurz = laengs === 'x' ? ['O', 'W'] : ['N', 'S'];
+  /* Welche Seite liegt in der Laengsrichtung vorn (+), welche hinten? */
+  const lPlus = laengs === 'x' ? 'O' : 'N', lMinus = laengs === 'x' ? 'W' : 'S';
+  const mLaengs = laengs === 'x' ? cx : cz;
+  const mQuer = laengs === 'x' ? cz : cx;
+  const tiefe = {};
   const aus = [];
-  let tiefsteHaupt = 0, fluchtHaupt = 15;
-  for (const k of kanten) {
-    if (k.achse !== hauptAchse) continue;
-    /* EINE Tiefe je Kante, nicht je Haus: eine Strassenwand steht auf
-       einer Linie, nicht in Zacken. */
-    const tiefe = rand(LOT_TIEFE.min, LOT_TIEFE.max);
-    tiefsteHaupt = Math.max(tiefsteHaupt, tiefe);
-    fluchtHaupt = Math.min(fluchtHaupt, flucht[k.seite]);
-    aus.push(...lotsAnKante(cx, cz, k, querFlucht(hauptAchse), tiefe, art, loecher));
+  for (const seite of lang) {
+    tiefe[seite] = rand(LOT_TIEFE.min, LOT_TIEFE.max);
+    aus.push(...lotsAnKante(cx, cz, K[seite], mLaengs - fl(lMinus), mLaengs + fl(lPlus),
+                            tiefe[seite], art, loecher));
   }
-  /* Was zwischen den beiden Stirnseiten der langen Zeile frei bleibt,
-     gehoert den beiden anderen Kanten. 0,6 m Luft an jeder Stirnseite. */
-  const rest = fluchtHaupt - tiefsteHaupt - 0.6;
-  if (rest >= LOT_MIN / 2) {
-    for (const k of kanten) {
-      if (k.achse === hauptAchse) continue;
-      aus.push(...lotsAnKante(cx, cz, k, rest,
+  /* Die kurze Zeile fuellt genau den Raum zwischen den Stirnseiten. */
+  const qPlus = lang[0], qMinus = lang[1];          // 'N'/'S' bzw. 'O'/'W'
+  const von2 = mQuer - fl(qMinus) + tiefe[qMinus];
+  const bis2 = mQuer + fl(qPlus) - tiefe[qPlus];
+  if (bis2 - von2 >= LOT_MIN) {
+    for (const seite of kurz)
+      aus.push(...lotsAnKante(cx, cz, K[seite], von2, bis2,
                               rand(LOT_TIEFE.min, LOT_TIEFE.max), art, loecher));
-    }
   }
   return aus;
 }
@@ -3096,7 +3101,27 @@ function baueDekoMesh() {
 /* Gesims, Feuerleiter und Dachaufbauten für ein Haus. */
 /* frei = Grundflaeche des Staffelturms, der spaeter aus diesem Dach
    waechst (oder null). Alles, was aufs Dach kommt, muss aussen herum. */
-function schmueckeHaus(w, h, d, x, z, frei) {
+/* schau = in welche Richtung das Gesims vorsteht: { nx, nz } mit genau
+   einer Eins. Fehlt die Angabe, steht es wie bisher ringsum vor.
+
+   ---- Warum das ueberhaupt eine Richtung braucht ----
+   In einer Haeuserzeile stossen die Nachbarn ohne Luecke aneinander. Ein
+   Gesims, das ringsum 45 cm ueber die Wand steht, ragt dann 45 cm IN DEN
+   NACHBARN - an beiden Brandwaenden und hinten in den Hof. Auf dem Bild
+   war das ein Gewirr aus ineinandersteckenden Platten und Saeulen; dazu
+   kam ein 90 cm breiter Kollisionsklotz auf Dachhoehe, der in das
+   Nachbarhaus hineinreichte: eine unsichtbare Kante genau dort, wo man
+   ueber die Daecher laeuft.
+   Ein Reihenhaus bekommt sein Gesims deshalb nur zur STRASSE. Weil alle
+   Haeuser einer Zeile dieselbe Bauflucht haben, wird daraus ein
+   durchgehendes Band - genau wie bei einer echten Reihe. */
+function schmueckeHaus(w, h, d, x, z, frei, schau) {
+  const VOR = 0.45;
+  const nx = schau ? schau.nx : 0, nz = schau ? schau.nz : 0;
+  /* Ohne Richtung: ringsum. Mit Richtung: nur dorthin. */
+  const bW = schau ? Math.abs(nx) * VOR : VOR * 2;
+  const bD = schau ? Math.abs(nz) * VOR : VOR * 2;
+  const oX = schau ? nx * VOR / 2 : 0, oZ = schau ? nz * VOR / 2 : 0;
   const unten = SLAB_H, oben = SLAB_H + h;
 
   /* ---- Kein selbstgebautes Erdgeschoss mehr ----
@@ -3112,11 +3137,11 @@ function schmueckeHaus(w, h, d, x, z, frei) {
   /* Gesims am Dachrand – gibt dem Haus oben einen Abschluss. Es steht
      45 cm über die Wand hinaus; ohne Kollision stand man mit den Beinen
      mitten darin. */
-  deko(w + 0.9, 0.55, d + 0.9, x, oben - 0.28, z, 0x8b9099);
-  addCollider({ x0: x - (w + 0.9) / 2, x1: x + (w + 0.9) / 2,
-                z0: z - (d + 0.9) / 2, z1: z + (d + 0.9) / 2,
+  deko(w + bW, 0.55, d + bD, x + oX, oben - 0.28, z + oZ, 0x8b9099);
+  addCollider({ x0: x + oX - (w + bW) / 2, x1: x + oX + (w + bW) / 2,
+                z0: z + oZ - (d + bD) / 2, z1: z + oZ + (d + bD) / 2,
                 h: oben, y0: oben - 0.9, klein: true });
-  deko(w + 0.5, 0.7, d + 0.5, x, oben - 1.1, z, 0x6f757e);
+  deko(w + bW * 0.55, 0.7, d + bD * 0.55, x + oX * 0.55, oben - 1.1, z + oZ * 0.55, 0x6f757e);
 
   /* ---- Keine Feuerleitern mehr ----
      Die Balkone hingen als dunkle Blechkaesten vor den echten
@@ -5325,7 +5350,7 @@ function baueNeon() {
   cityGroup.add(neonMesh);
 }
 
-function makeBuildingMesh(w, h, d, x, z) {
+function makeBuildingMesh(w, h, d, x, z, schau) {
   const texIdx = randi(0, facadeTexes.length - 1);
   HAUS_KISTEN.push({ w, h, d, x, z });
   sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx);
@@ -5352,7 +5377,7 @@ function makeBuildingMesh(w, h, d, x, z) {
      Auf dem Bild schwebten dadurch graue Dachplatten in der Luft, und
      ueber jedem hohen Haus stand eine unsichtbare Wand. Beides ist damit
      weg; die Silhouette bringt jetzt das Modell selbst mit. */
-  schmueckeHaus(w, h, d, x, z, null);
+  schmueckeHaus(w, h, d, x, z, null, schau);
   /* Das ganze Dach ist frei - es steht nichts mehr darauf, was Platz
      braeuchte. */
   const dachPlatz = (rand2) => ({
@@ -5480,7 +5505,73 @@ function baueAltbauBlock(cx, cz, size) {
   }
 }
 
+/* ======================= Stufe 5: die Haeuserzeile =======================
+   Bis hierher setzte buildBlockBuildings ein bis vier freistehende
+   Baukoerper in die Blockmitte. Gemessen hatte deshalb keine der 440
+   Blockkanten eine geschlossene Strassenwand - die Belegung lag im
+   Median bei 0 Prozent.
+
+   Auf einer Parzelle wird stattdessen Haus an Haus gebaut: gleiche
+   Bauflucht, angrenzende Nachbarn, unterschiedliche Hoehen. Die Lots
+   stossen ohne Luecke aneinander (breite = Front / Zahl), damit
+   zwischen zwei Haeusern kein 20-Zentimeter-Spalt entsteht, in dem der
+   Spieler haengen bleibt.
+
+   Die Geschosszahl kommt aus dem Stadtteil, gerechnet mit 3,2 m je
+   Geschoss - das ist dieselbe Zahl, mit der auch die Bestandsaufnahme
+   die Hoehenbaender bildet. */
+const GESCHOSS = 3.2;
+const ZEILE_GESCHOSSE = {
+  WOHN:      [3, 6],       //  9,6 - 19,2 m
+  MISCHUNG:  [4, 10],      // 12,8 - 32,0 m
+  UFER:      [4, 9],
+  GESCHAEFT: [5, 12],
+  ZENTRUM:   [6, 14],
+};
+/* Wie hoch wird das Haus auf diesem Lot? Drei Dinge wirken zusammen:
+   der Stadtteil gibt das Band vor, die Naehe zum Kern hebt es leicht an
+   (damit die Silhouette von aussen nach innen ansteigt), und ein
+   Eckhaus darf ein Geschoss mehr haben. */
+function lotHoehe(art, lot, cx, cz) {
+  const band = ZEILE_GESCHOSSE[art] || ZEILE_GESCHOSSE.MISCHUNG;
+  const kernNah = 1 - Math.min(1, (Math.abs(cx) + Math.abs(cz)) / 500);
+  let g = rand(band[0], band[1]) + kernNah * rand(0, band[1] - band[0]) * 0.5;
+  if (lot.ecke) g += rand(0, 1.5);
+  return +(g * GESCHOSS).toFixed(2);
+}
+/* Baut die Zeilen eines Blocks. Rueckgabe: wieviele Haeuser es wurden -
+   null heisst "hier passt keine Zeile", dann baut der alte Weg weiter. */
+function baueHaeuserzeile(bi, bj, cx, cz) {
+  const art = stadtteilAn(cx, cz);
+  const lots = lotsBlock(bi, bj);
+  if (!lots.length) return 0;
+  let n = 0;
+  for (const l of lots) {
+    if (!l.frei) continue;
+    /* Das Gesims steht nur zur Strasse vor - die Richtung steckt schon
+       im Lot (nx/nz zeigt nach aussen). */
+    makeBuildingMesh(l.w, lotHoehe(art, l, cx, cz), l.d, l.x, l.z,
+                     { nx: l.nx, nz: l.nz });
+    n++;
+  }
+  return n;
+}
+/* Welche Bloecke bekommen in Stufe 5 / Teil C eine Zeile? Zunaechst nur
+   die NEUEN Aussenbloecke mit Wohn- oder Mischcharakter. Der alte
+   7x7-Kern und die Geschaefts- und Zentrumsbloecke bleiben vorerst, wie
+   sie sind - sie kommen in Teil D dran, und bis dahin laesst sich an
+   ihnen ablesen, was die Zeile ueberhaupt veraendert. */
+function zeileTauglich(cx, cz) {
+  const imKern = Math.abs(cx) <= 175 && Math.abs(cz) <= 175;
+  if (imKern) return false;
+  const art = stadtteilAn(cx, cz);
+  return art === 'WOHN' || art === 'MISCHUNG';
+}
+
 function buildBlockBuildings(cx, cz, loecher) {
+  if (zeileTauglich(cx, cz) &&
+      baueHaeuserzeile(Math.round((cx - PITCH / 2 - RASTER_X0) / PITCH),
+                       Math.round((cz - PITCH / 2 - RASTER_Z0) / PITCH), cx, cz) > 0) return;
   // Höher Richtung Stadtmitte
   const centerBias = 1 - Math.min(1, (Math.abs(cx) + Math.abs(cz)) / 300);
   const style = Math.random();

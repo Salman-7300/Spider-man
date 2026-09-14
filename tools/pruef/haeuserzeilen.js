@@ -46,7 +46,12 @@ const { starte } = require('./basis');
       kanteUeberfuellt: 0,
       hausAufStrasse: 0, hausImWasser: 0, hausImSchacht: 0, hausAufHaus: 0,
       hausAnTuer: 0, hausZuNahKreuzung: 0,
+      /* Ein Spalt, in den der Spieler gerade noch hineinpasst und aus dem
+         er nicht mehr herauskommt. Der Spielerradius ist 0,45 m. */
+      spaltFalle: 0,
     };
+    const SPIELER_B = 0.9;
+    const spalte = [];
     const bsp = [];
     const merke = (was, o) => { F[was]++; if (bsp.length < 24) bsp.push(Object.assign({ was }, o)); };
     const uebl = (a, b2, luft) =>
@@ -113,6 +118,24 @@ const { starte } = require('./basis');
                                          kx: +k.x.toFixed(1), kz: +k.z.toFixed(1) });
           }
         }
+        /* Spalte zwischen zwei Haeusern desselben Blocks: entweder null
+           (Zeile) oder so breit, dass man wieder herauskommt. */
+        for (let i = 0; i < lots.length; i++)
+          for (let j = i + 1; j < lots.length; j++) {
+            const a = lots[i], b2 = lots[j];
+            if (!a.frei || !b2.frei) continue;
+            const dx = Math.abs(a.x - b2.x) - (a.w + b2.w) / 2;
+            const dz = Math.abs(a.z - b2.z) - (a.d + b2.d) / 2;
+            /* Nur wenn sie sich in der EINEN Achse ueberlappen und in der
+               anderen einen Spalt lassen, ist es wirklich ein Schlitz. */
+            const luecke = (dx < -0.05 && dz > 0.02) ? dz
+                         : (dz < -0.05 && dx > 0.02) ? dx : null;
+            if (luecke === null) continue;
+            spalte.push(+luecke.toFixed(2));
+            if (luecke < SPIELER_B)
+              merke('spaltFalle', { bi, bj, a: a.seite + a.i, b: b2.seite + b2.i,
+                                    spalt: +luecke.toFixed(2) });
+          }
         /* Lots duerfen sich untereinander nicht ueberlappen. */
         for (let i = 0; i < lots.length; i++)
           for (let j = i + 1; j < lots.length; j++) {
@@ -163,7 +186,8 @@ const { starte } = require('./basis');
         if (uebl(kisten[i], kisten[j], -0.3))
           merke('hausAufHaus', { a: [kisten[i].x, kisten[i].z], b: [kisten[j].x, kisten[j].z] });
 
-    return { F, bsp, lotsGesamt, lotsFrei, jeKlasse, jeLotklasse, jeSeite, jeTeil,
+    return { F, bsp, spalte: spalte.sort((a, b2) => a - b2), lotsGesamt, lotsFrei,
+             jeKlasse, jeLotklasse, jeSeite, jeTeil,
              regeln, haeuser: kisten.length,
              stadtteile: d.stadtteile().reduce((a, t) => {
                a[t.art] = (a[t.art] || 0) + 1; return a; }, {}),
@@ -193,6 +217,13 @@ const { starte } = require('./basis');
   p('  je Lotklasse       ' + JSON.stringify(aus.jeLotklasse));
   p('  je Blockseite      ' + JSON.stringify(aus.jeSeite));
   p('  Bauflucht          ' + JSON.stringify(aus.regeln.bauflucht));
+  p('');
+  p('== Spalte zwischen zwei Haeusern eines Blocks ==');
+  if (!aus.spalte.length) p('  keine');
+  else p('  ' + aus.spalte.length + ' Stueck   engster ' + aus.spalte[0] +
+         ' m   Median ' + aus.spalte[aus.spalte.length >> 1] +
+         ' m   weitester ' + aus.spalte[aus.spalte.length - 1] + ' m' +
+         '   unter 0,9 m: ' + aus.spalte.filter((q) => q < 0.9).length);
   p('');
   p('== Fehler ==');
   let summe = 0;
