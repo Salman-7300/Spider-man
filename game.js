@@ -35401,6 +35401,31 @@ if (window.__WEBHERO_TEST__ === true) {
       }
       return paare;
     },
+    /* CITY V2 Stufe 5: jeder gebaute Baukoerper mit Masse und Ort.
+       HAUS_KISTEN wird in makeBuildingMesh gefuellt und ist damit die
+       einzige vollstaendige Liste der Haeuser - Kollider enthalten auch
+       Pylonen, Parkautos und Stadtmoebel. */
+    hausKisten() {
+      return HAUS_KISTEN.map((b) => ({ w: +b.w.toFixed(2), h: +b.h.toFixed(2),
+                                       d: +b.d.toFixed(2),
+                                       x: +b.x.toFixed(2), z: +b.z.toFixed(2) }));
+    },
+    /* CITY V2 Stufe 5: die Masse der fertigen Hausmodelle, so wie sie
+       gemessen in KIT_HAEUSER stehen - Grundlage fuer die Lotbreiten. */
+    kitHaeuser() {
+      return KIT_HAEUSER.map((t) => ({
+        name: t.name, breite: +(t.x1 - t.x0).toFixed(2),
+        tiefe: +(t.z1 - t.z0).toFixed(2), hoehe: t.h,
+        dachHoehe: +(t.h - KIT_ATTIKA).toFixed(2),
+        dreh: +t.dreh.toFixed(3), hoch: t.hoch || 0,
+        tuerBreite: t.tuer ? +(t.tuer.x1 - t.tuer.x0).toFixed(2) : 0,
+        tuerMitte: t.tuer ? +((t.tuer.x0 + t.tuer.x1) / 2).toFixed(2) : 0,
+        gesetzt: HAUS_STELLEN.filter((e) => e.name === t.name).length,
+      }));
+    },
+    /* CITY V2 Stufe 5: die gesetzten Gebaeudemodelle selbst - nur zum
+       Messen, wieviel ein einzelnes Haus an Objekten und Dreiecken kostet. */
+    hausModelle() { return HAUS_MODELLE; },
     hausInfo() {
       return { kisten: HAUS_KISTEN.length, modelle: HAUS_MODELLE.length,
                fassaden: HAUS_FASSADEN.length,

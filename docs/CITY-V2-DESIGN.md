@@ -148,12 +148,15 @@ zwischen zwei Spurmitten betraegt 2,70 m.
 | Klasse | Spuren | Spurbreite | Spurmitten | Tempo |
 |--------|--------|-----------|------------|-------|
 | LOCAL | 2 | 3,2 m | +/-2,4 | 6,5 - 9,5 |
-| STREET | 2 | 3,6 m | +/-3,0 | 8 - 13 |
+| STREET | 2 | 3,6 m | +/-2,8 (*) | 8 - 13 |
 | AVENUE | 4 | 2,8 m | +/-1,6, +/-4,4 | 10 - 15 |
 | BOULEVARD | 4 | 2,6 m | +/-1,9, +/-4,6 | 12 - 17 |
 
-STREET traegt genau die alten Werte. Die meisten Strassen der Stadt
-aendern sich dadurch ueberhaupt nicht.
+(*) STREET trug in Stufe 3 genau die alten Werte, +/-3,0. Stufe 4.1 hat
+die Spurmitte auf **+/-2,8** gerueckt, damit ein Bus an einem parkenden
+Wagen vorbeikommt - siehe Abschnitt 4c, "Stufe 4.1". Alles andere an
+dieser Tabelle gilt unveraendert; LOCAL, AVENUE und BOULEVARD sind nie
+angefasst worden.
 
 ### Wer welche Klasse bekommt
 
@@ -281,6 +284,9 @@ Bordstein. Dichter geht es mit Einzelmodellen nicht - dafuer braucht es
 Instancing, und das ist Stufe 10.
 
 ### Der ungeloeste Konflikt: Bus und Parkstreifen
+
+(Alle Zahlen dieses Abschnitts beschreiben den Stand VOR Stufe 4.1, also
+mit der Spurmitte auf 3,0 m.)
 
 Auf einer STREET liegt die Fahrspur bei 3,0 m. Ein Bus ist 2,4 m breit
 und reicht damit bis 4,2 m. Der parkende Wagen liegt buendig am
@@ -438,12 +444,38 @@ selbst dann nur, wenn die Spannen sich nicht ueberlappen.
 | `tools/pruef/stadt-bilder.js` | zehn feste Aufnahmen zum Vergleich zweier Ausbaustufen |
 | `tools/pruef/freigang.js` | Fahrbahn, Zebrastreifen, Tueren, POIs, Gehnetz |
 | `tools/pruef/kernsysteme.js` | Story Akt 1, Ereignisse, Boss, Einsatzwagen, Welthygiene |
+| `tools/pruef/parkautos.js` | parkende Autos: Sperrflaechen, Dichte je Klasse, engste Busluecke |
+| `tools/pruef/verkehr-dichte.js` | Verkehrsdichte: sichtbare Wagen, harte Fehlerzaehler |
+| `tools/pruef/verkehr-stunde.js` | Langlauf des Verkehrs mit allen Zaehlern (siehe 5b) |
+| `tools/pruef/stadtbestand.js` | Bestandsaufnahme der Bebauung, Block fuer Block (Stufe 5) |
 | `cd tools && node --test` | 162 Offline-Tests |
 
 Wichtig: `freigang.js` und `verkehr-stunde.js` lesen die Rastermasse
 inzwischen aus `__dbg.raster()` statt aus einer eigenen Kopie.
 Abgeschrieben haetten sie nach der Erweiterung stillschweigend die alte,
 kleine Stadt vermessen und trotzdem "gruen" gemeldet.
+
+---
+
+## 6b. Die Bestandsaufnahme vor Stufe 5
+
+`tools/pruef/stadtbestand.js` liest die gebaute Stadt aus dem laufenden
+Spiel und schreibt `docs/STUFE5-STADT-BESTAND.md` samt
+`docs/stufe5-bestand.json`. Aufruf:
+
+    node tools/pruef/stadtbestand.js docs/stufe5-bestand.json docs/STUFE5-STADT-BESTAND.md
+
+Je Block stehen dort Index, Weltposition, Zugehoerigkeit zum alten Kern,
+Gebaeudezahl und -hoehen, bebaute Flaeche, die Strassenklasse an allen
+vier Kanten, wieviel laufender Meter jeder Kante bebaut ist, Bezirk,
+POIs, Haustueren, Aufzuege, parkende Autos und U-Bahn-Schaechte.
+
+Die wichtigste Zahl daraus: von 440 Blockkanten hat keine einzige eine
+geschlossene Strassenwand. Die Kantenbelegung liegt im Median bei 0 %,
+im Mittel bei knapp 20 %, hoechstens bei 69 % - die Haeuser stehen frei
+in der Blockmitte, weil `buildBlockBuildings` nur die inneren 30 von 38
+Metern bebaut. Und es gibt kein Haus unter 14,3 m: eine zwei- bis
+viergeschossige Bebauung existiert in dieser Stadt nicht.
 
 ---
 
