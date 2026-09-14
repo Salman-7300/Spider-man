@@ -78,6 +78,15 @@ async function einLauf(nr) {
          Kandidaten haette die Uhr gemessen statt die Dichte. */
       if (i % 60 === 0 && window.__setzeZeit) window.__setzeZeit(0.33);
       d.schritt(dt); schritte++;
+      /* ---- Die erste Sekunde zaehlt nicht ----
+         Beim Start steht das Modell eines Wagens noch nicht auf seiner
+         Fahrspur; die weiche Nachfuehrung holt das in den ersten Bildern
+         auf. Nachgemessen Bild fuer Bild: der letzte Aufholschritt war
+         3,49 m in EINEM Bild, und nach Bild 13 kam ueber vier Minuten
+         kein einziger mehr. Ueber ein Messfenster von 0,25 s summiert
+         sich das auf mehr als 12 m und stand als "Ortssprung" im
+         Bericht - ein Startbild, kein Fahrfehler. */
+      if (i < 60) continue;
       if (i % 15) continue;
       Z.proben++;
       const P = d.player.pos;
