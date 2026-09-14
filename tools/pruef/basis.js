@@ -56,11 +56,6 @@ async function starte(breite, hoehe, seed, opt) {
   page.on('pageerror', (e) => console.log('SEITENFEHLER:', e.message));
   await page.route('**/cdn.jsdelivr.net/**',
     (r) => r.fulfill({ path: THREE_DATEI, contentType: 'application/javascript' }));
-  /* Rueckfalltest: haeuser.glb mit 404 beantworten. */
-  if (opt && opt.ohneHaeuser) {
-    await page.route('**/assets/haeuser.glb',
-      (r) => r.fulfill({ status: 404, body: 'nicht da' }));
-  }
   await page.route('http://webhero.test/**', (route) => {
     const p = new URL(route.request().url()).pathname;
     const f = path.join(WURZEL, p === '/' ? '/index.html' : p);
@@ -90,6 +85,16 @@ async function starte(breite, hoehe, seed, opt) {
        hybrid: (opt && opt.hybrid) || 0,
        modellFehler: (opt && opt.modellFehler) || 0,
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
+  /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
+     WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright
+     nimmt bei mehreren passenden Routen die ZULETZT registrierte - stand
+     sie davor, lieferte die Sammelroute die Datei trotzdem aus, und der
+     Test mass dann einen ganz normalen Lauf. Genau das ist passiert:
+     "ohne haeuser.glb" meldete 413 gesetzte Modelle. */
+  if (opt && opt.ohneHaeuser) {
+    await page.route('**/assets/haeuser.glb',
+      (r) => r.fulfill({ status: 404, body: 'nicht da' }));
+  }
   await page.goto('http://webhero.test/');
   await page.waitForFunction(() => window.__dbg && window.__dbg.actorsReady, { timeout: 150000 });
   /* ---- Warten, bis die STADT wirklich steht ----
