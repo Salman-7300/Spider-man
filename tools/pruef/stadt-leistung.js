@@ -18,15 +18,20 @@
 
    Aufruf:  node tools/pruef/stadt-leistung.js [ausgabe.json]
    Vergleich: node tools/pruef/stadt-leistung.js neu.json alt.json
+   Ohne die Bremsen aus Teil E: ... stadt-leistung.js aus.json - alt
    ========================================================================= */
 const fs = require('node:fs');
 const { starte } = require('./basis');
 
 const zielDatei = process.argv[2] || null;
 const vergleich = process.argv[3] || null;
+/* "alt" schaltet die Wiederholungsbremsen aus Teil E ab. Damit laesst
+   sich messen, was sie an Zeichenaufrufen kosten - mit demselben Code
+   und demselben Weltkeim. */
+const alt = process.argv.indexOf('alt') > 0;
 
 (async () => {
-  const { b, page } = await starte(1280, 720, 4711);
+  const { b, page } = await starte(1280, 720, 4711, alt ? { wdhAlt: true } : {});
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
