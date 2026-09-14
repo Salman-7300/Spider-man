@@ -2,9 +2,10 @@
    NICHT tun darf. Der Spieler wandert dabei ueber die Karte, damit nicht
    immer dieselbe Ecke simuliert wird. Laufzeit rund eine halbe Stunde. */
 const { starte } = require('./basis');
+const SEKUNDEN = Number(process.argv[2]) || 3600;
 (async () => {
   const { b, page } = await starte(800, 480, 4711);
-  const aus = await page.evaluate(async () => {
+  const aus = await page.evaluate(async (SEKUNDEN) => {
     const d = __dbg, P = d.player;
     d.frier(true);
     /* CITY V2: Rastermasse aus dem Spiel lesen, nicht abschreiben. */
@@ -29,13 +30,24 @@ const { starte } = require('./basis');
     }
     const Z = { proben: 0, nebenFahrbahn: 0, imWasser: 0, imHaus: 0,
                 steht: 0, langStand: 0, ortsSprung: 0, geisterfahrer: 0,
-                bruecke: 0, bruecke0: 0, maxStand: 0, ineinander: 0, naheKreuzung: 0 };
+                bruecke: 0, bruecke0: 0, maxStand: 0, ineinander: 0, naheKreuzung: 0,
+                /* ---- Was "ineinander" wirklich heisst ----
+                   Die blosse Zahl war nicht zu gebrauchen: zwei Wagen
+                   unter 2,5 m koennen dicht aufgefahren sein (gleiche
+                   Spur), nebeneinander fahren (Nachbarspur - auf einer
+                   Avenue liegen die Spuren 2,8 m auseinander, das ist
+                   knapp ueber der Schwelle) oder sich an einer Kreuzung
+                   schneiden. Das sind drei verschiedene Befunde. */
+                inGleicheSpur: 0, inNachbarSpur: 0, inKreuzend: 0,
+                inKurve: 0, inSteht: 0 };
     const bsp = {};
     const merk = (k, x, z) => { if (!bsp[k]) bsp[k] = [+x.toFixed(1), +z.toFixed(1)]; };
     const stand = new Map(), vorher = new Map();
     const wanderung = [[0,0],[-140,-140],[140,140],[-140,140],[140,-140],
                        [255,-25],[60,-160],[-60,160]];
-    const SEK = 3600, dt = 1 / 60;
+    /* Laufzeit in Spielsekunden - als Argument, damit sich eine Frage
+       auch in einer Viertelstunde beantworten laesst. */
+    const SEK = SEKUNDEN, dt = 1 / 60;
     for (let i = 0; i < 60 * SEK; i++) {
       if (i % (60 * 450) === 0) {
         const w = wanderung[(i / (60 * 450)) % wanderung.length];
@@ -83,8 +95,13 @@ const { starte } = require('./basis');
           const pa = wach[a].mesh.position, pb = wach[bb].mesh.position;
           const dd = Math.hypot(pa.x - pb.x, pa.z - pb.z);
           if (dd < 2.5) {
+            const A = wach[a], B = wach[bb];
             Z.ineinander++; merk('ineinander', pa.x, pa.z);
-            if (wach[a].axis !== wach[bb].axis) Z.naheKreuzung++;
+            if (A.axis !== B.axis) { Z.naheKreuzung++; Z.inKreuzend++; }
+            else if (Math.abs(A.lane - B.lane) < 0.6) Z.inGleicheSpur++;
+            else Z.inNachbarSpur++;
+            if ((A.kurve || 0) > 0 || (B.kurve || 0) > 0) Z.inKurve++;
+            if ((A.tempoJetzt || 0) < 0.5 && (B.tempoJetzt || 0) < 0.5) Z.inSteht++;
           }
         }
       }
@@ -97,7 +114,7 @@ const { starte } = require('./basis');
     Z.maxStand = +Z.maxStand.toFixed(1);
     Z.beispiele = bsp;
     return Z;
-  });
+  }, SEKUNDEN);
   console.log(JSON.stringify(aus, null, 1));
   await b.close();
 })();
