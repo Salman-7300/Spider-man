@@ -5394,8 +5394,21 @@ function baueNeon() {
 
    Die Schwelle ist ueber window.__WEBHERO_HYBRID messbar, damit sich
    Kandidaten vergleichen lassen, ohne die Datei anzufassen. */
+/* Gemessen mit tools/pruef/hybrid.js, 300 Aufnahmen je Kandidat, gegen
+   die 719 Zeichenaufrufe nach Stufe 4.1 (Tor: hoechstens 899):
+
+     Schwelle  MODEL  MERGED  Aufrufe  gegen 4.1   Dreiecke   gegen 4.1
+           20    487     135      889    +23,6 %   3,28 Mio     +6,5 %
+           26    442     180      879    +22,3 %   3,12 Mio     +1,3 %
+           32    413     209    853,5    +18,7 %   3,10 Mio     +0,7 %
+           39    404     218      846    +17,7 %   3,11 Mio     +0,8 %
+
+   Gewaehlt ist 32. Zwischen 32 und 39 liegen nur 7,5 Aufrufe, aber neun
+   Haeuser mehr mit echtem Modell - das ist der bessere Tausch. Unter 32
+   wird es schnell teurer, ohne dass mehr Modelle dazukommen, die man
+   auch sieht. */
 const HYBRID_HOCH = (typeof window !== 'undefined' && window.__WEBHERO_HYBRID > 0)
-                    ? +window.__WEBHERO_HYBRID : 26;
+                    ? +window.__WEBHERO_HYBRID : 32;
 const HYBRID_ECK = 16;            // Eckhaus: schon ab dieser Hoehe ein Modell
 const HYBRID_ZENTRUM = 20;        // im Zentrum frueher als anderswo
 function hausVisual(h, info) {
