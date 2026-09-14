@@ -79,11 +79,15 @@ async function starte(breite, hoehe, seed, opt) {
        Modellplatzierungen ungueltig - nach so vielen Stueck wird
        abgebrochen. */
     if (ein.modellFehler) window.__WEBHERO_MODELLFEHLER = ein.modellFehler;
+    /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
+       damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
+    if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
   }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0,
        park: (opt && opt.park !== undefined) ? opt.park : null,
        streetSpur: (opt && opt.streetSpur) || 0,
        hybrid: (opt && opt.hybrid) || 0,
        modellFehler: (opt && opt.modellFehler) || 0,
+       wdhAlt: !!(opt && opt.wdhAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
      WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright

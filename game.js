@@ -601,12 +601,30 @@ function lotsAnKante(cx, cz, kante, von, bis, tiefe, art, loecher) {
   if (nMax < nMin) return [];
   const ziel = LOT_ZIEL[art] || LOT_ZIEL.MISCHUNG;
   const n = clamp(Math.round(gesamt / rand(ziel[0], ziel[1])), nMin, nMax);
-  const breite = gesamt / n;
+  /* ---- Nicht alle Lots einer Kante gleich breit ----
+     Gemessen: die Folge [9,5 | 9,5 | 9,5] stand auf 25 von 180 Zeilen,
+     [14,5 | 14,5] auf 15 weiteren. Das ist der Rhythmus, an dem man den
+     Generator erkennt - eine echte Strasse hat schmale und breite
+     Parzellen nebeneinander.
+     Die Summe bleibt exakt die Frontlaenge: jedes Lot bekommt einen
+     Anteil zwischen 0,78 und 1,22, und am Ende wird auf die Gesamtlaenge
+     normiert. Die Grenzen der Lotklassen werden dabei nicht verlassen,
+     weil die Zielbreite selbst schon in der Mitte ihrer Klasse liegt. */
+  const anteile = [];
+  let summe = 0;
+  for (let i = 0; i < n; i++) {
+    const a = WDH_ALT ? 1 : rand(0.78, 1.22);
+    anteile.push(a); summe += a;
+  }
+  const breiten = anteile.map((a) => gesamt * a / summe);
   const q = (kante.achse === 'z' ? cz : cx) +
             (kante.achse === 'z' ? kante.nz : kante.nx) * (fl - tiefe / 2);
   const aus = [];
+  let lauf = 0;
   for (let i = 0; i < n; i++) {
-    const m = von + breite * (i + 0.5);
+    const breite = breiten[i];
+    const m = von + lauf + breite / 2;
+    lauf += breite;
     const x = laengsAchse === 'x' ? m : q;
     const z = laengsAchse === 'x' ? q : m;
     const w = laengsAchse === 'x' ? breite : tiefe;
@@ -5409,6 +5427,15 @@ function baueNeon() {
    auch sieht. */
 const HYBRID_HOCH = (typeof window !== 'undefined' && window.__WEBHERO_HYBRID > 0)
                     ? +window.__WEBHERO_HYBRID : 32;
+/* ---- Nur zum Messen: die Wiederholungsbremsen aus Stufe 5 / Teil E
+   abschalten ----
+   Ohne diesen Schalter liesse sich der Vorher-Zustand nicht messen: die
+   Felder, die der Wiederholungs-Pruefstand braucht (Fassadentextur und
+   gewaehltes Modell je Kiste), gibt es erst seit Teil E. Ein Vergleich
+   mit dem alten Commit meldet deshalb 0 von 0. Mit dem Schalter laeuft
+   dasselbe Messgeraet gegen beide Verhaltensweisen.
+   Im Spiel ist er nie gesetzt. */
+const WDH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_WDH_ALT;
 const HYBRID_ECK = 16;            // Eckhaus: schon ab dieser Hoehe ein Modell
 const HYBRID_ZENTRUM = 20;        // im Zentrum frueher als anderswo
 function hausVisual(h, info) {
@@ -5422,10 +5449,23 @@ function hausVisual(h, info) {
   return 'merged';
 }
 
+/* ---- Warum die Fassade den Nachbarn kennen muss ----
+   Es gibt drei Fassadentexturen. Wuerfelt jedes Haus unabhaengig, teilen
+   sich rund ein Drittel aller Nachbarpaare dieselbe - gemessen 79 von
+   246 Paaren, also 32,1 Prozent. Genau das sieht man einer Zeile an.
+   Deshalb merkt sich die Zeile, welche Textur das vorige Haus bekommen
+   hat, und dieses hier nimmt eine andere. Das kostet nichts: die Textur
+   entscheidet nur, in welchen verschmolzenen Eimer die Geometrie kommt,
+   und die Zahl der Eimer aendert sich dadurch nicht. */
+let letzteFassade = -1;
 function makeBuildingMesh(w, h, d, x, z, schau, info) {
-  const texIdx = randi(0, facadeTexes.length - 1);
+  let texIdx = randi(0, facadeTexes.length - 1);
+  if (!WDH_ALT && info && facadeTexes.length > 1 && texIdx === letzteFassade)
+    texIdx = (texIdx + 1 + randi(0, facadeTexes.length - 2)) % facadeTexes.length;
+  letzteFassade = texIdx;
   const visual = hausVisual(h, info);
-  HAUS_KISTEN.push({ w, h, d, x, z, visual });
+  HAUS_KISTEN.push({ w, h, d, x, z, visual, textur: texIdx,
+                     zeile: info && info.zeile });
   sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx, visual === 'model');
   /* Die Häuserkollision endet einen Meter unter der Straße. Ohne diese
      Untergrenze reicht sie beliebig tief ins Erdreich – in der U-Bahn-
@@ -5645,7 +5685,8 @@ function baueHaeuserzeile(bi, bj, cx, cz) {
     /* Das Gesims steht nur zur Strasse vor - die Richtung steckt schon
        im Lot (nx/nz zeigt nach aussen). */
     makeBuildingMesh(l.w, lotHoehe(art, l, cx, cz), l.d, l.x, l.z,
-                     { nx: l.nx, nz: l.nz }, { art, ecke: l.ecke });
+                     { nx: l.nx, nz: l.nz },
+                     { art, ecke: l.ecke, zeile: cx + '|' + cz + '|' + l.seite });
     n++;
   }
   return n;
@@ -6784,6 +6825,7 @@ function setzeHausModelle(szene) {
      und die prozeduralen Haeuser bleiben stehen. */
   const warten = HAUS_KISTEN.filter((e) => e.visual === 'model');
   const fertig = [];          // { obj } und optional { kollider }
+  const zuletzt = {};         // Zeile -> zuletzt gewaehltes Modell
   /* Nur fuer den Pruefstand: nach so vielen vorbereiteten Platzierungen
      abbrechen, als waere eine davon ungueltig. Damit laesst sich pruefen,
      dass ein EINZELNER Fehler wirklich alles zurueckrollt und nicht einen
@@ -6798,22 +6840,31 @@ function setzeHausModelle(szene) {
       const hochhaus = CITY_LOOK.createTower(e.w, e.h, e.d, variante);
       if (!hochhaus) break;
       hochhaus.position.set(e.x, SLAB_H, e.z);
-      fertig.push({ obj: hochhaus });
+      fertig.push({ obj: hochhaus, kiste: e, modell: 'Turm_' + variante });
       continue;
     }
     const kl = e.h > 62 ? 3 : e.h > 38 ? 2 : e.h > 19 ? 1 : 0;
     const liste = nachKlasse[kl];
     if (!liste || !liste.length) break;
     /* Ortsabhaengige Wahl: gleiches Haus, gleiches Modell - auch nach
-       einem Neustart. */
-    const i = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % liste.length;
+       einem Neustart.
+       Steht der unmittelbare Nachbar in derselben Zeile und hat dasselbe
+       Modell bekommen, wird um eins weitergerueckt. Gemessen standen
+       sonst 45 von 246 Nachbarpaaren auf demselben Modell, dreimal sogar
+       drei in Folge. Die Wahl bleibt ortsabhaengig und damit nach einem
+       Neustart dieselbe - sie haengt jetzt zusaetzlich davon ab, was
+       links davon steht, und die Reihenfolge des Bauens ist fest. */
+    let i = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % liste.length;
+    if (!WDH_ALT && e.zeile !== undefined && zuletzt[e.zeile] === i && liste.length > 1)
+      i = (i + 1) % liste.length;
+    if (e.zeile !== undefined) zuletzt[e.zeile] = i;
     const mass = vermessen(liste[i]);
     const kopie = liste[i].clone(true);
     if (!kopie) break;
     kopie.position.set(e.x, SLAB_H, e.z);
     kopie.scale.set(e.w, e.h / mass.dachAnteil, e.d);
     kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    const eintrag = { obj: kopie };
+    const eintrag = { obj: kopie, kiste: e, modell: liste[i].name || ('Modell_' + i) };
     if (mass.krone) {
       const k = mass.krone;
       eintrag.kollider = { x0: e.x + k.x0 * e.w, x1: e.x + k.x1 * e.w,
@@ -6835,6 +6886,8 @@ function setzeHausModelle(szene) {
     cityGroup.add(t.obj);
     HAUS_MODELLE.push(t.obj);
     if (t.kollider) addCollider(t.kollider);
+    /* Fuer den Wiederholungs-Pruefstand: welches Modell steht hier? */
+    if (t.kiste) t.kiste.modell = t.modell;
   }
   /* NUR der Rueckfall verschwindet. Die Haeuser mit visualMode 'merged'
      bleiben prozedural sichtbar - ueber ihnen steht kein Modell. */
@@ -35955,7 +36008,8 @@ if (window.__WEBHERO_TEST__ === true) {
       return HAUS_KISTEN.map((b) => ({ w: +b.w.toFixed(2), h: +b.h.toFixed(2),
                                        d: +b.d.toFixed(2),
                                        x: +b.x.toFixed(2), z: +b.z.toFixed(2),
-                                       visual: b.visual || 'model' }));
+                                       visual: b.visual || 'model',
+                                       textur: b.textur, modell: b.modell || null }));
     },
     /* CITY V2 Stufe 5: findet die Geschichte nach dem Umbau noch
        Plaetze? stOrt zieht 40 zufaellige Punkte und nimmt den

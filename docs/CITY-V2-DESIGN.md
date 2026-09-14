@@ -837,6 +837,72 @@ uebersehener Fehler.
 
 ---
 
+## 6g. Die fuenf Gehnetz-Knoten (Stufe 5, Teil E, Punkt 0)
+
+Vor Stufe 5 meldete der Pruefstand 1468 Gehnetz-Knoten, danach 1463. Die
+Frage war, ob die Haeuserzeilen fuenf Knoten gekostet haben. Sie haben
+nicht.
+
+### Das Netz ist innerhalb eines Commits exakt gleich
+
+Zwei Laeufe auf demselben Stand mit demselben Weltkeim liefern dieselben
+1463 Knoten, Koordinate fuer Koordinate - 0 Abweichungen. Die Zahl
+schwankt also nicht, ein Unterschied ist ein echter Unterschied.
+
+### In der Stadt fehlt kein einziger Knoten
+
+Beim Vergleich mit Stufe 4.1 verschwinden 109 Knoten und 104 kommen
+hinzu. Nach Art aufgeschluesselt:
+
+| Art | verschwunden | neu | netto |
+|-----|--------------|-----|-------|
+| ecke | 9 | 9 | 0 |
+| weg | 45 | 45 | 0 |
+| ufer | 45 | 42 | -3 |
+| bruecke | 10 | 8 | -2 |
+
+`ecke` und `weg` - also alles innerhalb der Stadt - gleichen sich exakt
+aus. Die 54 Verschiebungen sind Dezimeterbetraege: (-283,8 | -183) wird
+zu (-283,0 | -183). `gehSetzeKnoten` fasst Knoten innerhalb von 1,2 m
+zusammen, und wo genau der Knoten landet, haengt an der umgebenden
+Geometrie.
+
+### Die fuenf liegen alle ausserhalb der Stadt
+
+Fuer jeden betroffenen Ort wurde geprueft, welcher Kollider im Freiraum
+steht:
+
+| Ort | Blockierer |
+|-----|------------|
+| drei Uferknoten | Gebaeude am GEGENUFER, alle mit x0 >= 341 - jenseits des Flusses, das Raster endet bei x = 175 |
+| zwei Brueckenknoten | das Brueckengelaender, x 181..334, z -35,1..-34,6, h 1,9. Der Knoten lag 0,65 m davor, der Freiraum verlangt 0,75 m |
+
+Kein einziger Blockierer ist ein Gebaeude der Stadt. Die Ufergebaeude
+und die Brueckenmoebel entstehen aus demselben Zufallsstrom wie die
+Stadt; Stufe 5 zieht andere Zahlen, also landen sie anders. An beiden
+Orten baut Stufe 5 nichts.
+
+### Der Graph ist nicht schlechter
+
+| | Stufe 4.1 | Stufe 5 |
+|---|-----------|---------|
+| Knoten | 1468 | 1463 |
+| nutzbar | 1444 | 1440 |
+| Kanten | 1836 | 1825 |
+| Ueberwege | 456 | 450 |
+| Inseln | 6 | 7 |
+| groesste Insel | 1403 | 1401 |
+| wirklich gesperrt | 0 | 0 |
+
+Zusammenhaengend sind 1401 von 1440 nutzbaren Knoten (97,3 %), vorher
+1403 von 1444 (97,2 %) - anteilig minimal besser. Die siebte Insel
+besteht aus den zwei Knoten, um die die groesste geschrumpft ist, und
+liegt im selben Bereich wie der Rest des Deltas.
+
+**Keine Regression. Es wurde nichts repariert.**
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,
