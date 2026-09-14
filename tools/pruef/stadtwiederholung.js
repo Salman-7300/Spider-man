@@ -21,20 +21,26 @@
      gleiche Folge gegenueber          dieselbe Hoehenfolge auf beiden
                                        Seiten derselben Strasse
 
-   Aufruf:  node tools/pruef/stadtwiederholung.js [ausgabe.json] [seed] [alt]
-            "alt" schaltet die Wiederholungsbremsen aus Teil E ab, damit
-            sich Vorher und Nachher mit DEMSELBEN Messgeraet vergleichen
-            lassen.
+   Aufruf:  node tools/pruef/stadtwiederholung.js [ausgabe.json] [seed]
+                                                    [alt] [genau]
+            "alt"   schaltet die Wiederholungsbremsen aus Teil E ab, damit
+                    sich Vorher und Nachher mit DEMSELBEN Messgeraet
+                    vergleichen lassen.
+            "genau" gruppiert die Zeilen nach der Zeilenkennung, mit der
+                    sie gebaut wurden, statt nach der Lage im Block.
    ========================================================================= */
 const fs = require('node:fs');
 const { starte } = require('./basis');
 const zielJson = process.argv[2] || null;
 const seed = +(process.argv[3] || 4711);
 const alt = process.argv[4] === 'alt';
+/* "genau" gruppiert nach der Zeilenkennung statt nach der Lage im Block -
+   siehe die Begruendung weiter unten. */
+const genau = process.argv.indexOf('genau') > 0;
 
 (async () => {
   const { b, page } = await starte(1024, 576, seed, alt ? { wdhAlt: true } : {});
-  const aus = await page.evaluate(() => {
+  const aus = await page.evaluate((GENAU) => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
     const R = d.raster();
@@ -44,7 +50,40 @@ const alt = process.argv[4] === 'alt';
     /* Modell und Fassadentextur haengen an der Kiste selbst. */
     const ROAD_HALF = 6, halb = (R.pitch - ROAD_HALF * 2) / 2;
 
-    /* ---- Die Haeuser je Blockkante, in Laufrichtung sortiert ---- */
+    /* ---- Die Haeuser je Blockkante, in Laufrichtung sortiert ----
+
+       ZWEI WEGE, und der Unterschied ist gemessen:
+
+       Der urspruengliche Weg ordnet jedes Haus im Block derjenigen Kante
+       zu, zu der es am naechsten steht. Das nimmt auch die
+       freistehenden Bauten im alten Kern mit, die gar keine Zeile sind,
+       und macht sie zu "Nachbarn" eines Zeilenhauses. Bei Seed 4711
+       kommt er so auf 246 Nachbarpaare.
+
+       Seit Teil E traegt jede Kiste die Zeilenkennung, mit der sie
+       gebaut wurde. Danach gruppiert, sind es 221 Paare - dieselbe Zahl,
+       die auch die Fassadenprobe unabhaengig zaehlt.
+
+       Der alte Weg bleibt der Normalfall, damit Zahlen aus Teil C und D
+       vergleichbar bleiben; "genau" als vierter Aufrufwert schaltet auf
+       die Zeilenkennung um. */
+    if (GENAU) {
+      const nach = new Map();
+      for (const h of kisten) {
+        if (!h.zeile) continue;
+        if (!nach.has(h.zeile)) nach.set(h.zeile, []);
+        nach.get(h.zeile).push(h);
+      }
+      const zg = [];
+      for (const [key, liste] of nach) {
+        if (liste.length < 2) continue;
+        const t = key.split('|');
+        const s = t[2];
+        liste.sort((a, b2) => (s === 'N' || s === 'S') ? a.x - b2.x : a.z - b2.z);
+        zg.push({ bi: 0, bj: 0, seite: s, cx: +t[0], cz: +t[1], haeuser: liste });
+      }
+      return { R, zeilen: zg, kisten: kisten.length };
+    }
     const zeilen = [];
     for (let bi = 0; bi < R.blocksX; bi++) {
       for (let bj = 0; bj < R.blocksZ; bj++) {
@@ -73,7 +112,7 @@ const alt = process.argv[4] === 'alt';
       }
     }
     return { R, zeilen, kisten: kisten.length };
-  });
+  }, genau);
   await b.close();
 
   /* ---- Auswertung in Node ---- */
@@ -155,7 +194,8 @@ const alt = process.argv[4] === 'alt';
   const p = (s) => console.log(s);
   p('');
   p('== Wiederholung in der Haeuserzeile (Keim ' + seed +
-    (alt ? ', OHNE die Bremsen aus Teil E' : '') + ') ==');
+    (alt ? ', OHNE die Bremsen aus Teil E' : '') +
+    (genau ? ', nach Zeilenkennung' : '') + ') ==');
   p('  ' + Z.length + ' Zeilen mit mindestens zwei Haeusern, ' +
     Z.reduce((a, z) => a + z.haeuser.length, 0) + ' Haeuser darin, ' +
     aus.kisten + ' Haeuser insgesamt');
@@ -179,7 +219,7 @@ const alt = process.argv[4] === 'alt';
   p('');
   if (zielJson) {
     fs.writeFileSync(zielJson, JSON.stringify({
-      seed, kisten: aus.kisten, zeilen: Z.length, mass: M,
+      seed, genau, kisten: aus.kisten, zeilen: Z.length, mass: M,
       lotfolgenMehrfach: mehrfach.length,
       gegenueberGleich, gegenueberPaare,
     }, null, 1));
