@@ -5456,13 +5456,24 @@ function hausVisual(h, info) {
    Deshalb merkt sich die Zeile, welche Textur das vorige Haus bekommen
    hat, und dieses hier nimmt eine andere. Das kostet nichts: die Textur
    entscheidet nur, in welchen verschmolzenen Eimer die Geometrie kommt,
-   und die Zahl der Eimer aendert sich dadurch nicht. */
-let letzteFassade = -1;
+   und die Zahl der Eimer aendert sich dadurch nicht.
+
+   ---- Je Zeile, nicht global ----
+   Der erste Versuch merkte sich die letzte Textur in EINER Variablen fuer
+   die ganze Stadt. Das wirkte ueber Zeilengrenzen hinweg: das erste Haus
+   einer Blockkante richtete sich nach dem letzten Haus einer voellig
+   anderen Kante, die hundert Meter weiter steht. Gemessen war der Anteil
+   gleicher Texturen an den Uebergaengen zwischen zwei Zeilen 0,0 Prozent;
+   ohne jede Beeinflussung waeren bei drei Texturen rund 33 Prozent zu
+   erwarten. Der Zustand haengt deshalb jetzt an der Zeile, genau wie bei
+   der Modellwahl. */
+const letzteFassade = {};        // Zeile -> zuletzt gewaehlte Textur
 function makeBuildingMesh(w, h, d, x, z, schau, info) {
   let texIdx = randi(0, facadeTexes.length - 1);
-  if (!WDH_ALT && info && facadeTexes.length > 1 && texIdx === letzteFassade)
+  const zeile = info && info.zeile;
+  if (!WDH_ALT && zeile && facadeTexes.length > 1 && texIdx === letzteFassade[zeile])
     texIdx = (texIdx + 1 + randi(0, facadeTexes.length - 2)) % facadeTexes.length;
-  letzteFassade = texIdx;
+  if (zeile) letzteFassade[zeile] = texIdx;
   const visual = hausVisual(h, info);
   HAUS_KISTEN.push({ w, h, d, x, z, visual, textur: texIdx,
                      zeile: info && info.zeile });
@@ -36009,7 +36020,8 @@ if (window.__WEBHERO_TEST__ === true) {
                                        d: +b.d.toFixed(2),
                                        x: +b.x.toFixed(2), z: +b.z.toFixed(2),
                                        visual: b.visual || 'model',
-                                       textur: b.textur, modell: b.modell || null }));
+                                       textur: b.textur, modell: b.modell || null,
+                                       zeile: b.zeile || null }));
     },
     /* CITY V2 Stufe 5: findet die Geschichte nach dem Umbau noch
        Plaetze? stOrt zieht 40 zufaellige Punkte und nimmt den
