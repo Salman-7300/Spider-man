@@ -5046,11 +5046,25 @@ function updateZug(dt) {
    Grafikspeicher und ebenso viele Zeichenaufrufe. Jetzt wird die Kachelung
    direkt in die UV-Koordinaten gerechnet; dadurch reichen drei Texturen und
    alle Wände einer Textur landen in einem einzigen Mesh. */
-/* Zusätzlich nach Kacheln von 110 m sortiert: so bleibt die Sichtprüfung
-   der Grafikkarte wirksam und es wird nie die ganze Stadt gezeichnet. */
+/* Zusätzlich nach Kacheln sortiert: so bleibt die Sichtprüfung der
+   Grafikkarte wirksam und es wird nie die ganze Stadt gezeichnet.
+   Die Kachel ist 200 m gross - der Kommentar sprach frueher von 110 m,
+   das war nie der Wert der Konstante. Geaendert wird die Zahl hier
+   nicht: 200 m ist gemessen in Ordnung, und eine feinere Kachelung
+   kostet mehr Zeichenaufrufe, als sie durch Wegschneiden spart. */
 const HAUS_KACHEL = 200;
-const hausWaende = new Map();   // "texIdx|kx|kz" -> Geometrien
-const hausDaecher = new Map();  // "kx|kz"        -> Geometrien
+/* ---- Zwei Saetze verschmolzener Fassaden ----
+   PROD  Haeuser, die dauerhaft prozedural bleiben (visualMode 'merged').
+         Diese Meshes bleiben IMMER sichtbar.
+   FALL  Haeuser, ueber die spaeter ein echtes Modell gestellt wird
+         (visualMode 'model'). Sie sind der Rueckfall: laedt
+         assets/haeuser.glb nicht, steht trotzdem ein Haus da. Erst wenn
+         ALLE Modelle gesetzt sind, verschwindet dieser Satz - und nur
+         dieser. */
+const hausWaendeProd = new Map();   // "texIdx|kx|kz" -> Geometrien
+const hausDaecherProd = new Map();  // "kx|kz"        -> Geometrien
+const hausWaendeFall = new Map();
+const hausDaecherFall = new Map();
 function kachelSchluessel(x, z) {
   return Math.floor(x / HAUS_KACHEL) + '|' + Math.floor(z / HAUS_KACHEL);
 }
@@ -5060,7 +5074,9 @@ function inEimer(map, schluessel, geo) {
   l.push(geo);
 }
 
-function sammleHausBox(w, h, d, x, y, z, texIdx) {
+/* modell = ueber dieses Haus kommt spaeter ein echtes Modell; seine
+   prozedurale Geometrie gehoert dann in den Rueckfallsatz. */
+function sammleHausBox(w, h, d, x, y, z, texIdx, modell) {
   const g = new THREE.BoxGeometry(w, h, d).toNonIndexed();
   const uv = g.attributes.uv;
   /* Kachelung pro Seite: waagerecht nach der tatsächlichen Breite der
@@ -5104,8 +5120,10 @@ function sammleHausBox(w, h, d, x, y, z, texIdx) {
   dach.setAttribute('normal', new THREE.Float32BufferAttribute(td.n, 3));
   dach.setAttribute('uv', new THREE.Float32BufferAttribute(td.u, 2));
   const k = kachelSchluessel(x, z);
-  inEimer(hausWaende, texIdx + '|' + k, wand);
-  inEimer(hausDaecher, k, dach);
+  const w2 = modell ? hausWaendeFall : hausWaendeProd;
+  const d2 = modell ? hausDaecherFall : hausDaecherProd;
+  inEimer(w2, texIdx + '|' + k, wand);
+  inEimer(d2, k, dach);
   g.dispose();
 }
 
@@ -5140,25 +5158,31 @@ function baueHausMeshes() {
   /* Ein Material je Fassadentextur – alle Kacheln teilen es sich. */
   const wandMats = facadeTexes.map((t) => new THREE.MeshLambertMaterial({ map: t }));
   const dachMat = new THREE.MeshLambertMaterial({ map: roofTex });
-  for (const [schluessel, liste] of hausWaende) {
-    if (!liste.length) continue;
-    const m = new THREE.Mesh(fasseGeometrien(liste), wandMats[+schluessel.split('|')[0]]);
-    m.castShadow = true; m.receiveShadow = true;
-    cityGroup.add(m);
-    HAUS_FASSADEN.push(m);
-  }
-  for (const [, liste] of hausDaecher) {
-    if (!liste.length) continue;
-    const m = new THREE.Mesh(fasseGeometrien(liste), dachMat);
-    m.castShadow = true; m.receiveShadow = true;
-    cityGroup.add(m);
-    /* Die Dachplatten gehoeren zur selbstgebauten Kiste und muessen mit
-       ihr verschwinden, sobald echte Gebaeudemodelle stehen. Vorher blieben
-       sie sichtbar: das Modell bringt sein eigenes Dach mit, die alte
-       Platte lag genau darauf und flimmerte dagegen an. */
-    HAUS_FASSADEN.push(m);
-  }
-  hausWaende.clear(); hausDaecher.clear();
+  /* Beide Saetze werden gleich gebaut - sie unterscheiden sich nur
+     darin, wer sie spaeter ausblenden darf. */
+  const bauen = (waende, daecher, ziel) => {
+    for (const [schluessel, liste] of waende) {
+      if (!liste.length) continue;
+      const m = new THREE.Mesh(fasseGeometrien(liste), wandMats[+schluessel.split('|')[0]]);
+      m.castShadow = true; m.receiveShadow = true;
+      cityGroup.add(m);
+      ziel.push(m); HAUS_FASSADEN.push(m);
+    }
+    for (const [, liste] of daecher) {
+      if (!liste.length) continue;
+      const m = new THREE.Mesh(fasseGeometrien(liste), dachMat);
+      m.castShadow = true; m.receiveShadow = true;
+      cityGroup.add(m);
+      /* Die Dachplatten gehoeren zur selbstgebauten Kiste und muessen mit
+         ihr verschwinden, sobald ein echtes Gebaeudemodell darueber
+         steht: das Modell bringt sein eigenes Dach mit, die alte Platte
+         laege genau darauf und flimmerte dagegen an. */
+      ziel.push(m); HAUS_FASSADEN.push(m);
+    }
+    waende.clear(); daecher.clear();
+  };
+  bauen(hausWaendeProd, hausDaecherProd, HAUS_FASSADEN_PROD);
+  bauen(hausWaendeFall, hausDaecherFall, HAUS_FASSADEN_FALL);
 }
 
 /* Jedes Haus wird gemerkt: Grundriss, Hoehe, Ort. Sobald der Haeusersatz
@@ -5167,7 +5191,9 @@ function baueHausMeshes() {
    ist es, an der geklettert, geschwungen und angestossen wird. Deshalb
    aendert sich am Spielgefuehl nichts, nur am Bild. */
 const HAUS_KISTEN = [];
-const HAUS_FASSADEN = [];        // die selbstgebauten Fassadenmeshes
+const HAUS_FASSADEN = [];        // alle selbstgebauten Fassadenmeshes
+const HAUS_FASSADEN_PROD = [];   // ... die dauerhaft sichtbar bleiben
+const HAUS_FASSADEN_FALL = [];   // ... die der Rueckfall fuer die Modelle sind
 /* ---- Leuchtreklame ----
    Der Trailer lebt von einem: Nacht, Regen, und dazwischen Leuchtschilder
    an den Fassaden. Gemessen sah die Strassenschlucht bei Nacht dagegen
@@ -5350,10 +5376,44 @@ function baueNeon() {
   cityGroup.add(neonMesh);
 }
 
-function makeBuildingMesh(w, h, d, x, z, schau) {
+/* ======================= Hybride Darstellung =======================
+   Bis Stufe 5 bekam JEDE Kiste eine eigene Modellkopie. Gemessen kostet
+   eine solche Kopie 0,88 Zeichenaufrufe; bei 274 Haeusern ging das auf,
+   bei 622 nicht mehr - das Tor von +25 Prozent gegenueber Stufe 4.1
+   (719 Aufrufe) war mit 1024 deutlich gerissen.
+
+   Der Hebel sind nicht weniger Haeuser, sondern die bereits vorhandene
+   verschmolzene Fassadenschicht: sie kostet zwei Zeichenaufrufe JE
+   KACHEL, egal wie viele Haeuser darin stehen. Ein Haus, das
+   prozedural bleibt, ist also praktisch umsonst.
+
+   Welche Haeuser bleiben prozedural? Die, bei denen man es am
+   wenigsten sieht - die niedrigen, wiederholten Haeuser einer
+   Strassenwand. Ein Modell bekommen die, die den Blick tragen: hohe
+   Haeuser, die Enden einer Zeile, und im Zentrum frueher als sonst.
+
+   Die Schwelle ist ueber window.__WEBHERO_HYBRID messbar, damit sich
+   Kandidaten vergleichen lassen, ohne die Datei anzufassen. */
+const HYBRID_HOCH = (typeof window !== 'undefined' && window.__WEBHERO_HYBRID > 0)
+                    ? +window.__WEBHERO_HYBRID : 26;
+const HYBRID_ECK = 16;            // Eckhaus: schon ab dieser Hoehe ein Modell
+const HYBRID_ZENTRUM = 20;        // im Zentrum frueher als anderswo
+function hausVisual(h, info) {
+  /* Ohne Angaben ist es ein freistehender Baukoerper aus dem alten Weg -
+     der traegt den Blick allein und bekommt immer ein Modell. */
+  if (!info) return 'model';
+  if (h >= HYBRID_HOCH) return 'model';
+  if (info.ecke && h >= HYBRID_ECK) return 'model';
+  if ((info.art === 'ZENTRUM' || info.art === 'GESCHAEFT') && h >= HYBRID_ZENTRUM)
+    return 'model';
+  return 'merged';
+}
+
+function makeBuildingMesh(w, h, d, x, z, schau, info) {
   const texIdx = randi(0, facadeTexes.length - 1);
-  HAUS_KISTEN.push({ w, h, d, x, z });
-  sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx);
+  const visual = hausVisual(h, info);
+  HAUS_KISTEN.push({ w, h, d, x, z, visual });
+  sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx, visual === 'model');
   /* Die Häuserkollision endet einen Meter unter der Straße. Ohne diese
      Untergrenze reicht sie beliebig tief ins Erdreich – in der U-Bahn-
      Station stand man dadurch an einer unsichtbaren Hauswand und kletterte
@@ -5572,7 +5632,7 @@ function baueHaeuserzeile(bi, bj, cx, cz) {
     /* Das Gesims steht nur zur Strasse vor - die Richtung steckt schon
        im Lot (nx/nz zeigt nach aussen). */
     makeBuildingMesh(l.w, lotHoehe(art, l, cx, cz), l.d, l.x, l.z,
-                     { nx: l.nx, nz: l.nz });
+                     { nx: l.nx, nz: l.nz }, { art, ecke: l.ecke });
     n++;
   }
   return n;
@@ -6701,38 +6761,63 @@ function setzeHausModelle(szene) {
     return o.userData;
   }
 
-  let gesetzt = 0;
-  for (const e of HAUS_KISTEN) {
+  /* ---- Erst vorbereiten, dann in einem Zug setzen ----
+     Wuerde hier Haus fuer Haus in die Szene gestellt und am Ende der
+     Rueckfall ausgeblendet, dann fehlte bei einem Fehler auf halber
+     Strecke der Rest der Stadt - ausgeblendete Fassaden, keine Modelle.
+     Deshalb wird alles erst gebaut und geprueft; erst wenn JEDES
+     erwartete Modell vorliegt, kommen sie in die Szene und erst dann
+     verschwindet der Rueckfall. Sonst wird das Vorbereitete verworfen
+     und die prozeduralen Haeuser bleiben stehen. */
+  const warten = HAUS_KISTEN.filter((e) => e.visual === 'model');
+  const fertig = [];          // { obj } und optional { kollider }
+  for (const e of warten) {
     if (CITY_LOOK && e.h >= 38) {
       const variante = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % CITY_LOOK.towerStyles.length;
       const hochhaus = CITY_LOOK.createTower(e.w, e.h, e.d, variante);
+      if (!hochhaus) break;
       hochhaus.position.set(e.x, SLAB_H, e.z);
-      cityGroup.add(hochhaus); HAUS_MODELLE.push(hochhaus); gesetzt++;
+      fertig.push({ obj: hochhaus });
       continue;
     }
     const kl = e.h > 62 ? 3 : e.h > 38 ? 2 : e.h > 19 ? 1 : 0;
     const liste = nachKlasse[kl];
+    if (!liste || !liste.length) break;
     /* Ortsabhaengige Wahl: gleiches Haus, gleiches Modell - auch nach
        einem Neustart. */
     const i = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % liste.length;
     const mass = vermessen(liste[i]);
     const kopie = liste[i].clone(true);
+    if (!kopie) break;
     kopie.position.set(e.x, SLAB_H, e.z);
     kopie.scale.set(e.w, e.h / mass.dachAnteil, e.d);
+    kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    const eintrag = { obj: kopie };
     if (mass.krone) {
       const k = mass.krone;
-      addCollider({ x0: e.x + k.x0 * e.w, x1: e.x + k.x1 * e.w,
-                    z0: e.z + k.z0 * e.d, z1: e.z + k.z1 * e.d,
-                    h: SLAB_H + e.h + k.hoch * e.h, y0: SLAB_H + e.h - 0.2,
-                    klein: true });
+      eintrag.kollider = { x0: e.x + k.x0 * e.w, x1: e.x + k.x1 * e.w,
+                           z0: e.z + k.z0 * e.d, z1: e.z + k.z1 * e.d,
+                           h: SLAB_H + e.h + k.hoch * e.h, y0: SLAB_H + e.h - 0.2,
+                           klein: true };
     }
-    kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    cityGroup.add(kopie);
-    HAUS_MODELLE.push(kopie);
-    gesetzt++;
+    fertig.push(eintrag);
   }
-  /* Erst wenn wirklich Modelle stehen, verschwinden die alten Fassaden. */
-  if (gesetzt) for (const m of HAUS_FASSADEN) m.visible = false;
+  if (fertig.length !== warten.length) {
+    /* Unvollstaendig: nichts setzen, nichts ausblenden. Die Stadt steht
+       dann ganz in der prozeduralen Fassung da - haesslicher, aber
+       vollstaendig. */
+    window.__hausFehler = 'nur ' + fertig.length + ' von ' + warten.length +
+                          ' Modellen vorbereitet - Rueckfall bleibt stehen';
+    return;
+  }
+  for (const t of fertig) {
+    cityGroup.add(t.obj);
+    HAUS_MODELLE.push(t.obj);
+    if (t.kollider) addCollider(t.kollider);
+  }
+  /* NUR der Rueckfall verschwindet. Die Haeuser mit visualMode 'merged'
+     bleiben prozedural sichtbar - ueber ihnen steht kein Modell. */
+  if (fertig.length) for (const m of HAUS_FASSADEN_FALL) m.visible = false;
 }
 
 function ladeStadtteile(loader) {
@@ -35848,7 +35933,8 @@ if (window.__WEBHERO_TEST__ === true) {
     hausKisten() {
       return HAUS_KISTEN.map((b) => ({ w: +b.w.toFixed(2), h: +b.h.toFixed(2),
                                        d: +b.d.toFixed(2),
-                                       x: +b.x.toFixed(2), z: +b.z.toFixed(2) }));
+                                       x: +b.x.toFixed(2), z: +b.z.toFixed(2),
+                                       visual: b.visual || 'model' }));
     },
     /* CITY V2 Stufe 5: findet die Geschichte nach dem Umbau noch
        Plaetze? stOrt zieht 40 zufaellige Punkte und nimmt den
@@ -35887,8 +35973,15 @@ if (window.__WEBHERO_TEST__ === true) {
     hausModelle() { return HAUS_MODELLE; },
     hausInfo() {
       return { kisten: HAUS_KISTEN.length, modelle: HAUS_MODELLE.length,
+               model: HAUS_KISTEN.filter((b) => b.visual === 'model').length,
+               merged: HAUS_KISTEN.filter((b) => b.visual !== 'model').length,
                fassaden: HAUS_FASSADEN.length,
-               fassadeSichtbar: HAUS_FASSADEN.some((m) => m.visible),
+               fassadenProd: HAUS_FASSADEN_PROD.length,
+               fassadenFall: HAUS_FASSADEN_FALL.length,
+               prodSichtbar: HAUS_FASSADEN_PROD.filter((m) => m.visible).length,
+               fallSichtbar: HAUS_FASSADEN_FALL.filter((m) => m.visible).length,
+               kacheln: HAUS_KACHEL,
+               schwelle: HYBRID_HOCH,
                fehler: window.__hausFehler || null };
     },
     aufzuege() {

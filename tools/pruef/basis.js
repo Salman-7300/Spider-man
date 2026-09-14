@@ -56,6 +56,11 @@ async function starte(breite, hoehe, seed, opt) {
   page.on('pageerror', (e) => console.log('SEITENFEHLER:', e.message));
   await page.route('**/cdn.jsdelivr.net/**',
     (r) => r.fulfill({ path: THREE_DATEI, contentType: 'application/javascript' }));
+  /* Rueckfalltest: haeuser.glb mit 404 beantworten. */
+  if (opt && opt.ohneHaeuser) {
+    await page.route('**/assets/haeuser.glb',
+      (r) => r.fulfill({ status: 404, body: 'nicht da' }));
+  }
   await page.route('http://webhero.test/**', (route) => {
     const p = new URL(route.request().url()).pathname;
     const f = path.join(WURZEL, p === '/' ? '/index.html' : p);
@@ -71,9 +76,15 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.autos) window.__WEBHERO_AUTOS = ein.autos;
     if (ein.park !== null) window.__WEBHERO_PARKAUTOS = ein.park;
     if (ein.streetSpur) window.__WEBHERO_STREETSPUR = ein.streetSpur;
+    /* CITY V2 Stufe 5: Hoehenschwelle, ab der ein Haus ein echtes Modell
+       bekommt statt prozedural zu bleiben. Damit lassen sich Kandidaten
+       vergleichen, ohne game.js anzufassen. */
+    if (ein.hybrid) window.__WEBHERO_HYBRID = ein.hybrid;
   }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0,
        park: (opt && opt.park !== undefined) ? opt.park : null,
-       streetSpur: (opt && opt.streetSpur) || 0 });
+       streetSpur: (opt && opt.streetSpur) || 0,
+       hybrid: (opt && opt.hybrid) || 0,
+       ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   await page.goto('http://webhero.test/');
   await page.waitForFunction(() => window.__dbg && window.__dbg.actorsReady, { timeout: 150000 });
   /* ---- Warten, bis die STADT wirklich steht ----
@@ -84,16 +95,24 @@ async function starte(breite, hoehe, seed, opt) {
      Gemessen: 1,8 Sekunden nach actorsReady steht davon NICHTS, nach drei
      Sekunden alles. Wer frueher misst, misst eine andere Stadt - mir sind
      damit eine LOD-Messung und eine Reihe Bildschirmfotos verdorben. */
-  await page.waitForFunction(() => {
-    let n = 0;
-    window.__dbg.szene.traverse((o) => {
-      if (o.userData && o.userData.visualKind === 'tower') n++;
+  /* Beim Rueckfalltest wird haeuser.glb absichtlich nicht ausgeliefert -
+     dann auf die Modelle zu warten hiesse, eine Minute auf etwas zu
+     warten, das per Absicht nicht kommt. */
+  if (!(opt && opt.ohneHaeuser)) {
+    await page.waitForFunction(() => {
+      let n = 0;
+      window.__dbg.szene.traverse((o) => {
+        if (o.userData && o.userData.visualKind === 'tower') n++;
+      });
+      return n > 0;
+    }, { timeout: 60000 }).catch(() => {
+      console.log('WARNUNG: die Hausmodelle sind nicht erschienen - '
+                + 'die Messung laeuft auf den einfachen Fassadenkisten.');
     });
-    return n > 0;
-  }, { timeout: 60000 }).catch(() => {
-    console.log('WARNUNG: die Hausmodelle sind nicht erschienen - '
-              + 'die Messung laeuft auf den einfachen Fassadenkisten.');
-  });
+  } else {
+    /* Trotzdem warten, bis der Ladeversuch durch ist. */
+    await page.waitForTimeout(4000);
+  }
   await page.waitForTimeout(900);
   await page.evaluate(() => {
     const o = document.getElementById('overlay');
