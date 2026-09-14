@@ -65,7 +65,16 @@ const CFG = {
      docs/CITY-V2-DESIGN.md, Abschnitt 4d. */
   carCount: (typeof window !== 'undefined' && window.__WEBHERO_AUTOS > 0)
             ? (window.__WEBHERO_AUTOS | 0) : 45,
-  parkCount: 50,
+  /* Gemessen ueber 0, 30, 50, 70, 120, 200 und 300 parkende Wagen: die
+     Zeichenaufrufe steigen NICHT (532 bis 584, Einzelwerte 530 bis 610 -
+     also Rauschen zwischen den Laeufen). Das Wegschneiden bei 150 m und
+     das Sichtfeld deckeln, wieviele ueberhaupt gezeichnet werden. Die
+     Obergrenze ist damit nicht die Leistung, sondern das Aussehen: bei 70
+     war auf einem Bild von der Fahrbahnmitte KEIN einziger parkender
+     Wagen zu sehen, bei 200 einer, bei 300 mehrere. Naeher als ein Wagen
+     je 57 m Bordstein kommt man mit Einzelmodellen nicht - dichter
+     geparkte Strassen brauchen Instancing (Stufe 10). */
+  parkCount: 300,
   heliCount: 2,
   maxEnemies: 14,
   rollDauer: 0.45,
@@ -20753,6 +20762,10 @@ function parkPlatzTauglich(pl, halbL, halbB) {
      nicht treffen - der Aufzug am Zwischengeschoss aber schon, er liegt
      am Bordstein. Gemessen stand ein Wagen 4,1 m davor. */
   for (const a of AUFZUEGE) if (Math.hypot(a.x - x, a.z - z) < 7) return false;
+  /* Haustueren: bei 50 Wagen kam keiner in ihre Naehe, bei 300 zwei -
+     gemessen 3,4 m und 1,7 m. Ein paar Baukastenhaeuser stehen dicht an
+     der Strassenkante, ihre Tuer liegt dann fast am Bordstein. */
+  for (const t of hausTueren()) if (Math.hypot(t.x - x, t.z - z) < 6) return false;
   /* Und der gemeinsame Platzwaechter, der auch die Stadtmoebel fuehrt. */
   return nimmPlatz(x, z, Math.max(hx, hz) + 0.2);
 }

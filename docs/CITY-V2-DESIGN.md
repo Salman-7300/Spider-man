@@ -203,6 +203,118 @@ Linien gelandet, die es auf dieser Achse gar nicht gibt.
 
 ---
 
+## 4c. Verkehrsdichte und parkende Autos (Stufe 4)
+
+### Wieviel Verkehr auf welcher Strasse
+
+Zwei Zahlen je Klasse steuern das. Die zweite ist die wichtigere: auf
+einem Boulevard faehrt man durch, in einer Wohnstrasse biegt man staendig
+ab. Daraus entsteht Durchgangsverkehr auf den Hauptachsen, ohne dass
+irgendwo ein Wagen kuenstlich hingesetzt wird.
+
+| Klasse | Startgewicht | Abbiegechance |
+|--------|--------------|---------------|
+| LOCAL | 0,5 | 0,30 |
+| STREET | 1,0 | 0,16 |
+| AVENUE | 2,6 | 0,09 |
+| BOULEVARD | 3,4 | 0,05 |
+
+Anteil aller Wagenproben je Klasse, gemessen bei 26 Fahrzeugen:
+
+| Klasse | vorher | nachher |
+|--------|--------|---------|
+| BOULEVARD | 4,7 % | 9,1 % |
+| AVENUE | 13,8 % | 19,7 % |
+| STREET | 55,3 % | 45,7 % |
+| LOCAL | 26,2 % | 25,6 % |
+
+### Wie viele Fahrzeuge
+
+Vier Kandidaten, je drei Laeufe ueber 240 s, feste Tageszeit, dieselben
+acht Kamerastellen:
+
+| Groesse | 35 | **45** | 55 | 65 |
+|---------|----|----|----|----|
+| sichtbar in 50 m | 0 | 1 | 0 | 1 |
+| sichtbar in 100 m | 2 | **4** | 5 | 5 |
+| sichtbar in 150 m | 6 | 8 | 10 | 10 |
+| Zeichenaufrufe | 599 | **636,5** | 678 | 744,5 |
+| ms je Schritt | 3,54 | 3,77 | 3,61 | 4,03 |
+| Brueckendurchfahrten/min | 1,0 | 2,0 | 1,75 | 2,0 |
+
+45 verdoppelt die sichtbaren Wagen in 100 m gegenueber 35 und kostet
+dabei sechs Prozent mehr Zeichenaufrufe. 55 bringt EINEN Wagen mehr fuer
+weitere sechseinhalb Prozent, 65 zwei fuer siebzehn. Gewaehlt ist die
+niedrigste Zahl, bei der die Stadt sichtbar belebt wirkt: **45**.
+
+Die Bruecke ist damit ohne jede Sonderregel zurueck - 2,0 Durchfahrten je
+Minute gegen 1,00 im Stand vor CITY V2. `BRUECKEN_SOG` ist nicht
+angefasst.
+
+### Parkende Autos
+
+Modell und Kollisionskasten, sonst nichts: kein Eintrag in `cars`, also
+kein Fahrer, keine Verkehrs-KI, kein Mixer, keine Bodenpruefung je Bild.
+Nur ein Sichtbarkeitstest viermal je Sekunde bei 150 m.
+
+Wo geparkt wird, ist Geometrie: ein Wagen ist bis 2,0 m breit, der
+Asphalt endet bei 6,0 m, also darf die aeusserste Fahrspur hoechstens auf
+3,0 liegen.
+
+| Klasse | aeussere Spur | Platz bis zur Kante | parken |
+|--------|---------------|---------------------|--------|
+| LOCAL | 2,4 | 1,65 m | ja, dicht |
+| STREET | 3,0 | 1,05 m | ja, mittel |
+| AVENUE | 4,4 | -0,35 m | kein Platz |
+| BOULEVARD | 4,6 | -0,55 m | kein Platz |
+
+Die Zahl kostet nichts: gemessen ueber 0, 30, 50, 70, 120, 200 und 300
+parkende Wagen liegen die Zeichenaufrufe zwischen 532 und 584, die
+Einzelwerte zwischen 530 und 610 - das ist Rauschen zwischen den Laeufen,
+kein Effekt. Das Wegschneiden bei 150 m und das Sichtfeld deckeln,
+wieviele ueberhaupt gezeichnet werden.
+
+Die Obergrenze ist deshalb das AUSSEHEN, nicht die Leistung. Auf einem
+Bild von der Fahrbahnmitte war bei 70 Wagen KEIN einziger zu sehen, bei
+200 einer, bei 300 mehrere. Gewaehlt: **300**, also ein Wagen je 57 m
+Bordstein. Dichter geht es mit Einzelmodellen nicht - dafuer braucht es
+Instancing, und das ist Stufe 10.
+
+### Der ungeloeste Konflikt: Bus und Parkstreifen
+
+Auf einer STREET liegt die Fahrspur bei 3,0 m. Ein Bus ist 2,4 m breit
+und reicht damit bis 4,2 m. Der parkende Wagen liegt buendig am
+Asphaltrand und beginnt bei 4,05 m. **Zehn Zentimeter fehlen.**
+
+Rechnerisch: der parkende Wagen braucht seine Mitte bei mindestens
+3,0 + 1,2 + 0,95 = 5,15 m und hoechstens bei 6,0 - 0,95 = 5,05 m. Es gibt
+keine Loesung, solange die Spur auf 3,0 liegt und das schmalste Fahrzeug
+1,9 m breit ist.
+
+Gemessen ueber 2.400 Proben: 344 Faelle, in denen ein fahrender Wagen
+einen parkenden ueberdeckte - **alle 344 waren Busse oder Lkw**, kein
+einziger Pkw, kein einziger in der Kurve.
+
+Zwei Versuche, das ohne Aenderung der Spurlage zu entschaerfen, wurden
+gemessen und wieder ZURUECKGENOMMEN:
+
+1. Breite Fahrzeuge starten auf den Hauptstrassen: 344 -> 282 (-18 %).
+2. Zusaetzlich: breite Fahrzeuge biegen nicht in enge Strassen ab:
+   344 -> 220 (-36 %). Die Regel wirkt sogar gegen sich selbst - ein Bus,
+   der schon auf einer Nebenstrasse faehrt, darf dann auch nicht mehr
+   herunter und bleibt laenger dort.
+
+Es bleiben zwei echte Wege, und beide braucht eine Entscheidung:
+
+* die Spurlage von STREET von +/-3,0 auf +/-2,6 ruecken - das ist eine
+  Aenderung an Stufe 3, die ausdruecklich gesperrt ist;
+* oder auf STREET gar nicht parken - dann stehen alle Wagen auf den drei
+  Randstrassen.
+
+Bis dahin bleibt es, wie es ist, und der Fall steht im Human-Test.
+
+---
+
 ## 5. Leistung
 
 Gemessen wird mit `tools/pruef/stadt-leistung.js` an 300 festen

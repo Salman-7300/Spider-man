@@ -41,6 +41,15 @@ fs.mkdirSync(ziel, { recursive: true });
     ['boulevard-z',  mx - 40, 22, 25, mx + 60, 2, 25],
     ['avenue-z',     mx - 40, 22, -125, mx + 60, 2, -125],
     ['local-rand',   R.x0, 22, mz - 40, R.x0, 2, mz + 60],
+    /* CITY V2 Stufe 4: Strassenhoehe je Klasse, plus Bruecke,
+       Wohnblock und Downtown - die Lagen aus dem Human-Test. */
+    ['s4-boulevard', -125, 2.3, -55, -125, 3, 130],
+    ['s4-avenue',    -55, 2.3, -125, 130, 3, -125],
+    ['s4-street',    -75, 2.3, -55, -75, 3, 130],
+    ['s4-local',     R.x0, 2.3, -55, R.x0, 3, 130],
+    ['s4-bruecke',   172, 3.0, -60, 300, 3, -25],
+    ['s4-wohnblock', -225, 2.3, 105, -225, 3, 230],
+    ['s4-downtown',  25, 2.3, -5, 25, 3, 120],
   ];
   for (const [name, px, py, pz, zx, zy, zz] of bilder) {
     /* Dreimal zeichnen: SwiftShader liefert sonst einen halb fertigen

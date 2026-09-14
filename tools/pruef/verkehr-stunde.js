@@ -48,7 +48,8 @@ const SEKUNDEN = Number(process.argv[2]) || 3600;
                    knapp ueber der Schwelle) oder sich an einer Kreuzung
                    schneiden. Das sind drei verschiedene Befunde. */
                 inGleicheSpur: 0, inNachbarSpur: 0, inKreuzend: 0,
-                inKurve: 0, inSteht: 0 };
+                inKurve: 0, inSteht: 0, parkStreift: 0,
+                parkKurve: 0, parkBreit: 0, parkSchmalGerade: 0 };
     const bsp = {};
     const merk = (k, x, z) => { if (!bsp[k]) bsp[k] = [+x.toFixed(1), +z.toFixed(1)]; };
     const stand = new Map(), vorher = new Map();
@@ -76,9 +77,26 @@ const SEKUNDEN = Number(process.argv[2]) || 3600;
           if ((k.h || 0) < 1.2) continue;
           const unten = k.y0 === undefined ? -50 : k.y0;
           if (k.h <= p.y + 0.3 || unten >= p.y + 1.8) continue;
-          if (x > k.x0 - halb && x < k.x1 + halb && z > k.z0 - halb && z < k.z1 + halb) {
-            Z.imHaus++; merk('imHaus', x, z); break;
+          if (!(x > k.x0 - halb && x < k.x1 + halb && z > k.z0 - halb && z < k.z1 + halb)) continue;
+          /* ---- Ein parkendes Auto ist KEIN Haus ----
+             Seit Stufe 4 stehen Wagen am Bordstein, und sie haben einen
+             Kollisionskasten von 1,55 m Hoehe - also ueber der Schwelle
+             von 1,2 m, mit der dieser Test Haeuser sucht. Beim ersten
+             Lauf danach meldete er 1177 von 7200 Proben "im Haus".
+             Gezaehlt wird das jetzt getrennt: ein fahrender Wagen, der
+             einen parkenden streift, ist ein eigener Befund und keine
+             Fassade. */
+          if (k.parkAuto) {
+            Z.parkStreift++; merk('parkStreift', x, z);
+            /* Woher kommt die Ueberdeckung? Ein breites Fahrzeug passt
+               rechnerisch nicht vorbei; ein Wagen in der Kurve ist nur
+               waehrend der weichen Nachfuehrung dort. */
+            if ((c.kurve || 0) > 0) Z.parkKurve++;
+            if ((c.typ ? c.typ.breite : 1.9) > 2.0) Z.parkBreit++;
+            else if ((c.kurve || 0) <= 0) Z.parkSchmalGerade++;
+            continue;
           }
+          Z.imHaus++; merk('imHaus', x, z); break;
         }
         const t = (c.tempoJetzt || 0) < 0.05 ? (stand.get(c) || 0) + 15 * dt : 0;
         stand.set(c, t);
