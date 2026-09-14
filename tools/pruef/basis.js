@@ -70,8 +70,10 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.seed !== null) window.__WEBHERO_SEED = ein.seed;
     if (ein.autos) window.__WEBHERO_AUTOS = ein.autos;
     if (ein.park !== null) window.__WEBHERO_PARKAUTOS = ein.park;
+    if (ein.streetSpur) window.__WEBHERO_STREETSPUR = ein.streetSpur;
   }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0,
-       park: (opt && opt.park !== undefined) ? opt.park : null });
+       park: (opt && opt.park !== undefined) ? opt.park : null,
+       streetSpur: (opt && opt.streetSpur) || 0 });
   await page.goto('http://webhero.test/');
   await page.waitForFunction(() => window.__dbg && window.__dbg.actorsReady, { timeout: 150000 });
   /* ---- Warten, bis die STADT wirklich steht ----

@@ -3,8 +3,10 @@
    immer dieselbe Ecke simuliert wird. Laufzeit rund eine halbe Stunde. */
 const { starte } = require('./basis');
 const SEKUNDEN = Number(process.argv[2]) || 3600;
+const STREETSPUR = Number(process.argv[3]) || 0;   // Stufe 4.1: Kandidat
 (async () => {
-  const { b, page } = await starte(800, 480, 4711);
+  const { b, page } = await starte(800, 480, 4711,
+    STREETSPUR ? { streetSpur: STREETSPUR } : undefined);
   const aus = await page.evaluate(async (SEKUNDEN) => {
     const d = __dbg, P = d.player;
     d.frier(true);
@@ -49,7 +51,7 @@ const SEKUNDEN = Number(process.argv[2]) || 3600;
                    schneiden. Das sind drei verschiedene Befunde. */
                 inGleicheSpur: 0, inNachbarSpur: 0, inKreuzend: 0,
                 inKurve: 0, inSteht: 0, parkStreift: 0,
-                parkKurve: 0, parkBreit: 0, parkSchmalGerade: 0 };
+                parkKurve: 0, parkBreit: 0, parkSchmalGerade: 0, parkLuecke: 99 };
     const bsp = {};
     const merk = (k, x, z) => { if (!bsp[k]) bsp[k] = [+x.toFixed(1), +z.toFixed(1)]; };
     const stand = new Map(), vorher = new Map();
@@ -77,6 +79,21 @@ const SEKUNDEN = Number(process.argv[2]) || 3600;
           if ((k.h || 0) < 1.2) continue;
           const unten = k.y0 === undefined ? -50 : k.y0;
           if (k.h <= p.y + 0.3 || unten >= p.y + 1.8) continue;
+          if (k.parkAuto) {
+            /* Auch die knappen, aber noch freien Vorbeifahrten zaehlen:
+               der kleinste Querabstand ueber ALLE ist die Kennzahl. */
+            const qa2 = c.axis === 'x' ? 'z' : 'x';
+            const m2 = qa2 === 'x' ? x : z;
+            const a0 = qa2 === 'x' ? k.x0 : k.z0, a1 = qa2 === 'x' ? k.x1 : k.z1;
+            if (m2 < a0 || m2 > a1) {
+              const ka = Math.abs(m2 - a0) < Math.abs(m2 - a1) ? a0 : a1;
+              const lu = Math.abs(ka - m2) - halb;
+              const laengs = qa2 === 'x' ? z : x;
+              const l0 = qa2 === 'x' ? k.z0 : k.x0, l1 = qa2 === 'x' ? k.z1 : k.x1;
+              if (laengs > l0 - 2 && laengs < l1 + 2 && lu < Z.parkLuecke)
+                Z.parkLuecke = +lu.toFixed(3);
+            }
+          }
           if (!(x > k.x0 - halb && x < k.x1 + halb && z > k.z0 - halb && z < k.z1 + halb)) continue;
           /* ---- Ein parkendes Auto ist KEIN Haus ----
              Seit Stufe 4 stehen Wagen am Bordstein, und sie haben einen
@@ -88,6 +105,14 @@ const SEKUNDEN = Number(process.argv[2]) || 3600;
              Fassade. */
           if (k.parkAuto) {
             Z.parkStreift++; merk('parkStreift', x, z);
+            /* Der QUERabstand zwischen Wagenflanke und Parkwagenkante -
+               das ist die Zahl, um die es geht. Negativ heisst Ueberdeckung. */
+            const qa = c.axis === 'x' ? 'z' : 'x';
+            const mitte = qa === 'x' ? x : z;
+            const k0 = qa === 'x' ? k.x0 : k.z0, k1 = qa === 'x' ? k.x1 : k.z1;
+            const kante = Math.abs(mitte - k0) < Math.abs(mitte - k1) ? k0 : k1;
+            const luecke = Math.abs(kante - mitte) - halb;
+            if (luecke < Z.parkLuecke) Z.parkLuecke = +luecke.toFixed(3);
             /* Woher kommt die Ueberdeckung? Ein breites Fahrzeug passt
                rechnerisch nicht vorbei; ein Wagen in der Kurve ist nur
                waehrend der weichen Nachfuehrung dort. */

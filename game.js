@@ -309,7 +309,20 @@ const STR_TEMPO = {
 const STR_KLASSEN = {
   LOCAL:     { spuren: 2, spurBreite: 3.2, mitten: [-2.4, 2.4], tempo: 'langsam',
                gewicht: 0.5, abbiegen: 0.30 },
-  STREET:    { spuren: 2, spurBreite: 3.6, mitten: [-3.0, 3.0], tempo: 'normal',
+  /* ---- Stufe 4.1: die Spurlage der STREET ----
+     Sie lag auf +/-3,0 - dem Wert, den jede Strasse vor der Hierarchie
+     hatte. Ein Bus ist 2,4 m breit und reicht damit bis 4,2 m; der
+     parkende Wagen liegt buendig an der Asphaltkante und beginnt bei
+     4,05 m. Die Kandidaten und ihre Messwerte stehen in
+     docs/CITY-V2-DESIGN.md, Abschnitt 4d.
+     Der Pruefstand kann den Wert ueber window.__WEBHERO_STREETSPUR
+     setzen - dieselbe Bauart wie der Weltkeim. */
+  STREET:    { spuren: 2, spurBreite: 3.6,
+               mitten: (() => {
+                 const m = (typeof window !== 'undefined' && window.__WEBHERO_STREETSPUR > 0)
+                           ? +window.__WEBHERO_STREETSPUR : 3.0;
+                 return [-m, m];
+               })(), tempo: 'normal',
                gewicht: 1.0, abbiegen: 0.16 },
   AVENUE:    { spuren: 4, spurBreite: 2.8, mitten: [-4.4, -1.6, 1.6, 4.4], tempo: 'zuegig',
                gewicht: 2.6, abbiegen: 0.09 },
