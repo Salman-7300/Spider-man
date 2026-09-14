@@ -40,6 +40,8 @@ const THREE_DATEI = path.join(WURZEL, 'tools', 'node_modules', 'three', 'build',
 
 /* opt: { touch: true } schaltet den Browser auf Beruehrung um - nur dann
    baut das Spiel seine Touch-Bedienung auf. */
+/* opt.autos setzt die Zahl der Fahrzeuge im Umlauf, bevor die Stadt
+   gebaut wird - fuer den Vergleich von Verkehrsdichten. */
 async function starte(breite, hoehe, seed, opt) {
   if (!fs.existsSync(THREE_DATEI)) {
     throw new Error('three fehlt: npm i -D three im Ordner tools/');
@@ -63,10 +65,11 @@ async function starte(breite, hoehe, seed, opt) {
             : 'application/octet-stream';
     route.fulfill({ path: f, contentType: t });
   });
-  await page.addInitScript((s) => {
+  await page.addInitScript((ein) => {
     window.__WEBHERO_TEST__ = true;
-    if (s !== null) window.__WEBHERO_SEED = s;
-  }, seed === undefined ? null : seed);
+    if (ein.seed !== null) window.__WEBHERO_SEED = ein.seed;
+    if (ein.autos) window.__WEBHERO_AUTOS = ein.autos;
+  }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0 });
   await page.goto('http://webhero.test/');
   await page.waitForFunction(() => window.__dbg && window.__dbg.actorsReady, { timeout: 150000 });
   /* ---- Warten, bis die STADT wirklich steht ----

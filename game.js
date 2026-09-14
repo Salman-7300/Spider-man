@@ -53,7 +53,14 @@ const CFG = {
   playerHP: 100,
   enemyHP: 34,
   civCount: 22,
-  carCount: 26,
+  /* Die Zahl der Fahrzeuge im Umlauf. Wieviele davon gleichzeitig
+     unterwegs sind, entscheidet verkehrsAnteil() nach der Tageszeit.
+     Ein Pruefstand kann die Zahl ueber window.__WEBHERO_AUTOS setzen -
+     dieselbe Bauart wie der Weltkeim, damit sich Dichtekandidaten
+     vergleichen lassen, ohne game.js zwischen den Laeufen zu aendern. */
+  carCount: (typeof window !== 'undefined' && window.__WEBHERO_AUTOS > 0)
+            ? (window.__WEBHERO_AUTOS | 0) : 26,
+  parkCount: 50,
   heliCount: 2,
   maxEnemies: 14,
   rollDauer: 0.45,
@@ -271,12 +278,29 @@ function imRaster(x, z) {
 const STR_TEMPO = {
   langsam: [6.5, 9.5], normal: [8, 13], zuegig: [10, 15], schnell: [12, 17],
 };
+/* ---- CITY V2, Stufe 4: wieviel Verkehr auf welcher Strasse ----
+   Eine Hierarchie, auf der ueberall gleich viele Wagen fahren, ist keine.
+   Zwei Zahlen je Klasse steuern das:
+
+     gewicht    wie wahrscheinlich ein Wagen hier STARTET, je Linie
+     abbiegen   wie wahrscheinlich er an einer Kreuzung ABBIEGT
+
+   Die zweite ist die wichtigere: auf einem Boulevard faehrt man durch,
+   in einer Wohnstrasse biegt man staendig ab. Daraus entsteht von selbst
+   Durchgangsverkehr auf den Hauptachsen, ohne dass irgendwo ein Wagen
+   kuenstlich hingesetzt wird.
+
+   Die Werte sind nicht gesetzt, sondern gemessen: siehe die Tabelle in
+   docs/CITY-V2-DESIGN.md, Abschnitt 4c. */
 const STR_KLASSEN = {
-  LOCAL:     { spuren: 2, spurBreite: 3.2, mitten: [-2.4, 2.4], tempo: 'langsam' },
-  STREET:    { spuren: 2, spurBreite: 3.6, mitten: [-3.0, 3.0], tempo: 'normal' },
-  AVENUE:    { spuren: 4, spurBreite: 2.8, mitten: [-4.4, -1.6, 1.6, 4.4], tempo: 'zuegig' },
+  LOCAL:     { spuren: 2, spurBreite: 3.2, mitten: [-2.4, 2.4], tempo: 'langsam',
+               gewicht: 0.5, abbiegen: 0.30 },
+  STREET:    { spuren: 2, spurBreite: 3.6, mitten: [-3.0, 3.0], tempo: 'normal',
+               gewicht: 1.0, abbiegen: 0.16 },
+  AVENUE:    { spuren: 4, spurBreite: 2.8, mitten: [-4.4, -1.6, 1.6, 4.4], tempo: 'zuegig',
+               gewicht: 2.6, abbiegen: 0.09 },
   BOULEVARD: { spuren: 4, spurBreite: 2.6, mitten: [-4.6, -1.9, 1.9, 4.6], tempo: 'schnell',
-               mittelstreifen: 1.2 },
+               mittelstreifen: 1.2, gewicht: 3.4, abbiegen: 0.05 },
 };
 /* Welche Linie welche Klasse traegt - aus dem Raster abgeleitet, nicht
    von Hand aufgezaehlt. Alle Rasterlinien liegen auf 25 + k * 50; der
@@ -324,6 +348,24 @@ function spurNah(achse, linie, wert) {
 /* Tempobereich einer Strasse. */
 function strasseTempo(achse, linie) {
   return STR_TEMPO[strasseInfo(achse, linie).tempo];
+}
+/* Eine Rasterlinie einer Achse ziehen, gewichtet nach Strassenklasse. */
+function zieheStrasse(achse) {
+  const linien = rasterLinien(achse);
+  let summe = 0;
+  for (const l of linien) summe += strasseInfo(achse, l).gewicht;
+  let w = Math.random() * summe;
+  for (const l of linien) {
+    w -= strasseInfo(achse, l).gewicht;
+    if (w <= 0) return l;
+  }
+  return linien[linien.length - 1];
+}
+/* Die Strasse, auf der ein Fahrzeug gerade faehrt: seine Spur liegt auf
+   der Querachse, die Linie ist die naechstgelegene dort. */
+function strasseVonAuto(car) {
+  const qa = querAchse(car.axis);
+  return { achse: qa, linie: rasterLinieNah(car.lane, qa) };
 }
 /* Die Uferpromenade zwischen der Uferstrasse und der Kaimauer.
    Sie liegt als Gehweg auf SLAB_H - der Bodenhoehe war das aber nie
@@ -20560,7 +20602,12 @@ function spawnCars() {
        Wer entlang x faehrt, faehrt auf einer z-Linie. Beim quadratischen
        Raster war das dasselbe; seit die Stadt in x und z verschieden
        gross ist, sind es zwei verschiedene Listen. */
-    const line = pick(rasterLinien(querAchse(axis)));
+    /* Gewichtet nach Strassenklasse: auf einem Boulevard starten mehr
+       Wagen als in einer Wohnstrasse. Vorher war jede Linie gleich
+       wahrscheinlich - gemessen lagen dadurch 26 Prozent aller
+       Wagenproben auf den drei Randstrassen und nur 4,7 Prozent auf den
+       beiden Hauptachsen. */
+    const line = zieheStrasse(querAchse(axis));
     const laneSign = Math.random() < 0.5 ? 1 : -1;
     /* Die Spur kommt aus der Strassenklasse: eine Nebenstrasse hat zwei
        Spuren, eine Avenue vier. Vorher stand hier fest +/-3. */
@@ -20613,6 +20660,185 @@ function spawnCars() {
 }
 spawnCars();
 spawnHelis();
+
+/* ======================= Parkende Autos =======================
+   Eine Strasse ohne parkende Autos sieht aus wie eine Teststrecke. Diese
+   Wagen sind ABSICHTLICH dumm: Modell und Kollisionskasten, sonst nichts.
+   Kein Eintrag in cars, also kein Fahrer, keine Verkehrs-KI, kein
+   Mixer, keine Bodenpruefung je Bild - nur ein Sichtbarkeitstest
+   viermal je Sekunde.
+
+   Wo sie stehen, ergibt sich aus der Strassenhierarchie von Stufe 3 und
+   ist keine Geschmacksfrage, sondern Geometrie:
+
+     Ein Wagen ist bis 2,0 m breit, steht also mit der Mitte auf 5,0 m
+     von der Rasterlinie und belegt 4,0 bis 6,0 m. Der Asphalt endet bei
+     ROAD_HALF = 6,0. Damit darf die aeusserste FAHRSPUR hoechstens auf
+     3,0 liegen, sonst beruehren sich fahrender und parkender Wagen:
+
+       LOCAL      aeussere Spur 2,4   Luecke 1,65 m   -> parken
+       STREET     aeussere Spur 3,0   Luecke 1,05 m   -> parken
+       AVENUE     aeussere Spur 4,4   Luecke -0,35 m  -> kein Platz
+       BOULEVARD  aeussere Spur 4,6   Luecke -0,55 m  -> kein Platz
+
+   Auf einer Avenue oder einem Boulevard wird also nicht geparkt, weil
+   dort kein Platz ist - nicht, weil es huebscher waere. */
+const PARK_AUTOS = [];
+/* Die AUSSENKANTE des Wagens liegt buendig am Asphaltrand; der Versatz
+   der Mitte haengt deshalb an seiner Breite und wird beim Setzen
+   gerechnet, nicht hier festgelegt. */
+const PARK_RAND = ROAD_HALF;   // dort endet der Asphalt
+const PARK_LUECKE = 7.6;       // Laengsabstand zweier Plaetze
+const PARK_KREUZ = 13;         // so weit bleibt jede Kreuzung frei
+const PARK_SICHT = 150;        // weiter weg wird nicht gezeichnet
+const PARK_MAX_SPUR = 3.0;     // aeusserste Fahrspur, bei der es noch passt
+/* Nur schmale Fahrzeuge: ein Bus (2,4 m) oder ein Lkw (2,3 m) ragte aus
+   dem Asphalt heraus. */
+const PARK_TYPEN = FAHRZEUGE.filter((f) => f.breite <= 2.0);
+/* Wie dicht in welcher Strassenklasse geparkt wird - Anteil der Plaetze,
+   die belegt werden koennen. In der Wohnstrasse steht mehr am Rand als
+   auf einer Durchgangsstrasse. */
+const PARK_DICHTE = { LOCAL: 1.0, STREET: 0.55 };
+
+/* Alle moeglichen Plaetze - vor jeder Pruefung. */
+function parkPlaetze() {
+  const aus = [];
+  for (const achse of ['x', 'z']) {
+    for (const linie of rasterLinien(achse)) {
+      const inf = strasseInfo(achse, linie);
+      if (Math.max(...inf.mitten) > PARK_MAX_SPUR) continue;
+      const klasse = strasseKlasse(achse, linie);
+      if (!PARK_DICHTE[klasse]) continue;
+      const laengs = querAchse(achse);
+      const a0 = rasterO(laengs), a1 = rasterE(laengs);
+      for (const seite of [-1, 1]) {
+        for (let s = a0 + PARK_KREUZ; s <= a1 - PARK_KREUZ; s += PARK_LUECKE) {
+          if (Math.abs(s - rasterLinieNah(s, laengs)) < PARK_KREUZ) continue;
+          aus.push({ s, seite, achse, linie, klasse,
+                     /* Das Modell schaut bei ry = 0 nach +z. Die Strasse
+                        laeuft auf der Querachse. */
+                     ry: achse === 'x' ? (seite > 0 ? 0 : Math.PI)
+                                       : (seite > 0 ? Math.PI / 2 : -Math.PI / 2) });
+        }
+      }
+    }
+  }
+  return aus;
+}
+
+/* Darf hier einer stehen? Geprueft wird gegen die Flaechen, die das
+   Spiel ohnehin schon kennt - kein zweiter, eigener Waechter. */
+function parkPlatzTauglich(pl, halbL, halbB) {
+  const x = pl.x, z = pl.z;
+  const hx = pl.achse === 'x' ? halbB : halbL;
+  const hz = pl.achse === 'x' ? halbL : halbB;
+  const x0 = x - hx, x1 = x + hx, z0 = z - hz, z1 = z + hz;
+  /* Ganz im Raster, und oestlich der Uferstrasse ist Schluss: dort
+     beginnt bei PROM_X0 die Promenade. */
+  if (!imRaster(x0, z0) || !imRaster(x1, z1)) return false;
+  if (x1 > AUTO_X_MAX - 1) return false;
+  if (onBridge(x, z) || inWater(x, z)) return false;
+  /* Auf der FAHRBAHN, nicht auf dem Gehweg und nicht ueber einem
+     U-Bahn-Schacht: groundY kennt beides. */
+  if (Math.abs(groundY(x, z, 2)) > 0.05) return false;
+  if (aufZebra(x0, x1, z0, z1)) return false;
+  if (inGebaeude(x, z)) return false;
+  /* Feste Orte freihalten. Haustueren, Hydranten und U-Bahn-Abgaenge
+     liegen auf dem GEHWEG und koennen einen Wagen auf der Fahrbahn gar
+     nicht treffen - der Aufzug am Zwischengeschoss aber schon, er liegt
+     am Bordstein. Gemessen stand ein Wagen 4,1 m davor. */
+  for (const a of AUFZUEGE) if (Math.hypot(a.x - x, a.z - z) < 7) return false;
+  /* Und der gemeinsame Platzwaechter, der auch die Stadtmoebel fuehrt. */
+  return nimmPlatz(x, z, Math.max(hx, hz) + 0.2);
+}
+
+function baueParkAutos(anzahl) {
+  const kand = parkPlaetze();
+  /* Mischen mit dem Weltzufall: dieselbe Stadt, dieselben Parkplaetze. */
+  for (let i = kand.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = kand[i]; kand[i] = kand[j]; kand[j] = t;
+  }
+  /* ---- Verteilt wird je STRASSE, nicht ueber einen gemeinsamen Topf ----
+     Ein erster Anlauf nahm einfach jeden Platz mit der Klassenchance an.
+     Gemessen kamen dabei 3 Wagen auf den drei Nebenstrassen heraus und 47
+     auf den vierzehn Hauptstrassen - genau umgekehrt zur Absicht, einfach
+     weil es viel mehr STREET-Linien gibt. Jede Linie bekommt deshalb ihre
+     eigene Zahl, gewichtet nach Klasse. */
+  const jeLinie = new Map();
+  for (const pl of kand) {
+    const k = pl.achse + ':' + pl.linie;
+    if (!jeLinie.has(k)) jeLinie.set(k, { klasse: pl.klasse, plaetze: [] });
+    jeLinie.get(k).plaetze.push(pl);
+  }
+  const reihe = [...jeLinie.values()];
+  let summe = 0;
+  for (const v of reihe) summe += PARK_DICHTE[v.klasse];
+  for (const v of reihe) {
+    const soll = anzahl * PARK_DICHTE[v.klasse] / summe;
+    v.zahl = Math.floor(soll);
+    /* Die Nachkommastelle nicht wegwerfen - sonst fehlen am Ende Wagen. */
+    if (Math.random() < soll - v.zahl) v.zahl++;
+  }
+  let gesetzt = 0;
+  for (const v of reihe) {
+    let hier = 0;
+    for (const pl of v.plaetze) {
+      if (gesetzt >= anzahl || hier >= v.zahl) break;
+      /* ---- Wie breit darf der parkende Wagen sein? ----
+         Auf einer STREET liegt die Fahrspur auf 3,0 m. Ein Bus ist 2,4 m
+         breit, reicht also bis 4,2 m; der Asphalt endet bei 6,0. Fuer den
+         parkenden Wagen bleiben 1,8 m - und das schmalste Fahrzeug im
+         Spiel ist 1,9 m breit. Zehn Zentimeter fehlen also IMMER; mit dem
+         2,0 m breiten Streifenwagen waeren es zwanzig. Deshalb parkt der
+         nur in der Nebenstrasse, wo die Spur auf 2,4 m liegt und 0,4 m
+         Luft bleiben. */
+      const maxBreite = pl.klasse === 'LOCAL' ? 2.0 : 1.9;
+      const typ = pick(PARK_TYPEN.filter((f) => f.breite <= maxBreite));
+      /* QUER zur Strasse KEIN Zuschlag, und die Aussenkante liegt
+         buendig am Asphaltrand: mit festen 5,0 m Versatz und 0,1 m
+         Sicherheitsrand ragte der Kasten des breitesten Wagens 5 cm
+         darueber hinaus - gemessen an allen 50 Wagen, je zwei Ecken auf
+         Gehweghoehe. */
+      const halbL = typ.laenge / 2 + 0.1, halbB = typ.breite / 2;
+      const quer = pl.linie + pl.seite * (PARK_RAND - halbB);
+      pl.x = pl.achse === 'x' ? quer : pl.s;
+      pl.z = pl.achse === 'x' ? pl.s : quer;
+      if (!parkPlatzTauglich(pl, halbL, halbB)) continue;
+      const mesh = makeFahrzeugMesh(typ, typ.art === 'taxi' ? 0xf2c12e : pick(CAR_COLORS));
+      mesh.position.set(pl.x, 0, pl.z);
+      mesh.rotation.y = pl.ry;
+      /* Leicht schief eingeparkt - eine Reihe exakt ausgerichteter Wagen
+         sieht aus wie ein Parkplatz, nicht wie eine Strasse. */
+      mesh.rotation.y += rand(-0.035, 0.035);
+      const hx = pl.achse === 'x' ? halbB : halbL;
+      const hz = pl.achse === 'x' ? halbL : halbB;
+      addCollider({ x0: pl.x - hx, x1: pl.x + hx, z0: pl.z - hz, z1: pl.z + hz,
+                    h: 1.55, y0: 0, klein: true, parkAuto: true });
+      PARK_AUTOS.push({ mesh, x: pl.x, z: pl.z, klasse: pl.klasse, art: typ.art,
+                        achse: pl.achse, halbL, halbB });
+      gesetzt++; hier++;
+    }
+  }
+  return gesetzt;
+}
+
+/* Weiter entfernte werden abgeschaltet - dieselbe Bauart wie bei den
+   Baukastenhaeusern, viermal je Sekunde statt in jedem Bild. */
+let parkTakt = 0;
+function updateParkAutos(dt) {
+  if (!PARK_AUTOS.length) return;
+  parkTakt -= dt;
+  if (parkTakt > 0) return;
+  parkTakt = 0.25;
+  const g2 = PARK_SICHT * PARK_SICHT;
+  for (const p of PARK_AUTOS) {
+    const dx = p.x - player.pos.x, dz = p.z - player.pos.z;
+    p.mesh.visible = dx * dx + dz * dz < g2;
+  }
+}
+baueParkAutos((typeof window !== 'undefined' && window.__WEBHERO_PARKAUTOS >= 0)
+              ? (window.__WEBHERO_PARKAUTOS | 0) : CFG.parkCount);
 
 /* ======================= Besondere Orte (POI) =======================
    Eine duenne Datenschicht ueber der fertigen Stadt. Kein Inhalt wird
@@ -21430,7 +21656,13 @@ function autoKreuzung(car, linie) {
     setzeAutoGrenzen(car);
     return true;
   }
-  if (drin && Math.random() > (car.flucht ? 0.30 : 0.14)) return false;
+  /* Ob abgebogen wird, haengt von der Strasse ab, auf der man FAEHRT.
+     Auf einem Boulevard faehrt man durch, in einer Wohnstrasse biegt man
+     staendig ab - daraus entsteht der Durchgangsverkehr auf den
+     Hauptachsen. Vorher stand hier fuer jede Strasse dieselbe 0,14. */
+  const eigene = strasseVonAuto(car);
+  const abbiegeChance = car.flucht ? 0.30 : strasseInfo(eigene.achse, eigene.linie).abbiegen;
+  if (drin && Math.random() > abbiegeChance) return false;
   /* Am Rand geht es in die Stadt hinein, sonst nach Lust und Laune. */
   const nd = !drin ? (car.lane > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
   /* Die Zielstrasse hat ihre eigene Spurzahl. Vorher stand hier fest
@@ -34084,6 +34316,7 @@ function simuliere(dt) {
     updateBusGaeste(dt);
     updateInnenLeute(dt);
     updateKitHaeuser(dt);
+    updateParkAutos(dt);
     updateFlecken();
     updateDampf(dt);
     updateSpritzer(dt);
@@ -35181,6 +35414,13 @@ if (window.__WEBHERO_TEST__ === true) {
     /* Nur fuer Messungen: den Zufallsstrom auf einen festen Stand
        setzen, damit zwei Laeufe wirklich vergleichbar sind. */
     zufallKeim(n) { zufallKeimSetzen(n); return ZUFALL_SEED; },
+    /* CITY V2: die parkenden Autos - Ort, Klasse und Bauart. */
+    parkAutos() {
+      return PARK_AUTOS.map((p) => ({ x: +p.x.toFixed(2), z: +p.z.toFixed(2),
+                                      klasse: p.klasse, art: p.art,
+                                      achse: p.achse, halbL: p.halbL, halbB: p.halbB,
+                                      sichtbar: p.mesh.visible }));
+    },
     /* CITY V2: die Strassenhierarchie, Linie fuer Linie. */
     strassen() {
       const aus = [];
