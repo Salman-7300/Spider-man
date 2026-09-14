@@ -58,8 +58,13 @@ const CFG = {
      Ein Pruefstand kann die Zahl ueber window.__WEBHERO_AUTOS setzen -
      dieselbe Bauart wie der Weltkeim, damit sich Dichtekandidaten
      vergleichen lassen, ohne game.js zwischen den Laeufen zu aendern. */
+  /* Gemessen ueber vier Kandidaten mit je drei Laeufen: 45 verdoppelt
+     die sichtbaren Wagen in 100 m gegenueber 35 und kostet dabei sechs
+     Prozent mehr Zeichenaufrufe. 55 bringt einen Wagen mehr fuer weitere
+     sechseinhalb Prozent, 65 zwei fuer siebzehn. Die Tabelle steht in
+     docs/CITY-V2-DESIGN.md, Abschnitt 4d. */
   carCount: (typeof window !== 'undefined' && window.__WEBHERO_AUTOS > 0)
-            ? (window.__WEBHERO_AUTOS | 0) : 26,
+            ? (window.__WEBHERO_AUTOS | 0) : 45,
   parkCount: 50,
   heliCount: 2,
   maxEnemies: 14,

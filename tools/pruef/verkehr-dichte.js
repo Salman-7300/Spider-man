@@ -24,6 +24,7 @@ const { starte } = require('./basis');
 const AUTOS = Number(process.argv[2]) || 0;         // 0 = Vorgabe aus CFG
 const SEK = Number(process.argv[3]) || 300;
 const LAEUFE = Number(process.argv[4]) || 3;
+const PARK = process.argv[5] === undefined ? undefined : Number(process.argv[5]);
 
 const median = (a) => {
   if (!a.length) return 0;
@@ -33,7 +34,8 @@ const median = (a) => {
 };
 
 async function einLauf(nr) {
-  const { b, page } = await starte(960, 540, 4711, { autos: AUTOS || undefined });
+  const { b, page } = await starte(960, 540, 4711,
+    { autos: AUTOS || undefined, park: PARK });
   const aus = await page.evaluate(async ([SEK, nr]) => {
     const d = __dbg;
     d.frier(true);
@@ -176,6 +178,7 @@ async function einLauf(nr) {
   const z = (f) => alle.map(f);
   p('');
   p('== Kandidat: ' + (AUTOS || 'Vorgabe') + ' Fahrzeuge im Umlauf, ' +
+    (PARK === undefined ? 'Vorgabe' : PARK) + ' parkend, ' +
     LAEUFE + ' Laeufe je ' + SEK + ' s ==');
   p('  im Umlauf gebaut: ' + alle[0].autos);
   p('');
