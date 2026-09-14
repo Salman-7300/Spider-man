@@ -304,14 +304,44 @@ gemessen und wieder ZURUECKGENOMMEN:
    der schon auf einer Nebenstrasse faehrt, darf dann auch nicht mehr
    herunter und bleibt laenger dort.
 
-Es bleiben zwei echte Wege, und beide braucht eine Entscheidung:
+### Stufe 4.1: geloest durch 20 Zentimeter
 
-* die Spurlage von STREET von +/-3,0 auf +/-2,6 ruecken - das ist eine
-  Aenderung an Stufe 3, die ausdruecklich gesperrt ist;
-* oder auf STREET gar nicht parken - dann stehen alle Wagen auf den drei
-  Randstrassen.
+Der Konflikt ist behoben, und zwar mit der kleinsten Verschiebung, die
+nachweislich reicht. Vier Kandidaten, je zehn Minuten:
 
-Bis dahin bleibt es, wie es ist, und der Fall steht im Human-Test.
+| Spurmitte | `parkStreift` | kleinster Querabstand |
+|-----------|---------------|-----------------------|
+| 3,0 (alt) | 374 | -0,10 m |
+| 2,9 | 21 | 0,00 m |
+| **2,8** | **0** | **+0,10 m** |
+| 2,7 | 0 | +0,20 m |
+
+2,9 reicht nicht: einundzwanzig Restfaelle und exakt null Abstand, also
+Beruehrung. 2,8 ist die kleinste ausreichende Aenderung; 2,7 braeuchte es
+nicht. LOCAL, AVENUE und BOULEVARD bleiben unveraendert, die
+Asphaltbreite ebenfalls.
+
+**Kein neuer Nachteil.** Drei Laeufe je Kandidat, Mediane:
+
+| | 3,0 | 2,8 |
+|---|---|---|
+| `ineinander` | 18 | 11 |
+| `langStand` | 1083 | 248 |
+| `maxStand` | 97,8 s | 61 s |
+| harte Zaehler | alle 0 | alle 0 |
+
+Ein einzelner 30-Minuten-Lauf hatte bei 2,8 einmal 2753 gemeldet und sah
+nach einer Verschlechterung aus. Der Dreierlauf zeigt, dass das derselbe
+Ausreisser-Effekt war, der in Abschnitt 5b steht - aus einem Einzellauf
+dieses Pruefstands wird nichts abgeleitet.
+
+Die Fahrbahnmarkierungen haengen bei einer zweispurigen Strasse nicht an
+der Spurmitte: `strichVersaetze` zeichnet dort nur die Mittellinie auf
+Versatz 0. Es war also nichts nachzuziehen - auf den Bildern der
+Kreuzungen STREET/STREET und STREET/AVENUE bestaetigt.
+
+Die beiden frueher versuchten Routing-Sonderregeln fuer Bus und Lkw
+bleiben verworfen.
 
 ---
 

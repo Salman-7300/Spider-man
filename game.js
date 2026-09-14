@@ -309,18 +309,38 @@ const STR_TEMPO = {
 const STR_KLASSEN = {
   LOCAL:     { spuren: 2, spurBreite: 3.2, mitten: [-2.4, 2.4], tempo: 'langsam',
                gewicht: 0.5, abbiegen: 0.30 },
-  /* ---- Stufe 4.1: die Spurlage der STREET ----
+  /* ---- Stufe 4.1: die Spurlage der STREET liegt auf +/-2,8 ----
      Sie lag auf +/-3,0 - dem Wert, den jede Strasse vor der Hierarchie
-     hatte. Ein Bus ist 2,4 m breit und reicht damit bis 4,2 m; der
-     parkende Wagen liegt buendig an der Asphaltkante und beginnt bei
-     4,05 m. Die Kandidaten und ihre Messwerte stehen in
-     docs/CITY-V2-DESIGN.md, Abschnitt 4d.
-     Der Pruefstand kann den Wert ueber window.__WEBHERO_STREETSPUR
-     setzen - dieselbe Bauart wie der Weltkeim. */
+     hatte. Ein Bus ist 2,4 m breit und reicht damit bis Spurmitte + 1,2;
+     der parkende Wagen liegt buendig an der Asphaltkante (6,0 m) und ist
+     1,9 m breit, seine Innenkante also bei 4,05 m.
+
+     Vier Kandidaten, je zehn Minuten gemessen (parkStreift = fahrende
+     Wagen, die einen parkenden ueberdecken; parkLuecke = kleinster
+     Querabstand ueber ALLE Vorbeifahrten):
+
+         Spurmitte   parkStreift   kleinster Abstand
+             3,0            374            -0,10 m
+             2,9             21             0,00 m
+             2,8              0            +0,10 m
+             2,7              0            +0,20 m
+
+     2,9 reicht nicht: einundzwanzig Restfaelle und Beruehrung. 2,8 ist
+     die kleinste ausreichende Aenderung, 2,7 braeuchte es nicht.
+
+     Kein neuer Nachteil: ueber drei Laeufe je Kandidat liegen die
+     Verkehrszaehler bei 2,8 eher besser (Median ineinander 11 gegen 18,
+     langStand 248 gegen 1083, maxStand 61 s gegen 97,8 s). Ein einzelner
+     30-Minuten-Lauf hatte 2753 gemeldet - derselbe Ausreisser-Effekt,
+     der in Abschnitt 5b der Doku steht.
+
+     LOCAL, AVENUE und BOULEVARD bleiben unveraendert, die Asphaltbreite
+     ebenfalls. Der Pruefstand kann den Wert ueber
+     window.__WEBHERO_STREETSPUR setzen. */
   STREET:    { spuren: 2, spurBreite: 3.6,
                mitten: (() => {
                  const m = (typeof window !== 'undefined' && window.__WEBHERO_STREETSPUR > 0)
-                           ? +window.__WEBHERO_STREETSPUR : 3.0;
+                           ? +window.__WEBHERO_STREETSPUR : 2.8;
                  return [-m, m];
                })(), tempo: 'normal',
                gewicht: 1.0, abbiegen: 0.16 },
@@ -406,7 +426,9 @@ function strasseVonAuto(car) {
    Osten gerueckt (RIVER_X0). */
 const PROM_X0 = RASTER_X1 + ROAD_HALF;        // 181
 /* Weiter oestlich faehrt kein Auto - dahinter liegen Promenade und Fluss.
-   Die beiden Spuren der Uferstrasse liegen bei 172 und 178. */
+   Die beiden Spuren der Uferstrasse liegen seit Stufe 4.1 bei 172,2 und
+   177,8 - die Uferstrasse ist eine STREET, und deren Spurmitte rueckte
+   von 3,0 auf 2,8. */
 const AUTO_X_MAX = RASTER_X1 + 4;
 const SHORE_X0 = 330, SHORE_X1 = 400;   // gegenüberliegendes Ufer
 /* ---- Brueckenmasse ----
@@ -21675,7 +21697,7 @@ function autoKreuzung(car, linie) {
                Math.abs(linie - BRIDGE_Z) < 0.5 && !car.flucht && !car.notfall;
   if (kopf && Math.random() < BRUECKEN_SOG) {
     /* Dieselbe Abbiegebewegung wie unten, nur mit fester Richtung: die
-       bisherige Spur (x = 172 oder 178) wird zur Laengslage, die neue
+       bisherige Spur (x = 172,2 oder 177,8) wird zur Laengslage, die neue
        Spur ist die oestliche Fahrspur der Bruecke. */
     car.s = car.lane;
     car.axis = 'x';

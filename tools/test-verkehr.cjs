@@ -118,6 +118,21 @@ vm.runInContext(hier[0] + '\nglobalThis.__H = { STR_TEMPO, STR_KLASSEN };', kast
 const KLASSEN = kasten2.__H.STR_KLASSEN;
 const ROAD_HALF_T = 6;
 
+test('Ein Bus kommt an einem parkenden Wagen vorbei', () => {
+  /* Stufe 4.1, die Rechnung hinter der Spurlage: der parkende Wagen
+     liegt buendig an der Asphaltkante (6,0 m) und ist 1,9 m breit, seine
+     Innenkante also bei 4,05 m. Ein Bus ist 2,4 m breit. Geprueft wird
+     das fuer JEDE Klasse, auf der geparkt wird. */
+  const PARK_INNEN = 6.0 - 1.9;
+  const BUS_HALB = 1.2;
+  for (const name of ['LOCAL', 'STREET']) {
+    const aussen = Math.max(...KLASSEN[name].mitten);
+    assert.ok(aussen + BUS_HALB <= PARK_INNEN,
+      name + ': ein Bus reicht bis ' + (aussen + BUS_HALB).toFixed(2) +
+      ' m, der parkende Wagen beginnt bei ' + PARK_INNEN.toFixed(2));
+  }
+});
+
 test('Keine Spur liegt ausserhalb des Asphalts', () => {
   /* Das ist die ganze Begruendung dafuer, dass die Hierarchie den Kern
      nicht verschiebt: sie braucht keinen Millimeter mehr Strasse. */
@@ -163,8 +178,11 @@ test('Uferstrasse und Brueckenstrasse behalten ihre zwei Spuren', () => {
   assert.strictEqual(kasten2.strasseKlasse('z', -25), 'STREET');
   /* Aus der vm kommen fremde Array-Prototypen - deshalb kopiert
      vergleichen, nicht als Verweis. */
-  assert.deepStrictEqual([...kasten2.strasseInfo('x', 175).mitten], [-3, 3]);
-  assert.deepStrictEqual([...kasten2.strasseInfo('z', -25).mitten], [-3, 3]);
+  /* Seit Stufe 4.1 liegt die Spurmitte einer STREET auf 2,8 statt 3,0 -
+     ein Bus (2,4 m breit) passte sonst nicht an einem parkenden Wagen
+     vorbei. Zweispurig bleiben beide trotzdem. */
+  assert.deepStrictEqual([...kasten2.strasseInfo('x', 175).mitten], [-2.8, 2.8]);
+  assert.deepStrictEqual([...kasten2.strasseInfo('z', -25).mitten], [-2.8, 2.8]);
 });
 
 test('Die Randstrassen sind Nebenstrassen', () => {
