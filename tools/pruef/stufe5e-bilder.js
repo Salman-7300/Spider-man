@@ -47,8 +47,14 @@ const STELLEN = [
     __dbg.frier(true); __dbg.setzeRegen(0);
     return __dbg.hausInfo();
   });
+  /* ---- Warum die Figur mit DREI Werten gesetzt wird ----
+     __dbg.setzePos(x, y, z) nimmt drei Werte. Der aeltere Pruefstand rief
+     ihn mit zweien auf; dann landete z in y und z wurde undefined, und
+     jede Entfernung zur Figur war NaN. Auf die Haeuser wirkt sich das
+     nicht aus - die werden nach der KAMERA weggeschnitten, nicht nach der
+     Figur -, auf die Sichtbarkeit der Passanten schon. */
   for (const [name, px, py, pz, zx, zy, zz] of STELLEN) {
-    await page.evaluate(([x, z]) => { __dbg.setzePos(x, z); }, [px, pz]);
+    await page.evaluate(([x, y, z]) => { __dbg.setzePos(x, y, z); }, [px, py, pz]);
     /* Dreimal zeichnen: SwiftShader liefert sonst einen halb fertigen
        Puffer. */
     for (let i = 0; i < 3; i++) {

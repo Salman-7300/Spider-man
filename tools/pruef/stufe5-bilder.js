@@ -36,7 +36,7 @@ const STELLEN = [
   });
   for (const [name, px, py, pz, zx, zy, zz] of STELLEN) {
     /* Erst die Figur hinbringen - sonst ist dort alles weggeschnitten. */
-    await page.evaluate(([x, z]) => { __dbg.setzePos(x, z); }, [px, pz]);
+    await page.evaluate(([x, y, z]) => { __dbg.setzePos(x, y, z); }, [px, py, pz]);
     /* Dreimal zeichnen: SwiftShader liefert sonst einen halb fertigen
        Puffer - derselbe Fehler wie im Innenraum-Pruefstand. */
     for (let i = 0; i < 3; i++) {
