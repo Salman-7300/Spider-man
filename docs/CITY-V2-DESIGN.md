@@ -675,6 +675,47 @@ zwei Haeusern eines Blocks danach: 5,86 m - der Hof.
 
 ---
 
+## 6e. Geschaeftsstrassen und Downtown-Sockel (Stufe 5, Teil D)
+
+Teil C hat nur die neuen Aussenbloecke mit Wohn- und Mischcharakter
+gebaut. Teil D nimmt die uebrigen dazu - und macht dabei EINE
+Unterscheidung, die die Innenstadt rettet.
+
+### Warum nicht jeder Kernblock eine Zeile bekommt
+
+Bekaeme jeder Block des alten 7x7-Kerns eine Zeile, waere die Innenstadt
+eine gleichmaessige Sockelflaeche und die Tuerme waeren weg. Bliebe
+umgekehrt jeder Kernblock, wie er ist, stuende im Zentrum weiter nur der
+freistehende Turm auf leerem Gehweg - genau der Befund aus der
+Bestandsaufnahme.
+
+Also die Haelfte: welcher Kernblock eine Zeile bekommt, haengt am Ort und
+ist damit bei jedem Start dieselbe Auswahl. Die uebrigen behalten ihren
+Turm, und dazwischen entsteht der Sockel, den die Innenstadt bisher
+nicht hatte. Ausserhalb des Kerns bekommen alle Bloecke eine Zeile,
+ausser den beiden Parkbloecken.
+
+### Der hohe Akzent
+
+Eine Zeile aus lauter gleich hohen Haeusern ist eine Mauer. Ein Teil der
+Lots bekommt deshalb ein deutlich hoeheres Haus - im Zentrum oft, am Rand
+gar nicht. Erst dadurch stehen die Tuerme an der STRASSE statt
+freistehend in der Blockmitte:
+
+| Stadtteil | Anteil | Geschosse | Hoehe |
+|-----------|--------|-----------|-------|
+| ZENTRUM | 20 % | 16 - 30 | 51 - 96 m |
+| GESCHAEFT | 12 % | 14 - 22 | 45 - 70 m |
+| UFER | 8 % | 12 - 18 | 38 - 58 m |
+| MISCHUNG | 5 % | 11 - 15 | 35 - 48 m |
+| WOHN | 0 % | - | - |
+
+Die 30 Geschosse im Zentrum sind kein gegriffener Wert: das hoechste Haus
+der Stadt war vor Stufe 5 gemessen 97 m hoch, und die Skyline soll ihren
+Gipfel behalten. Mit 28 Geschossen kam sie nur noch auf 89 m.
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,

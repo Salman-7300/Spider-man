@@ -80,6 +80,7 @@ const median = (a) => {
            belegt, die nahe genug an der Kante stehen, um als
            Strassenwand zu wirken? "Nahe genug" = die dem Gehweg
            zugewandte Flanke liegt hoechstens 6 m hinter der Bauflucht. */
+        const b2vor = bez.find((q) => q.bi === bi && q.bj === bj);
         const kanten = {};
         const seiten = [['N', 'z', cz + halb], ['S', 'z', cz - halb],
                         ['O', 'x', cx + halb], ['W', 'x', cx - halb]];
@@ -94,7 +95,9 @@ const median = (a) => {
           }
           const linie = achse === 'x' ? (flucht > cx ? cx + R.pitch / 2 : cx - R.pitch / 2)
                                       : (flucht > cz ? cz + R.pitch / 2 : cz - R.pitch / 2);
-          kanten[name] = { klasse: klasseVon(achse, linie),
+          const kl = klasseVon(achse, linie);
+          kanten[name] = { klasse: kl,
+                           nutzung: kl ? d.kantenNutzung(b2vor ? b2vor.art : 'MISCHUNG', kl) : null,
                            belegt: +belegt.toFixed(1),
                            anteil: +(belegt / (halb * 2) * 100).toFixed(0),
                            haeuser: haeuser.filter((h) => {
@@ -105,6 +108,8 @@ const median = (a) => {
                            }).length };
         }
         const b2 = bez.find((q) => q.bi === bi && q.bj === bj);
+        /* Der Stadtteil muss VOR den Kanten feststehen - kantenNutzung
+           braucht ihn. */
         const nah = (liste) => liste.filter((o) =>
           Math.abs(o.x - cx) <= halb + 4 && Math.abs(o.z - cz) <= halb + 4).length;
         bloecke.push({
@@ -172,13 +177,13 @@ const median = (a) => {
   /* Hoehenbaender nach Geschossen, gerechnet mit 3,2 m je Geschoss, so
      wie es der Stufe-5-Auftrag beschreibt:
        LOW 2-4, MID 4-8, UPPER 8-12, HIGH 12-19, HOCHHAUS ab 19. */
+  const mittel = (a) => a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : 0;
   const stufe = (h) => h < 12.8 ? 'LOW' : h < 25.6 ? 'MID'
                      : h < 38.4 ? 'UPPER' : h < 60.8 ? 'HIGH' : 'HOCHHAUS';
   const verteilung = { LOW: 0, MID: 0, UPPER: 0, HIGH: 0, HOCHHAUS: 0 };
   for (const h of alleH) verteilung[stufe(h)]++;
   const proz = (n) => +(n / Math.max(1, alleH.length) * 100).toFixed(1);
 
-  const mittel = (a) => a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : 0;
   const inBloecken = B.reduce((a, q) => a + q.haeuser, 0);
   const zus = {
     bloecke: B.length,
@@ -226,18 +231,34 @@ const median = (a) => {
       '   Tuer ' + m.tuerBreite + ' m   gesetzt ' + m.gesetzt);
   p('  Quader (makeBuildingMesh): Breite ' + spanne(kw) + ' m, Tiefe ' + spanne(kd) + ' m');
   p('');
-  p('== Bezirke (bestehende Einteilung) ==');
+  p('== Stadtteile ==');
   const jeBez = {};
   for (const q of B) {
     const a = q.bezirk || '(keiner)';
-    if (!jeBez[a]) jeBez[a] = { bloecke: 0, gebaeude: 0, hoehen: [] };
-    jeBez[a].bloecke++; jeBez[a].gebaeude += q.haeuser;
-    jeBez[a].hoehen.push(...q.hoehen);
+    if (!jeBez[a]) jeBez[a] = { bloecke: 0, gebaeude: 0, hoehen: [],
+                                kanten: 0, laden: 0, belegung: [] };
+    const v = jeBez[a];
+    v.bloecke++; v.gebaeude += q.haeuser; v.hoehen.push(...q.hoehen);
+    for (const k of Object.values(q.kanten)) {
+      v.kanten++;
+      if (k.nutzung === 'LADEN') v.laden++;
+      v.belegung.push(k.anteil);
+    }
   }
-  for (const [a, v] of Object.entries(jeBez))
-    p('  ' + a.padEnd(10) + ' Bloecke ' + String(v.bloecke).padStart(3) +
-      '   Gebaeude ' + String(v.gebaeude).padStart(4) +
-      '   Hoehe Median ' + String(median(v.hoehen).toFixed(1)).padStart(6));
+  const anteil = (n, g) => (n / Math.max(1, g) * 100).toFixed(0);
+  p('  Stadtteil   Bloecke Gebaeude  je Block  Hoehe Med   Low  Mid  High   Laden  Wandanteil');
+  for (const [a, v] of Object.entries(jeBez)) {
+    const c = { LOW: 0, MID: 0, HIGH: 0 };
+    for (const h of v.hoehen) c[h < 12.8 ? 'LOW' : h < 38.4 ? 'MID' : 'HIGH']++;
+    const n = Math.max(1, v.hoehen.length);
+    p('  ' + a.padEnd(11) + String(v.bloecke).padStart(6) + String(v.gebaeude).padStart(9) +
+      (v.gebaeude / v.bloecke).toFixed(2).padStart(10) +
+      median(v.hoehen).toFixed(1).padStart(11) +
+      (anteil(c.LOW, n) + '%').padStart(6) + (anteil(c.MID, n) + '%').padStart(5) +
+      (anteil(c.HIGH, n) + '%').padStart(6) +
+      (anteil(v.laden, v.kanten) + '%').padStart(8) +
+      (mittel(v.belegung).toFixed(0) + '%').padStart(12));
+  }
   p('');
   p('== Kern gegen neue Aussenbloecke ==');
   for (const [name, filt] of [['Kern (alt)', (q) => q.kern], ['neu', (q) => !q.kern]]) {
@@ -318,13 +339,23 @@ const median = (a) => {
     z.push('Die Quader aus makeBuildingMesh sind ' + spanne(kw) + ' m breit und ' +
            spanne(kd) + ' m tief.');
     z.push('');
-    z.push('## Bezirke');
+    z.push('## Stadtteile');
     z.push('');
-    z.push('| Bezirk | Bloecke | Gebaeude | Hoehe Median |');
-    z.push('|--------|---------|----------|--------------|');
-    for (const [a, v] of Object.entries(jeBez))
-      z.push('| ' + a + ' | ' + v.bloecke + ' | ' + v.gebaeude + ' | ' +
-             median(v.hoehen).toFixed(1) + ' |');
+    z.push('Wandanteil ist der mittlere Anteil einer Blockkante, vor dem ein');
+    z.push('Gebaeude steht. Laden ist der Anteil der Blockkanten, deren');
+    z.push('Erdgeschoss als Laden gilt (kantenNutzung).');
+    z.push('');
+    z.push('| Stadtteil | Bloecke | Gebaeude | je Block | Hoehe Median | Low | Mid | High | Laden | Wandanteil |');
+    z.push('|-----------|---------|----------|----------|--------------|-----|-----|------|-------|------------|');
+    for (const [a, v] of Object.entries(jeBez)) {
+      const c = { LOW: 0, MID: 0, HIGH: 0 };
+      for (const h of v.hoehen) c[h < 12.8 ? 'LOW' : h < 38.4 ? 'MID' : 'HIGH']++;
+      const n = Math.max(1, v.hoehen.length);
+      z.push('| ' + [a, v.bloecke, v.gebaeude, (v.gebaeude / v.bloecke).toFixed(2),
+             median(v.hoehen).toFixed(1), anteil(c.LOW, n) + ' %', anteil(c.MID, n) + ' %',
+             anteil(c.HIGH, n) + ' %', anteil(v.laden, v.kanten) + ' %',
+             mittel(v.belegung).toFixed(0) + ' %'].join(' | ') + ' |');
+    }
     z.push('');
     z.push('## Jeder Block');
     z.push('');

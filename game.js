@@ -5528,13 +5528,34 @@ const ZEILE_GESCHOSSE = {
   GESCHAEFT: [5, 12],
   ZENTRUM:   [6, 14],
 };
-/* Wie hoch wird das Haus auf diesem Lot? Drei Dinge wirken zusammen:
+/* ---- Der hohe Akzent ----
+   Eine Zeile aus lauter gleich hohen Haeusern ist eine Mauer. Ein
+   Bruchteil der Lots bekommt deshalb ein deutlich hoeheres Haus - im
+   Zentrum oft, am Rand fast nie. Das ist es, was aus einer Reihe eine
+   Skyline macht: der Sockel bleibt, einzelne Haeuser ragen heraus.
+   p = Anteil der Lots, g = Geschosse. */
+const ZEILE_AKZENT = {
+  /* Bis 30 Geschosse = 96 m. Das ist kein gegriffener Wert: das
+     hoechste Haus der Stadt war vor Stufe 5 gemessen 97 m hoch, und die
+     Skyline soll ihren Gipfel behalten. Mit den vorherigen 28
+     Geschossen kam sie nur noch auf 89 m. */
+  ZENTRUM:   { p: 0.20, g: [16, 30] },     // 51 - 96 m
+  GESCHAEFT: { p: 0.12, g: [14, 22] },     // 45 - 70 m
+  UFER:      { p: 0.08, g: [12, 18] },
+  MISCHUNG:  { p: 0.05, g: [11, 15] },
+  WOHN:      { p: 0.00, g: [0, 0] },
+};
+/* Wie hoch wird das Haus auf diesem Lot? Vier Dinge wirken zusammen:
    der Stadtteil gibt das Band vor, die Naehe zum Kern hebt es leicht an
-   (damit die Silhouette von aussen nach innen ansteigt), und ein
-   Eckhaus darf ein Geschoss mehr haben. */
+   (damit die Silhouette von aussen nach innen ansteigt), ein Eckhaus
+   darf ein Geschoss mehr haben, und ein kleiner Teil der Lots wird zum
+   hohen Akzent. */
 function lotHoehe(art, lot, cx, cz) {
   const band = ZEILE_GESCHOSSE[art] || ZEILE_GESCHOSSE.MISCHUNG;
   const kernNah = 1 - Math.min(1, (Math.abs(cx) + Math.abs(cz)) / 500);
+  const ak = ZEILE_AKZENT[art];
+  if (ak && ak.p > 0 && Math.random() < ak.p)
+    return +(rand(ak.g[0], ak.g[1]) * GESCHOSS).toFixed(2);
   let g = rand(band[0], band[1]) + kernNah * rand(0, band[1] - band[0]) * 0.5;
   if (lot.ecke) g += rand(0, 1.5);
   return +(g * GESCHOSS).toFixed(2);
@@ -5556,16 +5577,27 @@ function baueHaeuserzeile(bi, bj, cx, cz) {
   }
   return n;
 }
-/* Welche Bloecke bekommen in Stufe 5 / Teil C eine Zeile? Zunaechst nur
-   die NEUEN Aussenbloecke mit Wohn- oder Mischcharakter. Der alte
-   7x7-Kern und die Geschaefts- und Zentrumsbloecke bleiben vorerst, wie
-   sie sind - sie kommen in Teil D dran, und bis dahin laesst sich an
-   ihnen ablesen, was die Zeile ueberhaupt veraendert. */
+/* ---- Welche Bloecke bekommen eine Zeile? ----
+   Ausserhalb des alten Kerns alle - Wohnen, Mischung, Geschaeft, Ufer.
+   IM Kern nur ein Teil, und das ist Absicht: dort soll die Hochhaus-
+   Skyline erkennbar bleiben. Wuerde jeder Kernblock eine Zeile
+   bekommen, waere die Innenstadt eine gleichmaessige Sockelflaeche und
+   die Tuerme waeren weg. Bleibt umgekehrt jeder Kernblock, wie er ist,
+   steht im Zentrum weiter nur freistehende Tuerme auf leerem Gehweg.
+
+   Also die Haelfte: welcher Block, haengt am Ort und ist damit bei jedem
+   Start dieselbe Auswahl. Die uebrigen behalten ihren Turm, und
+   dazwischen entsteht der Sockel, den die Innenstadt bisher nicht hatte.
+   Zusaetzlich wird ein Teil der Lots im Zentrum selbst zum Hochhaus
+   (ZEILE_AKZENT) - die Tuerme stehen dann an der Strasse statt
+   freistehend in der Blockmitte. */
 function zeileTauglich(cx, cz) {
-  const imKern = Math.abs(cx) <= 175 && Math.abs(cz) <= 175;
-  if (imKern) return false;
   const art = stadtteilAn(cx, cz);
-  return art === 'WOHN' || art === 'MISCHUNG';
+  if (art === 'PARK') return false;
+  const imKern = Math.abs(cx) <= 175 && Math.abs(cz) <= 175;
+  if (!imKern) return true;
+  /* Ortsabhaengig, nicht gewuerfelt: dieselbe Stadt nach jedem Neustart. */
+  return (Math.abs(Math.round(cx / PITCH) * 3 + Math.round(cz / PITCH) * 5) % 2) === 0;
 }
 
 function buildBlockBuildings(cx, cz, loecher) {
@@ -35818,6 +35850,11 @@ if (window.__WEBHERO_TEST__ === true) {
                                        d: +b.d.toFixed(2),
                                        x: +b.x.toFixed(2), z: +b.z.toFixed(2) }));
     },
+    /* CITY V2 Stufe 5: findet die Geschichte nach dem Umbau noch
+       Plaetze? stOrt zieht 40 zufaellige Punkte und nimmt den
+       entferntesten, der evOrtTauglich besteht - wird die Stadt zu
+       dicht, faellt es auf (0,0) zurueck. */
+    storyOrt(minAbstand) { return stOrt(minAbstand); },
     /* CITY V2 Stufe 5: die geplanten Stadtteile und die Parzellierung
        einer Blockkante - beides reine Daten, damit ein Pruefstand sie
        gegen die gebaute Stadt halten kann. */
