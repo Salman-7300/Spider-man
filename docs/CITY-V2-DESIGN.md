@@ -779,6 +779,24 @@ nennt.
 Nebenbefund: die Dreiecke fallen mit, von 3,50 auf 3,10 Mio. Ein
 GLB-Modell hat mehr Dreiecke als ein texturierter Quader.
 
+### Das Leistungstor, mit der produktiven Schwelle
+
+Gemessen mit `tools/pruef/stadt-leistung.js`, 300 Aufnahmen, gegen
+`docs/leistung-v2-stufe41.json`:
+
+| | Stufe 4.1 | Stufe 5 | | Tor |
+|---|-----------|---------|---|-----|
+| Zeichenaufrufe Median | 719 | **861,5** | **+19,8 %** | +25 % |
+| Dreiecke Median | 3 081 212 | **3 102 574** | **+0,7 %** | +35 % |
+| davon Strasse | 689 | 796,5 | +15,6 % | |
+| davon Dach | 690 | 784 | +13,6 % | |
+| davon Luft | 778,5 | 899 | +15,5 % | |
+
+Zum Vergleich der Stand VOR dem Hybrid, mit derselben Stadt: 1024
+Aufrufe, +42,4 Prozent - klar gerissen. Die Zahl aus `hybrid.js` fuer
+Schwelle 32 lautete 853,5; die 861,5 hier sind derselbe Wert im Rahmen
+der ueblichen Streuung von rund acht Aufrufen zwischen zwei Laeufen.
+
 ### Atomare Platzierung
 
 Wuerde Haus fuer Haus gesetzt und am Ende der Rueckfall ausgeblendet,

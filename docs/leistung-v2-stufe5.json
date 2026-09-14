@@ -30,38 +30,38 @@
     "autoXMax": 179
   },
   "speicher": {
-    "texturen": 362,
-    "geometrien": 2019,
-    "programme": 34
+    "texturen": 335,
+    "geometrien": 2113,
+    "programme": 33
   },
   "gesamt": {
     "n": 300,
-    "callsMed": 1024,
-    "callsMax": 2846,
-    "triMed": 3498813.5,
-    "triMax": 4518385
+    "callsMed": 861.5,
+    "callsMax": 2508,
+    "triMed": 3102574,
+    "triMax": 4044408
   },
   "proLage": {
     "strasse": {
       "n": 100,
-      "callsMed": 1013,
-      "callsMax": 2845,
-      "triMed": 3491034,
-      "triMax": 4512569
+      "callsMed": 796.5,
+      "callsMax": 2504,
+      "triMed": 3089912.5,
+      "triMax": 4043838
     },
     "dach": {
       "n": 100,
-      "callsMed": 1001,
-      "callsMax": 2846,
-      "triMed": 3498058,
-      "triMax": 4518385
+      "callsMed": 784,
+      "callsMax": 2508,
+      "triMed": 3086833,
+      "triMax": 4044408
     },
     "luft": {
       "n": 100,
-      "callsMed": 1061,
-      "callsMax": 1977,
-      "triMed": 3524000.5,
-      "triMax": 3995636
+      "callsMed": 899,
+      "callsMax": 1873,
+      "triMed": 3132180,
+      "triMax": 3638820
     }
   }
 }
