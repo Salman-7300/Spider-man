@@ -8,6 +8,15 @@ const SEKUNDEN = Number(process.argv[2]) || 3600;
   const aus = await page.evaluate(async (SEKUNDEN) => {
     const d = __dbg, P = d.player;
     d.frier(true);
+    /* ---- Damit zwei Laeufe vergleichbar sind ----
+       Das Laden der Modelle ist asynchron; je nach Zeitpunkt des
+       Einfrierens sind unterschiedlich viele Zufallszahlen verbraucht,
+       und der Messlauf startet an einer anderen Stelle des Stroms.
+       Gemessen an zwei Laeufen mit demselben Code: 16 und 466 Wagen
+       unter 2,5 m. Deshalb wird der Strom hier auf einen festen Stand
+       gesetzt - erst dann misst dieser Pruefstand den CODE und nicht
+       den Ladezeitpunkt. */
+    if (d.zufallKeim) d.zufallKeim(4711);
     /* CITY V2: Rastermasse aus dem Spiel lesen, nicht abschreiben. */
     const R = __dbg.raster(), PITCH = R.pitch, ROAD_HALF = 6;
     const rasterO = (a) => (a === 'x' ? R.x0 : R.z0);

@@ -93,16 +93,28 @@ function weltKeimHolen() {
   /* Noch kein Stand: eine neue Stadt, die ab jetzt diesem Spieler gehoert. */
   return (Math.floor(Math.random() * 4294967294) + 1) >>> 0;
 }
+/* ---- Der Zufallsstrom ----
+   Er liegt in einer eigenen Variablen, damit ein Pruefstand ihn
+   zuruecksetzen kann. Das ist keine Spielerei: das Laden der Modelle
+   laeuft asynchron, und je nachdem, welche Rueckrufe vor dem Einfrieren
+   fertig waren, sind unterschiedlich viele Zufallszahlen verbraucht. Ein
+   Messlauf startete dadurch jedes Mal an einer anderen Stelle des
+   Stroms. Gemessen an zwei Laeufen mit DEMSELBEN Code: 16 und 466 Wagen
+   unter 2,5 m. Ein einzelner Lauf beweist damit gar nichts. */
+let ZUFALL_SEED = 1;
+function zufallKeimSetzen(n) { ZUFALL_SEED = (n >>> 0) || 1; }
 if (typeof window !== 'undefined') {
   WELT_KEIM = (window.__WEBHERO_SEED !== undefined)
     ? ((window.__WEBHERO_SEED >>> 0) || 1)
     : weltKeimHolen();
-  let _seed = WELT_KEIM;
+  zufallKeimSetzen(WELT_KEIM);
   Math.random = function () {
-    _seed ^= _seed << 13; _seed >>>= 0;
-    _seed ^= _seed >> 17;
-    _seed ^= _seed << 5; _seed >>>= 0;
-    return _seed / 4294967296;
+    let s = ZUFALL_SEED;
+    s ^= s << 13; s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5; s >>>= 0;
+    ZUFALL_SEED = s;
+    return s / 4294967296;
   };
 }
 /* ---- CITY V2, Stufe 1: das Raster hat zwei Achsen ----
@@ -35166,6 +35178,9 @@ if (window.__WEBHERO_TEST__ === true) {
     innenPlaetze() { return INNEN_PLAETZE; },
     autoFahrer() { return AUTO_FAHRER; },
     imKitHaus,
+    /* Nur fuer Messungen: den Zufallsstrom auf einen festen Stand
+       setzen, damit zwei Laeufe wirklich vergleichbar sind. */
+    zufallKeim(n) { zufallKeimSetzen(n); return ZUFALL_SEED; },
     /* CITY V2: die Strassenhierarchie, Linie fuer Linie. */
     strassen() {
       const aus = [];

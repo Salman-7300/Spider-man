@@ -232,6 +232,61 @@ sondern auch Dreiecke gespart.
 
 ---
 
+## 5b. Was der Verkehrspruefstand NICHT beantworten kann
+
+Nach Stufe 3 sah der 60-Minuten-Lauf nach einer Verschlechterung aus: 960
+Wagenpaare unter 2,5 m gegen 254 im Stand vor CITY V2. Die
+Aufschluesselung (neu eingebaut) zeigte, dass es fast ausschliesslich
+Wagen in DERSELBEN Spur sind, nicht nebeneinander fahrende auf einer
+Avenue - meine erste Vermutung war damit widerlegt.
+
+Die zweite Vermutung klang schluessig: der Blick nach vorn steht fest auf
+9 m. Bei 8 bis 13 m/s sind das mindestens 0,7 s Vorwarnzeit, bei den 17
+m/s eines Boulevards nur noch 0,53 s. Ein Umbau (Blick waechst mit dem
+Tempo, Stillstand schon bei 1,2 m statt erst bei Beruehrung) war schnell
+gebaut.
+
+Er wurde WIEDER ZURUECKGENOMMEN, weil sich nicht zeigen liess, dass er
+etwas verbessert. Der Grund liegt im Messgeraet, nicht im Verkehr:
+
+**Derselbe Code, mehrfach gemessen, ergibt voellig verschiedene Zahlen.**
+
+    alte Regel (3 x 15 min)    42    96    16      Median 42
+    neue Regel (3 x 15 min)    23   738     7      Median 23
+
+Der Median spricht schwach fuer die neue Regel, aber ihr schlechtester
+Lauf ist schlechter als jeder Lauf der alten. Bei drei Messungen und
+dieser Streuung ist das kein Ergebnis, sondern Rauschen.
+
+Ursache: das Laden der Modelle laeuft asynchron. Je nachdem, welche
+Rueckrufe vor `frier(true)` fertig waren, sind unterschiedlich viele
+Zufallszahlen verbraucht - jeder Lauf beginnt an einer anderen Stelle des
+Zufallsstroms, und die Wagen stehen beim Einfrieren woanders. Das Spiel
+hat dafuer jetzt einen Testhaken (`__dbg.zufallKeim`), der den Strom
+zuruecksetzt; er allein reicht aber nicht, weil der WELTZUSTAND beim
+Einfrieren schon auseinanderlaeuft.
+
+Betroffen sind alle Zaehler dieses Pruefstands, die von seltenen
+Ereignissen leben. Gemessene Streubreiten ueber identischen Code:
+
+| Zaehler | beobachtete Spanne |
+|---|---|
+| `ineinander` | 2 bis 739 |
+| `maxStand` | 17,3 bis 120,5 s |
+| `imHaus` | 0 bis 14 |
+| `bruecke` | 0 bis 809 |
+
+Belastbar sind dagegen die Zaehler, die in JEDEM Lauf null waren: neben
+der Fahrbahn, im Wasser, Ortssprung, Geisterfahrer. Sie sind die
+eigentliche Aussage des Prueflaufs - und sie sind nach Stufe 3 sauber.
+
+**Regel fuer die weiteren Stufen:** aus einem einzelnen Lauf dieses
+Pruefstands wird keine Reparatur abgeleitet. Entweder der Zaehler ist in
+allen Laeufen null, oder es braucht mehrere Laeufe und einen Median - und
+selbst dann nur, wenn die Spannen sich nicht ueberlappen.
+
+---
+
 ## 6. Pruefstaende
 
 | Pruefstand | Was er misst |
