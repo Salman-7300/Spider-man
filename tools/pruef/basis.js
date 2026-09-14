@@ -80,10 +80,15 @@ async function starte(breite, hoehe, seed, opt) {
        bekommt statt prozedural zu bleiben. Damit lassen sich Kandidaten
        vergleichen, ohne game.js anzufassen. */
     if (ein.hybrid) window.__WEBHERO_HYBRID = ein.hybrid;
+    /* Nur fuer den Pruefstand: so tun, als waere eine der vorbereiteten
+       Modellplatzierungen ungueltig - nach so vielen Stueck wird
+       abgebrochen. */
+    if (ein.modellFehler) window.__WEBHERO_MODELLFEHLER = ein.modellFehler;
   }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0,
        park: (opt && opt.park !== undefined) ? opt.park : null,
        streetSpur: (opt && opt.streetSpur) || 0,
        hybrid: (opt && opt.hybrid) || 0,
+       modellFehler: (opt && opt.modellFehler) || 0,
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   await page.goto('http://webhero.test/');
   await page.waitForFunction(() => window.__dbg && window.__dbg.actorsReady, { timeout: 150000 });
@@ -98,7 +103,7 @@ async function starte(breite, hoehe, seed, opt) {
   /* Beim Rueckfalltest wird haeuser.glb absichtlich nicht ausgeliefert -
      dann auf die Modelle zu warten hiesse, eine Minute auf etwas zu
      warten, das per Absicht nicht kommt. */
-  if (!(opt && opt.ohneHaeuser)) {
+  if (!(opt && opt.ohneHaeuser || opt && opt.modellFehler)) {
     await page.waitForFunction(() => {
       let n = 0;
       window.__dbg.szene.traverse((o) => {
@@ -110,8 +115,9 @@ async function starte(breite, hoehe, seed, opt) {
                 + 'die Messung laeuft auf den einfachen Fassadenkisten.');
     });
   } else {
-    /* Trotzdem warten, bis der Ladeversuch durch ist. */
-    await page.waitForTimeout(4000);
+    /* Trotzdem warten, bis der Ladeversuch durch ist - beim erzwungenen
+       Fehlschlag laedt die Datei ja, es wird nur nichts gesetzt. */
+    await page.waitForTimeout(8000);
   }
   await page.waitForTimeout(900);
   await page.evaluate(() => {

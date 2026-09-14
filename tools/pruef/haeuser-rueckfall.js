@@ -1,36 +1,44 @@
-/* CITY V2, Stufe 5: was passiert, wenn assets/haeuser.glb nicht laedt?
+/* CITY V2, Stufe 5: bleibt die Stadt vollstaendig, wenn die Modelle
+   ausfallen?
 
    Vor Stufe 5 war die Antwort einfach: die prozeduralen Fassaden blieben
    sichtbar, die Stadt sah aelter aus, aber sie stand. Mit der hybriden
    Darstellung gibt es zwei Saetze verschmolzener Fassaden, und nur einer
-   davon darf ausgeblendet werden. Dieser Pruefstand haelt beide Faelle
-   nebeneinander:
+   davon darf ausgeblendet werden. Dazu kommt ein zweiter Fall, den ein
+   reiner Ladefehler nicht abdeckt: die Datei laedt, aber EINE einzelne
+   Platzierung schlaegt fehl. Dann darf nicht die halbe Stadt stehen und
+   die andere Haelfte fehlen.
 
-     mit Modellen    Rueckfall unsichtbar, Produktionssatz sichtbar
-     ohne Modelle    BEIDE Saetze sichtbar, kein Haus fehlt
+   Drei Laeufe:
+
+     normal    Datei da, alles geht gut
+               -> Rueckfall unsichtbar, Produktionssatz sichtbar,
+                  jedes MODEL-Haus hat sein Modell
+
+     404       Datei fehlt
+               -> BEIDE Saetze sichtbar, kein Modell, kein Haus fehlt
+
+     Teilfehler  Datei da, eine Platzierung ungueltig
+               -> gar kein Modell, BEIDE Saetze sichtbar,
+                  __hausFehler gesetzt, keine Kollider-Leiche
 
    Aufruf:  node tools/pruef/haeuser-rueckfall.js
    ========================================================================= */
 const { starte } = require('./basis');
 
-async function lauf(ohneHaeuser) {
-  const { b, page } = await starte(960, 540, 4711, ohneHaeuser ? { ohneHaeuser: true } : {});
+async function lauf(opt) {
+  const { b, page } = await starte(960, 540, 4711, opt || {});
   const aus = await page.evaluate(() => {
     const d = __dbg; d.frier(true);
-    /* Wieviel Geometrie steht wirklich sichtbar in der Szene? Ein Haus,
-       das weder Modell noch sichtbare Fassade hat, faellt hier auf. */
+    /* Wieviel steht sichtbar in der Szene? Ein Haus, das weder Modell
+       noch sichtbare Fassade hat, faellt hier auf. */
     let sichtbareMeshes = 0;
     d.szene.traverse((o) => { if (o.isMesh && o.visible) sichtbareMeshes++; });
-    /* Und die Stichprobe, die zaehlt: steht an jeder Kiste etwas? */
-    const box = new THREE.Box3(), v = new THREE.Vector3();
-    const modellBei = [];
-    for (const m of d.hausModelle()) {
-      m.updateMatrixWorld(true); box.setFromObject(m); box.getCenter(v);
-      modellBei.push([v.x, v.z]);
-    }
     return { info: d.hausInfo(), sichtbareMeshes,
-             kisten: d.hausKisten().length, modelle: modellBei.length,
-             render: d.renderInfo() };
+             kisten: d.hausKisten().length,
+             modelle: d.hausModelle().length,
+             kollider: d.colliders.length,
+             dreiecke: d.renderInfo().dreiecke };
   });
   await b.close();
   return aus;
@@ -38,35 +46,71 @@ async function lauf(ohneHaeuser) {
 
 (async () => {
   const p = (s) => console.log(s);
+  const F = [];
+  const pruefe = (bed, text) => { if (!bed) F.push(text); };
+
+  const normal = await lauf({});
+  const ohne = await lauf({ ohneHaeuser: true });
+  /* Genau EINE Platzierung zu wenig: so viele vorbereiten, wie es
+     MODEL-Haeuser gibt, minus eins. */
+  const teil = await lauf({ modellFehler: Math.max(1, normal.info.model - 1) });
+
   p('');
-  const mit = await lauf(false);
-  const ohne = await lauf(true);
+  p('== Rueckfall und atomare Platzierung ==');
   const zeile = (name, a) =>
-    p('  ' + name.padEnd(16) + 'Kisten ' + String(a.kisten).padStart(4) +
+    p('  ' + name.padEnd(13) + 'Kisten ' + String(a.kisten).padStart(4) +
       '   MODEL ' + String(a.info.model).padStart(4) +
       '   MERGED ' + String(a.info.merged).padStart(4) +
-      '   Modelle gesetzt ' + String(a.modelle).padStart(4) +
-      '   Fassaden sichtbar: Prod ' + a.info.prodSichtbar + '/' + a.info.fassadenProd +
-      '  Rueckfall ' + a.info.fallSichtbar + '/' + a.info.fassadenFall);
-  p('== Rueckfalltest ==');
-  zeile('mit haeuser.glb', mit);
-  zeile('ohne haeuser.glb', ohne);
+      '   Modelle ' + String(a.modelle).padStart(4) +
+      '   Fassaden sichtbar  Prod ' + a.info.prodSichtbar + '/' + a.info.fassadenProd +
+      '   Rueckfall ' + a.info.fallSichtbar + '/' + a.info.fassadenFall +
+      '   Kollider ' + a.kollider);
+  zeile('normal', normal);
+  zeile('404', ohne);
+  zeile('Teilfehler', teil);
   p('');
-  const F = [];
-  if (mit.modelle !== mit.info.model)
-    F.push('mit Modellen: ' + mit.modelle + ' gesetzt, erwartet ' + mit.info.model);
-  if (mit.info.fallSichtbar !== 0)
-    F.push('mit Modellen: der Rueckfall ist noch sichtbar');
-  if (mit.info.prodSichtbar !== mit.info.fassadenProd)
-    F.push('mit Modellen: der Produktionssatz wurde ausgeblendet');
-  if (ohne.modelle !== 0)
-    F.push('ohne haeuser.glb stehen trotzdem ' + ohne.modelle + ' Modelle');
-  if (ohne.info.fallSichtbar !== ohne.info.fassadenFall)
-    F.push('ohne haeuser.glb fehlt der Rueckfall - dort steht jetzt nichts');
-  if (ohne.info.prodSichtbar !== ohne.info.fassadenProd)
-    F.push('ohne haeuser.glb fehlt der Produktionssatz');
+  p('  Fehlermeldung 404:        ' + (ohne.info.fehler || '(keine)'));
+  p('  Fehlermeldung Teilfehler: ' + (teil.info.fehler || '(keine)'));
+  p('');
+
+  /* ---- normal ---- */
+  pruefe(normal.modelle === normal.info.model,
+    'normal: ' + normal.modelle + ' Modelle gesetzt, erwartet ' + normal.info.model);
+  pruefe(normal.info.fallSichtbar === 0,
+    'normal: der Rueckfall ist noch sichtbar, die Modelle stehen darauf');
+  pruefe(normal.info.prodSichtbar === normal.info.fassadenProd,
+    'normal: der Produktionssatz wurde ausgeblendet - dort steht jetzt nichts');
+
+  /* ---- 404 ---- */
+  pruefe(ohne.modelle === 0,
+    'ohne haeuser.glb stehen trotzdem ' + ohne.modelle + ' Modelle');
+  pruefe(ohne.info.fallSichtbar === ohne.info.fassadenFall,
+    'ohne haeuser.glb fehlt der Rueckfall - dort steht jetzt nichts');
+  pruefe(ohne.info.prodSichtbar === ohne.info.fassadenProd,
+    'ohne haeuser.glb fehlt der Produktionssatz');
+  pruefe(ohne.kisten === normal.kisten,
+    'ohne haeuser.glb hat die Stadt eine andere Zahl Haeuser');
+
+  /* ---- Teilfehler: der eigentliche Punkt ---- */
+  pruefe(teil.modelle === 0,
+    'Teilfehler: ' + teil.modelle + ' Modelle in der Szene - es darf KEINES sein');
+  pruefe(teil.info.fallSichtbar === teil.info.fassadenFall,
+    'Teilfehler: der Rueckfall wurde ausgeblendet - halb leere Stadt');
+  pruefe(teil.info.prodSichtbar === teil.info.fassadenProd,
+    'Teilfehler: der Produktionssatz wurde ausgeblendet');
+  pruefe(!!teil.info.fehler,
+    'Teilfehler: __hausFehler ist nicht gesetzt - der Ausfall bleibt unbemerkt');
+  /* Kollider-Leck: die Kronen-Kollider der vorbereiteten Modelle duerfen
+     NICHT in der Welt gelandet sein. Beim Teilfehler muss es also genau
+     so viele Kollider geben wie beim 404-Fall. */
+  pruefe(teil.kollider === ohne.kollider,
+    'Teilfehler: ' + teil.kollider + ' Kollider statt ' + ohne.kollider +
+    ' - vorbereitete Kronen sind in der Welt gelandet');
+
   if (F.length) { for (const x of F) p('  FEHLER: ' + x); p(''); process.exit(1); }
-  p('  Ohne die Modelldatei steht jedes Haus prozedural da,');
-  p('  mit ihr verschwindet genau der Rueckfall und sonst nichts.');
+  p('  Ohne die Modelldatei steht jedes Haus prozedural da.');
+  p('  Mit ihr verschwindet genau der Rueckfall und sonst nichts.');
+  p('  Ein einzelner Fehler beim Setzen laesst die ganze Stadt prozedural -');
+  p('  kein halb gemischter Zustand, keine Kollider-Leiche.');
   p('');
 })();

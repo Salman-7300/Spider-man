@@ -6784,7 +6784,15 @@ function setzeHausModelle(szene) {
      und die prozeduralen Haeuser bleiben stehen. */
   const warten = HAUS_KISTEN.filter((e) => e.visual === 'model');
   const fertig = [];          // { obj } und optional { kollider }
+  /* Nur fuer den Pruefstand: nach so vielen vorbereiteten Platzierungen
+     abbrechen, als waere eine davon ungueltig. Damit laesst sich pruefen,
+     dass ein EINZELNER Fehler wirklich alles zurueckrollt und nicht einen
+     halb gesetzten Haeuserblock hinterlaesst. Im Spiel ist der Wert nie
+     gesetzt und die Abfrage kostet einen Vergleich je Haus. */
+  const abbruchBei = (typeof window !== 'undefined' && window.__WEBHERO_MODELLFEHLER > 0)
+                     ? (window.__WEBHERO_MODELLFEHLER | 0) : -1;
   for (const e of warten) {
+    if (abbruchBei >= 0 && fertig.length >= abbruchBei) break;
     if (CITY_LOOK && e.h >= 38) {
       const variante = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % CITY_LOOK.towerStyles.length;
       const hochhaus = CITY_LOOK.createTower(e.w, e.h, e.d, variante);

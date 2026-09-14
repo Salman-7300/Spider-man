@@ -449,6 +449,9 @@ selbst dann nur, wenn die Spannen sich nicht ueberlappen.
 | `tools/pruef/verkehr-stunde.js` | Langlauf des Verkehrs mit allen Zaehlern (siehe 5b) |
 | `tools/pruef/stadtbestand.js` | Bestandsaufnahme der Bebauung, Block fuer Block (Stufe 5) |
 | `tools/pruef/haeuserzeilen.js` | Parzellen und Haeuserzeilen: Plan und Bau getrennt (Stufe 5) |
+| `tools/pruef/hybrid.js` | Hybridschwellen vergleichen, mit dem Kamerasatz des Leistungstors |
+| `tools/pruef/stufe5-bilder.js` | die sechs festen Aufnahmen der Stufe 5 |
+| `tools/pruef/haeuser-rueckfall.js` | fehlende Modelldatei und einzelne fehlgeschlagene Platzierung |
 | `cd tools && node --test` | 162 Offline-Tests |
 
 Wichtig: `freigang.js` und `verkehr-stunde.js` lesen die Rastermasse
@@ -713,6 +716,106 @@ freistehend in der Blockmitte:
 Die 30 Geschosse im Zentrum sind kein gegriffener Wert: das hoechste Haus
 der Stadt war vor Stufe 5 gemessen 97 m hoch, und die Skyline soll ihren
 Gipfel behalten. Mit 28 Geschossen kam sie nur noch auf 89 m.
+
+---
+
+## 6f. Hybride Gebaeudedarstellung (Stufe 5, Teil D.1)
+
+### Der Befund
+
+Teil D hat das Leistungstor gerissen: 1024 Zeichenaufrufe gegen 719 nach
+Stufe 4.1, also +42,4 Prozent bei einem Tor von +25. Die Dreiecke waren
+mit +13,6 Prozent unauffaellig. Die Ursache ist Arithmetik:
+`setzeHausModelle` stellte ueber JEDE Kiste eine eigene Modellkopie, und
+eine solche Kopie kostet gemessen 0,88 Zeichenaufrufe. 274 -> 622
+Gebaeude sind damit rund 300 Aufrufe mehr.
+
+### Der Hebel
+
+Nicht weniger Haeuser, sondern die bereits vorhandene verschmolzene
+Fassadenschicht. Sie kostet zwei Zeichenaufrufe JE KACHEL, egal wie viele
+Haeuser darin stehen - ein Haus, das prozedural bleibt, ist praktisch
+umsonst.
+
+Dafuer gibt es jetzt ZWEI verschmolzene Saetze statt einem:
+
+| Satz | Inhalt | Wer darf ihn ausblenden |
+|------|--------|-------------------------|
+| `HAUS_FASSADEN_PROD` | Haeuser mit visualMode 'merged' | niemand, bleibt immer sichtbar |
+| `HAUS_FASSADEN_FALL` | Haeuser mit visualMode 'model' | nur `setzeHausModelle`, und nur wenn JEDES Modell steht |
+
+Der Modus steht VOR dem Verschmelzen fest (`hausVisual`), sonst laege die
+Geometrie im falschen Eimer. Die Regel ist keine Prozentzahl, sondern eine
+Eigenschaft:
+
+    immer MODEL   freistehende Baukoerper aus dem alten Weg
+    MODEL         ab HYBRID_HOCH = 32 m
+    MODEL         Eckhaus ab 16 m - die Enden einer Zeile tragen den Blick
+    MODEL         in ZENTRUM und GESCHAEFT schon ab 20 m
+    sonst         MERGED
+
+### Warum 32
+
+Sieben Schwellen gemessen, je 300 Aufnahmen an denselben Kamerastellen
+wie das Leistungstor:
+
+| Schwelle | MODEL | MERGED | Aufrufe | gegen 4.1 | Dreiecke | Tor |
+|----------|-------|--------|---------|-----------|----------|-----|
+| 12 | 611 | 11 | 983,5 | +36,8 % | 3,47 Mio | gerissen |
+| 15 | 554 | 68 | 973 | +35,3 % | 3,38 Mio | gerissen |
+| 18 | 510 | 112 | 974 / 980 | +35,5 / +36,3 % | 3,80 Mio | gerissen |
+| 20 | 487 | 135 | 889 / 895,5 / 885,5 | +23,2 bis +24,5 % | 3,28 Mio | knapp ok |
+| 26 | 442 | 180 | 879 | +22,3 % | 3,12 Mio | ok |
+| **32** | **413** | **209** | **853,5** | **+18,7 %** | **3,10 Mio** | **ok** |
+| 39 | 404 | 218 | 846 | +17,7 % | 3,11 Mio | ok |
+
+20 und 18 wurden mehrfach gemessen - der Sprung dazwischen ist echt, kein
+Rauschen. 20 haelt das Tor nur mit 4 bis 14 Aufrufen Luft und behebt den
+bekannten Flachhaus-Befund trotzdem nicht (das Haus ist 18,6 m hoch). 18
+wuerde es beheben und reisst das Tor reproduzierbar. 32 ist damit der
+beste Gesamtkompromiss und liegt im Band 820 bis 860, das der Auftrag
+nennt.
+
+Nebenbefund: die Dreiecke fallen mit, von 3,50 auf 3,10 Mio. Ein
+GLB-Modell hat mehr Dreiecke als ein texturierter Quader.
+
+### Atomare Platzierung
+
+Wuerde Haus fuer Haus gesetzt und am Ende der Rueckfall ausgeblendet,
+fehlte bei einem Fehler auf halber Strecke der Rest der Stadt. Deshalb
+wird alles erst vorbereitet und geprueft - Kopien UND Kronen-Kollider -,
+und erst wenn jede erwartete Platzierung vorliegt, kommt sie in die Szene
+und der Rueckfall verschwindet. Sonst wird das Vorbereitete verworfen und
+`__hausFehler` gesetzt.
+
+`tools/pruef/haeuser-rueckfall.js` prueft drei Faelle: normal, fehlende
+Datei (404), und eine einzelne ungueltige Platzierung bei geladener
+Datei. Im dritten Fall darf KEIN Modell stehen, beide Fassadensaetze
+muessen sichtbar sein und die Kolliderzahl muss der des 404-Falls
+entsprechen - sonst waere ein vorbereiteter Kronen-Kollider in der Welt
+gelandet.
+
+### Was der Bildpunktvergleich NICHT kann
+
+Der Versuch, die optischen Kosten des Hybrids als Prozentsatz
+abweichender Bildpunkte zu messen, ist gescheitert und wird nicht
+weiterverfolgt. Zwei Laeufe mit IDENTISCHER Schwelle unterscheiden sich
+bereits um 3,4 bis 10,3 Prozent der Bildpunkte - Autos und Passanten
+stehen in jedem Lauf woanders. Das Rauschen ist damit groesser als der
+gesuchte Unterschied.
+
+Die optische Qualitaet dieser Stufe wird deshalb an festen Kameras und
+mit menschlichem Blick beurteilt, nicht an einer Prozentzahl. Zahlen aus
+frueheren Bildpunktvergleichen sind nicht belastbar.
+
+### Die bekannte Grenze
+
+Einzelne niedrige Haeuser mitten in einer Zeile wirken sichtbar flacher
+als ihre MODEL-Nachbarn. Belegt an der Wohnstrasse: das vorderste Haus
+links ist 18,6 m hoch, bleibt bei jeder Schwelle prozedural, die das Tor
+haelt, und liest sich neben den Modellhaeusern als Textur statt als
+Gebaeude. Das ist die Grenze des Hybrid-Ansatzes unter dem Tor, kein
+uebersehener Fehler.
 
 ---
 
