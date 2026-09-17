@@ -36033,6 +36033,24 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeRegen(v) { REGEN.an = v > 0; REGEN.staerke = v; REGEN.naechsterWechsel = 9999; },
     regenStaerke() { return +REGEN.staerke.toFixed(2); },
     zeichne() { renderer.render(scene, camera); },
+    /* Wo steht die Kamera, wie weit ist sie von der Figur weg, und steckt
+       sie in einem Hindernis? Der Human-Befund zur Zeilennaht nannte
+       ausdruecklich die Kamera ("wird in den Spalt gedrueckt und zeigt
+       fast nur noch Wand") - das laesst sich damit als Zahl pruefen und
+       nicht nur als Eindruck. */
+    kamera() {
+      const p = camera.position;
+      let steckt = null;
+      for (const c of collidersNear(p.x, p.z)) {
+        if (c.innen || c.parkAuto) continue;
+        const y0 = c.y0 === undefined ? 0 : c.y0;
+        if (p.x > c.x0 && p.x < c.x1 && p.z > c.z0 && p.z < c.z1 &&
+            p.y > y0 && p.y < c.h) { steckt = c; break; }
+      }
+      return { pos: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)],
+               abstand: +p.distanceTo(player.pos).toFixed(2),
+               steckt: !!steckt };
+    },
     setzeGrafik(v) { EINST.grafik = v; wendeGrafikAn(); },
     setzeBrueckenSog(v) { BRUECKEN_SOG = v; },
     brueckenSog() { return BRUECKEN_SOG; },
