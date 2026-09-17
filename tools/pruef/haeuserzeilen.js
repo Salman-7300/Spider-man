@@ -186,7 +186,132 @@ const { starte } = require('./basis');
         if (uebl(kisten[i], kisten[j], -0.3))
           merke('hausAufHaus', { a: [kisten[i].x, kisten[i].z], b: [kisten[j].x, kisten[j].z] });
 
-    return { F, bsp, spalte: spalte.sort((a, b2) => a - b2), lotsGesamt, lotsFrei,
+    /* ================================================================
+       BAU: der Spalt zwischen DIREKTEN Reihenhaus-Nachbarn
+       ================================================================
+       Die Pruefung darueber misst den PLAN - die Lotkisten. Ein Lot ist
+       aber nicht das, was man sieht: ueber einem Teil der Lots steht ein
+       geladenes Modell, und das fuellt seine Kiste nicht unbedingt aus.
+       Deshalb wird hier beides getrennt gemessen:
+
+         colliderGap   Luecke zwischen den Hindernissen. Daran laeuft und
+                       klettert der Spieler.
+         visualGap     Luecke zwischen dem, was man SIEHT - beim Modell
+                       seine echte Weltbox, beim prozeduralen Haus die
+                       Kiste selbst.
+         fassadenVersatz  wie weit die beiden Schauseiten in der Tiefe
+                       auseinanderliegen.
+
+       Daraus die beiden Urteile:
+
+         betretbarerSchlitz  colliderGap >= Spielerdurchmesser 0,9 m -
+                       ein echter Durchgang. Zwischen zwei Reihenhaeusern
+                       gehoert er nicht hin, ist aber wenigstens kein
+                       Klemmfall.
+         schmalerSchacht     0 < colliderGap < 0,9 m - der schlimmste
+                       Fall: zu eng zum Durchgehen, aber breit genug, dass
+                       Kamera und Figur hineingedrueckt werden koennen. */
+    const zeilen = new Map();
+    for (const h of kisten) {
+      if (!h.zeile) continue;
+      if (!zeilen.has(h.zeile)) zeilen.set(h.zeile, []);
+      zeilen.get(h.zeile).push(h);
+    }
+    /* Die Weltbox jedes gesetzten Modells, ueber seine Setzposition
+       eindeutig seinem Haus zugeordnet. */
+    const mbox = new THREE.Box3();
+    const modellAn = new Map();
+    for (const o of d.hausModelle()) {
+      mbox.setFromObject(o);
+      modellAn.set(o.position.x.toFixed(2) + '|' + o.position.z.toFixed(2), {
+        x0: mbox.min.x, x1: mbox.max.x, z0: mbox.min.z, z1: mbox.max.z,
+        y0: mbox.min.y, y1: mbox.max.y });
+    }
+    const sicht = (h) => modellAn.get(h.x.toFixed(2) + '|' + h.z.toFixed(2)) ||
+      { x0: h.x - h.w / 2, x1: h.x + h.w / 2,
+        z0: h.z - h.d / 2, z1: h.z + h.d / 2, y0: 0, y1: h.h };
+    /* Das Hindernis eines Hauses ist genau seine Kiste - so legt
+       makeBuildingMesh es an. Trotzdem wird es aus der Kolliderliste
+       gelesen und nicht angenommen: gerade das ist die Frage. */
+    const hausKoll = new Map();
+    for (const c of d.colliders) {
+      if (c.klein || c.innen || c.parkAuto) continue;
+      const mx = (c.x0 + c.x1) / 2, mz = (c.z0 + c.z1) / 2;
+      hausKoll.set(mx.toFixed(2) + '|' + mz.toFixed(2), c);
+    }
+    const koll = (h) => hausKoll.get(h.x.toFixed(2) + '|' + h.z.toFixed(2)) || null;
+
+    const paare = [];
+    for (const [key, liste] of zeilen) {
+      if (liste.length < 2) continue;
+      const seite = key.split('|')[2];
+      const laengsX = seite === 'N' || seite === 'S';
+      liste.sort((p1, p2) => (laengsX ? p1.x - p2.x : p1.z - p2.z));
+      for (let i = 1; i < liste.length; i++) {
+        const A = liste[i - 1], B = liste[i];
+        const sA = sicht(A), sB = sicht(B);
+        const kA = koll(A), kB = koll(B);
+        const l0 = (o) => laengsX ? o.x0 : o.z0;
+        const l1 = (o) => laengsX ? o.x1 : o.z1;
+        const q0 = (o) => laengsX ? o.z0 : o.x0;
+        const q1 = (o) => laengsX ? o.z1 : o.x1;
+        const lueck = (oA, oB) => Math.max(l0(oA), l0(oB)) - Math.min(l1(oA), l1(oB));
+        const kisteA = { x0: A.x - A.w / 2, x1: A.x + A.w / 2,
+                         z0: A.z - A.d / 2, z1: A.z + A.d / 2 };
+        const kisteB = { x0: B.x - B.w / 2, x1: B.x + B.w / 2,
+                         z0: B.z - B.d / 2, z1: B.z + B.d / 2 };
+        const cGap = (kA && kB) ? lueck(kA, kB) : lueck(kisteA, kisteB);
+        const vGap = lueck(sA, sB);
+        /* Versatz der Schauseiten: die Vorderkante zeigt zur Strasse,
+           also die kleinere bzw. groessere Querkoordinate - gemessen
+           wird die Differenz beider Aussenkanten, der groessere Wert
+           zaehlt. */
+        const versatz = Math.max(Math.abs(q0(sA) - q0(sB)), Math.abs(q1(sA) - q1(sB)));
+        paare.push({
+          zeile: key, art: A.art || null,
+          a: { x: A.x, z: A.z, w: A.w, d: A.d, h: A.h, visual: A.visual,
+               modell: A.modell || null },
+          b: { x: B.x, z: B.z, w: B.w, d: B.d, h: B.h, visual: B.visual,
+               modell: B.modell || null },
+          colliderGap: +cGap.toFixed(3),
+          visualGap: +vGap.toFixed(3),
+          fassadenVersatz: +versatz.toFixed(3),
+          kolliderGefunden: !!(kA && kB),
+          betretbarerSchlitz: cGap >= SPIELER_B,
+          schmalerSchacht: cGap > 0.02 && cGap < SPIELER_B,
+        });
+      }
+    }
+    const zahl = (f) => paare.filter(f).length;
+    const spitze = (feld) => paare.slice().sort((p1, p2) => p2[feld] - p1[feld])
+                                  .slice(0, 8)
+                                  .map((q) => ({ zeile: q.zeile, art: q.art,
+                                    colliderGap: q.colliderGap, visualGap: q.visualGap,
+                                    fassadenVersatz: q.fassadenVersatz,
+                                    a: q.a.visual + ' ' + (q.a.modell || 'prozedural')
+                                       + ' @' + q.a.x + ',' + q.a.z,
+                                    b: q.b.visual + ' ' + (q.b.modell || 'prozedural')
+                                       + ' @' + q.b.x + ',' + q.b.z }));
+    const nachbarn = {
+      paare: paare.length,
+      ohneKollider: zahl((q) => !q.kolliderGefunden),
+      colliderGapMax: paare.length ? Math.max(...paare.map((q) => q.colliderGap)) : 0,
+      visualGapMax: paare.length ? Math.max(...paare.map((q) => q.visualGap)) : 0,
+      versatzMax: paare.length ? Math.max(...paare.map((q) => q.fassadenVersatz)) : 0,
+      betretbarerSchlitz: zahl((q) => q.betretbarerSchlitz),
+      schmalerSchacht: zahl((q) => q.schmalerSchacht),
+      visuellUeber05: zahl((q) => q.visualGap > 0.5),
+      visuellUeber02: zahl((q) => q.visualGap > 0.2),
+      versatzUeber02: zahl((q) => q.fassadenVersatz > 0.2),
+      /* Wie oft steht ein Modell neben einem prozeduralen Haus? Dort ist
+         der Uebergang am ehesten sichtbar. */
+      gemischt: zahl((q) => q.a.visual !== q.b.visual),
+      schlimmsteSicht: spitze('visualGap'),
+      schlimmsterKollider: spitze('colliderGap'),
+      schlimmsterVersatz: spitze('fassadenVersatz'),
+    };
+
+    return { nachbarn, F, bsp, spalte: spalte.sort((a, b2) => a - b2), lotsGesamt, lotsFrei,
              jeKlasse, jeLotklasse, jeSeite, jeTeil,
              regeln, haeuser: kisten.length,
              stadtteile: d.stadtteile().reduce((a, t) => {
@@ -224,6 +349,33 @@ const { starte } = require('./basis');
          ' m   Median ' + aus.spalte[aus.spalte.length >> 1] +
          ' m   weitester ' + aus.spalte[aus.spalte.length - 1] + ' m' +
          '   unter 0,9 m: ' + aus.spalte.filter((q) => q < 0.9).length);
+  p('');
+  p('== Spalt zwischen DIREKTEN Reihenhaus-Nachbarn (gebaut) ==');
+  const N = aus.nachbarn;
+  p('  ' + N.paare + ' Nachbarpaare in Zeilen, davon ' + N.gemischt +
+    ' mit Modell neben prozeduralem Haus');
+  if (N.ohneKollider)
+    p('  WARNUNG: ' + N.ohneKollider + ' Paare ohne gefundenes Hindernis - '
+      + 'die Kolliderzahlen sind dort aus der Kiste gerechnet');
+  p('  Hindernis-Luecke   groesste ' + N.colliderGapMax.toFixed(3) + ' m');
+  p('    betretbarer Schlitz (>= 0,9 m)  ' + N.betretbarerSchlitz);
+  p('    schmaler Schacht (0 bis 0,9 m)  ' + N.schmalerSchacht);
+  p('  Sichtbare Luecke   groesste ' + N.visualGapMax.toFixed(3) + ' m'
+    + '   ueber 0,2 m: ' + N.visuellUeber02 + '   ueber 0,5 m: ' + N.visuellUeber05);
+  p('  Fassadenversatz    groesster ' + N.versatzMax.toFixed(3) + ' m'
+    + '   ueber 0,2 m: ' + N.versatzUeber02);
+  const zeig = (titel, liste) => {
+    p('  ' + titel);
+    if (!liste.length) { p('    keine'); return; }
+    for (const q of liste)
+      p('    Koll ' + String(q.colliderGap).padStart(7) +
+        '  Sicht ' + String(q.visualGap).padStart(7) +
+        '  Versatz ' + String(q.fassadenVersatz).padStart(7) +
+        '  ' + (q.art || '?') + '   ' + q.a + '  |  ' + q.b);
+  };
+  zeig('groesste Hindernis-Luecken:', N.schlimmsterKollider);
+  zeig('groesste sichtbare Luecken:', N.schlimmsteSicht);
+  zeig('groesster Fassadenversatz:', N.schlimmsterVersatz);
   p('');
   p('== Fehler ==');
   let summe = 0;

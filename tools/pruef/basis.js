@@ -89,12 +89,17 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
        damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
     if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
+    /* Nur zum Messen: die Wandsuche an der Zeilennaht abschalten, damit
+       derselbe Pruefstand das Verhalten vor und nach der Korrektur
+       messen kann. */
+    if (ein.nahtAlt) window.__WEBHERO_NAHT_ALT = 1;
   }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0,
        park: (opt && opt.park !== undefined) ? opt.park : null,
        streetSpur: (opt && opt.streetSpur) || 0,
        hybrid: (opt && opt.hybrid) || 0,
        modellFehler: (opt && opt.modellFehler) || 0,
        wdhAlt: !!(opt && opt.wdhAlt),
+       nahtAlt: !!(opt && opt.nahtAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
      WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright

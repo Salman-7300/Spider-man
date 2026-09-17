@@ -16443,6 +16443,57 @@ let onWallTimer = 0;
    (Sprung von Fassade zu Fassade) nicht behindert wird. */
 const WAND_SPERRE = 0.22;
 
+/* ---- Steht hinter der Wandkante ein Nachbar derselben Strassenwand? ----
+   Beim Klettern wird an der Kante eines Hindernisses geprueft, ob es um
+   die Ecke weitergeht. Bei einem freistehenden Haus ist das richtig. In
+   einer Haeuserzeile ist die Kante aber keine Ecke, sondern die Naht zum
+   Nachbarhaus - dahinter ist kein Platz.
+
+   Geprueft wird an EINEM Punkt: ein Stueck hinter der Kante und ein
+   Stueck in die Wand hinein. Liegt er in einem kletterbaren Hindernis,
+   dessen Schauseite in derselben Ebene liegt wie die jetzige, ist es der
+   Nachbar einer zusammenhaengenden Strassenwand.
+
+   c      das Hindernis, an dem gerade geklettert wird
+   w      die Wand mit ihrer Normalen (zeigt von der Fassade weg)
+   nx/nz  Richtung ueber die Kante, wie der Eckenwechsel sie errechnet hat
+   y      Hoehe der Figur
+
+   Rueckgabe: das Nachbarhindernis, oder null. */
+const ZEILE_NAHT_TIEF = 0.30;      // so weit hinter die Kante und in die Wand
+const ZEILE_NAHT_EBEN = 0.50;      // so weit duerfen die Schauseiten abweichen
+/* Nur zum Messen: die Uebergabe abschalten, damit derselbe Pruefstand das
+   Verhalten VOR und NACH der Korrektur messen kann. Im Spiel nie gesetzt. */
+const NAHT_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_NAHT_ALT;
+function zeilenNachbarWand(c, w, nx, nz, y) {
+  if (NAHT_ALT) return null;
+  /* Die Schauseite des jetzigen Hauses. */
+  const front = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0)
+                           : (w.nz > 0 ? c.z1 : c.z0);
+  let px, pz;
+  if (w.nx !== 0) {
+    /* Fassade zeigt in x, die Zeile laeuft in z. */
+    pz = (nz > 0 ? c.z1 : c.z0) + nz * ZEILE_NAHT_TIEF;
+    px = front - w.nx * ZEILE_NAHT_TIEF;
+  } else {
+    pz = front - w.nz * ZEILE_NAHT_TIEF;
+    px = (nx > 0 ? c.x1 : c.x0) + nx * ZEILE_NAHT_TIEF;
+  }
+  for (const n of collidersNear(px, pz)) {
+    if (n === c || n.klein || n.innen || n.parkAuto || n.keinKlettern) continue;
+    const y0 = n.y0 === undefined ? 0 : n.y0;
+    if (y < y0 + 0.2 || y > n.h - 0.2) continue;
+    if (px <= n.x0 || px >= n.x1 || pz <= n.z0 || pz >= n.z1) continue;
+    /* Nur uebernehmen, wenn die Fassade wirklich weiterlaeuft. Springt
+       der Nachbar vor oder zurueck, ist die Querflaeche sichtbar und der
+       Eckenwechsel bleibt richtig. */
+    const nFront = w.nx !== 0 ? (w.nx > 0 ? n.x1 : n.x0)
+                              : (w.nz > 0 ? n.z1 : n.z0);
+    if (Math.abs(nFront - front) > ZEILE_NAHT_EBEN) continue;
+    return n;
+  }
+  return null;
+}
 function updatePlayer(dt) {
   if (!heroVisual) return;
   if (player.dead) {
@@ -16495,7 +16546,11 @@ function updatePlayer(dt) {
   /* ---- Klettern ---- */
   if (player.state === 'climb') {
     const w = player.wallInfo;
-    const c = w.col;
+    /* Veraenderbar, weil der Uebergang auf das Nachbarhaus einer
+       Haeuserzeile die Wand im selben Bild weiterreicht - sonst begrenzt
+       die seitliche Klammer weiter unten noch auf das alte Haus und die
+       Figur bleibt an der Naht stehen. */
+    let c = w.col;
     // an der Wand halten
     if (w.nx !== 0) player.pos.x = (w.nx > 0 ? c.x1 : c.x0) + w.nx * CFG.climbGap;
     else player.pos.z = (w.nz > 0 ? c.z1 : c.z0) + w.nz * CFG.climbGap;
@@ -16609,6 +16664,46 @@ function updatePlayer(dt) {
       } else {
         if (player.pos.x < c.x0 + rand) neuNx = -1;
         else if (player.pos.x > c.x1 - rand) neuNx = 1;
+      }
+      /* ---- Ist das ueberhaupt eine Aussenecke? ----
+         HUMAN-BEFUND: beim Klettern an einer Haeuserzeile geriet die
+         Figur an der Grenze zum Nachbarhaus zwischen die Gebaeude, die
+         Kamera wurde in den Spalt gedrueckt.
+
+         Gemessen wurde zuerst die Geometrie, und die ist in Ordnung:
+         zwischen direkten Nachbarn einer Zeile betraegt die groesste
+         Hindernis-Luecke 0,01 m; stadtweit liegen 442 von 443 Luecken
+         unter 0,2 m und ueber fuenf Weltkeime hinweg gibt es KEINEN
+         Spalt zwischen 0,02 und 0,9 m. Einen Schacht, in den man
+         hineingeraten koennte, gibt es also nicht.
+
+         Der Fehler lag hier: diese Regel behandelte JEDE Kolliderkante
+         als Aussenecke und setzte die Figur um die Kante herum auf die
+         Querflaeche - climbGap = 0,15 m dahinter. Bei einem Reihenhaus
+         ist diese Querflaeche aber buendig im Nachbarhaus vergraben, die
+         Figur stand also 0,15 m IN dessen Hindernis. Nachgefahren an 20
+         Uebergaengen steckten 3 davon anschliessend im Nachbarn, jedes
+         Mal mit genau dieser Tiefe (gemessen 0,16 m) und jedes Mal mit
+         einer um 90 Grad gedrehten Wandnormalen.
+
+         Deshalb wird jetzt nachgesehen, ob hinter der Kante ueberhaupt
+         Platz ist. Steht dort ein Nachbar, dessen Schauseite in
+         derselben Ebene liegt, ist es keine Ecke, sondern eine Naht:
+         dann wird die Wand an den Nachbarn weitergereicht und die
+         Blickrichtung bleibt, wie sie ist. Steht dort nichts, oder
+         springt der Nachbar vor oder zurueck, ist es eine echte Ecke und
+         es bleibt beim alten Verhalten. */
+      if (neuNx !== 0 || neuNz !== 0) {
+        const nb = zeilenNachbarWand(c, w, neuNx, neuNz, player.pos.y);
+        if (nb) {
+          player.wallInfo = player.wall = { nx: w.nx, nz: w.nz, col: nb };
+          c = nb;
+          /* Ohne Sperre wuerde im naechsten Bild sofort wieder geprueft,
+             und an der Gegenkante des Nachbarn ginge es zurueck. */
+          player.eckSperre = WAND_ECK_ZEIT;
+          player.wandUebergaenge = (player.wandUebergaenge || 0) + 1;
+          neuNx = neuNz = 0;
+        }
       }
       if (neuNx !== 0 || neuNz !== 0) {
         /* Der Wechsel um die Ecke sah aus wie ein Sprung: die Figur wurde
