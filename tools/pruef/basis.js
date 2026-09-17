@@ -21,9 +21,16 @@
 
    Voraussetzungen (bewusst NICHT in tools/package.json, weil sie einen
    ganzen Browser nachladen):
-     npm i -D playwright three
+     npm i -D playwright three@0.128.0
      npx playwright install chromium
    Liegt Chromium schon irgendwo, hilft PLAYWRIGHT_CHROMIUM.
+
+   Die Version 0.128.0 ist KEINE Vorsichtsmassnahme, sondern noetig:
+   das Spiel laedt genau diese (siehe index.html), und ab three 0.15x
+   liegt in build/ gar keine three.min.js mehr. Ein schlichtes
+   "npm i -D three" installiert dann etwas, das dieser Pruefstand nicht
+   ausliefern kann - jeder Browser-Pruefstand bricht mit "three fehlt"
+   ab, obwohl das Paket da ist.
 
    Aufruf aus einem eigenen Skript:
      const { starte } = require('./basis');
