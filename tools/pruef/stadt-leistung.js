@@ -29,9 +29,17 @@ const vergleich = process.argv[3] || null;
    sich messen, was sie an Zeichenaufrufen kosten - mit demselben Code
    und demselben Weltkeim. */
 const alt = process.argv.indexOf('alt') > 0;
+/* "bremsen=AB" schaltet einzelne Wiederholungsbremsen aus Teil E an:
+   A ungleiche Lotbreiten, B Fassade, C Modellwahl. "bremsen=" ist keine
+   einzige. Ohne Angabe sind alle drei an. */
+const bArg = process.argv.find((v) => v.indexOf('bremsen=') === 0);
+const bremsen = bArg === undefined ? null : bArg.slice(8);
 
 (async () => {
-  const { b, page } = await starte(1280, 720, 4711, alt ? { wdhAlt: true } : {});
+  const opt = {};
+  if (alt) opt.wdhAlt = true;
+  if (bremsen !== null) opt.bremsen = bremsen;
+  const { b, page } = await starte(1280, 720, 4711, opt);
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
@@ -72,7 +80,24 @@ const alt = process.argv.indexOf('alt') > 0;
                           rx, rz, calls: r.calls, dreiecke: r.dreiecke });
           }
     const speicher = d.renderInfo();
+    /* Was steht ueberhaupt in der Szene? Aus einer Gesamtdifferenz der
+       Zeichenaufrufe laesst sich die Ursache nicht ablesen - dafuer muss
+       man wissen, ob mehr Objekte, mehr Geometrien oder nur andere
+       Modelle da sind. */
+    let objekte = 0, meshes = 0;
+    const mats = new Set(), geos = new Set();
+    d.szene.traverse((o) => {
+      objekte++;
+      if (!o.isMesh) return;
+      meshes++;
+      if (o.material) mats.add(o.material.uuid);
+      if (o.geometry) geos.add(o.geometry.uuid);
+    });
+    const hi = d.hausInfo();
     return { raster: R, proben,
+             szene: { objekte, meshes, materialien: mats.size, geometrien: geos.size },
+             haeuser: { gesamt: hi.kisten, model: hi.model, merged: hi.merged,
+                        schwelle: hi.schwelle },
              speicher: { texturen: speicher.texturen, geometrien: speicher.geometrien,
                          programme: speicher.programme } };
   });
@@ -106,6 +131,11 @@ const alt = process.argv.indexOf('alt') > 0;
     ' Bloecke   x ' + R.x0 + '...' + R.x1 + '   z ' + R.z0 + '...' + R.z1);
   p('  Texturen ' + aus.speicher.texturen + '   Geometrien ' + aus.speicher.geometrien +
     '   Programme ' + aus.speicher.programme);
+  p('  Szenenobjekte ' + aus.szene.objekte + '   Meshes ' + aus.szene.meshes +
+    '   Materialien ' + aus.szene.materialien +
+    '   Geometrien (gezaehlt) ' + aus.szene.geometrien);
+  p('  Haeuser ' + aus.haeuser.gesamt + '   MODEL ' + aus.haeuser.model +
+    '   MERGED ' + aus.haeuser.merged + '   Schwelle ' + aus.haeuser.schwelle);
   p('');
   p('== Zeichenaufrufe und Dreiecke (' + bericht.gesamt.n + ' Aufnahmen) ==');
   p('  Lage        Aufrufe Med   Aufrufe Max      Dreiecke Med   Dreiecke Max');

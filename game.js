@@ -613,7 +613,7 @@ function lotsAnKante(cx, cz, kante, von, bis, tiefe, art, loecher) {
   const anteile = [];
   let summe = 0;
   for (let i = 0; i < n; i++) {
-    const a = WDH_ALT ? 1 : rand(0.78, 1.22);
+    const a = BREMSE_LOT ? rand(0.78, 1.22) : 1;
     anteile.push(a); summe += a;
   }
   const breiten = anteile.map((a) => gesamt * a / summe);
@@ -5436,6 +5436,23 @@ const HYBRID_HOCH = (typeof window !== 'undefined' && window.__WEBHERO_HYBRID > 
    dasselbe Messgeraet gegen beide Verhaltensweisen.
    Im Spiel ist er nie gesetzt. */
 const WDH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_WDH_ALT;
+/* ---- Die drei Wiederholungsbremsen einzeln schaltbar ----
+   Teil E hat drei Dinge geaendert: ungleiche Lotbreiten (A), die
+   Fassadenwahl mit Nachbarwissen (B) und die Modellwahl mit
+   Nachbarwissen (C). Zusammen kosten sie gemessen 35 Zeichenaufrufe und
+   423.000 Dreiecke. Aus einer Gesamtdifferenz laesst sich aber nicht
+   sagen, WELCHE davon das verursacht - deshalb sind sie einzeln
+   abschaltbar.
+   __WEBHERO_BREMSEN ist eine Zeichenkette aus den Buchstaben A, B, C;
+   was fehlt, ist aus. Ohne Angabe sind alle drei an. Nur zum Messen -
+   im Spiel nie gesetzt. */
+const BREMSEN = (typeof window !== 'undefined' &&
+                 typeof window.__WEBHERO_BREMSEN === 'string')
+                ? window.__WEBHERO_BREMSEN.toUpperCase()
+                : (WDH_ALT ? '' : 'ABC');
+const BREMSE_LOT = BREMSEN.indexOf('A') >= 0;
+const BREMSE_FASSADE = BREMSEN.indexOf('B') >= 0;
+const BREMSE_MODELL = BREMSEN.indexOf('C') >= 0;
 const HYBRID_ECK = 16;            // Eckhaus: schon ab dieser Hoehe ein Modell
 const HYBRID_ZENTRUM = 20;        // im Zentrum frueher als anderswo
 function hausVisual(h, info) {
@@ -5471,7 +5488,7 @@ const letzteFassade = {};        // Zeile -> zuletzt gewaehlte Textur
 function makeBuildingMesh(w, h, d, x, z, schau, info) {
   let texIdx = randi(0, facadeTexes.length - 1);
   const zeile = info && info.zeile;
-  if (!WDH_ALT && zeile && facadeTexes.length > 1 && texIdx === letzteFassade[zeile])
+  if (BREMSE_FASSADE && zeile && facadeTexes.length > 1 && texIdx === letzteFassade[zeile])
     texIdx = (texIdx + 1 + randi(0, facadeTexes.length - 2)) % facadeTexes.length;
   if (zeile) letzteFassade[zeile] = texIdx;
   const visual = hausVisual(h, info);
@@ -6868,7 +6885,7 @@ function setzeHausModelle(szene) {
        Neustart dieselbe - sie haengt jetzt zusaetzlich davon ab, was
        links davon steht, und die Reihenfolge des Bauens ist fest. */
     let i = Math.abs(Math.round(e.x * 7.3 + e.z * 3.1)) % liste.length;
-    if (!WDH_ALT && e.zeile !== undefined && zuletzt[e.zeile] === i && liste.length > 1)
+    if (BREMSE_MODELL && e.zeile !== undefined && zuletzt[e.zeile] === i && liste.length > 1)
       i = (i + 1) % liste.length;
     if (e.zeile !== undefined) zuletzt[e.zeile] = i;
     const mass = vermessen(liste[i]);

@@ -89,6 +89,9 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
        damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
     if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
+    /* Nur zum Messen: welche der drei Wiederholungsbremsen aus Teil E an
+       sind - A ungleiche Lotbreiten, B Fassade, C Modellwahl. */
+    if (ein.bremsen !== null) window.__WEBHERO_BREMSEN = ein.bremsen;
     /* Nur zum Messen: die Wandsuche an der Zeilennaht abschalten, damit
        derselbe Pruefstand das Verhalten vor und nach der Korrektur
        messen kann. */
@@ -99,6 +102,7 @@ async function starte(breite, hoehe, seed, opt) {
        hybrid: (opt && opt.hybrid) || 0,
        modellFehler: (opt && opt.modellFehler) || 0,
        wdhAlt: !!(opt && opt.wdhAlt),
+       bremsen: (opt && typeof opt.bremsen === 'string') ? opt.bremsen : null,
        nahtAlt: !!(opt && opt.nahtAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
