@@ -19,6 +19,11 @@
    ========================================================================= */
 const fs = require('node:fs');
 const { starte } = require('./basis');
+/* Der Weltkeim ist einstellbar, damit derselbe Pruefstand mehrere
+   Staedte messen kann - Teil E verlangt fuenf feste Keime. Ohne Angabe
+   bleibt es bei 4711 wie bisher. */
+const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
+const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
 const zielJson = process.argv[2] || null;
 const zielDoku = process.argv[3] || null;
 
@@ -30,7 +35,7 @@ const median = (a) => {
 };
 
 (async () => {
-  const { b, page } = await starte(1024, 576, 4711);
+  const { b, page } = await starte(1024, 576, SEED);
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);

@@ -15,9 +15,20 @@
    Aufruf:  node tools/pruef/haeuserzeilen.js
    ========================================================================= */
 const { starte } = require('./basis');
+/* Der Weltkeim ist einstellbar, damit derselbe Pruefstand mehrere
+   Staedte messen kann - Teil E verlangt fuenf feste Keime. Ohne Angabe
+   bleibt es bei 4711 wie bisher. */
+const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
+const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
+/* "bremsen=AB" schaltet einzelne Wiederholungsbremsen aus Teil E an -
+   A ungleiche Lotbreiten, B Fassade, C Modellwahl. Damit laesst sich
+   zuordnen, welche Beanstandung von welcher Bremse kommt. */
+const bArg = process.argv.find((v) => v.indexOf('bremsen=') === 0);
+const BREMSEN = bArg === undefined ? null : bArg.slice(8);
 
 (async () => {
-  const { b, page } = await starte(800, 480, 4711);
+  const { b, page } = await starte(800, 480, SEED,
+    BREMSEN === null ? {} : { bremsen: BREMSEN });
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true);
@@ -91,7 +102,9 @@ const { starte } = require('./basis');
           if (l.breite > regeln.klassen[regeln.klassen.length - 1].max + 0.01)
             merke('lotZuBreit', { bi, bj, seite: l.seite, breite: l.breite });
           if (l.breite < regeln.klassen[0].min - 0.01)
-            merke('lotZuSchmal', { bi, bj, seite: l.seite, breite: l.breite });
+            merke('lotZuSchmal', { bi, bj, seite: l.seite, breite: l.breite,
+                                   x: l.x, z: l.z, tiefe: l.tiefe,
+                                   klasse: l.lot, frei: l.frei });
           /* Die Schauseite muss zur Strasse zeigen: die Bauflucht liegt
              genau eine halbe Tiefe vor der Hausmitte, nach aussen. */
           const vorn = l.nx ? l.x + l.nx * l.w / 2 : l.z + l.nz * l.d / 2;
