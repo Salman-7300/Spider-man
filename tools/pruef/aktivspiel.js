@@ -11,7 +11,7 @@
    nicht - der Trend ist die Aenderung ueber die ganze halbe Stunde,
    gerechnet als Regressionsgerade durch alle Messpunkte.
    =================================================================== */
-const { starte } = require('./basis');
+const { starte, ausgabePfad } = require('./basis');
 const fs = require('fs');
 
 const SEED = Number(process.argv[3]) || 4711;
@@ -555,6 +555,7 @@ const SEED = Number(process.argv[3]) || 4711;
   if (aus.stand) console.log('Fortschritt:', JSON.stringify(aus.stand));
   if (aus.hyg) console.log('Hygiene:', JSON.stringify(aus.hyg));
   if (aus.validZaehler) console.log('Valid:', JSON.stringify(aus.validZaehler));
-  if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify({ aus, seitenFehler }, null, 2));
+  const _ziel = ausgabePfad(process.argv[2]);
+  if (_ziel) fs.writeFileSync(_ziel, JSON.stringify({ aus, seitenFehler }, null, 2));
   await b.close();
 })();

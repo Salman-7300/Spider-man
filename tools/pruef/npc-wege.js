@@ -19,7 +19,7 @@
        loeschen, danach gegen die Vorlage pruefen (Assert)
      - sieben getrennte Fragen statt einer Sammelzahl
    =================================================================== */
-const { starte } = require('./basis');
+const { starte, ausgabePfad } = require('./basis');
 const fs = require('fs');
 
 const SEED = Number(process.argv[3]) || 4711;
@@ -594,6 +594,7 @@ const NUR_E = process.argv.includes('nurE');
     console.log('== E: Spieler nicht erreicht (' + eFehl.length + ') ==');
     for (const e of eFehl.slice(0, 5)) console.log('   ' + JSON.stringify(e));
   }
-  if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify(aus, null, 2));
+  const _ziel = ausgabePfad(process.argv[2]);
+  if (_ziel) fs.writeFileSync(_ziel, JSON.stringify(aus, null, 2));
   await b.close();
 })();

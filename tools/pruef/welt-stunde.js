@@ -12,7 +12,7 @@
    Auswertung: fuer jede Reihe wird eine Regressionsgerade durch die
    120 Messpunkte gelegt. Die Steigung sagt, ob die Zahl ueber die
    Stunde waechst. Dazu Anfang, Ende, Mittel und Hoechstwert. */
-const { starte } = require('./basis');
+const { starte, ausgabePfad } = require('./basis');
 const fs = require('fs');
 
 (async () => {
@@ -109,6 +109,7 @@ const fs = require('fs');
   console.log(waechst === 0 ? 'Kein Wachstumstrend.' : waechst + ' Reihe(n) mit Wachstumstrend.');
   if (aus.hyg) console.log('Hygiene:', JSON.stringify(aus.hyg));
   if (aus.gehSuche) console.log('Wegsuche:', JSON.stringify(aus.gehSuche));
-  if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify(aus, null, 2));
+  const _ziel = ausgabePfad(process.argv[2]);
+  if (_ziel) fs.writeFileSync(_ziel, JSON.stringify(aus, null, 2));
   await b.close();
 })();
