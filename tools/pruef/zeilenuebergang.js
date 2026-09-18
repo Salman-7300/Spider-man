@@ -26,8 +26,16 @@
    Aufruf:  node tools/pruef/zeilenuebergang.js [seed] [max] [alt]
    ========================================================================= */
 const { starte } = require('./basis');
-const seed = +(process.argv[2] || 4711);
-const max = +(process.argv[3] || 0);        // 0 = alle
+/* Eine Zahl oder der Standardwert - "-" und Unsinn werden NICHT zu NaN.
+   Mit NaN als Weltkeim baut das Spiel eine ungeseedete Zufallsstadt, und
+   der Lauf misst dann etwas anderes als gemeint. Genau das ist in einem
+   Regressionslauf passiert (211 statt 221 Nachbarpaare). */
+const zahl = (v, standard) => {
+  const n = Number(v);
+  return (v === undefined || v === '-' || v === '' || !isFinite(n)) ? standard : n;
+};
+const seed = zahl(process.argv[2], 4711);
+const max = zahl(process.argv[3], 0);       // 0 = alle
 /* "alt" schaltet die Uebergabe an den Nachbarn ab - damit misst derselbe
    Pruefstand das Verhalten vor der Korrektur. */
 const alt = process.argv.indexOf('alt') > 0;
