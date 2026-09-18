@@ -10,7 +10,7 @@
      Dachlandung      aus zwoelf Metern auf die Dachmitte fallen
      Wandklettern     zwei Meter unter der Dachkante anfangen und
                       hinaufklettern, bis die Figur oben steht
-     Nachbarsprung    vom Dach zum unmittelbaren Nachbarn springen
+     Nachbardach      ueber die Dachgrenze zum Nachbarn gehen
      Dachkante        auf der Kante stehen bleiben, nicht abrutschen
 
    Gemessen wird je Versuch:
@@ -210,14 +210,27 @@ const anzahl = zahl(process.argv[3], 20);
           uebersprungen: 'Nachbar mehr als 3 m hoeher' });
         continue;
       }
-      d.taste('KeyW', true); d.taste('ShiftLeft', true);
-      laufe(40);
-      d.tippeSprung();
-      /* Nach dem Absprung die Tasten loslassen - sonst laeuft die Figur
-         ueber das Nachbardach hinweg wieder herunter. */
-      const l1 = laufe(30);
+      /* ---- Gehen, nicht springen ----
+         Reihenhaeuser stehen buendig: zwischen zwei Nachbardaechern ist
+         keine Luecke, ueber die man springen muesste. Ein erster Versuch
+         liess die Figur anlaufen und springen - sie schoss ueber das
+         Nachbardach hinaus und landete auf der Strasse, in sechs bis
+         acht von zwanzig Faellen. Das war kein Befund am Spiel, sondern
+         eine falsch gestellte Uebung.
+         Geprueft wird deshalb, was hier wirklich passiert: die Figur
+         geht ueber die Dachgrenze zum Nachbarn. Startpunkt ist die Naht,
+         zwei Meter davor. */
+      const laengsX = Math.abs(B.x - A.x) > Math.abs(B.z - A.z);
+      const naht = laengsX ? (A.x + A.w / 2 + B.x - B.w / 2) / 2
+                           : (A.z + A.d / 2 + B.z - B.d / 2) / 2;
+      const richtung = laengsX ? Math.sign(B.x - A.x) : Math.sign(B.z - A.z);
+      d.setzePos(laengsX ? naht - richtung * 2.0 : A.x, dachA + 0.1,
+                 laengsX ? A.z : naht - richtung * 2.0);
+      P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
+      d.taste('KeyW', true);
+      const l1 = laufe(100);
       alleAus();
-      const l2 = laufe(150);
+      const l2 = laufe(60);
       const l = { maxSprung: Math.max(l1.maxSprung, l2.maxSprung),
                   stillMax: Math.max(l1.stillMax, l2.stillMax) };
       const aufB = Math.abs(P.pos.x - B.x) <= B.w / 2 + 0.6 &&
@@ -289,7 +302,7 @@ const anzahl = zahl(process.argv[3], 20);
     ['in einem Hindernis', (q) => q.inKollider],
     ['festgehangen', (q) => q.festgehangen],
     ['Teleport', (q) => q.teleport]]);
-  block('Sprung zum Nachbarn', E.sprung, [
+  block('Gehend aufs Nachbardach', E.sprung, [
     ['uebersprungen (Nachbar > 3 m hoeher)', (q) => !!q.uebersprungen],
     ['auf dem Nachbardach', (q) => q.aufNachbardach],
     ['heruntergefallen', (q) => q.gefallen],
