@@ -959,6 +959,7 @@ nicht weiterverwendet werden:
 | "die Modellbremse waehlt teurere Modelle" | sie waehlt nichts Teureres: +3 Meshes, +6.375 Dreiecke |
 | "Fassadenwiederholung 20,7 Prozent" | mit geometrischer Gruppierung gemessen, die freistehende Bauten mitzaehlt; nach Zeilenkennung sind es 0 Prozent |
 | "lotZuSchmal ist ein Altbefund" | falsch, er wird von der Lotbreitenbremse verursacht |
+| "zwei Beete versperren bei Keim 1234 Gehnetz-Kanten" | kein Moebel war beteiligt; der Pruefstand zaehlte einen Kollider in 16 m Hoehe als Bodenhindernis (siehe 6i) |
 
 Das Ausweichen haengt jetzt am ORT und zieht keinen Zufall. Der Beweis,
 dass der Strom unberuehrt bleibt: die Haeuserzahl ist mit und ohne die
@@ -1141,35 +1142,56 @@ sind null, und ein 6,4 m breites Reihenhaus ist ein glaubwuerdiges
 schmales Stadthaus. Wird deshalb dokumentiert und nicht repariert - eine
 neue Lot-Architektur ist in Teil E ausdruecklich ausgeschlossen.
 
-### Zwei versperrte Gehnetz-Kanten bei Keim 1234
+### Die zwei "versperrten" Gehnetz-Kanten bei Keim 1234 - widerlegt
 
-Bei einem der fuenf Weltkeime versperren zwei Beete je eine Kante des
-Gehnetzes vollstaendig - Ueberlappung 0,3 m, breiteste freie Luecke
-daneben 0 m:
+Hier stand, zwei Beete versperrten bei Keim 1234 je eine Gehnetz-Kante
+vollstaendig, und die Lotbreitenbremse sei die Ursache. **Beides ist
+falsch.** Nachgemessen wurde das Querprofil an jeder betroffenen Stelle,
+ueber die vollen sechs Meter in Schritten von 0,1 m:
 
 ```
-Beet bei (-282 / -35)   auf Kante (-283,-44) bis (-283,-33)
-Beet bei ( -65 /-232)   auf Kante ( -66,-233) bis (-55,-233)
+KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKHHHHHHHHHHHHHHHHHHHHHHH
+. frei   H Hoehensprung   K Kollider   M Moebel
 ```
 
-Auch das ist zugeordnet:
+Kein einziger Punkt war durch ein MOEBEL blockiert - im ganzen Profil
+kommt kein M vor. Das Beet war nur das naechstgelegene Objekt und wurde
+deshalb vom Pruefstand benannt.
 
-| Konfiguration bei Keim 1234 | wirklich gesperrt |
-|---|---|
-| alle drei Bremsen | 2 |
-| ohne die Lotbreitenbremse | 0 |
-| ganz ohne Bremsen | 0 |
+Die Bodenhoehe der Kante betraegt dort 1,25 m statt 0,25 m, `aufGehweg`
+meldet false, und der "blockierende" Kollider reicht von y0 = 16,05 bis
+17,05 m - er schwebt sechzehn Meter ueber dem Boden.
 
-Die anderen vier Weltkeime haben null gesperrte Pfade.
+Die Ursache lag im Pruefstand: er sah nur x, z und die OBERKANTE eines
+Kolliders. Damit galt jedes Hindernis als Bodenhindernis, dessen
+Oberkante ueber Kopfhoehe liegt - auch ein Vordach oder eine Hochbahn.
+Das Spiel selbst macht es richtig: `collideBody` ueberspringt einen
+Kollider, sobald die Kopfhoehe unter seiner Unterkante liegt
+(`p.y + 1.75 < c.y0`).
 
-Das ist ein echter Befund mit Spielauswirkung - dort kommt kein Passant
-durch. Er wurde in Teil E NICHT behoben, und zwar aus einem nennbaren
-Grund: die Beete werden in `buildCity()` gesetzt, das Gehnetz entsteht
-erst danach. Die Platzierung kann die Kante also gar nicht kennen. Jede
-Loesung muesste entweder die Reihenfolge aendern oder das Gehnetz um
-versperrte Kanten herumfuehren - beides sind Eingriffe in gesperrte
-Systeme, und ein halb eingebauter Umweg waere schlimmer als der
-dokumentierte Befund.
+Gegenprobe, damit die Pruefung nicht blind wird: ueber alle 1473
+Gehknoten wurden 42.000 Kollider geprueft und 13.533 uebersprungen. Das
+kleinste y0 darunter ist 2,70 m - knapp einen Meter ueber dem Kopf.
+
+Neue harte Kennzahl `moebelBlockiertGehkante`: bei einer gesperrten
+Stelle wird dieselbe Spur ein zweites Mal gemessen, ohne die Moebel.
+Wird sie dann frei, ist das Moebel die Ursache.
+
+| Keim | wirklich gesperrt | moebelBlockiertGehkante | kleinste freie Breite |
+|---|---|---|---|
+| 4711 | 0 | 0 | 1,60 m |
+| 1234 | 0 | 0 | 1,20 m |
+| 8080 | 0 | 0 | 1,80 m |
+| 20250914 | 0 | 0 | 1,20 m |
+| 777 | 0 | 0 | 1,20 m |
+
+Noetig sind 0,90 m. Am Spiel wurde nichts geaendert; das Gehnetz bei
+Keim 1234 ist vor und nach der Korrektur identisch (1473 Knoten, 1846
+Kanten, 3 Inseln, groesste Insel 1444).
+
+Damit ist auch die fruehere Zuordnung an die Lotbreitenbremse widerlegt:
+gemessen wurde nur, dass die Bremse eine andere Stadt erzeugt, in der
+die fehlerhafte Pruefung zuschlaegt.
 
 ### Die flachen MERGED-Haeuser
 
