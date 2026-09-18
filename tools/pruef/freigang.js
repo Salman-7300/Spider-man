@@ -16,10 +16,16 @@
    Was hier gruen ist, heisst nicht "sieht gut aus" - es heisst "steht
    nichts im Weg". */
 const { starte, ausgabePfad } = require('./basis');
+/* "bremsen=AB" schaltet einzelne Wiederholungsbremsen aus Teil E an -
+   A ungleiche Lotbreiten, B Fassade, C Modellwahl. Damit laesst sich
+   pruefen, ob ein Befund von Teil E stammt oder schon vorher da war. */
+const bArg = process.argv.find((v) => v.indexOf('bremsen=') === 0);
+const BREMSEN = bArg === undefined ? null : bArg.slice(8);
 const fs = require('fs');
 
 (async () => {
-  const { b, page } = await starte(700, 420, Number(process.argv[3]) || 4711);
+  const { b, page } = await starte(700, 420, Number(process.argv[3]) || 4711,
+    BREMSEN === null ? {} : { bremsen: BREMSEN });
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true);

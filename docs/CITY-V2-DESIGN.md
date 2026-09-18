@@ -903,6 +903,285 @@ liegt im selben Bereich wie der Rest des Deltas.
 
 ---
 
+## 6h. Wiederholung, Hoehenrhythmus und die Zeilennaht (Stufe 5, Teil E)
+
+Teil E baut keine Stadt. Er aendert nur, wie stark sich UNMITTELBARE
+Nachbarn voneinander unterscheiden - und er hat einen Fehler beim
+Klettern behoben, den ein Mensch im Spiel gefunden hat.
+
+### Die Fassadenbremse wirkte ueber Zeilengrenzen hinweg
+
+Drei Fassadentexturen, unabhaengig gewuerfelt: rund ein Drittel aller
+Nachbarpaare teilt sich dieselbe. Deshalb merkt sich eine Zeile, welche
+Textur das vorige Haus bekommen hat, und das naechste nimmt eine andere.
+
+Der erste Versuch merkte sich das in EINER Variablen fuer die ganze
+Stadt. Gemessen entlang der Baureihenfolge, getrennt nach Uebergaengen
+innerhalb einer Zeile und zwischen zwei Zeilen:
+
+| Seed 4711 | innerhalb einer Zeile | zwischen zwei Zeilen |
+|---|---|---|
+| vorher | 0 von 221 (0,0 %) | 0 von 282 (0,0 %) |
+| nachher | 0 von 221 (0,0 %) | 94 von 282 (33,3 %) |
+| erwartet ohne Beeinflussung | - | rund 33 % |
+
+0,0 Prozent an den Zeilengrenzen sind der Beweis: das erste Haus einer
+Blockkante richtete sich nach dem letzten Haus einer voellig anderen
+Kante. Der Zustand haengt jetzt an der Zeilenkennung `info.zeile`.
+
+### Der wichtigste Fund: ein zusaetzlicher Zufallszug aendert die STADT
+
+Die Fassadenbremse wich mit `randi()` aus - ein zusaetzlicher Zug aus
+dem gemeinsamen Zufallsstrom, und zwar nur manchmal, naemlich wenn der
+Nachbar dieselbe Textur hatte. Damit verschob sie alles, was danach
+gewuerfelt wird: Hoehen, Schmuck, welche Lots frei bleiben. Jede Messung
+verglich deshalb zwei VERSCHIEDENE Staedte.
+
+Erkennbar war es am fehlenden Vorzeichen. Zeichenaufrufe gegen dieselbe
+Fassung ohne die Bremse:
+
+| Weltkeim | "Preis" der Fassadenbremse |
+|---|---|
+| 4711 | +32,5 |
+| 8080 | +50 |
+| 1234 | **-15** |
+
+Ein Effekt, der je Stadt das Vorzeichen wechselt, ist kein Effekt der
+Bremse.
+
+**Damit sind alle frueheren Leistungsvergleiche aus Teil E ungueltig.**
+Insbesondere diese hier berichteten Zahlen sind WIDERLEGT und duerfen
+nicht weiterverwendet werden:
+
+| widerlegte Aussage | was wirklich gilt |
+|---|---|
+| "die Bremsen kosten +35 Aufrufe und +423.000 Dreiecke" | seedabhaengig zwischen +20 und +50 Aufrufen und +100k bis +409k Dreiecken - kein stabiler Effekt |
+| "die Modellbremse waehlt teurere Modelle" | sie waehlt nichts Teureres: +3 Meshes, +6.375 Dreiecke |
+| "Fassadenwiederholung 20,7 Prozent" | mit geometrischer Gruppierung gemessen, die freistehende Bauten mitzaehlt; nach Zeilenkennung sind es 0 Prozent |
+| "lotZuSchmal ist ein Altbefund" | falsch, er wird von der Lotbreitenbremse verursacht |
+
+Das Ausweichen haengt jetzt am ORT und zieht keinen Zufall. Der Beweis,
+dass der Strom unberuehrt bleibt: die Haeuserzahl ist mit und ohne die
+Bremse identisch - 617/617, 597/597, 599/599 bei 4711, 1234, 8080.
+Vorher unterschied sie sich.
+
+**Regel fuer alles Weitere: kein zusaetzlicher Zug aus dem gemeinsamen
+Zufallsstrom.** Wer eine neue deterministische Entscheidung braucht,
+leitet sie aus Weltkeim, Block, Lot, Zeilenkennung oder Weltposition ab.
+
+### Die drei Bremsen, einzeln schaltbar
+
+`window.__WEBHERO_BREMSEN` nimmt eine Zeichenkette aus A (ungleiche
+Lotbreiten), B (Fassade) und C (Modellwahl). Nur zum Messen; im Spiel
+sind alle drei an.
+
+C ist die einzige, die sich sauber isolieren laesst: sie zieht keinen
+Zufall, also ist AB gegen ABC dieselbe Stadt mit nur anderer
+Modellzuordnung. Ergebnis: +3 Meshes, +6.375 Dreiecke, Entropie der
+Modellwahl 3,434 gegen 3,437 bit. Ein kostenbewusster Ersatz wurde
+deshalb NICHT gebaut - es gibt nichts zu sparen.
+
+### Wiederholung ueber fuenf Weltkeime
+
+Exakt nach Zeilenkennung gruppiert, ALT heisst alle drei Bremsen aus:
+
+| Keim | Modell ALT | NEU | Fassade ALT | NEU | 3 Fassaden ALT | NEU | haeufigste Lotfolge ALT | NEU |
+|---|---|---|---|---|---|---|---|---|
+| 4711 | 29,3 % | 4,7 % | 30,8 % | 0 % | 6 | 0 | 49 Kanten | 5 |
+| 1234 | 29,9 % | 2,1 % | 32,5 % | 0 % | 5 | 0 | 40 | 6 |
+| 8080 | 33,7 % | 1,2 % | 32,4 % | 0 % | 5 | 0 | 47 | 6 |
+| 20250914 | 33,3 % | 3,7 % | 34,2 % | 0 % | 5 | 0 | 51 | 7 |
+| 777 | 28,1 % | 4,7 % | 25,5 % | 0 % | 6 | 0 | 46 | 7 |
+
+Die Hoehenaehnlichkeit (Unterschied unter 1 m) verbessert sich NICHT -
+ALT 8,3 bis 13,1 Prozent, NEU 7,7 bis 13,4 Prozent. Das ist erwartbar:
+es gibt keine Hoehenbremse. Es wird hier nicht als Gewinn gefuehrt.
+
+### Hoehenrhythmus: gemessen, nicht geglaettet
+
+Median der Differenz zwischen unmittelbaren Nachbarn einer Zeile:
+
+| Keim | WOHN | UFER | MISCHUNG | GESCHAEFT | ZENTRUM |
+|---|---|---|---|---|---|
+| 4711 | 3,8 | 6,0 | 6,3 | 8,2 | 16,5 |
+| 1234 | 3,4 | 8,5 | 6,5 | 12,8 | 27,4 |
+| 8080 | 3,2 | 6,5 | 7,3 | 7,1 | 8,0 |
+| 20250914 | 3,3 | 4,1 | 5,8 | 8,1 | 18,3 |
+| 777 | 3,4 | 7,2 | 6,8 | 10,9 | 17,8 |
+
+Das Gefaelle WOHN unter MISCHUNG unter GESCHAEFT unter ZENTRUM haelt in
+vier von fuenf Keimen; bei 8080 liegt GESCHAEFT mit 7,1 m knapp unter
+MISCHUNG mit 7,3 m - GESCHAEFT hat dort nur 15 Nachbarpaare, weil dort
+breite Lots stehen und je Kante nur zwei Haeuser passen. UFER liegt
+nicht auf dieser Achse nach innen und schwankt entsprechend.
+
+Starker Zickzack (vier Haeuser, abwechselnd, jeder Schritt ueber acht
+Meter): **null Faelle in allen fuenf Keimen und allen Stadtteilen.**
+Laengster Lauf fast gleicher Hoehen: zwei bis drei. Keine wiederkehrende
+Hoehenfolge oefter als zweimal, kein exakter Hoehenwert oefter als
+zweimal bei ueber 500 Haeusern - bei stetigem Zufall zu erwarten.
+
+**An den Hoehen wurde nichts geaendert.** Glaetten ohne Befund waere
+genau das, was der Auftrag ausschliesst.
+
+### Hohe Akzente
+
+Anteil der Haeuser ab 45 m:
+
+| Keim | WOHN | UFER | MISCHUNG | GESCHAEFT | ZENTRUM | hoechstes | Klumpen ausserhalb 300 m |
+|---|---|---|---|---|---|---|---|
+| 4711 | 0 % | 6,0 % | 3,2 % | 10,9 % | 40,9 % | 95,6 m | 0 |
+| 1234 | 0 % | 8,3 % | 0,9 % | 10,9 % | 47,6 % | 95,2 m | 0 |
+| 8080 | 0 % | 4,0 % | 1,3 % | 13,6 % | 31,8 % | 85,1 m | 0 |
+| 20250914 | 0 % | 5,9 % | 0,9 % | 15,9 % | 52,3 % | 90,8 m | 0 |
+| 777 | 0 % | 7,8 % | 1,0 % | 17,4 % | 38,6 % | 85,5 m | 0 |
+
+Die Hierarchie haelt fuenf von fuenf: ZENTRUM ist der Schwerpunkt,
+GESCHAEFT liegt darunter, MISCHUNG und UFER sind Mid-Rise mit einzelnen
+Akzenten, WOHN hat in jedem Keim kein einziges Hochhaus. Kein Turmklumpen
+ausserhalb der Mischung. Es wurde kein einziges Hochhaus hinzugefuegt.
+
+### Leistung ueber fuenf Weltkeime
+
+| Keim | Aufrufe | Strasse | Dach | Luft | Dreiecke |
+|---|---|---|---|---|---|
+| 4711 | 848,5 | 798 | 803,5 | 905 | 2.965.887 |
+| 1234 | 877 | 823,5 | 818,5 | 951,5 | 3.345.123 |
+| 8080 | 845,5 | 806,5 | 812 | 900,5 | 3.491.884 |
+| 20250914 | 881,5 | 844,5 | 805 | 939,5 | 3.452.163 |
+| 777 | 872 | 835 | 805 | 943 | 3.450.773 |
+
+Hartes Tor 899 Aufrufe und rund 4,16 Millionen Dreiecke: kein Keim
+reisst es. Das Teil-E-Ziel von hoechstens 875 ist an zwei Keimen
+verfehlt (877 und 881,5). Das wird hier so stehen gelassen und nicht als
+Durchschnitt schoengerechnet.
+
+Wiederholung einer Messung an derselben Stadt: 885,5 / 887 / 888 - das
+Messrauschen betraegt rund 2,5 Aufrufe.
+
+### Der Human-Befund: zwischen zwei Reihenhaeusern
+
+Ein Mensch fand beim Spielen: klettert man an einer Zeilenfassade hoch,
+geraet die Figur an der Grenze zum Nachbarhaus zwischen die Gebaeude,
+und die Kamera wird in den Spalt gedrueckt.
+
+Zuerst gemessen, was es NICHT ist. Die Geometrie ist in Ordnung:
+
+| Messung | Ergebnis |
+|---|---|
+| groesste Hindernis-Luecke zwischen direkten Zeilennachbarn | 0,01 m |
+| Luecken stadtweit unter 0,2 m | 442 von 443 |
+| Luecken im Bereich 0,02 bis 0,9 m, fuenf Weltkeime | **0** |
+| Modellbreite gegen Lotbreite, 400 Modelle | kleinster/mittlerer/groesster Anteil 1,000 |
+
+Es gibt also gar keinen Spalt, in den man geraten koennte.
+
+Die Ursache lag in der Eckenwechsel-Regel beim Klettern: sie behandelte
+JEDE Kolliderkante als Aussenecke und setzte die Figur um die Kante
+herum auf die Querflaeche, `climbGap` = 0,15 m dahinter. Bei einem
+Reihenhaus ist diese Querflaeche buendig im Nachbarhaus vergraben.
+
+Alle 221 Nachbarpaare bei Keim 4711 abgefahren:
+
+| | vorher | nachher |
+|---|---|---|
+| Wand an den Nachbarn uebergeben | 0 | 221 |
+| Wandnormale um 90 Grad gedreht | 221 | 0 |
+| steckt in einem Hindernis | 221 | 0 |
+| Abstand zur Fassadenebene | -3,25 bis -4,12 m | 0,150 m, jeder Fall |
+| Kameraabstand zur Figur | 1,36 m | 6,66 bis 6,72 m |
+| Kamera im Hindernis | 5 von 6 | 0 von 6 |
+
+Negativer Abstand heisst: drei bis vier Meter HINTER der Fassade, also
+mitten im Nachbarhaus.
+
+Die Korrektur sieht vor dem Eckenwechsel nach, ob hinter der Kante Platz
+ist. Steht dort ein kletterbares Hindernis, dessen Schauseite in
+derselben Ebene liegt (Toleranz 0,5 m), ist es keine Ecke, sondern eine
+Naht: die Wand wird an den Nachbarn weitergereicht. Kein Snappen.
+
+Die Gegenprobe gehoert zum Pruefstand: an 150 echten Aussenecken je
+Weltkeim - dem letzten Haus einer Zeile - dreht sich die Wand weiterhin
+in 150 von 150 Faellen, null davon faelschlich uebergeben. Bestaetigt an
+fuenf Keimen.
+
+---
+
+## 6i. Bekannte Grenzen nach Stufe 5
+
+### lotZuSchmal: sieben Parzellen unter dem Klassenminimum
+
+Die Lotklasse SCHMAL beginnt bei 7,0 m. Bei Keim 4711 liegen sieben
+Parzellen darunter, zwischen 6,25 und 6,92 m.
+
+Zugeordnet, nicht vermutet:
+
+| Konfiguration | lotZuSchmal |
+|---|---|
+| alle drei Bremsen | 7 |
+| ohne die Lotbreitenbremse | 0 |
+| ganz ohne Bremsen | 0 |
+
+Das ist also KEIN Altbefund, sondern eine Folge der ungleichen
+Lotbreiten aus Teil E: die ZAHL der Lots je Kante haelt das Minimum ein,
+der Anteil einzelner Lots (0,78 bis 1,22) kann eines darunter druecken.
+
+Beispiele mit Weltkoordinaten:
+
+```
+Breite 6,40 m  bei (-290,84 / -253,21)  Tiefe 8,89 m  Blockkante O
+Breite 6,67 m  bei (-290,84 / -246,67)  Tiefe 8,89 m  Blockkante O
+Breite 6,53 m  bei (-296,58 /  191,08)  Tiefe 9,37 m  Blockkante S
+Breite 6,92 m  bei (-289,86 /  191,08)  Tiefe 9,37 m  Blockkante S
+```
+
+Ohne Auswirkung auf das Spiel: die Haeuser stehen buendig zu ihren
+Nachbarn (groesste Luecke 0,01 m), `lotAufGehknoten` und `hausAufStrasse`
+sind null, und ein 6,4 m breites Reihenhaus ist ein glaubwuerdiges
+schmales Stadthaus. Wird deshalb dokumentiert und nicht repariert - eine
+neue Lot-Architektur ist in Teil E ausdruecklich ausgeschlossen.
+
+### Zwei versperrte Gehnetz-Kanten bei Keim 1234
+
+Bei einem der fuenf Weltkeime versperren zwei Beete je eine Kante des
+Gehnetzes vollstaendig - Ueberlappung 0,3 m, breiteste freie Luecke
+daneben 0 m:
+
+```
+Beet bei (-282 / -35)   auf Kante (-283,-44) bis (-283,-33)
+Beet bei ( -65 /-232)   auf Kante ( -66,-233) bis (-55,-233)
+```
+
+Auch das ist zugeordnet:
+
+| Konfiguration bei Keim 1234 | wirklich gesperrt |
+|---|---|
+| alle drei Bremsen | 2 |
+| ohne die Lotbreitenbremse | 0 |
+| ganz ohne Bremsen | 0 |
+
+Die anderen vier Weltkeime haben null gesperrte Pfade.
+
+Das ist ein echter Befund mit Spielauswirkung - dort kommt kein Passant
+durch. Er wurde in Teil E NICHT behoben, und zwar aus einem nennbaren
+Grund: die Beete werden in `buildCity()` gesetzt, das Gehnetz entsteht
+erst danach. Die Platzierung kann die Kante also gar nicht kennen. Jede
+Loesung muesste entweder die Reihenfolge aendern oder das Gehnetz um
+versperrte Kanten herumfuehren - beides sind Eingriffe in gesperrte
+Systeme, und ein halb eingebauter Umweg waere schlimmer als der
+dokumentierte Befund.
+
+### Die flachen MERGED-Haeuser
+
+Haeuser unter 32 m bleiben prozedurale Kisten mit Fassadentextur. Aus
+der Ferne und im flachen Winkel wirken sie flach, weil ihnen die
+Fensterlaibungen der Modelle fehlen. Das ist die bekannte Grenze des
+hybriden Systems aus Teil D.1 und durch Teil E weder besser noch
+schlechter geworden - die Gegenseite der langen Haeuserzeile ist in den
+Bildern mit und ohne Bremsen gleich.
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,
