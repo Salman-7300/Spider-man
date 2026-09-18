@@ -15,7 +15,7 @@
    Gemeldet wird JEDE Ueberschneidung mit Ort und Ueberlappung in Metern.
    Was hier gruen ist, heisst nicht "sieht gut aus" - es heisst "steht
    nichts im Weg". */
-const { starte } = require('./basis');
+const { starte, ausgabePfad } = require('./basis');
 const fs = require('fs');
 
 (async () => {
@@ -375,6 +375,7 @@ const fs = require('fs');
                   e.luecke + ' m  auf Kante ' + JSON.stringify(e.kante));
     if (gesperrt.length > 20) console.log('  ... und ' + (gesperrt.length - 20) + ' weitere');
   }
-  if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify(aus, null, 2));
+  const ziel = ausgabePfad(process.argv[2]);
+  if (ziel) fs.writeFileSync(ziel, JSON.stringify(aus, null, 2));
   await b.close();
 })();

@@ -20,8 +20,8 @@
    Aufruf:  node tools/pruef/modellkosten.js [ausgabe.json] [seed]
    ========================================================================= */
 const fs = require('node:fs');
-const { starte } = require('./basis');
-const zielJson = process.argv[2] && process.argv[2] !== '-' ? process.argv[2] : null;
+const { starte, ausgabePfad } = require('./basis');
+const zielJson = ausgabePfad(process.argv[2]);
 const seed = +(process.argv[3] || 4711);
 
 /* Die Haeufigkeit wird in zwei Laeufen gezaehlt: einmal ohne die

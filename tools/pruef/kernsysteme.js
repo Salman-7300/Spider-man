@@ -10,7 +10,7 @@
    nichts liegen laesst. Gemessen ueber die Statistikzaehler, die das
    Spiel ohnehin fuehrt.
    =================================================================== */
-const { starte } = require('./basis');
+const { starte, ausgabePfad } = require('./basis');
 const fs = require('fs');
 
 (async () => {
@@ -227,6 +227,7 @@ const fs = require('fs');
   console.log('');
   console.log('Seitenfehler: ' + seitenFehler.length +
               (seitenFehler.length ? '  ' + seitenFehler.slice(0, 3).join(' | ') : ''));
-  if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify({ aus, seitenFehler }, null, 2));
+  const ZIEL = ausgabePfad(process.argv[2]);
+if (ZIEL) fs.writeFileSync(ZIEL, JSON.stringify({ aus, seitenFehler }, null, 2));
   await b.close();
 })();

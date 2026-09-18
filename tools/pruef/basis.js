@@ -152,4 +152,15 @@ async function starte(breite, hoehe, seed, opt) {
   return { b, page };
 }
 
-module.exports = { starte };
+/* ---- "-" ist kein Dateiname ----
+   Mehrere Pruefstaende nehmen ihren Ausgabepfad aus argv und schreiben
+   ihn mit writeFileSync. Wird "-" als Platzhalter uebergeben, weil erst
+   das NAECHSTE Argument gemeint ist, legen sie eine Datei namens "-" an.
+   Genau das ist passiert: die Datei landete im Repo und wurde
+   mitversioniert - sie liess sich nur mit "./-" wieder loeschen.
+   Pruefstaende benutzen dafuer ausgabePfad(). */
+function ausgabePfad(v) {
+  return (!v || v === '-') ? null : v;
+}
+
+module.exports = { starte, ausgabePfad };

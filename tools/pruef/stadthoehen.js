@@ -25,8 +25,8 @@
    Aufruf:  node tools/pruef/stadthoehen.js [ausgabe.json] [seed] [alt]
    ========================================================================= */
 const fs = require('node:fs');
-const { starte } = require('./basis');
-const zielJson = process.argv[2] || null;
+const { starte, ausgabePfad } = require('./basis');
+const zielJson = ausgabePfad(process.argv[2]);
 const seed = +(process.argv[3] || 4711);
 const alt = process.argv[4] === 'alt';
 
