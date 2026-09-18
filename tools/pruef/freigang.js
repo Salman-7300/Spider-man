@@ -206,6 +206,10 @@ const fs = require('fs');
     const knoten = d.gehKnotenListe();
     let kantenGeprueft = 0;
     const pfadBefunde = [];
+    /* Harte Kennzahl: wieviele Gehnetz-Kanten werden von einem
+       STADTMOEBEL vollstaendig versperrt - nicht vom Gelaende, nicht von
+       einem Gebaeude, sondern von einem Moebel. Erwartung: 0. */
+    const moebelBlockiert = [];
     for (let i = 0; i < knoten.length; i++) {
       const n = knoten[i];
       for (const k of n.kanten) {
@@ -249,13 +253,26 @@ const fs = require('fs');
                sechs angeblich gesperrten Stellen des vorigen Durchlaufs
                lagen genau dort. */
             const hKante = d.groundYAt(px, pz, 0);
-            const frei1 = (sx, sz) => {
+            const frei1 = (sx, sz, ohneMoebel) => {
               if (Math.abs(d.groundYAt(sx, sz, hKante) - hKante) > 0.35) return false;
               for (const c of d.colliderNah(sx, sz)) {
+                /* ---- Die Unterkante zaehlt mit ----
+                   Hier fehlte die Pruefung auf c.y0. Damit galt JEDES
+                   Hindernis als Bodenhindernis, dessen Oberkante ueber
+                   Kopfhoehe liegt - auch eines, das erst 16 m ueber dem
+                   Boden anfaengt. Gemessen bei Keim 1234: der Kollider,
+                   der zwei Gehnetz-Kanten angeblich versperrte, reicht
+                   von y0 = 16,05 bis 17,05 m. Das Spiel selbst laesst
+                   den Passanten dort durch: collideBody ueberspringt
+                   einen Kollider, sobald Kopfhoehe unter seiner
+                   Unterkante liegt (p.y + 1.75 < c.y0).
+                   Dieselbe Regel gilt jetzt auch hier. */
+                const y0 = c.y0 === undefined ? -1e9 : c.y0;
+                if (hKante + 1.75 < y0) continue;
                 if (sx > c.x0 && sx < c.x1 && sz > c.z0 && sz < c.z1 &&
                     (c.h || 0) > hKante + 0.4) return false;
               }
-              for (const o of amBoden) {
+              if (!ohneMoebel) for (const o of amBoden) {
                 if (Math.hypot(o.x - sx, o.z - sz) < (o.r || 0.5)) return false;
               }
               return true;
@@ -264,6 +281,29 @@ const fs = require('fs');
             for (let seit = -WEITE; seit <= WEITE + 1e-9; seit += SCHRITT) {
               lauf = frei1(px + qx * seit, pz + qz * seit) ? lauf + SCHRITT : 0;
               if (lauf > beste) beste = lauf;
+            }
+            /* ---- Liegt es WIRKLICH am Stadtmoebel? ----
+               Eine gesperrte Stelle allein sagt nicht, WER sie sperrt.
+               Genau daran ist eine fruehere Zuordnung gescheitert: zwei
+               Kanten galten als "vom Beet versperrt", in Wahrheit war das
+               Querprofil ueber die vollen sechs Meter durch Gelaende und
+               Hindernisse dicht - kein einziger Punkt war durch ein Moebel
+               blockiert.
+               Deshalb wird dieselbe Spur ein zweites Mal gemessen, diesmal
+               OHNE die Stadtmoebel. Wird sie dann frei, ist das Moebel die
+               Ursache. Bleibt sie dicht, liegt es am Ort. */
+            let ohneMoebel = 0;
+            if (beste < 0.9 - 1e-6) {
+              let l2 = 0;
+              for (let seit = -WEITE; seit <= WEITE + 1e-9; seit += SCHRITT) {
+                l2 = frei1(px + qx * seit, pz + qz * seit, true) ? l2 + SCHRITT : 0;
+                if (l2 > ohneMoebel) ohneMoebel = l2;
+              }
+              if (ohneMoebel >= 0.9 - 1e-6) {
+                moebelBlockiert.push({ art: g.art, ort: [+g.x.toFixed(1), +g.z.toFixed(1)],
+                  freieSpur: +beste.toFixed(2), ohneMoebel: +ohneMoebel.toFixed(2),
+                  kante: [Math.round(n.x), Math.round(n.z), Math.round(m.x), Math.round(m.z)] });
+              }
             }
             /* 0,9 m ist die Breite des Passanten-Kollisionszylinders. */
             const freieSpur = beste >= 0.9 - 1e-6 ? +beste.toFixed(2) : null;   // Rundung der 0,1-Schritte
@@ -280,6 +320,7 @@ const fs = require('fs');
     return {
       dinge: dinge.length,
       amBoden: amBoden.length,
+      moebelBlockiert,
       obenDrauf: obenDrauf.length,
       flachDrin: flachDrin.length,
       artenZahl: dinge.reduce((a, g) => { a[g.art] = (a[g.art] || 0) + 1; return a; }, {}),
@@ -375,6 +416,17 @@ const fs = require('fs');
     console.log('  groesste Ueberlappung ' + tief[0] + ' m, Mittelwert ' +
                 (tief.reduce((a, v) => a + v, 0) / tief.length).toFixed(3) + ' m');
     console.log('  wirklich gesperrt (keine freie Spur daneben): ' + gesperrt.length);
+    /* Die harte Kennzahl aus Teil E.1: nur was ein STADTMOEBEL sperrt. */
+    const MB = aus.moebelBlockiert || [];
+    console.log('  moebelBlockiertGehkante: ' + MB.length);
+    for (const q of MB.slice(0, 8))
+      console.log('    ' + q.art + ' bei ' + q.ort.join(' / ') +
+                  '   freie Spur ' + q.freieSpur + ' m, ohne das Moebel ' +
+                  q.ohneMoebel + ' m   Kante ' + q.kante.join(','));
+    const spuren = aus.pfadBefunde.map((q) => q.luecke).filter((v) => v !== undefined);
+    if (spuren.length)
+      console.log('  kleinste freie Gehbreite an gestreiften Stellen: '
+                  + Math.min(...spuren).toFixed(2) + ' m');
     for (const e of gesperrt.slice(0, 20))
       console.log('  ' + e.ding.padEnd(18) + ' bei ' + JSON.stringify(e.ort) +
                   '  Ueberlappung ' + e.ueberlappung + ' m, breiteste Luecke ' +
