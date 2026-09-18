@@ -47,6 +47,11 @@ const STELLEN = [
   ['11-kreuzung-vier-ecken', -225, 2.3, -125,   -125,   8, -125],
   /* Die laengste durchgehende Wohnzeile, flach von der Strasse. */
   ['12-lange-haeuserzeile',  -325, 3.5,  -20,   -325,   8,  180],
+  /* Eine ruhige Wohnstrasse mit parkenden Autos - dort faellt auf, ob
+     die Parkreihe plausibel steht. */
+  ['13-parkstrasse',        -275, 2.0,  -75,   -275,   4,   75],
+  /* Ein Boulevard mit fahrendem Verkehr. */
+  ['14-boulevard-verkehr',   -25, 2.4,  125,    -25,   5,  -75],
 ];
 
 (async () => {

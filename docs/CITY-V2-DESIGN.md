@@ -960,6 +960,9 @@ nicht weiterverwendet werden:
 | "Fassadenwiederholung 20,7 Prozent" | mit geometrischer Gruppierung gemessen, die freistehende Bauten mitzaehlt; nach Zeilenkennung sind es 0 Prozent |
 | "lotZuSchmal ist ein Altbefund" | falsch, er wird von der Lotbreitenbremse verursacht |
 | "zwei Beete versperren bei Keim 1234 Gehnetz-Kanten" | kein Moebel war beteiligt; der Pruefstand zaehlte einen Kollider in 16 m Hoehe als Bodenhindernis (siehe 6i) |
+| Bildpunktvergleich zweier Aufnahmen als Mass fuer optische Aenderung | UNGEEIGNET: zwei Laeufe derselben Fassung unterscheiden sich schon in 3 bis 10 Prozent aller Bildpunkte, weil Verkehr und Passanten laufen. Ersetzt durch menschliche Durchsicht fester Aufnahmen. |
+| Gehnetz 1468 gegen 1463 Knoten als Regression von Stufe 5 | KEINE Regression: die fuenf Knoten lagen alle ausserhalb der Stadt, der Graph wurde anteilig sogar besser (siehe 6g). Heute sind es 1481. |
+| "zwischen zwei Reihenhaeusern klafft eine Geometrieluecke" | WIDERLEGT: groesste Hindernis-Luecke 0,01 m, ueber fuenf Keime keine einzige zwischen 0,02 und 0,9 m. Der Fehler lag in der Kletterlogik (siehe 6h). |
 
 Das Ausweichen haengt jetzt am ORT und zieht keinen Zufall. Der Beweis,
 dass der Strom unberuehrt bleibt: die Haeuserzahl ist mit und ohne die
@@ -1201,6 +1204,101 @@ Fensterlaibungen der Modelle fehlen. Das ist die bekannte Grenze des
 hybriden Systems aus Teil D.1 und durch Teil E weder besser noch
 schlechter geworden - die Gegenseite der langen Haeuserzeile ist in den
 Bildern mit und ohne Bremsen gleich.
+
+---
+
+## 6j. Gesamtabnahme Stufe 5 (Teil F)
+
+Teil F hat nichts gebaut. Er misst, was steht - ueber fuenf feste
+Weltkeime: 4711, 1234, 8080, 20250914, 777.
+
+### Was Stufe 5 sichtbar veraendert hat
+
+Derselbe Pruefstand vor Stufe 5 und danach, Keim 4711:
+
+| | vorher | nachher |
+|---|---|---|
+| Gebaeude | 274 | **617** |
+| Gebaeude je Block | 2,49 | **5,61** |
+| Blockkanten mit Haus | 217 von 440 | **361 von 440** |
+| Haeuser je Kante, Median | **0** | **2** |
+| Kantenbelegung, Mittel | 19,6 % | **55,3 %** |
+| Kantenbelegung, Median | **0 %** | **74 %** |
+| niedrigstes Haus | 14,3 m | 9,8 m |
+| hoechstes Haus | 97,0 m | 95,6 m |
+| Hoehenmedian | 31,6 m | 23,8 m |
+| Hausmodelle | 274 | 405 |
+| Kollider | 2.884 | 3.664 |
+| Gehknoten | 1.468 | 1.481 |
+
+Die eine Zahl, die alles zusammenfasst, ist die Kantenbelegung im
+Median: sie stand bei **null Prozent**. Die haelfte aller Blockkanten
+hatte gar kein Haus - es gab keine Strassenwand, nur einzeln stehende
+Baukoerper. Heute sind es 74 Prozent.
+
+Die Stadt ist dabei nicht hoeher geworden, sondern voller: der
+Hoehenmedian faellt von 31,6 auf 23,8 m, weil die neuen Aussenbloecke
+Wohnhaeuser sind. Der Gipfel bleibt (97,0 gegen 95,6 m).
+
+### Stadtteile, Keim 4711
+
+| Stadtteil | Bloecke | Gebaeude | je Block | Hoehe Median | Low | Mid | High | Laden | Wandanteil |
+|---|---|---|---|---|---|---|---|---|---|
+| ZENTRUM | 24 | 76 | 3,17 | 39,4 m | 0 % | 49 % | 51 % | 33 % | 33 % |
+| GESCHAEFT | 12 | 56 | 4,67 | 32,6 m | 0 % | 79 % | 21 % | 50 % | 52 % |
+| MISCHUNG | 37 | 230 | 6,22 | 25,4 m | 0 % | 94 % | 6 % | 24 % | 66 % |
+| UFER | 11 | 55 | 5,00 | 25,0 m | 0 % | 93 % | 7 % | 14 % | 59 % |
+| WOHN | 24 | 164 | 6,83 | 15,7 m | 15 % | 85 % | 0 % | 28 % | 65 % |
+| PARK | 2 | 0 | 0 | - | - | - | - | - | - |
+
+Kern gegen neue Aussenbloecke: 49 Bloecke mit 194 Gebaeuden (3,96 je
+Block, Hoehenmedian 31,3 m) gegen 61 Bloecke mit 387 Gebaeuden (6,34 je
+Block, Median 20,5 m). Der Kern ist hoch und locker, aussen ist es
+niedrig und dicht - genau das war das Ziel.
+
+### Leistung, fuenf Keime
+
+Median ueber 300 Aufnahmen, offizieller Kamerasatz:
+
+| Keim | Gesamt | Strasse | Dach | Luft | Dreiecke (Median) | Dreiecke (Max) |
+|---|---|---|---|---|---|---|
+| 4711 | 847,5 | 801 | 807,5 | 911 | 2.975.243 | 3.921.087 |
+| 1234 | 875,5 | 824,5 | 817 | 950 | 3.337.415 | 4.339.902 |
+| 8080 | 854,5 | 810 | 823 | 908,5 | 3.483.770 | 4.421.399 |
+| 20250914 | 859,5 | 831 | 792,5 | 932,5 | 3.442.444 | 4.459.596 |
+| 777 | 868,5 | 837 | 806,5 | 938,5 | 3.460.165 | 4.397.911 |
+
+Bester Keim 847,5, Median 859,5, schlechtester **875,5**. Das harte Tor
+von 899 haelt auf allen fuenf. Beim Dreieckstor gilt der MEDIAN: 2,98
+bis 3,48 Millionen, alle unter 4,16 Millionen. Der MAXIMALWERT einer
+einzelnen Kameraposition liegt bei drei Keimen darueber (bis 4,46
+Millionen) - das war vor Stufe 5 ebenso, der Bestandswert lag bei
+4.148.713 Dreiecken fuer eine einzelne Aufnahme.
+
+### Determinismus
+
+Derselbe Weltkeim baut dieselbe Stadt: vier Neuladungen bei Keim 4711
+und drei bei 20250914 liefern denselben Fingerabdruck ueber
+Lotpositionen, Hoehen, Modellzuordnung, Fassaden und Stadtteile, in
+Baureihenfolge. Dafuer musste die Modelliste nach Namen sortiert werden;
+sie kam vorher aus `szene.children`, und diese Reihenfolge ist zwischen
+zwei Ladevorgaengen nicht stabil (siehe Commit-Begruendung).
+
+### Traversal ueber die neuen Dachkanten
+
+Je Weltkeim zwanzig Versuche:
+
+| Uebung | Ergebnis |
+|---|---|
+| Dachlandung aus zwoelf Metern | 20/20 gelandet, 0 unter Dach, 0 im Hindernis, 0 Teleport |
+| Wandklettern bis aufs Dach | 20/20 oben angekommen |
+| Auf der Dachkante stehen | 10/10, 0 abgerutscht |
+| Gehend aufs Nachbardach | 8 von 12, 7 von 13, 6 von 13 anfahrbaren Paaren |
+
+Beim Gehen aufs Nachbardach faellt der Rest herunter, groesstenteils
+dort, wo das Nachbardach deutlich tiefer liegt. Ob das ein Fehler ist
+oder richtiges Fallen, ist eine Frage an den Spieltest und wird hier
+nicht als Befund gefuehrt.
 
 ---
 
