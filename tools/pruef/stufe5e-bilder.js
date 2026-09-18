@@ -27,6 +27,9 @@ fs.mkdirSync(ziel, { recursive: true });
 
 /* Zehn Stellen, die genau das zeigen, worum es in Teil E geht:
    Wiederholung entlang einer Zeile und der Hoehenrhythmus darueber. */
+/* Der Auftrag zur Leistungskorrektur nennt sechs Stellen namentlich.
+   Vier davon gab es schon; Kreuzung mit vier Ecken und die lange
+   Haeuserzeile sind dafuer dazugekommen. */
 const STELLEN = [
   /* Name,                  Kamera x/y/z,        Blickziel x/y/z */
   ['01-wohnzeile-laengs',   -325, 2.3,  140,   -325,   5,  300],
@@ -39,6 +42,11 @@ const STELLEN = [
   ['08-downtown-strasse',     25, 2.3,  -60,     25,   5,  110],
   ['09-ufer-zeile',          175, 2.3,  -75,    175,   6,   85],
   ['10-skyline',            -400,  70,   60,    -60,  25,   20],
+  /* Eine Kreuzung mit vier bebauten Ecken - dort stossen vier Zeilen
+     aneinander, und dort faellt eine Modelldominanz zuerst auf. */
+  ['11-kreuzung-vier-ecken', -225, 2.3, -125,   -125,   8, -125],
+  /* Die laengste durchgehende Wohnzeile, flach von der Strasse. */
+  ['12-lange-haeuserzeile',  -325, 3.5,  -20,   -325,   8,  180],
 ];
 
 (async () => {
