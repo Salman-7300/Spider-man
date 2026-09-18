@@ -139,6 +139,24 @@ const fs = require('fs');
                   aufraeumFehler: rNach.aufraeumFehler,
                   ohneHaltepunkt: rNach.ohneHaltepunkt,
                   offen: d.respAnzahl().einsaetze,
+                  /* ---- Warum ZWEIMAL gefragt wird ----
+                     d.respLeck() liest keinen Zaehler, sondern ruft die
+                     Aufraeumpruefung auf: sie entfernt Einsatzwagen,
+                     deren Einsatz nicht mehr in der Liste steht, und
+                     gibt zurueck, WIEVIELE sie entfernt hat. Ein einmal
+                     aufgeraeumter Wagen ist aber kein Leck, sondern das
+                     Aufraeumen bei der Arbeit - genau am Einsatzende
+                     steht ein Wagen kurz ohne Einsatz da.
+
+                     Der erste Aufruf wurde deshalb als Fehler gemeldet,
+                     obwohl nichts kaputt war. Gemessen: bei viermal
+                     demselben Weltkeim war er dreimal 0 und einmal 1,
+                     ohne dass sich am Spiel etwas geaendert hatte.
+
+                     Ein echtes Leck ist erst, was NACH dem Aufraeumen
+                     noch da ist. Deshalb zweimal: der erste Aufruf raeumt
+                     auf, der zweite muss 0 liefern. */
+                  leckErstesAufraeumen: d.respLeck ? d.respLeck() : null,
                   leck: d.respLeck ? d.respLeck() : null };
 
     /* ---- 5. Welthygiene ---- */
@@ -195,7 +213,9 @@ const fs = require('fs');
   console.log('   noch offene Einsaetze in der Liste: ' + aus.einsatzListe);
   console.log('   Zaehler absolut: ' + JSON.stringify(aus.einsatzRoh));
   console.log('   Aufraeumfehler ' + R.aufraeumFehler + ', ohne Haltepunkt ' + R.ohneHaltepunkt +
-              ', Leck ' + R.leck + '   ' + ok(R.aufraeumFehler === 0 && !R.leck));
+              ', beim Aufraeumen entfernt ' + R.leckErstesAufraeumen +
+              ', danach uebrig ' + R.leck +
+              '   ' + ok(R.aufraeumFehler === 0 && !R.leck));
 
   console.log('');
   console.log('5. Welthygiene: ' + JSON.stringify(aus.hygiene));
