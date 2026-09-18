@@ -160,7 +160,14 @@ async function starte(breite, hoehe, seed, opt) {
    mitversioniert - sie liess sich nur mit "./-" wieder loeschen.
    Pruefstaende benutzen dafuer ausgabePfad(). */
 function ausgabePfad(v) {
-  return (!v || v === '-') ? null : v;
+  if (!v || v === '-') return null;
+  /* Benannte Argumente wie "seed=1234" oder "bremsen=AB" sind KEINE
+     Dateinamen. Ohne diese Zeile hat stadtbestand.js eine Datei namens
+     "seed=4711" ins Repo geschrieben - derselbe Fehler wie zuvor mit
+     "-", nur eine Stufe subtiler: das Argument sah nach einem Pfad aus,
+     weil es an der Stelle des Vergleichspfads stand. */
+  if (/^[a-z]+=/.test(v)) return null;
+  return v;
 }
 
 module.exports = { starte, ausgabePfad };
