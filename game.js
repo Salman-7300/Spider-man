@@ -6771,6 +6771,25 @@ function setzeHausModelle(szene) {
     if (hatMesh) bau.push(o);
   });
   if (!bau.length) return;
+  /* ---- Nach dem NAMEN sortieren, nicht nach der Ladereihenfolge ----
+     Welches Modell auf einem Haus steht, waehlt weiter unten
+     "hash % liste.length" - ortsabhaengig und damit an sich
+     reproduzierbar. Die LISTE kam aber aus szene.children, und diese
+     Reihenfolge ist zwischen zwei Ladevorgaengen nicht stabil.
+
+     Gemessen, vier Neuladungen mit demselben Weltkeim 4711: die Zahl der
+     Haeuser (617), der Modellhaeuser (405) und der gebauten Tuerme (81)
+     war jedes Mal gleich - aber die Haeufigkeiten wanderten zwischen den
+     Modellen. Dieselben vier Zahlen 52, 48, 67, 59 lagen einmal bei
+     Brutal_1, ModernOffice_1, PublicBuilding_1, Residential_3 und beim
+     naechsten Laden bei anderen. Zwei verschiedene Zuordnungen in vier
+     Laeufen, dazu Kolliderzahlen zwischen 3661 und 3667, weil
+     verschiedene Modelle verschiedene Dachkronen mitbringen.
+
+     Eine Sortierung nach dem Namen macht die Liste unabhaengig vom
+     Laden. Sie zieht keinen Zufall und aendert an der Stadt sonst
+     nichts. */
+  bau.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   /* Eigenhoehe je Modell merken - sie steht im Namen nicht drin, also
      wird sie einmal aus dem Satz gelesen, bevor normiert skaliert wird.
      Da alle Modelle auf den Einheitswuerfel normiert sind, steckt die

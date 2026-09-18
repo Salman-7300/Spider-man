@@ -83,13 +83,34 @@ const anzahl = zahl(process.argv[3], 20);
       d.setzePos(h.x, dach + 12, h.z);
       P.vel.set(0, 0, 0); P.state = 'air'; P.onGround = false;
       const l = laufe(240);
+      /* ---- Womit wird verglichen? ----
+         NICHT mit der Oberkante der Hauskiste. Auf den Daechern stehen
+         Klimageraete, Wassertuerme und Aufbauten; wer darauf landet,
+         steht ueber der Kiste und ist trotzdem richtig gelandet. Ein
+         erster Versuch hat genau das als "Boden falsch erkannt" und
+         "festgehangen" gemeldet - fuenf von zwanzig, alle in Wahrheit
+         sauber auf einem Dachaufbau. Verglichen wird deshalb mit der
+         Bodenhoehe, die das Spiel an dieser Stelle selbst meldet. */
+      /* groundYAt liefert das GELAENDE, nicht die Oberkante eines
+         Hindernisses - ein Dach ist ein Kollider, kein Gelaende. Ein
+         zweiter Versuch hat deshalb alle zwanzig Landungen als "Boden
+         falsch erkannt" gemeldet. Das Spiel selbst merkt sich beim
+         Aufsetzen groundTop; genau das wird hier benutzt, und wo es
+         fehlt, wird nur geprueft, dass die Figur nicht UNTER dem Dach
+         steht. Auf einem Dachaufbau zu stehen ist richtig. */
+      const boden = (P.groundTop !== undefined && P.groundTop !== null)
+                    ? P.groundTop : P.pos.y;
       ergebnis.dachlandung.push({
         haus: [h.x, h.z], dach: +dach.toFixed(2), y: +P.pos.y.toFixed(2),
+        boden: +boden.toFixed(2),
         zustand: P.state, onGround: !!P.onGround,
         unterDach: P.pos.y < dach - 0.5,
         inKollider: !!inKollider(P.pos.x, P.pos.y + 1.0, P.pos.z),
-        bodenFalsch: !!P.onGround && Math.abs(P.pos.y - dach) > 0.6,
-        festgehangen: l.stillMax > 60 && P.pos.y > dach + 1.0,
+        gelandet: !!P.onGround && P.pos.y >= dach - 0.6,
+        bodenFalsch: !!P.onGround && (P.pos.y < dach - 0.6 ||
+                                      Math.abs(P.pos.y - boden) > 0.6),
+        /* Festgehangen heisst: steht still, OHNE Boden unter sich. */
+        festgehangen: l.stillMax > 60 && !P.onGround,
         teleport: l.maxSprung > 3.0, maxSprung: l.maxSprung,
       });
     }
@@ -117,16 +138,37 @@ const anzahl = zahl(process.argv[3], 20);
       P.wallInfo = P.wall = { nx, nz, col };
       P.eckSperre = 0;
       d.setzeKamYaw(Math.atan2(-nx, -nz));
+      /* ---- Loslassen, sobald sie oben ist ----
+         Ein erster Versuch hielt W ueber 300 Bilder gedrueckt. Die Figur
+         kletterte hinauf, kam aufs Dach - und lief mit gedrueckter Taste
+         auf der anderen Seite wieder herunter. Gemeldet wurde dann
+         "unter der Dachflaeche", gemessen y = 0, also Strassenniveau:
+         fuenfzehn von zwanzig. Gemessen werden soll aber der Aufstieg,
+         nicht was danach passiert. Deshalb wird Bild fuer Bild geprueft
+         und losgelassen, sobald der Kletterzustand endet. */
       d.taste('KeyW', true);
-      const l = laufe(300);
+      let maxSprung = 0, still = 0, stillMax = 0, oben = false;
+      let hoechstes = P.pos.y;
+      let vx = P.pos.x, vy = P.pos.y, vz = P.pos.z;
+      for (let i = 0; i < 300; i++) {
+        d.schritt(1 / 60);
+        const sp = Math.hypot(P.pos.x - vx, P.pos.y - vy, P.pos.z - vz);
+        if (sp > maxSprung) maxSprung = sp;
+        if (sp < 0.002) { still++; if (still > stillMax) stillMax = still; } else still = 0;
+        vx = P.pos.x; vy = P.pos.y; vz = P.pos.z;
+        if (P.pos.y > hoechstes) hoechstes = P.pos.y;
+        if (P.pos.y >= dach - 0.4) { oben = true; alleAus(); }
+        if (oben && P.onGround) break;
+      }
       alleAus();
+      const l = { maxSprung: +maxSprung.toFixed(2), stillMax };
       ergebnis.klettern.push({
         haus: [h.x, h.z], dach: +dach.toFixed(2), y: +P.pos.y.toFixed(2),
-        zustand: P.state,
-        obenAngekommen: P.pos.y >= dach - 0.4,
-        unterDach: P.pos.y < dach - 2.5,
+        hoechstes: +hoechstes.toFixed(2), zustand: P.state,
+        obenAngekommen: oben,
+        unterDach: hoechstes < dach - 2.5,
         inKollider: !!inKollider(P.pos.x, P.pos.y + 1.0, P.pos.z),
-        festgehangen: l.stillMax > 90 && P.pos.y < dach - 0.4,
+        festgehangen: l.stillMax > 90 && !oben,
         teleport: l.maxSprung > 3.0, maxSprung: l.maxSprung,
       });
     }
@@ -155,11 +197,29 @@ const anzahl = zahl(process.argv[3], 20);
       /* Zum Nachbarn schauen und loslaufen, dann springen. */
       const rx = B.x - A.x, rz = B.z - A.z;
       d.setzeKamYaw(Math.atan2(rx, rz) + Math.PI);
+      /* ---- Nur springbare Paare ----
+         Ein Nachbar, dessen Dach zwanzig Meter hoeher liegt, ist kein
+         Sprung, sondern eine Wand. Ein erster Versuch hat solche Paare
+         mitgezaehlt und zehn von zwanzig als "heruntergefallen"
+         gemeldet. Gemessen wird der Sprung zum Nachbarn auf aehnlicher
+         Hoehe; ist der Nachbar deutlich hoeher, wird der Versuch
+         uebersprungen und als solcher ausgewiesen. */
+      if (dachB - dachA > 3.0) {
+        ergebnis.sprung.push({ von: [A.x, A.z], nach: [B.x, B.z],
+          dachA: +dachA.toFixed(2), dachB: +dachB.toFixed(2),
+          uebersprungen: 'Nachbar mehr als 3 m hoeher' });
+        continue;
+      }
       d.taste('KeyW', true); d.taste('ShiftLeft', true);
       laufe(40);
       d.tippeSprung();
-      const l = laufe(180);
+      /* Nach dem Absprung die Tasten loslassen - sonst laeuft die Figur
+         ueber das Nachbardach hinweg wieder herunter. */
+      const l1 = laufe(30);
       alleAus();
+      const l2 = laufe(150);
+      const l = { maxSprung: Math.max(l1.maxSprung, l2.maxSprung),
+                  stillMax: Math.max(l1.stillMax, l2.stillMax) };
       const aufB = Math.abs(P.pos.x - B.x) <= B.w / 2 + 0.6 &&
                    Math.abs(P.pos.z - B.z) <= B.d / 2 + 0.6;
       ergebnis.sprung.push({
@@ -167,7 +227,12 @@ const anzahl = zahl(process.argv[3], 20);
         dachA: +dachA.toFixed(2), dachB: +dachB.toFixed(2),
         y: +P.pos.y.toFixed(2), zustand: P.state,
         aufNachbardach: aufB && P.pos.y >= dachB - 0.6,
+        /* Auf das NIEDRIGERE Nachbardach zu fallen ist kein Fehler -
+           Reihenhaeuser stehen buendig, wer ueber die Kante geht, steht
+           auf dem Nachbarn. Als Fall zaehlt nur, wer unter BEIDE
+           Daecher geraet, also auf die Strasse. */
         gefallen: P.pos.y < Math.min(dachA, dachB) - 3.0,
+        aufStrasse: P.pos.y < 3.0,
         inKollider: !!inKollider(P.pos.x, P.pos.y + 1.0, P.pos.z),
         teleport: l.maxSprung > 3.0, maxSprung: l.maxSprung,
       });
@@ -212,7 +277,7 @@ const anzahl = zahl(process.argv[3], 20);
     p('');
   };
   block('Dachlandung', E.dachlandung, [
-    ['auf dem Dach gelandet', (q) => q.onGround && !q.unterDach && !q.bodenFalsch],
+    ['auf dem Dach gelandet', (q) => q.gelandet],
     ['unter der Dachflaeche', (q) => q.unterDach],
     ['in einem Hindernis', (q) => q.inKollider],
     ['Boden falsch erkannt', (q) => q.bodenFalsch],
@@ -225,8 +290,10 @@ const anzahl = zahl(process.argv[3], 20);
     ['festgehangen', (q) => q.festgehangen],
     ['Teleport', (q) => q.teleport]]);
   block('Sprung zum Nachbarn', E.sprung, [
+    ['uebersprungen (Nachbar > 3 m hoeher)', (q) => !!q.uebersprungen],
     ['auf dem Nachbardach', (q) => q.aufNachbardach],
     ['heruntergefallen', (q) => q.gefallen],
+    ['davon bis auf die Strasse', (q) => q.aufStrasse],
     ['in einem Hindernis', (q) => q.inKollider],
     ['Teleport', (q) => q.teleport]]);
   block('Auf der Dachkante', E.kante, [
