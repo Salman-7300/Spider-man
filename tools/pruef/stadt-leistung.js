@@ -23,8 +23,12 @@
 const fs = require('node:fs');
 const { starte } = require('./basis');
 
-const zielDatei = process.argv[2] || null;
-const vergleich = process.argv[3] || null;
+/* "-" heisst "keine Datei". Ohne diese Abfrage hat ein Aufruf mit "-"
+   als Platzhalter eine Datei namens "-" ins Repo geschrieben - genau das
+   ist passiert und wurde mitversioniert. */
+const ohne = (v) => (!v || v === '-') ? null : v;
+const zielDatei = ohne(process.argv[2]);
+const vergleich = ohne(process.argv[3]);
 /* "alt" schaltet die Wiederholungsbremsen aus Teil E ab. Damit laesst
    sich messen, was sie an Zeichenaufrufen kosten - mit demselben Code
    und demselben Weltkeim. */
@@ -34,12 +38,19 @@ const alt = process.argv.indexOf('alt') > 0;
    einzige. Ohne Angabe sind alle drei an. */
 const bArg = process.argv.find((v) => v.indexOf('bremsen=') === 0);
 const bremsen = bArg === undefined ? null : bArg.slice(8);
+/* "seed=1234" misst eine andere Stadt. Ohne Angabe 4711 wie bisher.
+   Noetig, weil jede Aenderung am Generator den gemeinsamen Zufallsstrom
+   verschiebt und damit eine ANDERE Stadt erzeugt - ohne zu wissen, wie
+   stark die Kennzahl allein zwischen Staedten schwankt, laesst sich eine
+   Differenz nicht deuten. */
+const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
+const seed = sArg === undefined ? 4711 : +sArg.slice(5);
 
 (async () => {
   const opt = {};
   if (alt) opt.wdhAlt = true;
   if (bremsen !== null) opt.bremsen = bremsen;
-  const { b, page } = await starte(1280, 720, 4711, opt);
+  const { b, page } = await starte(1280, 720, seed, opt);
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);

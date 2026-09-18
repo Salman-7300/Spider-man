@@ -5488,8 +5488,28 @@ const letzteFassade = {};        // Zeile -> zuletzt gewaehlte Textur
 function makeBuildingMesh(w, h, d, x, z, schau, info) {
   let texIdx = randi(0, facadeTexes.length - 1);
   const zeile = info && info.zeile;
-  if (BREMSE_FASSADE && zeile && facadeTexes.length > 1 && texIdx === letzteFassade[zeile])
-    texIdx = (texIdx + 1 + randi(0, facadeTexes.length - 2)) % facadeTexes.length;
+  if (BREMSE_FASSADE && zeile && facadeTexes.length > 1 && texIdx === letzteFassade[zeile]) {
+    /* ---- Ausweichen OHNE den Zufallsstrom anzufassen ----
+       Hier stand randi(). Das war ein zusaetzlicher Zug aus dem
+       gemeinsamen Strom, und zwar nur manchmal - naemlich genau dann,
+       wenn der Nachbar dieselbe Textur hatte. Damit verschob diese
+       Bremse alles, was danach gewuerfelt wird: Hoehen, Schmuck,
+       Dachaufbauten, die ganze Stadt.
+
+       Gemessen an dem Durcheinander, das daraus folgte: die Bremse
+       "kostete" bei Keim 4711 32,5 Zeichenaufrufe, bei 8080 50 - und
+       bei 1234 SPARTE sie 15. Ein Effekt ohne stabiles Vorzeichen ist
+       kein Effekt der Bremse, sondern der anderen Stadt.
+
+       Das Ausweichen haengt jetzt am ORT und zieht keinen Zufall. Der
+       Versatz liegt zwischen 1 und der Zahl der Texturen minus eins,
+       die neue Textur ist also immer eine andere als die des Nachbarn -
+       genau wie vorher -, aber die Stadt bleibt dieselbe wie ohne die
+       Bremse. Erst dadurch ist ueberhaupt messbar, was sie kostet. */
+    const versatz = 1 + (Math.abs(Math.round(x * 13.7 + z * 5.3)) %
+                         (facadeTexes.length - 1));
+    texIdx = (texIdx + versatz) % facadeTexes.length;
+  }
   if (zeile) letzteFassade[zeile] = texIdx;
   const visual = hausVisual(h, info);
   HAUS_KISTEN.push({ w, h, d, x, z, visual, textur: texIdx,
