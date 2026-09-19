@@ -295,6 +295,57 @@ const BREMSEN = bArg === undefined ? null : bArg.slice(8);
         });
       }
     }
+    /* ================================================================
+       Kletterbare Zwischenraeume zwischen BELIEBIGEN Haeusern
+       ================================================================
+       Die Pruefung oben sucht Spalte zwischen 0,02 und 0,9 m. Ein Spalt,
+       in den die Figur HINEINPASST, ist aber definitionsgemaess BREITER
+       als ihre 0,9 m - er konnte dort gar nicht gefunden werden. Genau
+       so ist ein Human-Befund durchgerutscht: Spider-Man klettert in
+       einen senkrechten Schacht zwischen zwei Haeusern.
+
+       Gesucht wird deshalb der umgekehrte Bereich: breit genug fuer die
+       Figur, aber zu schmal, um als Gasse durchzugehen.
+
+         climbableDeadGap   0,9 bis 3,5 m breit, mindestens 1 m lang -
+                            ein Schacht, kein Durchgang
+         intentionalAlley   ueber 3,5 m - eine echte Gasse, in Ordnung
+         verticalSlot       davon die, die ueber zehn Meter hoch reichen
+
+       Gemessen bei den Keimen 4711 und 1234: fuenf und acht Faelle,
+       2,27 bis 3,46 m breit, bis 41 m hoch. Quellen sind die
+       freistehenden Bauten am Ufer (Mindestabstand 2,6 m) und die
+       Dreierzeile in den Kernbloecken (Schritt 11,5 m bei 6,5 bis 8,5 m
+       Breite). Zwischen Reihenhaeusern gibt es keinen einzigen. */
+    const schachtListe = [];
+    let gassen = 0;
+    for (let i = 0; i < kisten.length; i++) for (let j = i + 1; j < kisten.length; j++) {
+      const A = kisten[i], B = kisten[j];
+      const dx = Math.abs(A.x - B.x) - (A.w + B.w) / 2;
+      const dz = Math.abs(A.z - B.z) - (A.d + B.d) / 2;
+      let spalt = null, laengs = 0;
+      if (dx < -0.10 && dz >= -0.001) { spalt = dz; laengs = -dx; }
+      else if (dz < -0.10 && dx >= -0.001) { spalt = dx; laengs = -dz; }
+      if (spalt === null || laengs < 1.0) continue;
+      if (spalt > 3.5) { if (spalt <= 8) gassen++; continue; }
+      if (spalt < SPIELER_B) continue;
+      schachtListe.push({ spalt: +spalt.toFixed(2), laenge: +laengs.toFixed(1),
+                       hoch: +Math.min(A.h, B.h).toFixed(1),
+                       inZeile: !!(A.zeile && B.zeile && A.zeile === B.zeile),
+                       mitZeilenhaus: !!(A.zeile || B.zeile),
+                       ort: [+((A.x + B.x) / 2).toFixed(1), +((A.z + B.z) / 2).toFixed(1)] });
+    }
+    schachtListe.sort((p, q) => p.spalt - q.spalt);
+    const zwischenraeume = {
+      climbableDeadGap: schachtListe.length,
+      inReihenhauszeile: schachtListe.filter((q) => q.inZeile).length,
+      verticalSlot: schachtListe.filter((q) => q.hoch > 10).length,
+      intentionalAlley: gassen,
+      engster: schachtListe.length ? schachtListe[0].spalt : 0,
+      weitester: schachtListe.length ? schachtListe[schachtListe.length - 1].spalt : 0,
+      liste: schachtListe.slice(0, 10),
+    };
+
     const zahl = (f) => paare.filter(f).length;
     const spitze = (feld) => paare.slice().sort((p1, p2) => p2[feld] - p1[feld])
                                   .slice(0, 8)
@@ -324,7 +375,7 @@ const BREMSEN = bArg === undefined ? null : bArg.slice(8);
       schlimmsterVersatz: spitze('fassadenVersatz'),
     };
 
-    return { nachbarn, F, bsp, spalte: spalte.sort((a, b2) => a - b2), lotsGesamt, lotsFrei,
+    return { zwischenraeume, nachbarn, F, bsp, spalte: spalte.sort((a, b2) => a - b2), lotsGesamt, lotsFrei,
              jeKlasse, jeLotklasse, jeSeite, jeTeil,
              regeln, haeuser: kisten.length,
              stadtteile: d.stadtteile().reduce((a, t) => {
@@ -389,6 +440,19 @@ const BREMSEN = bArg === undefined ? null : bArg.slice(8);
   zeig('groesste Hindernis-Luecken:', N.schlimmsterKollider);
   zeig('groesste sichtbare Luecken:', N.schlimmsteSicht);
   zeig('groesster Fassadenversatz:', N.schlimmsterVersatz);
+  p('');
+  p('== Kletterbare Zwischenraeume zwischen BELIEBIGEN Haeusern ==');
+  const Z = aus.zwischenraeume;
+  p('  climbableDeadGap (0,9 bis 3,5 m, mind. 1 m lang)  ' + Z.climbableDeadGap);
+  p('    davon in einer Reihenhauszeile                  ' + Z.inReihenhauszeile);
+  p('    davon hoeher als zehn Meter (verticalSlot)      ' + Z.verticalSlot);
+  p('  intentionalAlley (3,5 bis 8 m, echte Gasse)       ' + Z.intentionalAlley);
+  if (Z.climbableDeadGap)
+    p('  engster ' + Z.engster + ' m, weitester ' + Z.weitester + ' m');
+  for (const q of Z.liste)
+    p('    ' + q.spalt + ' m breit, ' + q.laenge + ' m lang, ' + q.hoch
+      + ' m hoch, bei ' + q.ort.join(' / ')
+      + (q.inZeile ? '   IN EINER ZEILE' : q.mitZeilenhaus ? '   an einer Zeile' : '   freistehend'));
   p('');
   p('== Fehler ==');
   let summe = 0;
