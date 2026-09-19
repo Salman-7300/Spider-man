@@ -42,9 +42,16 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
       const dach = SLAB_H + K.h;
       /* Das Gesims reicht 0,55 m unter die Dachflaeche - es wird nicht
          mitgezaehlt, es IST das Dach. */
-      const teile = d.dekoIm(K.x - K.w / 2 - 1, K.x + K.w / 2 + 1,
-                             dach + 0.02, dach + 12,
-                             K.z - K.d / 2 - 1, K.z + K.d / 2 + 1, 0);
+      /* Der Suchquader war einen Meter groesser als das Haus und zwoelf
+         Meter hoch. Damit fing er die Dachaufbauten des NACHBARN mit,
+         wenn der hoeher ist - der erste Stand meldete daraufhin eine
+         "hoechste Luft" von 11,11 m, und das war der Nachbar, nicht ein
+         schwebender Klotz. Jetzt genau die Grundflaeche des Hauses, und
+         nur bis sechs Meter ueber das Dach: hoeher ist kein Aufbau mehr,
+         sondern ein anderes Haus. */
+      const teile = d.dekoIm(K.x - K.w / 2, K.x + K.w / 2,
+                             dach + 0.02, dach + 6,
+                             K.z - K.d / 2, K.z + K.d / 2, 0);
       for (const [tw, th, td, tx, ty, tz] of teile) {
         /* Das Gesims ist breiter als das Haus - es steht rundum vor. */
         if (tw > K.w || td > K.d) continue;

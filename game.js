@@ -5906,12 +5906,24 @@ function addLamp(x, z, dreh) {
   /* Der Ausleger zeigt zur Strasse. Alle Laternen stehen an der
      Westkante ihres Blocks, der Fahrbahn also nach -x zugewandt. */
   const d = dreh === undefined ? Math.PI : dreh;
-  LATERNE_STELLEN.push([x, z, d]);
+  /* ---- Auf welcher Hoehe steht der Mast? ----
+     Bisher immer auf SLAB_H, der Gehweghoehe im Raster. Laternen werden
+     aber an fuenf verschiedenen Stellen gesetzt, und eine davon ist die
+     BRUECKE: dort liegt der Gehweg auf 0,50 m. Die zehn Bruecken-
+     laternen steckten deshalb 25 cm im eigenen Gehweg - gemessen mit
+     tools/pruef/moebel-boden.js, derselbe Fehler wie bei der
+     schwebenden Ampel, nur andersherum.
+
+     Gefragt wird die Regel, die das Spiel ohnehin benutzt. Der Versatz
+     geht an alle drei Stellen, die vom Fuss aus rechnen: Haltepunkt,
+     Ersatzform und Modell. */
+  const fuss = groundY(x, z);
+  LATERNE_STELLEN.push([x, z, d, fuss]);
   /* Oben auf dem Leuchtenkopf laesst sich stehen. Frueher sass der
      Haltepunkt auf dem Mast (4,62 m) - der Mast der neuen Laterne endet
      aber schon bei 3,9 m und der Kopf haengt daneben am Ausleger. */
   const halt = moebelOrt(x, z, d, LATERNE_ARM, LATERNE_HOCH, 0, new THREE.Vector3());
-  ziehFestPunkt(halt.x, halt.y, halt.z, 0.26);
+  ziehFestPunkt(halt.x, halt.y + (fuss - SLAB_H), halt.z, 0.26);
   const g = new THREE.Group();
   /* Ersatzform fuer den Fall, dass stadtmoebel.glb nicht geladen wird.
      Sie hat dieselben Masse wie das Modell, damit Haltepunkt und
@@ -5927,7 +5939,7 @@ function addLamp(x, z, dreh) {
   const kopf = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6),
     new THREE.MeshBasicMaterial({ color: 0xfff1b8 }));
   kopf.position.set(LATERNE_ARM, LATERNE_LICHT, 0); g.add(kopf);
-  g.position.set(x, SLAB_H, z); g.rotation.y = d;
+  g.position.set(x, fuss, z); g.rotation.y = d;
   cityGroup.add(g);
 }
 
@@ -21144,12 +21156,30 @@ function ampelMasten() {
       const x = RASTER_X0 + i * PITCH, z = RASTER_Z0 + j * PITCH;
       if (x > RIVER_X0 - 20) continue;                 // nicht im Fluss
       for (const [sx, sz] of [[1, 1], [-1, -1]]) {
+        /* ---- Steht dort ueberhaupt ein Gehweg? ----
+           Der Mast wird auf SLAB_H gesetzt, und zwar fest: moebelOrt()
+           rechnet jede Hoehe am Ampelmast von dort aus, der Mastkasten
+           ebenso, das Modell ebenso. Ein Mast sitzt damit immer auf
+           Gehweghoehe - auch dort, wo gar kein Gehweg ist.
+
+           Am aeusseren Rand des Rasters gibt es hinter der Kreuzung
+           keinen Block mehr, also auch keinen Sockel. Dort stand die
+           Ampel 25 cm ueber dem nackten Boden in der Luft; gemessen
+           traf das 31 von 240 Masten, alle auf der Schale ausserhalb
+           der Stadt (x = -332,2 und z = +/-282,2). Das ist die
+           schwebende Ampel aus problem-1.
+
+           Gefragt wird nach der Regel, die das Spiel ohnehin benutzt.
+           Liegt der Boden tiefer als der Gehweg, gehoert dorthin kein
+           Mast - dort ist nicht einmal Stadt. */
+        const mx = x + sx * (ROAD_HALF + 1.2), mz = z + sz * (ROAD_HALF + 1.2);
+        if (groundY(mx, mz) < SLAB_H - 0.05) continue;
         /* Zwei Ausleger je Mast, einer fuer jede Fahrtrichtung. Der
            Ausleger muss ueber SEINE Fahrbahn reichen, also zur
            Kreuzungsmitte hin - steht der Mast in der Ecke +x/+z, zeigt
            der Arm fuer den Laengsverkehr nach -x und der fuer den
            Querverkehr nach -z. */
-        aus.push({ x: x + sx * (ROAD_HALF + 1.2), z: z + sz * (ROAD_HALF + 1.2),
+        aus.push({ x: mx, z: mz,
                    drehZ: sx > 0 ? Math.PI : 0,            // regelt Verkehr laengs z
                    drehX: sx > 0 ? Math.PI / 2 : -Math.PI / 2 });  // laengs x
       }
@@ -21419,7 +21449,8 @@ function setzeLaterneModelle() {
   const modell = MOEBEL['street_lamp_01'];
   if (!modell || !LATERNE_STELLEN.length) return;
   setzeMoebelFeld(moebelAufHoehe(moebelGeometrie(modell), LATERNE_HOCH), modell.material,
-                  LATERNE_STELLEN.map(([x, z, d]) => [x, SLAB_H, z, d]));
+                  LATERNE_STELLEN.map(([x, z, d, fuss]) =>
+                    [x, fuss === undefined ? SLAB_H : fuss, z, d]));
   for (const r of LATERNE_ROH) r.visible = false;
 }
 
@@ -35576,7 +35607,16 @@ if (window.__WEBHERO_TEST__ === true) {
     setzeZugTempo(v) { WAND_ZUG_TEMPO = v; },
     setzeKletterClip(v) { KLETTER_CLIP = v; },
     ampelStellen() { return AMPEL_STELLEN; },
-    laterneStellen() { return LATERNE_STELLEN; },
+    /* y ist die WIRKLICHE Fusshoehe des gesetzten Mastes, vom Mesh
+       abgelesen - nicht die Annahme "immer Gehweghoehe". Genau die
+       Annahme war der Fehler bei den Bruecken-Laternen. */
+    laterneStellen() {
+      return LATERNE_STELLEN.map((e, i) => {
+        const roh = LATERNE_ROH[i];
+        const y = roh && roh.parent ? roh.parent.position.y : SLAB_H;
+        return [e[0], e[1], e[2], y];
+      });
+    },
     bankStellen() { return BANK_STELLEN; },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     teilArten() { return Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length); },
