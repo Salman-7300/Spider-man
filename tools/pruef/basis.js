@@ -89,6 +89,8 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: die Hindernisse der Dachaufbauten abschalten -
        derselbe Stadtplan, aber der Stand vor problem-1 Punkt 5. */
     if (ein.dachAlt) window.__WEBHERO_DACH_ALT = 1;
+    /* Nur zum Messen: die Dachkrone im Stand vor problem-1 Punkt 6. */
+    if (ein.kroneAlt) window.__WEBHERO_KRONE_ALT = 1;
     /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
        damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
     if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
@@ -108,6 +110,7 @@ async function starte(breite, hoehe, seed, opt) {
        bremsen: (opt && typeof opt.bremsen === 'string') ? opt.bremsen : null,
        nahtAlt: !!(opt && opt.nahtAlt),
        dachAlt: !!(opt && opt.dachAlt),
+       kroneAlt: !!(opt && opt.kroneAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
      WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright

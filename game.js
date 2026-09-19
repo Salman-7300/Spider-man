@@ -3161,6 +3161,10 @@ function baueDekoMesh() {
    man hockt nicht darauf wie auf einem Laternenkopf. Fuer Wandlauf und
    Klettern ist er ohnehin zu niedrig - die verlangen ueber sechs Meter
    ueber der Figur. */
+/* Zum Vergleichen: mit __WEBHERO_KRONE_ALT bleibt die Dachkrone so, wie
+   sie vor problem-1 Punkt 6 war - nur das obere Band, und das als
+   "klein", also fuer die Kletterlogik unsichtbar. */
+const KRONE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KRONE_ALT;
 const DACH_PROP_DUENN = 0.6;
 /* Zum Vergleichen: mit __WEBHERO_DACH_ALT werden die Aufbauten weiter
    eingestuft und gezaehlt, bekommen aber KEIN Hindernis - der Stand vor
@@ -3233,11 +3237,46 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
   /* Gesims am Dachrand – gibt dem Haus oben einen Abschluss. Es steht
      45 cm über die Wand hinaus; ohne Kollision stand man mit den Beinen
      mitten darin. */
+  /* ---- Die Dachkrone, und warum man darunter haengenblieb ----
+     problem-1, Punkt 6. Im Human-Video klettert die Figur an der Wand
+     hoch, kommt UNTER die vorstehende Krone und bleibt dort haengen -
+     ueber sich eine sichtbare Platte, und weiter geht es nicht.
+
+     Die Krone besteht aus ZWEI sichtbaren Baendern:
+
+       oben    oben-0,56 bis oben-0,01, steht VOR = 0,45 m vor
+       unten   oben-1,45 bis oben-0,75, steht halb so weit vor
+
+     Ein Hindernis hatte nur das obere, und zwar von oben-0,90 bis
+     oben. Daraus folgten zwei Dinge, und beide erzeugen genau das Bild
+     aus dem Video:
+
+       Das untere Band ragte sichtbar heraus, hielt aber nichts - eine
+       Platte ueber dem Kopf, durch die man hindurchgreift.
+
+       Das Hindernis, das es gab, war als "klein" eingetragen. Klein ist
+       fuer Laternenkoepfe und Poller gedacht, und die Kletterlogik
+       ueberspringt solche Hindernisse. Die Figur konnte also nicht auf
+       die Krone uebersetzen und von dort ueber die Kante; sie blieb an
+       der Wand darunter kleben.
+
+     Jetzt bekommt JEDES sichtbare Band sein eigenes, genau passendes
+     Hindernis, und beide sind kletterbar. Gemessen an 40 Waenden kamen
+     vorher 25 aufs Dach, danach siehe tools/pruef/dachhohlraum.js. */
   deko(w + bW, 0.55, d + bD, x + oX, oben - 0.28, z + oZ, 0x8b9099);
   addCollider({ x0: x + oX - (w + bW) / 2, x1: x + oX + (w + bW) / 2,
                 z0: z + oZ - (d + bD) / 2, z1: z + oZ + (d + bD) / 2,
-                h: oben, y0: oben - 0.9, klein: true });
+                h: oben, y0: oben - 0.9, klein: KRONE_ALT, krone: true });
   deko(w + bW * 0.55, 0.7, d + bD * 0.55, x + oX * 0.55, oben - 1.1, z + oZ * 0.55, 0x6f757e);
+  /* Das untere Band, jetzt mit eigenem Hindernis in seinen EIGENEN
+     Massen - nicht in denen des oberen, sonst raegte das Hindernis
+     weiter heraus als das Sichtbare. */
+  if (!KRONE_ALT)
+    addCollider({ x0: x + oX * 0.55 - (w + bW * 0.55) / 2,
+                  x1: x + oX * 0.55 + (w + bW * 0.55) / 2,
+                  z0: z + oZ * 0.55 - (d + bD * 0.55) / 2,
+                  z1: z + oZ * 0.55 + (d + bD * 0.55) / 2,
+                  h: oben - 0.75, y0: oben - 1.45, krone: true });
 
   /* ---- Keine Feuerleitern mehr ----
      Die Balkone hingen als dunkle Blechkaesten vor den echten
