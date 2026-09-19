@@ -3165,6 +3165,10 @@ function baueDekoMesh() {
    sie vor problem-1 Punkt 6 war - nur das obere Band, und das als
    "klein", also fuer die Kletterlogik unsichtbar. */
 const KRONE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KRONE_ALT;
+/* Hinein in den Sturzflug erst ab 0,62, heraus erst unter 0,42 - siehe
+   die Begruendung an der Stelle, an der sie benutzt werden. */
+const STURZ_EIN = 0.80, STURZ_AUS = 0.30;
+const STURZ_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_STURZ_ALT;
 const DACH_PROP_DUENN = 0.6;
 /* Zum Vergleichen: mit __WEBHERO_DACH_ALT werden die Aufbauten weiter
    eingestuft und gezaehlt, bekommen aber KEIN Hindernis - der Stand vor
@@ -17337,8 +17341,31 @@ function updatePlayer(dt) {
        steiler": die Figur legt sich kopfvoran in den Sturz, die Traglast
        faellt weg und die gewonnene Hoehe wird in Tempo umgesetzt. Genau
        damit holt man sich vor dem naechsten Netz Schwung. */
-    player.sturzflug = (player.gleitNase || 0) > 0.55 &&
-                       heroVisual.hatClip && heroVisual.hatClip('sturzflug');
+    /* ---- Warum die Schwelle zwei Werte hat ----
+       problem-1, Punkt 7. Der Sturzflug entscheidet, WER die Glieder
+       fuehrt: unterhalb der Schwelle die gerechnete Gleithaltung
+       (Arme weit, Spannweite 1,26 m), oberhalb allein die
+       Bewegungsdatei StraightDive (Arme angelegt, 0,21 m).
+
+       Die Schwelle war EIN fester Wert, und die Nase pendelt beim
+       Steuern darum herum. Gemessen mit kurzen W-Stoessen, wie man sie
+       beim Lenken macht: 30 Wechsel der Haltungsquelle in sechs
+       Sekunden, dabei Gliedersprunge bis 0,287 m in einem einzigen
+       Bild. Genau das ist der Befund - die Figur wirkt verdreht, die
+       Glieder schalten abrupt um, mal Gleithaltung, mal Fallpose.
+
+       Die Ueberblendung selbst ist in Ordnung (mischeHaltungen blendet
+       ueber 0,16 bzw. 0,22 s). Sie kam nur nie an, weil sie mitten im
+       Blenden wieder umgedreht wurde.
+
+       Mit getrennten Schwellen fuer Hinein und Heraus bleibt die
+       einmal gewaehlte Haltung stehen, bis die Nase wirklich deutlich
+       auf die andere Seite geht. */
+    const nase = player.gleitNase || 0;
+    const hatSturz = !!(heroVisual.hatClip && heroVisual.hatClip('sturzflug'));
+    player.sturzflug = hatSturz && (STURZ_ALT
+      ? nase > 0.55
+      : (player.sturzflug ? nase > STURZ_AUS : nase > STURZ_EIN));
     if (player.sturzflug) {
       grav *= 0.62;                          // fast freier Fall
       /* Fallhoehe wird zu Vortrieb: je schneller es abwaerts geht, desto
@@ -19078,12 +19105,39 @@ function updateHeroVisual(dt) {
                                player.dreiPunktSeite || 'R');
       /* Kräftig nachführen, damit Fuß und Faust wirklich aufsetzen. */
       heroVisual.bodenAusgleich(Math.min(1, dt * 16));
-    } else if (player.gleiten && player.luftSalto <= 0 && !player.sturzflug) {
-      /* Im Sturzflug fuehrt die Bewegungsdatei allein - die Gleithaltung
-         wuerde ihr die Arme wieder zur Seite reissen. */
-      MISCH.wunsch = 'gleiten';
-      MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
-                        0.9 * clamp(player.gleitMisch || 0, 0, 1), hSpeed];
+    } else if (player.gleiten && player.luftSalto <= 0) {
+      /* ---- Nicht umschalten, sondern ueberblenden ----
+         problem-1, Punkt 7. Hier stand frueher "&& !player.sturzflug":
+         ueber der Schwelle fuehrte die Bewegungsdatei schlagartig
+         allein. Die beiden Haltungen liegen aber weit auseinander -
+         gemessene Armspannweite 1,26 m im Gleitflug gegen 0,21 m im
+         Sturzflug. Jeder Wechsel riss die Arme also um einen ganzen
+         Meter herum, und weil die Nase beim Lenken um die Schwelle
+         pendelt, geschah das staendig: 30 Wechsel in sechs Sekunden,
+         Gliedersprunge bis 0,287 m in einem Bild.
+
+         Eine Hysterese allein hat das nicht behoben - die Nase schwingt
+         beim Antippen ueber beide Schwellen hinaus (nachgemessen,
+         weiterhin 30 Wechsel).
+
+         Jetzt gibt es keinen Umschaltpunkt mehr: die gerechnete
+         Gleithaltung wird IMMER angewandt, mit einem Anteil, der von
+         STURZ_AUS bis STURZ_EIN gleichmaessig auf null geht. Bei voller
+         Nase fuehrt die Bewegungsdatei allein, wie vorher - aber der Weg
+         dorthin ist stetig, und die Arme folgen der Nase, statt zu
+         springen. */
+      /* Die Gleithaltung bleibt dem Sturzflug ueberlassen, sobald er
+         laeuft. Eine gleitende Ueberblendung nach der Nase war der
+         naheliegende Versuch - gemessen wurde sie UM DAS DREIFACHE
+         schlechter (Gliedersprung 0,288 auf 0,782 m), weil der Anteil
+         dann selbst am Eingabewert haengt und schneller schwankt als
+         die Blendung von mischeHaltungen. Der Versuch ist deshalb
+         zurueckgenommen. */
+      if (!player.sturzflug) {
+        MISCH.wunsch = 'gleiten';
+        MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
+                          0.9 * clamp(player.gleitMisch || 0, 0, 1), hSpeed];
+      }
     } else if (player.state === 'kante') {
       /* Der Kantenzug führt allein – hier keine eigene Pose dazwischen. */
     } else if (player.state === 'climb') {
@@ -36494,6 +36548,28 @@ if (window.__WEBHERO_TEST__ === true) {
     wlLog() { return WL_LOG.ring.filter(Boolean); },
     kitKopien() { return KIT_KOPIEN; },
     /* Alle Dachaufbauten mit ihrer Einstufung - fest oder Deko. */
+    /* Wie liegt die Figur wirklich im Raum? Die Haltung entsteht aus
+       mehreren Quellen (Bewegungsmischung, Kippung, Rollen), und keine
+       davon laesst sich aus player.facing allein ablesen. Hier kommt
+       die tatsaechliche Weltdrehung des Figurenknotens heraus, in
+       Gier/Nick/Roll, plus die Abweichung zur Flugrichtung. */
+    heroLage() {
+      if (!heroVisual || !heroVisual.root) return null;
+      heroVisual.root.updateMatrixWorld(true);
+      const e = new THREE.Euler().setFromQuaternion(
+        heroVisual.root.getWorldQuaternion(new THREE.Quaternion()), 'YXZ');
+      const v = player.vel;
+      const tempo = Math.hypot(v.x, v.z);
+      const flug = Math.atan2(v.x, v.z);
+      let ab = e.y - flug;
+      while (ab > Math.PI) ab -= Math.PI * 2;
+      while (ab < -Math.PI) ab += Math.PI * 2;
+      return {
+        gier: +e.y.toFixed(3), nick: +e.x.toFixed(3), roll: +e.z.toFixed(3),
+        flugGier: +flug.toFixed(3), abweichung: +ab.toFixed(3),
+        bahnNick: +Math.atan2(v.y, tempo).toFixed(3),
+      };
+    },
     dachProps() {
       /* Mit dem Hindernis, das GENAU zu diesem Aufbau gehoert - nicht
          mit einem, das die Pruefung anhand der Lage suchen muesste. */
