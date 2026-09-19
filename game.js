@@ -21619,6 +21619,27 @@ const PARK_AUTOS = [];
    der Mitte haengt deshalb an seiner Breite und wird beim Setzen
    gerechnet, nicht hier festgelegt. */
 const PARK_RAND = ROAD_HALF;   // dort endet der Asphalt
+/* So schief steht ein Wagen hoechstens eingeparkt. Eine Reihe exakt
+   ausgerichteter Wagen sieht aus wie ein Parkplatz, nicht wie eine
+   Strasse - deshalb der Schiefstand. Er kostet quer zur Strasse aber
+   Platz, und der wird beim Setzen eingerechnet.
+
+   Der Wert stand auf 0,035. Damit war die Rechnung zwar sauber (300 von
+   300 Wagen mit der Ecke im Bordstein wurden zu null), sie hat aber den
+   gesamten Rest aufgebraucht, der einem vorbeifahrenden Bus blieb:
+   gemessen 0,10 m vorher, 0,00 m nachher. Einen sichtbaren Kontakt
+   gegen einen anderen einzutauschen ist keine Behebung.
+
+   Mit 0,020 bleibt der Schiefstand deutlich sichtbar - ueber die Laenge
+   eines Wagens sind das immer noch rund neun Zentimeter Versatz - und
+   der Bus behaelt seine Handbreit. */
+const PARK_SCHIEF = 0.020;
+/* Zwei Zentimeter Rest, damit die Ecke nicht GENAU auf der Kante
+   liegt. Ohne sie blieb rechnerisch ein Millimeter Luft - zu wenig, um
+   ueberhaupt nachmessen zu koennen: schon das Runden der Pruefwerte auf
+   den Zentimeter liess vier von 300 Wagen wieder neben der Fahrbahn
+   erscheinen. Ein Millimeter Planung ist keine Planung. */
+const PARK_LUFT = 0.02;
 const PARK_LUECKE = 7.6;       // Laengsabstand zweier Plaetze
 const PARK_KREUZ = 13;         // so weit bleibt jede Kreuzung frei
 const PARK_SICHT = 150;        // weiter weg wird nicht gezeichnet
@@ -21736,7 +21757,33 @@ function baueParkAutos(anzahl) {
          darueber hinaus - gemessen an allen 50 Wagen, je zwei Ecken auf
          Gehweghoehe. */
       const halbL = typ.laenge / 2 + 0.1, halbB = typ.breite / 2;
-      const quer = pl.linie + pl.seite * (PARK_RAND - halbB);
+      /* ---- Platz fuer den Schiefstand ----
+         Der Wagen wird gleich noch um bis zu PARK_SCHIEF schief
+         gedreht. Eine Ecke wandert dabei quer zur Strasse um
+         halbL * PARK_SCHIEF nach aussen - bei 2,3 m halber Laenge rund
+         acht Zentimeter.
+
+         Die Aussenkante lag genau auf dem Asphaltrand. Also hing nach
+         dem Drehen bei JEDEM Wagen eine Ecke ueber dem 25 cm hohen
+         Bordstein - gemessen 300 von 300 bei Keim 4711. Das sind die
+         Reifen im Bordstein aus problem-1.
+
+         parkautos.js hat es nie gemeldet, weil es den ungedrehten
+         Kasten gepruefte hat. Die Pruefung dreht inzwischen mit.
+
+         Der Wagen rueckt deshalb um genau diesen Betrag nach innen.
+         Das ist der schlimmste Fall, nicht der gewuerfelte - der Wurf
+         faellt erst spaeter, und ihn vorzuziehen wuerde den
+         gemeinsamen Zufallsstrom verschieben und die ganze Stadt
+         dahinter umbauen.
+
+         Der Preis steht in parkautos.js unter "engste Stelle fuer einen
+         Bus": gemessen 0,10 m, bevor hier etwas gerueckt wurde. Genau
+         davon geht das Ruecken ab, deshalb ist PARK_SCHIEF auf 0,020
+         heruntergesetzt - sonst waere von den zehn Zentimetern nichts
+         uebrig. */
+      const quer = pl.linie +
+                   pl.seite * (PARK_RAND - halbB - halbL * PARK_SCHIEF - PARK_LUFT);
       pl.x = pl.achse === 'x' ? quer : pl.s;
       pl.z = pl.achse === 'x' ? pl.s : quer;
       if (!parkPlatzTauglich(pl, halbL, halbB)) continue;
@@ -21745,7 +21792,7 @@ function baueParkAutos(anzahl) {
       mesh.rotation.y = pl.ry;
       /* Leicht schief eingeparkt - eine Reihe exakt ausgerichteter Wagen
          sieht aus wie ein Parkplatz, nicht wie eine Strasse. */
-      mesh.rotation.y += rand(-0.035, 0.035);
+      mesh.rotation.y += rand(-PARK_SCHIEF, PARK_SCHIEF);
       const hx = pl.achse === 'x' ? halbB : halbL;
       const hz = pl.achse === 'x' ? halbL : halbB;
       addCollider({ x0: pl.x - hx, x1: pl.x + hx, z0: pl.z - hz, z1: pl.z + hz,
@@ -36443,7 +36490,7 @@ if (window.__WEBHERO_TEST__ === true) {
          achsparallelen Kasten gesehen und "alle vier Ecken auf der
          Fahrbahn" gemeldet, waehrend die gedrehte Ecke sichtbar ueber
          dem Bordstein hing. */
-      return PARK_AUTOS.map((p) => ({ x: +p.x.toFixed(2), z: +p.z.toFixed(2),
+      return PARK_AUTOS.map((p) => ({ x: +p.x.toFixed(3), z: +p.z.toFixed(3),
                                       klasse: p.klasse, art: p.art,
                                       achse: p.achse, halbL: p.halbL, halbB: p.halbB,
                                       ry: +p.mesh.rotation.y.toFixed(4),
