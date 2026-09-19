@@ -145,6 +145,34 @@ async function starte(breite, hoehe, seed, opt) {
     await page.waitForTimeout(8000);
   }
   await page.waitForTimeout(900);
+  /* ---- Und jetzt warten, bis sich an der Szene NICHTS mehr aendert ----
+     Die Abfrage darueber wartet auf den ERSTEN Turm. Danach laufen aber
+     noch stadtteile.glb (Requisiten und fertige Haeuser) und
+     stadtmoebel.glb (Ampel, Laterne, Poller, Beet) weiter ein, und
+     setzeHausModelle() setzt noch. Wer in dieses Fenster hinein misst,
+     misst eine halb geladene Stadt.
+
+     Gemessen hat mich das eine falsche Schlussfolgerung gekostet: bei
+     Keim 777 kamen fuer denselben Stand 848,5 / 857 / 863 / 936 / 943 /
+     948 Zeichenaufrufe heraus - rund hundert Streuung. Ich hatte daraus
+     erst gelesen, eine eigene Aenderung habe 93 Aufrufe gekostet. Sie
+     hat es nicht; die Ladewolke war es. Die Zahl der Szenenobjekte
+     schwankte zwischen den Laeufen um 170.
+
+     Gewartet wird deshalb, bis die Zahl der Objekte in der Szene vier
+     Abfragen lang (also rund anderthalb Sekunden) gleich bleibt. Das
+     kommt ohne eine Liste aller Ladevorgaenge aus - was immer noch
+     nachkommt, faellt auf. */
+  await page.waitForFunction(() => {
+    let n = 0;
+    window.__dbg.szene.traverse(() => n++);
+    const w = window.__pruefStand || (window.__pruefStand = { n: -1, gleich: 0 });
+    if (n === w.n) w.gleich++; else { w.n = n; w.gleich = 0; }
+    return w.gleich >= 4;
+  }, { timeout: 60000, polling: 400 }).catch(() => {
+    console.log('WARNUNG: die Szene kam nicht zur Ruhe - die Messung '
+              + 'kann eine halb geladene Stadt zeigen.');
+  });
   await page.evaluate(() => {
     const o = document.getElementById('overlay');
     if (o) o.style.display = 'none';
