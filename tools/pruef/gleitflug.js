@@ -20,7 +20,12 @@
    Die Matrix aus dem Auftrag: ohne Eingabe, W, A, D, W+A, W+D, dazu
    die Uebergaenge Gleiten -> Fallen und Gleiten -> Schwung.
 
-   Aufruf:  node tools/pruef/gleit-test.js [seed=4711]
+   Aufruf:  node tools/pruef/gleitflug.js [seed=4711]
+
+   (Die Datei hiess zuerst gleit-test.js. "node --test" sucht sich
+   seine Dateien unter anderem nach dem Muster *-test.js zusammen und
+   hat diesen Pruefstand deshalb als Unittest gestartet - ohne Browser,
+   also mit Fehlschlag. Daher der Name ohne "-test".)
    ========================================================================= */
 const { starte } = require('./basis');
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);

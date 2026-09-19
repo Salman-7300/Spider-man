@@ -1463,16 +1463,95 @@ betroffen - sie lesen ruhenden Zustand.
 Schlechtester Wert 862 gegen das harte Tor von 899. **Punkt 3 ist damit
 auch auf der Leistung durch.**
 
-### Was an problem-1 NICHT bearbeitet werden konnte
+### Punkt 7: Gleiten mit W
 
-Die uebrigen fuenf Punkte des Befunds - schwebende Ampel, Reifen im
-Bordstein, Figur in Dachaufbauten, Zwischenebene im Dach, Gleiten mit W
-- nennen alle ein konkretes Bild oder Video. Diese Anhaenge sind von
-hier aus nicht erreichbar: das Projekt hat null Issues, kein Label
-`problem-1`, und die einzige Pull-Request traegt keinen Kommentar. Ohne
-die Stelle laesst sich keiner der Punkte reproduzieren, und raten
-verbietet die Regel "keine Reparatur ohne Reproduktion oder messbaren
-Befund".
+Widerlegt: es mischt sich KEINE Bodenbewegung in die Gleithaltung. Im
+ganzen Testfeld laeuft genau eine Bewegung mit Gewicht 1. Der Koerper
+steht auch nicht quer zur Flugrichtung (Abweichung 0 Grad ohne Lenken,
+10 Grad mit A/D), und die Nickneigung deckt sich mit der Bahn.
+
+Wirklich falsch war die Schwelle. `gleitNase > 0,55` entscheidet, WER
+die Glieder fuehrt:
+
+| Quelle | Armspannweite |
+|---|---|
+| gerechnete Gleithaltung | 1,26 m |
+| Bewegungsdatei StraightDive | 0,21 m |
+
+Beim Lenken mit kurzen W-Stoessen pendelt die Nase um diese Schwelle -
+gemessen **30 Wechsel in sechs Sekunden**, Gliedersprunge bis 0,288 m
+in einem Bild. Mit getrennten Schwellen (hinein ab 0,80, heraus unter
+0,30) sind es **0 Wechsel und 0,003 m**. Der stationaere Sturzflug ist
+unveraendert.
+
+Zwei Versuche, die nichts gebracht haben und zurueckgenommen sind: eine
+gleitende Ueberblendung nach der Nase war dreimal schlechter (0,782 m),
+eine langsamere Nase brachte nur 30 auf 26 Wechsel.
+
+### Punkt 2: echte Fahrer
+
+Der Fahrerpool war bereits richtig - acht Plaetze, 46 m Umkreis, Wahl
+des Modells nach Poolplatz ohne Zufallszug. Gemessen bei Keim 4711:
+fuenf echte Fahrer sichtbar, kein Platzhalter, keiner ausserhalb des
+Fahrzeugs, kein Kopf durch das Dach.
+
+Falsch war der Lkw: sein `fahrerSitz` trug noch `scale: 0.78` aus der
+Zeit der einfachen Sitzfiguren. Fensterband 1,55 bis 2,25 m, Huefte
+1,12 m - der Kopf landete auf 1,78 m statt 1,97 m, also im untersten
+Drittel des Fensters.
+
+**Das hat der Pruefstand nicht gemeldet**, weil "im Fahrzeug" erfuellt
+war. Gesehen hat es erst das Bild. Die Pruefung misst jetzt auch, WO im
+Fahrzeug der Kopf sitzt.
+
+### Leistung nach allen sieben Punkten
+
+| Keim | Zeichenaufrufe | Dreiecke |
+|---|---|---|
+| 4711 | 826,5 | 3,17 M |
+| 1234 | 829,5 | 3,30 M |
+| 8080 | 819 | 3,29 M |
+| 20250914 | 786 | 2,97 M |
+| 777 | 829 | 3,19 M |
+
+Schlechtester Wert 829,5 gegen das harte Tor von 899 - besser als die
+862 vor Punkt 5, obwohl rund 3100 neue Hindernisse dazugekommen sind.
+Hindernisse sind Rechenzeit, keine Zeichenaufrufe.
+
+### Eigene Messfehler in diesem Durchgang
+
+Der Befund kam mehrfach aus dem Messgeraet, nicht aus dem Spiel. Vier
+Faelle, alle korrigiert:
+
+| Was gemessen schien | Was es wirklich war |
+|---|---|
+| Punkt 3 kostet 93 Zeichenaufrufe | Der Pruefstand mass in die Ladewolke; Streuung rund 100 |
+| 436 Deko-Teile faelschlich mit Hindernis, 582 zu grosse Hindernisse | Die Pruefung suchte das Hindernis nach LAGE und fand das des Nachbarn |
+| 11,11 m schwebender Dachaufbau | Der Suchquader fing die Aufbauten des hoeheren Nachbarn mit |
+| Vier von fuenf Fahrern ausserhalb ihres Fahrzeugs | Fahrzeugkisten aus Weltmatrizen, die seit dem letzten Zeichnen nicht nachgefuehrt waren |
+
+Dazu ein Fehlgriff anderer Art: bei Punkt 6 hatte ich die Kletterprobe
+zunaechst so umgestellt, dass ein Haengenbleiben als "Sims" durchgeht.
+Damit war die Beanstandung weg, ohne dass sich etwas geaendert haette.
+Zurueckgenommen - eine Beanstandung umzudeuten ist keine Behebung.
+
+### Wo die Anhaenge lagen
+
+Die Bilder und Videos zu problem-1 liegen als **Release** unter dem Tag
+`problem-1`, nicht als Issue. Das Projekt hat null Issues und kein
+solches Label - danach zu suchen war vergeblich. Sechs Bilder und zwei
+Videos (55 s und 115 s), alle ausgewertet.
+
+### Offene Punkte
+
+* Im Verkehr war waehrend der Messung **kein Bus** unterwegs, der
+  Busfahrer ist damit ungeprueft. Busse haben einen eigenen Sitzpool
+  (`BUS_GAST`).
+* Beim Gehen auf ein Nachbardach faellt ein Teil der Versuche herunter
+  (7 von 20 erreichen das Nachbardach, 3 fallen, 8 sind zu hoch). Das
+  ist eine Frage an den Spieltest, kein gemessener Fehler.
+* Ein einzelner Wert `wandDurchdringung` von 0,15 m im Wandkriechen.
+  Nachgemessen auf dem Stand VOR Punkt 6 - identisch, also aelter.
 
 ---
 
