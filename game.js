@@ -787,6 +787,12 @@ const BR_X0 = PROM_X0, BR_X1 = RIVER_X1 + 4, BR_RAMPE = 6, BR_HOCH = 0.3;
 /* Eigenes, etwas engeres Raster für den Stadtteil am anderen Ufer.
    Vorher standen dort nur 16 nackte Quader auf einer leeren Platte –
    deshalb wirkte die andere Seite leer und unfertig. */
+/* Schmalster Zwischenraum, der noch als Gasse durchgeht. Darunter
+   entsteht ein senkrechter Schacht, in den die Figur (0,9 m breit)
+   hineinklettert, der aber architektonisch nichts ist - der Befund aus
+   problem-1. Die Dauermessung in tools/pruef/haeuserzeilen.js zieht die
+   Grenze bei denselben 3,5 m; 3,6 laesst etwas Luft. */
+const GASSE_MIN = 3.6;
 const SHORE_PITCH = 32, SHORE_ROAD = 5;
 const SHORE_OX = 336, SHORE_OZ = -192;
 const SHORE_NX = 2, SHORE_NZ = 12;
@@ -5764,6 +5770,37 @@ function zeileTauglich(cx, cz) {
   return (Math.abs(Math.round(cx / PITCH) * 3 + Math.round(cz / PITCH) * 5) % 2) === 0;
 }
 
+/* ---- Mindestabstand zwischen freistehenden Bauten ----
+   Human-Befund aus problem-1: zwischen zwei Haeusern blieb ein
+   senkrechter Schacht, in den die Figur hineinklettern kann, der aber
+   architektonisch nichts ist - keine Gasse, kein Hof, nur ein Schlitz.
+
+   Gemessen wurde er mit der Spaltpruefung in
+   tools/pruef/haeuserzeilen.js (climbableDeadGap): 2,27 bis 3,46 m
+   breit, bis 41 m hoch. Die Figur ist 0,9 m breit, passt also bequem
+   hinein. Zwei Quellen, beide in dieser Funktion:
+
+     der Mindestabstand 2,6 m in passt()   - freistehende Bauten
+     der Schritt 11,5 m der Dreierzeile    - bei 6,5 bis 8,5 m Breite
+                                             bleiben 3,0 bis 5,0 m
+
+   Buendig aneinanderruecken waere hier falsch: das sind freistehende
+   Bauten, keine Reihenhaeuser. Also das andere Ende - der Zwischenraum
+   wird so breit, dass er als Gasse lesbar ist. 3,6 m liegt ueber der
+   3,5-m-Schwelle, ab der die Pruefung von einer echten Gasse spricht.
+
+   Angefasst wird nur der SCHRITT der Dreierzeile: 12,2 statt 11,5 laesst
+   auch im schlimmsten Fall (zweimal 8,5 m breit) 3,7 m Gasse.
+
+   Der Mindestabstand in passt() bleibt bei 2,6 m, und zwar mit Absicht.
+   Ein abgelehntes setze() ueberspringt makeBuildingMesh - und das zieht
+   selbst einen Wuerfel fuer die Fassade. Jede Aenderung an passt()
+   verschiebt damit den gemeinsamen Zufallsstrom und baut die ganze Stadt
+   dahinter um; gemessen sprang die Zahl der Uferhaeuser von 32 auf 44.
+   Der Schritt 12,2 loest keine einzige zusaetzliche Ablehnung aus
+   (noetig waeren 8,5 + 2,6 = 11,1 m), ist also stromneutral. */
+const ZEILE_SCHRITT = 12.2;
+
 function buildBlockBuildings(cx, cz, loecher) {
   if (zeileTauglich(cx, cz) &&
       baueHaeuserzeile(Math.round((cx - PITCH / 2 - RASTER_X0) / PITCH),
@@ -5824,7 +5861,8 @@ function buildBlockBuildings(cx, cz, loecher) {
       const w = vert ? rand(9, 12) : rand(6.5, 8.5);
       const d = vert ? rand(6.5, 8.5) : rand(9, 12);
       const h = rand(14, 34) + centerBias * rand(0, 30);
-      setze(w, h, d, cx + (vert ? rand(-2, 2) : k * 11.5), cz + (vert ? k * 11.5 : rand(-2, 2)));
+      setze(w, h, d, cx + (vert ? rand(-2, 2) : k * ZEILE_SCHRITT),
+            cz + (vert ? k * ZEILE_SCHRITT : rand(-2, 2)));
     }
   }
 }
@@ -6311,11 +6349,35 @@ function buildFarShore() {
         const h = rand(26, 52) * hoch;
         makeBuildingMesh(w, h, d, cx + rand(-1.5, 1.5), cz + rand(-1.5, 1.5));
       } else {
-        const off = innen / 4 + 1;
+        /* Vier Haeuser um einen Hof - und HIER kam der Schacht aus
+           problem-1 her, nicht aus den Reihenhauszeilen.
+
+           Vorher stand der Abstand fest (off = 5,5 + 1) und die Breite
+           wurde unabhaengig davon gewuerfelt (7 bis 10 m). Der
+           Zwischenraum war damit 13 minus die halbe Breitensumme, also
+           je nach Wurf 6 m Hof oder 1,4 m Schlitz - gemessen 2,47 bis
+           3,3 m bei Keim 4711, bis 32 m hoch. Eine Pruefung auf genug
+           Luft gab es an dieser Stelle ueberhaupt nicht.
+
+           Jetzt wird der Abstand aus der eigenen Breite BERECHNET: jede
+           Innenwand steht eine halbe Gassenbreite von der Blockmitte
+           weg. Der Hof ist damit immer mindestens GASSE_MIN breit,
+           unabhaengig vom Wurf.
+
+           Damit das auf den 22 m Bauflaeche aufgeht, ohne dass ein Haus
+           ueber den Gehwegsockel ragt, wird oben enger gewuerfelt:
+           8,8 + 3,6/2 + 0,4 Versatz = genau 11 m, die halbe Bauflaeche.
+
+           Die Zahl und die Reihenfolge der Wuerfe bleiben gleich -
+           Breite, Hoehe, Tiefe, zwei Versaetze -, damit die Stadt hinter
+           dem Ufer unveraendert bleibt. */
         for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
           if (Math.random() < 0.2) continue;
-          makeBuildingMesh(rand(7, 10), rand(14, 34) * hoch, rand(7, 10),
-            cx + sx * off + rand(-0.8, 0.8), cz + sz * off + rand(-0.8, 0.8));
+          const w = rand(7, 8.8), h = rand(14, 34) * hoch, d = rand(7, 8.8);
+          const vx = rand(-0.4, 0.4), vz = rand(-0.4, 0.4);
+          makeBuildingMesh(w, h, d,
+            cx + sx * (w / 2 + GASSE_MIN / 2 + Math.abs(vx)),
+            cz + sz * (d / 2 + GASSE_MIN / 2 + Math.abs(vz)));
         }
       }
       if ((bi + bj) % 2 === 0) addLamp(cx - innen / 2 + 1, cz);
