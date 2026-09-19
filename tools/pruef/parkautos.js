@@ -44,8 +44,24 @@ const { starte } = require('./basis');
       proKlasse[a.klasse] = (proKlasse[a.klasse] || 0) + 1;
       proArt[a.art] = (proArt[a.art] || 0) + 1;
       const k = kasten(a);
-      /* 1. Alle vier Ecken auf der Fahrbahn (Gehweg waere 0,25). */
-      for (const x of [k.x0, k.x1]) for (const z of [k.z0, k.z1]) {
+      /* 1. Alle vier Ecken auf der Fahrbahn (Gehweg waere 0,25).
+
+         Gefragt wird nach den WIRKLICHEN Ecken, also samt dem leichten
+         Schiefstand beim Einparken. Vorher stand hier der achsparallele
+         Kasten - der Wagen wird aber nach dem Setzen noch um bis zu
+         0,035 rad gedreht, und bei 2,3 m halber Laenge wandert die Ecke
+         dabei rund acht Zentimeter nach aussen. Die Aussenkante liegt
+         buendig am Asphaltrand, also hing genau diese Ecke ueber dem
+         Bordstein - und die Pruefung sah es nicht, weil sie den
+         ungedrehten Kasten mass. Genau der Fall aus problem-1. */
+      const hL = a.halbL, hB = a.halbB;
+      const co = Math.cos(a.ry || 0), si = Math.sin(a.ry || 0);
+      /* Bei ry = 0 schaut das Modell nach +z: die Laenge liegt auf z,
+         die Breite auf x. */
+      for (const sl of [-1, 1]) for (const sb of [-1, 1]) {
+        const lx = sb * hB, lz = sl * hL;
+        const x = a.x + lx * co + lz * si;
+        const z = a.z - lx * si + lz * co;
         const y = d.groundYAt(x, z, 2);
         if (Math.abs(y) > 0.05) melde(a, 'Ecke nicht auf der Fahrbahn', +y.toFixed(2));
       }

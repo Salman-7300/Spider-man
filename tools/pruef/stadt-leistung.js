@@ -21,14 +21,15 @@
    Ohne die Bremsen aus Teil E: ... stadt-leistung.js aus.json - alt
    ========================================================================= */
 const fs = require('node:fs');
-const { starte } = require('./basis');
+const { starte, ausgabePfad } = require('./basis');
 
-/* "-" heisst "keine Datei". Ohne diese Abfrage hat ein Aufruf mit "-"
-   als Platzhalter eine Datei namens "-" ins Repo geschrieben - genau das
-   ist passiert und wurde mitversioniert. */
-const ohne = (v) => (!v || v === '-') ? null : v;
-const zielDatei = ohne(process.argv[2]);
-const vergleich = ohne(process.argv[3]);
+/* Die eigene Abfrage hier kannte nur "-" als Platzhalter. Ein Aufruf mit
+   "seed=4711" als erstem Wort hat deshalb eine Datei namens "seed=4711"
+   ins Repo geschrieben - fuenf davon lagen versioniert im Baum. Der
+   gemeinsame Waechter in basis.js kennt beide Faelle; die eigene Abfrage
+   ist ersatzlos weg, damit es nicht ein drittes Mal auseinanderlaeuft. */
+const zielDatei = ausgabePfad(process.argv[2]);
+const vergleich = ausgabePfad(process.argv[3]);
 /* "alt" schaltet die Wiederholungsbremsen aus Teil E ab. Damit laesst
    sich messen, was sie an Zeichenaufrufen kosten - mit demselben Code
    und demselben Weltkeim. */

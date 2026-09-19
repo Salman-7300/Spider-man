@@ -3181,8 +3181,19 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
     deko(kw, kh, kd, x + rand(-w / 2 + 1.5, w / 2 - 1.5), oben + kh / 2,
          z + rand(-d / 2 + 1.5, d / 2 - 1.5), pick([0x767c85, 0x646a72, 0x878d96]));
   }
+  /* Die Rohre standen mit FESTER Mitte auf oben + 1,0, ihre Hoehe wurde
+     aber gewuerfelt (1,2 bis 2,4 m). Nur ein Rohr von genau zwei Metern
+     traf damit das Dach: kuerzere schwebten bis zu 40 cm darueber,
+     laengere steckten bis zu 20 cm darin. Und weil die Hoehe unter zwei
+     Metern haeufiger faellt als darueber, schwebte die Mehrzahl.
+
+     Jetzt sitzt die Mitte auf der halben eigenen Hoehe, der Fuss also
+     auf dem Dach. Die Hoehe wird eine Zeile frueher gezogen, in
+     derselben Reihenfolge wie vorher im Aufruf - die Stadt bleibt
+     dieselbe. */
   for (let i = 0; i < 2; i++) {
-    deko(0.35, rand(1.2, 2.4), 0.35, x + rand(-w / 3, w / 3), oben + 1.0,
+    const ph = rand(1.2, 2.4);
+    deko(0.35, ph, 0.35, x + rand(-w / 3, w / 3), oben + ph / 2,
          z + rand(-d / 3, d / 3), 0x555b63);
   }
   /* Freien Platz auf dem Dach suchen: nicht unter dem Staffelturm. */
@@ -36387,9 +36398,15 @@ if (window.__WEBHERO_TEST__ === true) {
     zufallKeim(n) { zufallKeimSetzen(n); return ZUFALL_SEED; },
     /* CITY V2: die parkenden Autos - Ort, Klasse und Bauart. */
     parkAutos() {
+      /* ry ist die WIRKLICHE Drehung des Meshes, samt dem leichten
+         Schiefstand beim Einparken. Ohne sie hat die Pruefung nur den
+         achsparallelen Kasten gesehen und "alle vier Ecken auf der
+         Fahrbahn" gemeldet, waehrend die gedrehte Ecke sichtbar ueber
+         dem Bordstein hing. */
       return PARK_AUTOS.map((p) => ({ x: +p.x.toFixed(2), z: +p.z.toFixed(2),
                                       klasse: p.klasse, art: p.art,
                                       achse: p.achse, halbL: p.halbL, halbB: p.halbB,
+                                      ry: +p.mesh.rotation.y.toFixed(4),
                                       sichtbar: p.mesh.visible }));
     },
     /* CITY V2: die Strassenhierarchie, Linie fuer Linie. */
