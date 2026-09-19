@@ -1373,6 +1373,96 @@ belichteten Durchgang. Von oben sieht ein tiefer Zwischenraum zwischen
 zwei 30-m-Tuermen weiterhin nach Schlucht aus - das ist bei 4 m Gasse
 normal und gilt fuer die 94 uebrigen Gassen der Stadt genauso.
 
+### Punkt 1: schwebende Ampel - und versunkene Laterne
+
+`moebelOrt()` rechnet JEDE Hoehe am Stadtmoebel von `SLAB_H` aus, der
+Gehweghoehe im Raster, fest verdrahtet. Dieselbe Annahme schlaegt in
+beide Richtungen fehl:
+
+| Moebel | Befund | Ursache |
+|---|---|---|
+| Ampel | 31 von 240 Masten 25 cm ueber dem Boden | aeussere Schale, dort liegt kein Block und damit kein Sockel |
+| Laterne | 10 von 100 Masten 25 cm IM Boden | Bruecke, deren Gehweg liegt auf 0,50 m |
+
+`ampelMasten()` fragt jetzt `groundY()` und laesst die Stelle aus -
+dort ist nicht einmal Stadt (240 -> 209 Masten). `addLamp()` holt die
+Fusshoehe aus `groundY()` und gibt den Versatz an Haltepunkt,
+Ersatzform und Modell weiter. Keim 4711: **82 -> 0 Beanstandungen.**
+
+### Punkt 4: Reifen im Bordstein
+
+Der Wagen wird buendig an den Asphaltrand gesetzt und DANACH schief
+gedreht. Quer zur Strasse wandert eine Ecke dabei um
+`halbL * Schiefe` nach aussen - rund acht Zentimeter bei 25 cm
+Bordsteinhoehe. **300 von 300 Wagen** hatten eine Ecke darauf.
+
+`parkautos.js` hat es nie gemeldet, weil es den UNGEDREHTEN Kasten
+geprueft hat. Genau der Fall aus der Regel *"Test sagt okay, Bild ist
+falsch: Test nicht bestanden"*.
+
+Der Wagen rueckt jetzt um diesen Betrag nach innen, plus zwei
+Zentimeter Rest - ohne den Rest blieb ein Millimeter, und schon das
+Runden der Pruefwerte liess vier Wagen wieder danebenstehen. Weil das
+Ruecken von dem Platz abgeht, der einem Bus bleibt (gemessen 0,10 m),
+steht die Schiefe jetzt auf 0,020 statt 0,035: sonst waere davon
+0,00 m uebrig, also ein sichtbarer Kontakt gegen einen anderen
+getauscht.
+
+**Ecken neben der Fahrbahn 300 -> 0**, Bus 0,10 -> 0,03 m, Bauarten
+121/152/27 vorher wie nachher (kein Wurf verschoben).
+
+### Punkt 5: Dachaufbauten ohne Hindernis - bestaetigt, nicht behoben
+
+`deko()` und `merkeTeil()` legen NUR Geometrie an, kein Hindernis.
+Gemessen ueber eine Stichprobe von 52 Daechern: **289 von 311
+Dachaufbauten halten die Figur nicht auf.** Sie laeuft durch jeden
+Lueftungskasten, jedes Rohr, jede Antenne und jedes Klimageraet.
+
+Nebenbei behoben: die Rohre standen mit fester Mitte auf `oben + 1,0`,
+ihre Hoehe wurde aber gewuerfelt (1,2 bis 2,4 m). Nur ein Rohr von
+genau zwei Metern traf das Dach. Steckende Aufbauten 1 -> 0.
+
+Die Aufbauten fest zu machen ist die richtige Behebung, aber keine
+kleine: rund 300 neue Hindernisse je Stadt aendern Landen, Hocken und
+Laufen auf den Daechern. Das gehoert gegen `dachtraversal.js` gemessen,
+nicht einfach eingeschaltet.
+
+### Der Pruefstand hat in die Ladewolke gemessen
+
+`basis.js` hat auf den ERSTEN Turm gewartet und dann 900 ms. Zu diesem
+Zeitpunkt laufen `stadtteile.glb` und `stadtmoebel.glb` noch ein und
+`setzeHausModelle()` setzt noch.
+
+Bei Keim 777 kamen fuer im Kern denselben Stand **848,5 / 857 / 863 /
+936 / 943 / 948** Zeichenaufrufe heraus, die Zahl der Szenenobjekte
+schwankte um 170. Ich habe daraus zuerst gelesen, die Behebung von
+Punkt 3 koste 93 Aufrufe und reisse das Tor - **das war falsch.** Der
+Gegenbeweis war die Halbierung selbst: 848,5 -> 857 -> 943 -> 863. Eine
+Aenderung, die 86 Aufrufe hinzufuegt, und die naechste, die sie wieder
+wegnimmt, gibt es nicht.
+
+Gewartet wird jetzt, bis die Zahl der Objekte in der Szene vier
+Abfragen lang gleich bleibt. Streuung danach ueber vier Laeufe:
+**854,5 bis 860,5** statt rund hundert.
+
+**Alle Zeichenaufruf-Zahlen aus Stufe 5 vor `9bdc592` sind an einer
+halb geladenen Stadt gemessen und entsprechend weich.** Die zaehlenden
+Pruefungen (Spalte, Ecken, Bodenkontakt, Hauszahlen) sind nicht
+betroffen - sie lesen ruhenden Zustand.
+
+### Leistung nach problem-1, fuenf Keime
+
+| Keim | Haeuser | Zeichenaufrufe (Median) | Dreiecke (Median) |
+|---|---|---|---|
+| 4711 | 617 | 862 | 3,50 M |
+| 1234 | 597 | 813 | 3,17 M |
+| 8080 | 599 | 815 | 3,20 M |
+| 20250914 | 626 | 805,5 | 3,10 M |
+| 777 | 592 | 852,5 | 3,40 M |
+
+Schlechtester Wert 862 gegen das harte Tor von 899. **Punkt 3 ist damit
+auch auf der Leistung durch.**
+
 ### Was an problem-1 NICHT bearbeitet werden konnte
 
 Die uebrigen fuenf Punkte des Befunds - schwebende Ampel, Reifen im
