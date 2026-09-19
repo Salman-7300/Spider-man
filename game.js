@@ -3122,6 +3122,78 @@ function baueDekoMesh() {
   dekoTeile.length = 0;
 }
 
+/* ======================= Dachaufbauten: fest oder Deko? =======================
+   problem-1, Punkt 5. Im Human-Screenshot steht die Figur bis zur Brust
+   IN einem Lueftungskasten; nur Arme und Beine schauen heraus. Gemessen
+   ueber eine Stichprobe von 52 Daechern hielten 289 von 311 Aufbauten
+   die Figur ueberhaupt nicht auf.
+
+   Der Grund ist einfach: deko() und merkeTeil() legen NUR Geometrie an.
+   Ein Hindernis entsteht dort nie, und niemand hat es je nachgetragen.
+
+   Nachgetragen wird es jetzt - aber nicht fuer alles. Die Figur ist
+   0,9 m breit. Ein Hindernis, das schmaler ist als sie selbst, ist im
+   Spiel kein Hindernis, sondern ein Haken: man bleibt an etwas haengen,
+   das man kaum sieht. Deshalb zwei Klassen, und die Grenze liegt bei
+   0,6 m Grundflaeche - deutlich unter der Figur, deutlich ueber einem
+   Rohr:
+
+     FEST   Lueftungskasten, Klimageraet, Wasserturm. Die Figur laeuft
+            dagegen und steht oben darauf.
+     DEKO   Rohre (0,35 m) und Antennen (0,22 m). Sichtbar, aber ohne
+            Hindernis - sonst haengt man an jedem Mast fest.
+
+   Entscheidend ist die GROESSERE der beiden Grundkanten, nicht die
+   kleinere. Ein Mast ist in BEIDEN Richtungen duenn; ein Klimageraet
+   ist mit 0,89 x 0,35 m nur flach. Mit der kleineren Kante waeren alle
+   885 Klimageraete als Deko durchgegangen und weiter durchlaessig
+   geblieben - gemessen, bevor die Regel gedreht wurde.
+
+   Die Kiste kommt aus den ECHTEN Massen des sichtbaren Teils, nicht aus
+   einer Standardgroesse: dieselben w/h/d, die auch deko() bekommt. Beim
+   Modell (Prop_ACUnit) wird sie aus der geladenen Geometrie gemessen.
+
+   Die Unterkante y0 sitzt auf der Dachflaeche. Damit ist der Aufbau nur
+   in seiner eigenen Hoehe im Weg - unten auf der Strasse laeuft niemand
+   gegen eine unsichtbare Wand.
+
+   klein wird NICHT gesetzt: auf einem 2,6-m-Kasten steht man normal,
+   man hockt nicht darauf wie auf einem Laternenkopf. Fuer Wandlauf und
+   Klettern ist er ohnehin zu niedrig - die verlangen ueber sechs Meter
+   ueber der Figur. */
+const DACH_PROP_DUENN = 0.6;
+/* Zum Vergleichen: mit __WEBHERO_DACH_ALT werden die Aufbauten weiter
+   eingestuft und gezaehlt, bekommen aber KEIN Hindernis - der Stand vor
+   problem-1, in derselben Stadt. Ohne diesen Schalter liesse sich das
+   Vorher nur an einem anderen Commit messen, und der kennt die
+   Messpunkte nicht. */
+const DACH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_DACH_ALT;
+/* Requisiten aus stadtteile.glb, die auf DAECHERN stehen und deshalb
+   ein Hindernis brauchen. Poller und Kanaldeckel stehen auf dem Gehweg
+   und gehoeren nicht hierher - der Poller hat seinen eigenen, der
+   Kanaldeckel liegt flach. */
+const DACH_PROP_ARTEN = ['Prop_ACUnit'];
+const DACH_PROPS = [];
+function dachProp(art, w, h, d, x, yUnten, z) {
+  const fest = Math.max(w, d) >= DACH_PROP_DUENN && !DACH_ALT;
+  const eintrag = { art, w: +w.toFixed(2), h: +h.toFixed(2), d: +d.toFixed(2),
+                    x: +x.toFixed(2), y0: +yUnten.toFixed(2), z: +z.toFixed(2),
+                    fest, koll: null };
+  if (fest) {
+    const c = { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
+                h: yUnten + h, y0: yUnten, dachProp: true };
+    addCollider(c);
+    /* Der Rueckverweis ist fuer die Pruefung da. Ohne ihn muss sie das
+       Hindernis anhand der Lage suchen - und findet dann das des
+       NACHBARN: ein Rohr, das neben einem Lueftungskasten steht, liegt
+       in dessen Kiste. Genau so kamen 436 angeblich falsch beharkte
+       Deko-Teile und 582 angeblich zu grosse Hindernisse zustande. */
+    eintrag.koll = c;
+  }
+  DACH_PROPS.push(eintrag);
+  return fest;
+}
+
 /* Gesims, Feuerleiter und Dachaufbauten für ein Haus. */
 /* frei = Grundflaeche des Staffelturms, der spaeter aus diesem Dach
    waechst (oder null). Alles, was aufs Dach kommt, muss aussen herum. */
@@ -3178,8 +3250,10 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
   const anzahl = 2 + Math.floor(Math.random() * 3);
   for (let i = 0; i < anzahl; i++) {
     const kw = rand(1.2, 2.6), kh = rand(0.7, 1.8), kd = rand(1.2, 2.6);
-    deko(kw, kh, kd, x + rand(-w / 2 + 1.5, w / 2 - 1.5), oben + kh / 2,
-         z + rand(-d / 2 + 1.5, d / 2 - 1.5), pick([0x767c85, 0x646a72, 0x878d96]));
+    const kx = x + rand(-w / 2 + 1.5, w / 2 - 1.5);
+    const kz = z + rand(-d / 2 + 1.5, d / 2 - 1.5);
+    deko(kw, kh, kd, kx, oben + kh / 2, kz, pick([0x767c85, 0x646a72, 0x878d96]));
+    dachProp('Lueftungskasten', kw, kh, kd, kx, oben, kz);
   }
   /* Die Rohre standen mit FESTER Mitte auf oben + 1,0, ihre Hoehe wurde
      aber gewuerfelt (1,2 bis 2,4 m). Nur ein Rohr von genau zwei Metern
@@ -3193,8 +3267,9 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
      dieselbe. */
   for (let i = 0; i < 2; i++) {
     const ph = rand(1.2, 2.4);
-    deko(0.35, ph, 0.35, x + rand(-w / 3, w / 3), oben + ph / 2,
-         z + rand(-d / 3, d / 3), 0x555b63);
+    const px = x + rand(-w / 3, w / 3), pz = z + rand(-d / 3, d / 3);
+    deko(0.35, ph, 0.35, px, oben + ph / 2, pz, 0x555b63);
+    dachProp('Rohr', 0.35, ph, 0.35, px, oben, pz);
   }
   /* Freien Platz auf dem Dach suchen: nicht unter dem Staffelturm. */
   const dachFrei = (px, pz, halbW, halbD) => !frei ||
@@ -3202,7 +3277,10 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
   if (Math.random() < 0.45) {                       // Antennenmast
     const ah = rand(4, 9);
     const ax = x + rand(-w / 4, w / 4), az = z + rand(-d / 4, d / 4);
-    if (dachFrei(ax, az, 0.3, 0.3)) deko(0.22, ah, 0.22, ax, oben + ah / 2, az, 0x484d55);
+    if (dachFrei(ax, az, 0.3, 0.3)) {
+      deko(0.22, ah, 0.22, ax, oben + ah / 2, az, 0x484d55);
+      dachProp('Antenne', 0.22, ah, 0.22, ax, oben, az);
+    }
   }
   /* Die Reklametafeln auf den Daechern sind weg - sie waren einfarbige
      Platten ohne Aufschrift und standen zwischen den echten Gebaeude-
@@ -5568,7 +5646,11 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
   if (Math.random() < 0.6) {
     const bh = rand(1, 2);
     const pl = dachPlatz(2.0, 1.6);
-    if (pl) deko(rand(1.5, 3), bh, rand(1.5, 3), pl.px, SLAB_H + h + bh / 2, pl.pz, 0x777d84);
+    if (pl) {
+      const bw = rand(1.5, 3), bd = rand(1.5, 3);
+      deko(bw, bh, bd, pl.px, SLAB_H + h + bh / 2, pl.pz, 0x777d84);
+      dachProp('Dachkasten', bw, bh, bd, pl.px, SLAB_H + h, pl.pz);
+    }
   }
   /* Ein paar echte Klimageraete auf dem Dach - beim Schwingen sieht man
      jedes Dach von oben, dort stand bisher nur ein Kasten. */
@@ -5576,7 +5658,15 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
     const n = randi(1, 3);
     for (let i = 0; i < n; i++) {
       const pl = dachPlatz(1.0, 0.8);
-      if (pl) merkeTeil('Prop_ACUnit', pl.px, SLAB_H + h, pl.pz, rand(0, TAU));
+      /* ---- Auf rechte Winkel gerastet ----
+         Das Hindernis ist achsparallel; das Modell stand frei gedreht.
+         Eine achsparallele Kiste um ein schraeg stehendes Geraet ist
+         entweder groesser als das Sichtbare oder deckt es nicht - beides
+         verbietet problem-1 ausdruecklich. Auf Vierteldrehungen passt
+         sie genau. Es bleibt bei EINEM Wurf, der Zufallsstrom also
+         gleich. */
+      if (pl) merkeTeil('Prop_ACUnit', pl.px, SLAB_H + h, pl.pz,
+                        Math.floor(rand(0, 4)) * (Math.PI / 2));
     }
   }
   if (h > 55 && Math.random() < 0.5) {
@@ -5631,6 +5721,17 @@ function baueWassertuerme() {
     new THREE.MeshLambertMaterial({ vertexColors: true }), wassertuerme.length);
   const m = new THREE.Matrix4();
   wassertuerme.forEach((t, i) => { m.makeTranslation(t.x, t.y, t.z); mesh.setMatrixAt(i, m); });
+  /* ---- Der Tank ist fest, die Beine sind es nicht ----
+     Die Masse stehen oben in nimm(): vier Beine von 0 bis 1,6 m (je
+     9 cm dick), darauf der Tank von 1,3 bis 3,9 m mit 1,4 bis 1,6 m
+     Radius, oben die Haube bis 4,9 m.
+
+     Ein Hindernis ueber das GANZE Ding waere ein 3 m breiter Klotz, in
+     dem unten nur vier duenne Beine stehen - eine unsichtbare Wand
+     zwischen den Beinen. Das Hindernis bekommt deshalb nur der Tank.
+     Darunter laeuft man hindurch, oben steht man darauf. */
+  for (const t of wassertuerme)
+    dachProp('Wasserturm', 3.0, 2.6, 3.0, t.x, t.y + 1.3, t.z);
   mesh.instanceMatrix.needsUpdate = true;
   mesh.castShadow = true;
   mesh.frustumCulled = false;
@@ -5680,7 +5781,8 @@ function baueAltbauBlock(cx, cz, size) {
     /* Dachaufbauten wie bei den anderen Haeusern. */
     if (Math.random() < 0.6) {
       merkeTeil('Prop_ACUnit', rand(kasten.x0 + 1.5, kasten.x1 - 1.5), SLAB_H + t.h,
-                rand(kasten.z0 + 1.5, kasten.z1 - 1.5), rand(0, TAU));
+                rand(kasten.z0 + 1.5, kasten.z1 - 1.5),
+                Math.floor(rand(0, 4)) * (Math.PI / 2));   // siehe oben
     }
   }
 }
@@ -7083,6 +7185,46 @@ function setzeStadtteile(szene) {
        Jedes bekommt sein eigenes InstancedMesh. */
     const teile = [];
     quelle.traverse((o) => { if (o.isMesh) teile.push(o); });
+    /* ---- Die Kiste kommt aus dem MODELL, nicht aus einer Schaetzung ----
+       problem-1 verlangt ausdruecklich, das Hindernis aus der
+       tatsaechlichen sichtbaren Ausdehnung abzuleiten. Die steht erst
+       hier fest: vorher ist das Modell nur ein Dateiname.
+
+       Gemessen wird ueber ALLE Teilmeshes der Requisite zusammen, in
+       ihrem eigenen Koordinatensystem, und danach mit dem Massstab der
+       Stelle skaliert. Die Drehung um y bleibt aussen vor - eine
+       gedrehte Kiste als achsparalleles Hindernis zu fuehren wuerde sie
+       groesser machen als das Sichtbare, und genau das soll sie nicht
+       sein. Stattdessen die kleinere der beiden Kantenlaengen, damit das
+       Hindernis in JEDER Drehung innerhalb des Sichtbaren bleibt. */
+    if (DACH_PROP_ARTEN.indexOf(name) >= 0) {
+      /* Die Quelle haengt nicht in der Szene, ihre Weltmatrizen sind
+         also nie gerechnet worden. Ohne das hier kaeme die Kiste des
+         Untermeshes ohne seine eigene Verschiebung heraus. */
+      szene.updateMatrixWorld(true);
+      const kasten = new THREE.Box3();
+      for (const t of teile) {
+        t.geometry.computeBoundingBox();
+        kasten.union(t.geometry.boundingBox.clone().applyMatrix4(t.matrixWorld));
+      }
+      const gw = kasten.max.x - kasten.min.x, gd = kasten.max.z - kasten.min.z;
+      const gh = kasten.max.y - kasten.min.y;
+      /* Die Mitte der Requisite liegt im Modell nicht zwingend im
+         Ursprung. Sie wird mitgedreht - sonst wandert das Hindernis bei
+         gedrehten Stellen neben das Sichtbare. Weil diese Requisiten auf
+         Vierteldrehungen stehen, tauschen Breite und Tiefe dabei
+         einfach die Plaetze; die Kiste deckt das Sichtbare damit GENAU,
+         statt es zu ueberragen. */
+      const mx = kasten.min.x + gw / 2, mz = kasten.min.z + gd / 2;
+      for (const e of liste) {
+        const c = Math.round(Math.cos(e.ry)), si = Math.round(Math.sin(e.ry));
+        const quer = Math.abs(si) > 0.5;
+        dachProp(name, (quer ? gd : gw) * e.s, gh * e.s, (quer ? gw : gd) * e.s,
+                 e.x + (mx * c + mz * si) * e.s,
+                 e.y + kasten.min.y * e.s,
+                 e.z + (-mx * si + mz * c) * e.s);
+      }
+    }
     for (const t of teile) {
       const inst = new THREE.InstancedMesh(t.geometry, t.material, liste.length);
       inst.castShadow = true; inst.receiveShadow = true;
@@ -36312,6 +36454,17 @@ if (window.__WEBHERO_TEST__ === true) {
     wlLogAn(an) { WL_LOG.an = !!an; WL_LOG.ring.length = 0; WL_LOG.kopf = 0; },
     wlLog() { return WL_LOG.ring.filter(Boolean); },
     kitKopien() { return KIT_KOPIEN; },
+    /* Alle Dachaufbauten mit ihrer Einstufung - fest oder Deko. */
+    dachProps() {
+      /* Mit dem Hindernis, das GENAU zu diesem Aufbau gehoert - nicht
+         mit einem, das die Pruefung anhand der Lage suchen muesste. */
+      return DACH_PROPS.map((p) => ({
+        art: p.art, w: p.w, h: p.h, d: p.d, x: p.x, y0: p.y0, z: p.z,
+        fest: p.fest,
+        koll: p.koll ? { x0: p.koll.x0, x1: p.koll.x1, z0: p.koll.z0,
+                         z1: p.koll.z1, y0: p.koll.y0, h: p.koll.h } : null,
+      }));
+    },
     kitInnen() { return KIT_INNEN; },
     dekoBei(x, y, z) {
       return DEKO_KOPIE.filter((t) =>

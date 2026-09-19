@@ -86,6 +86,9 @@ async function starte(breite, hoehe, seed, opt) {
        Modellplatzierungen ungueltig - nach so vielen Stueck wird
        abgebrochen. */
     if (ein.modellFehler) window.__WEBHERO_MODELLFEHLER = ein.modellFehler;
+    /* Nur zum Messen: die Hindernisse der Dachaufbauten abschalten -
+       derselbe Stadtplan, aber der Stand vor problem-1 Punkt 5. */
+    if (ein.dachAlt) window.__WEBHERO_DACH_ALT = 1;
     /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
        damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
     if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
@@ -104,6 +107,7 @@ async function starte(breite, hoehe, seed, opt) {
        wdhAlt: !!(opt && opt.wdhAlt),
        bremsen: (opt && typeof opt.bremsen === 'string') ? opt.bremsen : null,
        nahtAlt: !!(opt && opt.nahtAlt),
+       dachAlt: !!(opt && opt.dachAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
      WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright
