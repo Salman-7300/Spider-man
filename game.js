@@ -21346,7 +21346,20 @@ function makeFahrzeugMesh(typ, farbe) {
     truckCrew.visible = false;               // siehe INSASSEN-REGEL
     g.add(truckCrew);
     g.userData.insassen = truckCrew;
-    g.userData.fahrerSitz = { x: -(B / 2 - 0.6), y: 1.12, z: kz - 0.15, scale: 0.78 };
+    /* ---- Der Fahrer im Lkw war geschrumpft ----
+       Der Massstab 0,78 stammt von den einfachen Sitzfiguren, die hier
+       frueher sassen (sitzMensch oben benutzt ihn weiter - die sind
+       ohnehin unsichtbar). Fuer einen echten Zivilisten ist er falsch:
+       das Fensterband der Kabine liegt zwischen 1,55 und 2,25 m, die
+       Huefte sitzt auf 1,12 m. Bei 0,78 landete der Kopf auf rund
+       1,78 m, also im untersten Drittel des Fensters - im Bild schaute
+       nur eine Kuppe ueber das Armaturenbrett. In voller Groesse sitzt
+       er auf rund 1,97 m, also mitten im Fenster.
+
+       Der Pruefstand hat das NICHT gemeldet: "im Fahrzeug" war erfuellt,
+       weil der Fahrer weder durch das Dach noch durch den Boden ragte.
+       Gesehen hat es erst das Bild. */
+    g.userData.fahrerSitz = { x: -(B / 2 - 0.6), y: 1.12, z: kz - 0.15 };
     const kasten = new THREE.Mesh(new THREE.BoxGeometry(B + 0.1, 2.3, L - 2.6),
       new THREE.MeshLambertMaterial({ color: 0xd9dbe0 }));
     kasten.position.set(0, 1.6, -1.3); kasten.castShadow = true; g.add(kasten);
