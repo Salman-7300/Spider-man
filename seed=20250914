@@ -1,203 +1,67 @@
-# CITY V2, Stufe 5: Bestandsaufnahme der Stadt
-
-Automatisch erzeugt von `tools/pruef/stadtbestand.js` aus dem
-laufenden Spiel - keine Zahl ist aus dem Quelltext geschaetzt.
-Stand: vor dem Umbau der Bebauung (Stufe 5).
-
-## Die ganze Stadt
-
-| Groesse | Wert |
-|---------|------|
-| bloecke | 110 |
-| gebaeude | 626 |
-| gebaeudeInBloecken | 585 |
-| gebaeudeAusserhalb | 41 |
-| gebaeudeJeBlock | 5.69 |
-| blockkanten | 440 |
-| kantenMitHaus | 365 |
-| haeuserJeKanteMittel | 2.09 |
-| haeuserJeKanteMedian | 2 |
-| kantenBelegungMittel | 56.15 |
-| kantenBelegungMedian | 74 |
-| kantenBelegungMax | 77 |
-| hoeheMedian | 23.6 |
-| hoeheMax | 90.8 |
-| hoeheMin | 9.7 |
-| verteilung | {"LOW":5.5,"MID":49.6,"UPPER":30.1,"HIGH":11.5,"HOCHHAUS":3.4} |
-| zeichenaufrufe | 981 |
-| dreiecke | 3486752 |
-| kollider | 3684 |
-| objekte | 17364 |
-| hausModelle | 401 |
-| objekteJeHausModell | 4.2 |
-| dreieckeJeHausModell | 2198 |
-| dreieckeAlleHausModelle | 881382 |
-| tueren | 27 |
-| gehknoten | 1462 |
-| geometrien | 1942 |
-| texturen | 323 |
-
-## Was diese Zahlen ueber die Bebauung sagen
-
-- Es gibt 626 Baukoerper, 585 davon in einem der 110 Bloecke, 41 ausserhalb (Ufer, Randstreifen). Das sind 5.69 Gebaeude je Block.
-- Von 440 Blockkanten haben 365 ueberhaupt ein Gebaeude an der Bauflucht. Im Mittel stehen 2.09 Haeuser je Kante, der Median ist 2.
-- Die Kantenbelegung liegt im Mittel bei 56.15 %, im Median bei 74 %, hoechstens bei 77 %. Eine geschlossene Strassenwand gibt es nirgends.
-- Das niedrigste Gebaeude der Stadt ist 9.7 m hoch. Es gibt kein einziges Haus unter 12,8 m, also keine
-  zwei- bis viergeschossige Bebauung - der Anteil LOW ist 5.5 %.
-- Jede Kiste aus HAUS_KISTEN bekommt in setzeHausModelle eine eigene
-  Kopie eines Gebaeudemodells: 401 Kopien, 4.2 Objekte und 2198
-  Dreiecke je Haus, zusammen 881382 Dreiecke.
-  Gezeichnet werden an den vier Messstellen im Median 3486752 Dreiecke,
-  die Hausmodelle sind davon nur ein Teil - der groessere Posten sind
-  Kulisse, Strassen und Deko. Ein zusaetzliches Haus kostet also rund
-  2198 Dreiecke und 4.2 Szenenobjekte. Diese Zahl schwankt zwischen zwei Laeufen um
-  etwa ein halbes Prozent, weil die Modelldateien verschieden schnell
-  geladen sind - sie ist eine Groessenordnung, keine Konstante.
-- Hoehenverteilung: LOW 5.5 %, MID 49.6 %, UPPER 30.1 %, HIGH 11.5 %, HOCHHAUS 3.4 %.
-
-## Die fertigen Hausmodelle
-
-Aus KIT_HAEUSER - gemessene Umrisse, nicht geschaetzt. Diese drei
-Modelle sind die einzigen begehbaren Haeuser; alles andere sind
-selbstgebaute Quader aus makeBuildingMesh.
-
-| Modell | Breite m | Tiefe m | Hoehe m | Dach m | Tuer m | Hochparterre m | gesetzt |
-|--------|----------|---------|---------|--------|--------|----------------|---------|
-| Building_Small_1 | 12.46 | 14.54 | 17 | 16.8 | 1.45 | 1 | 12 |
-| Building_Medium_2_001 | 15.06 | 13.06 | 25 | 24.8 | 1.45 | 0 | 7 |
-| Building_Large_2 | 20.64 | 16.64 | 28 | 27.8 | 1.45 | 0 | 8 |
-
-Die Quader aus makeBuildingMesh sind 6.7 bis 21.7 m breit und 5.8 bis 24.9 m tief.
-
-## Stadtteile
-
-Wandanteil ist der mittlere Anteil einer Blockkante, vor dem ein
-Gebaeude steht. Laden ist der Anteil der Blockkanten, deren
-Erdgeschoss als Laden gilt (kantenNutzung).
-
-| Stadtteil | Bloecke | Gebaeude | je Block | Hoehe Median | Low | Mid | High | Laden | Wandanteil |
-|-----------|---------|----------|----------|--------------|-----|-----|------|-------|------------|
-| WOHN | 24 | 170 | 7.08 | 15.9 | 19 % | 81 % | 0 % | 28 % | 66 % |
-| GESCHAEFT | 12 | 52 | 4.33 | 36.5 | 0 % | 67 % | 33 % | 50 % | 51 % |
-| MISCHUNG | 37 | 231 | 6.24 | 26.1 | 0 % | 97 % | 3 % | 24 % | 65 % |
-| PARK | 2 | 0 | 0.00 | 0.0 | 0 % | 0 % | 0 % | 0 % | 0 % |
-| ZENTRUM | 24 | 76 | 3.17 | 45.4 | 0 % | 24 % | 76 % | 33 % | 37 % |
-| UFER | 11 | 56 | 5.09 | 23.3 | 0 % | 93 % | 7 % | 14 % | 61 % |
-
-## Jeder Block
-
-Kantenbelegung ist der Anteil der Blockkante, vor dem ein Gebaeude
-steht (Flanke hoechstens 6 m hinter der Bauflucht).
-
-| bi | bj | x | z | Kern | Haeuser | Hoehe Med | bebaut m2 | Bezirk | N | O | S | W | Belegung N/O/S/W | POI | Tueren | Parkautos |
-|----|----|---|---|------|---------|-----------|-----------|--------|---|---|---|---|------------------|-----|--------|-----------|
-| 0 | 0 | -300 | -250 | - | 8 | 14.5 | 743 | WOHN | STREET | AVENUE | LOCAL | LOCAL | 75/77/75/77 | 0 | 0 | 8 |
-| 0 | 1 | -300 | -200 | - | 0 | 0 | 0 | WOHN | STREET | AVENUE | STREET | LOCAL | 0/0/0/0 | 0 | 4 | 2 |
-| 0 | 2 | -300 | -150 | - | 8 | 14.8 | 709 | WOHN | AVENUE | AVENUE | STREET | LOCAL | 75/74/75/74 | 0 | 0 | 2 |
-| 0 | 3 | -300 | -100 | - | 9 | 13.3 | 697 | WOHN | STREET | AVENUE | AVENUE | LOCAL | 75/74/75/74 | 0 | 0 | 6 |
-| 0 | 4 | -300 | -50 | - | 0 | 0 | 0 | WOHN | STREET | AVENUE | STREET | LOCAL | 0/0/0/0 | 0 | 3 | 1 |
-| 0 | 5 | -300 | 0 | - | 6 | 35.6 | 657 | GESCHAEFT | BOULEVARD | AVENUE | STREET | LOCAL | 75/72/75/72 | 0 | 0 | 4 |
-| 0 | 6 | -300 | 50 | - | 6 | 30.8 | 703 | GESCHAEFT | STREET | AVENUE | BOULEVARD | LOCAL | 75/72/49/72 | 1 | 0 | 3 |
-| 0 | 7 | -300 | 100 | - | 8 | 16.8 | 773 | WOHN | STREET | AVENUE | STREET | LOCAL | 75/76/75/76 | 0 | 0 | 6 |
-| 0 | 8 | -300 | 150 | - | 8 | 15.1 | 700 | WOHN | AVENUE | AVENUE | STREET | LOCAL | 75/74/75/74 | 0 | 0 | 3 |
-| 0 | 9 | -300 | 200 | - | 8 | 17.7 | 724 | WOHN | STREET | AVENUE | AVENUE | LOCAL | 75/74/75/74 | 0 | 0 | 5 |
-| 0 | 10 | -300 | 250 | - | 8 | 13.1 | 743 | WOHN | LOCAL | AVENUE | STREET | LOCAL | 75/77/75/77 | 0 | 0 | 4 |
-| 1 | 0 | -250 | -250 | - | 8 | 17.8 | 742 | WOHN | STREET | STREET | LOCAL | AVENUE | 74/77/74/77 | 0 | 0 | 4 |
-| 1 | 1 | -250 | -200 | - | 9 | 16.1 | 698 | WOHN | STREET | STREET | STREET | AVENUE | 74/76/74/76 | 0 | 0 | 2 |
-| 1 | 2 | -250 | -150 | - | 8 | 16.6 | 710 | WOHN | AVENUE | STREET | STREET | AVENUE | 74/74/74/74 | 0 | 0 | 0 |
-| 1 | 3 | -250 | -100 | - | 8 | 16.8 | 734 | WOHN | STREET | STREET | AVENUE | AVENUE | 74/74/74/74 | 0 | 0 | 2 |
-| 1 | 4 | -250 | -50 | - | 7 | 26.1 | 710 | MISCHUNG | STREET | STREET | STREET | AVENUE | 74/76/74/76 | 0 | 0 | 2 |
-| 1 | 5 | -250 | 0 | - | 6 | 40.1 | 718 | GESCHAEFT | BOULEVARD | STREET | STREET | AVENUE | 54/72/74/72 | 1 | 0 | 2 |
-| 1 | 6 | -250 | 50 | - | 0 | 0 | 0 | GESCHAEFT | STREET | STREET | BOULEVARD | AVENUE | 0/0/0/0 | 0 | 4 | 2 |
-| 1 | 7 | -250 | 100 | - | 8 | 16.4 | 734 | WOHN | STREET | STREET | STREET | AVENUE | 74/76/74/76 | 0 | 0 | 1 |
-| 1 | 8 | -250 | 150 | - | 7 | 17 | 699 | WOHN | AVENUE | STREET | STREET | AVENUE | 74/74/74/74 | 0 | 0 | 2 |
-| 1 | 9 | -250 | 200 | - | 8 | 13.6 | 685 | WOHN | STREET | STREET | AVENUE | AVENUE | 74/74/74/74 | 0 | 0 | 1 |
-| 1 | 10 | -250 | 250 | - | 8 | 16.8 | 752 | WOHN | LOCAL | STREET | STREET | AVENUE | 74/77/74/77 | 0 | 0 | 3 |
-| 2 | 0 | -200 | -250 | - | 0 | 0 | 0 | WOHN | STREET | STREET | LOCAL | STREET | 0/0/0/0 | 0 | 4 | 2 |
-| 2 | 1 | -200 | -200 | - | 8 | 15.5 | 741 | WOHN | STREET | STREET | STREET | STREET | 76/76/76/76 | 0 | 0 | 4 |
-| 2 | 2 | -200 | -150 | - | 0 | 0 | 0 | PARK | AVENUE | STREET | STREET | STREET | 0/0/0/0 | 1 | 0 | 3 |
-| 2 | 3 | -200 | -100 | - | 6 | 31.8 | 698 | MISCHUNG | STREET | STREET | AVENUE | STREET | 76/74/76/74 | 0 | 0 | 3 |
-| 2 | 4 | -200 | -50 | - | 7 | 28.8 | 732 | MISCHUNG | STREET | STREET | STREET | STREET | 76/76/76/76 | 0 | 0 | 4 |
-| 2 | 5 | -200 | 0 | - | 8 | 28.3 | 695 | MISCHUNG | BOULEVARD | STREET | STREET | STREET | 76/72/76/72 | 0 | 0 | 4 |
-| 2 | 6 | -200 | 50 | - | 6 | 28.4 | 711 | MISCHUNG | STREET | STREET | BOULEVARD | STREET | 76/72/76/72 | 0 | 0 | 0 |
-| 2 | 7 | -200 | 100 | - | 7 | 25.3 | 751 | MISCHUNG | STREET | STREET | STREET | STREET | 76/76/76/76 | 0 | 0 | 3 |
-| 2 | 8 | -200 | 150 | - | 8 | 19.2 | 693 | WOHN | AVENUE | STREET | STREET | STREET | 76/74/76/74 | 0 | 0 | 3 |
-| 2 | 9 | -200 | 200 | - | 8 | 18.3 | 735 | WOHN | STREET | STREET | AVENUE | STREET | 76/74/76/74 | 0 | 0 | 0 |
-| 2 | 10 | -200 | 250 | - | 8 | 15.3 | 766 | WOHN | LOCAL | STREET | STREET | STREET | 76/77/76/77 | 0 | 0 | 5 |
-| 3 | 0 | -150 | -250 | - | 7 | 24.8 | 756 | MISCHUNG | STREET | BOULEVARD | LOCAL | STREET | 72/77/72/77 | 0 | 0 | 5 |
-| 3 | 1 | -150 | -200 | - | 7 | 22.3 | 700 | MISCHUNG | STREET | BOULEVARD | STREET | STREET | 72/76/72/76 | 0 | 0 | 4 |
-| 3 | 2 | -150 | -150 | ja | 6 | 37.3 | 699 | GESCHAEFT | AVENUE | BOULEVARD | STREET | STREET | 72/47/72/74 | 1 | 0 | 0 |
-| 3 | 3 | -150 | -100 | ja | 4 | 30.9 | 347 | GESCHAEFT | STREET | BOULEVARD | AVENUE | STREET | 48/54/44/50 | 0 | 0 | 0 |
-| 3 | 4 | -150 | -50 | ja | 7 | 26.9 | 690 | MISCHUNG | STREET | BOULEVARD | STREET | STREET | 72/54/72/76 | 0 | 0 | 4 |
-| 3 | 5 | -150 | 0 | ja | 2 | 39 | 181 | ZENTRUM | BOULEVARD | BOULEVARD | STREET | STREET | 0/28/46/27 | 1 | 0 | 1 |
-| 3 | 6 | -150 | 50 | ja | 6 | 31.6 | 690 | MISCHUNG | STREET | BOULEVARD | BOULEVARD | STREET | 72/72/72/72 | 0 | 0 | 0 |
-| 3 | 7 | -150 | 100 | ja | 3 | 20.6 | 209 | MISCHUNG | STREET | BOULEVARD | STREET | STREET | 0/25/0/25 | 0 | 0 | 3 |
-| 3 | 8 | -150 | 150 | ja | 4 | 36 | 589 | GESCHAEFT | AVENUE | BOULEVARD | STREET | STREET | 72/57/72/57 | 0 | 0 | 0 |
-| 3 | 9 | -150 | 200 | - | 6 | 36.4 | 690 | GESCHAEFT | STREET | BOULEVARD | AVENUE | STREET | 72/0/72/74 | 0 | 0 | 0 |
-| 3 | 10 | -150 | 250 | - | 7 | 29.6 | 722 | MISCHUNG | LOCAL | BOULEVARD | STREET | STREET | 72/77/72/77 | 0 | 0 | 6 |
-| 4 | 0 | -100 | -250 | - | 6 | 27.6 | 735 | MISCHUNG | STREET | STREET | LOCAL | BOULEVARD | 72/77/72/77 | 0 | 0 | 3 |
-| 4 | 1 | -100 | -200 | - | 8 | 22.1 | 715 | MISCHUNG | STREET | STREET | STREET | BOULEVARD | 72/76/72/26 | 0 | 0 | 3 |
-| 4 | 2 | -100 | -150 | ja | 4 | 28.5 | 386 | GESCHAEFT | AVENUE | STREET | STREET | BOULEVARD | 53/50/53/51 | 0 | 0 | 1 |
-| 4 | 3 | -100 | -100 | ja | 4 | 35.5 | 425 | GESCHAEFT | STREET | STREET | AVENUE | BOULEVARD | 0/50/72/50 | 1 | 0 | 1 |
-| 4 | 4 | -100 | -50 | ja | 0 | 0 | 0 | ZENTRUM | STREET | STREET | STREET | BOULEVARD | 0/0/0/0 | 0 | 0 | 2 |
-| 4 | 5 | -100 | 0 | ja | 6 | 52.3 | 661 | ZENTRUM | BOULEVARD | STREET | STREET | BOULEVARD | 0/72/72/72 | 2 | 0 | 0 |
-| 4 | 6 | -100 | 50 | ja | 0 | 0 | 0 | ZENTRUM | STREET | STREET | BOULEVARD | BOULEVARD | 0/0/0/0 | 0 | 3 | 3 |
-| 4 | 7 | -100 | 100 | ja | 4 | 32.3 | 445 | MISCHUNG | STREET | STREET | STREET | BOULEVARD | 0/50/72/50 | 1 | 0 | 3 |
-| 4 | 8 | -100 | 150 | ja | 0 | 0 | 0 | GESCHAEFT | AVENUE | STREET | STREET | BOULEVARD | 0/0/0/0 | 0 | 0 | 3 |
-| 4 | 9 | -100 | 200 | - | 6 | 43.4 | 662 | GESCHAEFT | STREET | STREET | AVENUE | BOULEVARD | 72/74/72/74 | 2 | 0 | 1 |
-| 4 | 10 | -100 | 250 | - | 7 | 29.3 | 724 | MISCHUNG | LOCAL | STREET | STREET | BOULEVARD | 72/77/72/0 | 0 | 0 | 3 |
-| 5 | 0 | -50 | -250 | - | 0 | 0 | 0 | MISCHUNG | STREET | STREET | LOCAL | STREET | 0/0/0/0 | 0 | 3 | 5 |
-| 5 | 1 | -50 | -200 | - | 0 | 0 | 0 | PARK | STREET | STREET | STREET | STREET | 0/0/0/0 | 1 | 0 | 5 |
-| 5 | 2 | -50 | -150 | ja | 8 | 31.1 | 736 | MISCHUNG | AVENUE | STREET | STREET | STREET | 76/74/76/74 | 0 | 0 | 2 |
-| 5 | 3 | -50 | -100 | ja | 3 | 56.7 | 284 | ZENTRUM | STREET | STREET | AVENUE | STREET | 52/27/24/51 | 1 | 0 | 2 |
-| 5 | 4 | -50 | -50 | ja | 6 | 56.8 | 747 | ZENTRUM | STREET | STREET | STREET | STREET | 76/76/76/76 | 1 | 0 | 1 |
-| 5 | 5 | -50 | 0 | ja | 1 | 40.4 | 104 | ZENTRUM | BOULEVARD | STREET | STREET | STREET | 0/28/26/0 | 1 | 0 | 6 |
-| 5 | 6 | -50 | 50 | ja | 6 | 43 | 676 | ZENTRUM | STREET | STREET | BOULEVARD | STREET | 76/72/76/72 | 0 | 0 | 3 |
-| 5 | 7 | -50 | 100 | ja | 4 | 48.8 | 374 | ZENTRUM | STREET | STREET | STREET | STREET | 52/52/46/53 | 1 | 0 | 2 |
-| 5 | 8 | -50 | 150 | ja | 7 | 25.6 | 715 | MISCHUNG | AVENUE | STREET | STREET | STREET | 76/74/76/74 | 0 | 0 | 1 |
-| 5 | 9 | -50 | 200 | - | 8 | 24.8 | 712 | MISCHUNG | STREET | STREET | AVENUE | STREET | 76/74/76/74 | 0 | 0 | 2 |
-| 5 | 10 | -50 | 250 | - | 7 | 28 | 755 | MISCHUNG | LOCAL | STREET | STREET | STREET | 76/77/76/77 | 0 | 0 | 3 |
-| 6 | 0 | 0 | -250 | - | 8 | 22.3 | 726 | MISCHUNG | STREET | AVENUE | LOCAL | STREET | 74/77/74/77 | 0 | 0 | 3 |
-| 6 | 1 | 0 | -200 | - | 6 | 25.9 | 716 | MISCHUNG | STREET | AVENUE | STREET | STREET | 74/76/74/76 | 0 | 0 | 6 |
-| 6 | 2 | 0 | -150 | ja | 0 | 0 | 0 | ZENTRUM | AVENUE | AVENUE | STREET | STREET | 0/0/0/0 | 0 | 2 | 1 |
-| 6 | 3 | 0 | -100 | ja | 4 | 37.8 | 456 | ZENTRUM | STREET | AVENUE | AVENUE | STREET | 0/49/74/49 | 2 | 0 | 2 |
-| 6 | 4 | 0 | -50 | ja | 1 | 71.3 | 542 | ZENTRUM | STREET | AVENUE | STREET | STREET | 57/0/0/0 | 1 | 0 | 2 |
-| 6 | 5 | 0 | 0 | ja | 0 | 0 | 0 | ZENTRUM | BOULEVARD | AVENUE | STREET | STREET | 0/0/0/0 | 0 | 4 | 2 |
-| 6 | 6 | 0 | 50 | ja | 4 | 60.4 | 339 | ZENTRUM | STREET | AVENUE | BOULEVARD | STREET | 49/47/49/48 | 2 | 0 | 1 |
-| 6 | 7 | 0 | 100 | ja | 4 | 64 | 439 | ZENTRUM | STREET | AVENUE | STREET | STREET | 0/50/74/50 | 3 | 0 | 2 |
-| 6 | 8 | 0 | 150 | ja | 2 | 39.9 | 182 | ZENTRUM | AVENUE | AVENUE | STREET | STREET | 46/27/0/28 | 0 | 0 | 2 |
-| 6 | 9 | 0 | 200 | - | 8 | 29.2 | 699 | MISCHUNG | STREET | AVENUE | AVENUE | STREET | 74/74/74/74 | 0 | 0 | 1 |
-| 6 | 10 | 0 | 250 | - | 7 | 25.8 | 698 | MISCHUNG | LOCAL | AVENUE | STREET | STREET | 74/77/74/77 | 0 | 0 | 7 |
-| 7 | 0 | 50 | -250 | - | 8 | 23.6 | 733 | MISCHUNG | STREET | STREET | LOCAL | AVENUE | 74/77/74/77 | 0 | 0 | 3 |
-| 7 | 1 | 50 | -200 | - | 7 | 26.8 | 695 | MISCHUNG | STREET | STREET | STREET | AVENUE | 74/76/74/76 | 0 | 0 | 2 |
-| 7 | 2 | 50 | -150 | ja | 6 | 23.5 | 690 | MISCHUNG | AVENUE | STREET | STREET | AVENUE | 74/74/74/74 | 0 | 0 | 0 |
-| 7 | 3 | 50 | -100 | ja | 4 | 39.3 | 356 | ZENTRUM | STREET | STREET | AVENUE | AVENUE | 51/51/51/46 | 0 | 0 | 2 |
-| 7 | 4 | 50 | -50 | ja | 6 | 54.6 | 703 | ZENTRUM | STREET | STREET | STREET | AVENUE | 74/76/74/76 | 2 | 0 | 1 |
-| 7 | 5 | 50 | 0 | ja | 2 | 53.4 | 176 | ZENTRUM | BOULEVARD | STREET | STREET | AVENUE | 0/24/51/24 | 2 | 0 | 4 |
-| 7 | 6 | 50 | 50 | ja | 6 | 44.7 | 694 | ZENTRUM | STREET | STREET | BOULEVARD | AVENUE | 74/72/74/72 | 2 | 0 | 1 |
-| 7 | 7 | 50 | 100 | ja | 4 | 45.5 | 390 | ZENTRUM | STREET | STREET | STREET | AVENUE | 52/52/50/54 | 1 | 0 | 2 |
-| 7 | 8 | 50 | 150 | ja | 4 | 22.3 | 606 | MISCHUNG | AVENUE | STREET | STREET | AVENUE | 74/57/74/57 | 0 | 0 | 1 |
-| 7 | 9 | 50 | 200 | - | 8 | 25 | 707 | MISCHUNG | STREET | STREET | AVENUE | AVENUE | 74/74/74/74 | 0 | 0 | 0 |
-| 7 | 10 | 50 | 250 | - | 7 | 26.4 | 735 | MISCHUNG | LOCAL | STREET | STREET | AVENUE | 74/77/74/77 | 0 | 0 | 6 |
-| 8 | 0 | 100 | -250 | - | 8 | 14.5 | 749 | WOHN | STREET | STREET | LOCAL | STREET | 76/77/76/77 | 0 | 0 | 4 |
-| 8 | 1 | 100 | -200 | - | 7 | 21.7 | 712 | MISCHUNG | STREET | STREET | STREET | STREET | 76/76/76/76 | 0 | 0 | 3 |
-| 8 | 2 | 100 | -150 | ja | 4 | 25.7 | 358 | MISCHUNG | AVENUE | STREET | STREET | STREET | 44/52/51/51 | 0 | 0 | 1 |
-| 8 | 3 | 100 | -100 | ja | 5 | 24.4 | 510 | MISCHUNG | STREET | STREET | AVENUE | STREET | 22/74/76/49 | 1 | 0 | 0 |
-| 8 | 4 | 100 | -50 | ja | 1 | 45.9 | 70 | ZENTRUM | STREET | STREET | STREET | STREET | 22/22/0/0 | 0 | 0 | 1 |
-| 8 | 5 | 100 | 0 | ja | 6 | 35.2 | 715 | ZENTRUM | BOULEVARD | STREET | STREET | STREET | 0/72/76/72 | 2 | 0 | 3 |
-| 8 | 6 | 100 | 50 | ja | 4 | 45.7 | 384 | ZENTRUM | STREET | STREET | BOULEVARD | STREET | 50/52/57/48 | 0 | 0 | 5 |
-| 8 | 7 | 100 | 100 | ja | 4 | 26.3 | 464 | MISCHUNG | STREET | STREET | STREET | STREET | 0/49/76/49 | 1 | 0 | 5 |
-| 8 | 8 | 100 | 150 | ja | 2 | 28.9 | 149 | MISCHUNG | AVENUE | STREET | STREET | STREET | 44/24/0/23 | 0 | 0 | 1 |
-| 8 | 9 | 100 | 200 | - | 7 | 18.8 | 736 | MISCHUNG | STREET | STREET | AVENUE | STREET | 76/74/76/74 | 0 | 0 | 3 |
-| 8 | 10 | 100 | 250 | - | 9 | 14.7 | 750 | WOHN | LOCAL | STREET | STREET | STREET | 76/77/76/77 | 0 | 0 | 8 |
-| 9 | 0 | 150 | -250 | - | 6 | 20.1 | 731 | UFER | STREET | STREET | LOCAL | STREET | 76/77/76/77 | 0 | 0 | 6 |
-| 9 | 1 | 150 | -200 | - | 6 | 22.1 | 718 | UFER | STREET | STREET | STREET | STREET | 76/76/76/76 | 0 | 0 | 4 |
-| 9 | 2 | 150 | -150 | ja | 7 | 23.4 | 682 | UFER | AVENUE | STREET | STREET | STREET | 76/74/76/74 | 0 | 0 | 6 |
-| 9 | 3 | 150 | -100 | ja | 3 | 36.9 | 300 | UFER | STREET | STREET | AVENUE | STREET | 58/47/29/25 | 0 | 0 | 5 |
-| 9 | 4 | 150 | -50 | ja | 6 | 23.2 | 739 | UFER | STREET | STREET | STREET | STREET | 76/76/76/76 | 0 | 0 | 3 |
-| 9 | 5 | 150 | 0 | ja | 0 | 0 | 0 | UFER | BOULEVARD | STREET | STREET | STREET | 0/0/0/0 | 1 | 0 | 2 |
-| 9 | 6 | 150 | 50 | ja | 6 | 23.2 | 723 | UFER | STREET | STREET | BOULEVARD | STREET | 76/72/76/72 | 0 | 0 | 1 |
-| 9 | 7 | 150 | 100 | ja | 2 | 31 | 149 | UFER | STREET | STREET | STREET | STREET | 46/23/0/21 | 0 | 0 | 2 |
-| 9 | 8 | 150 | 150 | ja | 7 | 21.4 | 742 | UFER | AVENUE | STREET | STREET | STREET | 76/74/76/74 | 0 | 0 | 4 |
-| 9 | 9 | 150 | 200 | - | 6 | 23.2 | 709 | UFER | STREET | STREET | AVENUE | STREET | 76/74/76/74 | 0 | 0 | 2 |
-| 9 | 10 | 150 | 250 | - | 7 | 27.2 | 733 | UFER | LOCAL | STREET | STREET | STREET | 76/77/76/77 | 0 | 0 | 6 |
+{
+  "raster": {
+    "pitch": 50,
+    "blocksX": 10,
+    "blocksZ": 11,
+    "x0": -325,
+    "x1": 175,
+    "z0": -275,
+    "z1": 275,
+    "stadtRand": 175,
+    "gebietX0": -331,
+    "gebietZ0": -292,
+    "gebietZ1": 292,
+    "promZ0": -290,
+    "promZ1": 290,
+    "spielX0": -343,
+    "spielZ0": -293,
+    "spielZ1": 293,
+    "randX0": -340,
+    "randX1": 190,
+    "luftX0": -320,
+    "luftX1": 170,
+    "luftZ0": -270,
+    "luftZ1": 270,
+    "flussX0": 192,
+    "flussX1": 330,
+    "uferX0": 330,
+    "uferX1": 400,
+    "promX0": 181,
+    "autoXMax": 179
+  },
+  "speicher": {
+    "texturen": 365,
+    "geometrien": 1990,
+    "programme": 33
+  },
+  "gesamt": {
+    "n": 300,
+    "callsMed": 811,
+    "callsMax": 2476,
+    "triMed": 3109990.5,
+    "triMax": 4001542
+  },
+  "proLage": {
+    "strasse": {
+      "n": 100,
+      "callsMed": 785,
+      "callsMax": 2471,
+      "triMed": 3109601.5,
+      "triMax": 3997158
+    },
+    "dach": {
+      "n": 100,
+      "callsMed": 751.5,
+      "callsMax": 2476,
+      "triMed": 3104811,
+      "triMax": 4001542
+    },
+    "luft": {
+      "n": 100,
+      "callsMed": 876.5,
+      "callsMax": 1790,
+      "triMed": 3132791,
+      "triMax": 3571522
+    }
+  }
+}

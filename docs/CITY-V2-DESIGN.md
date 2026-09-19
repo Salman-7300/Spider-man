@@ -1302,6 +1302,90 @@ nicht als Befund gefuehrt.
 
 ---
 
+## 6k. Human-Playtest problem-1
+
+### Problem 2: Blockmenschen in Fahrzeugen
+
+An fuenf Stellen wurde ein Fahrzeug mit Insassen gebaut, die keine
+Figur, sondern eine Kiste sind - Auto, Lastwagen, eigener Bus,
+CITY_LOOK-Bus und Rettungswagen. Sie sind jetzt dauerhaft unsichtbar
+(jede Stelle traegt `// siehe INSASSEN-REGEL`), und die zwei Stellen,
+die sie spaeter wieder eingeblendet haben, sind weg.
+
+Gemessen: 32 sichtbare Blockfiguren vorher, 0 nachher. Die Leistung
+wurde dabei besser, nicht schlechter - 821 / 853 / 831 / 842,5 / 843
+Zeichenaufrufe ueber die fuenf Keime, schlechtester Wert 853 statt
+vorher 875,5.
+
+Die Regel dahinter: **lieber kein sichtbarer Fahrer als ein sichtbarer
+Blockmensch.** Echte Fahrerfiguren brauchen geklaerte Modelle; solange
+die nicht im Baum liegen, bleibt der Sitz leer.
+
+### Problem 3: der begehbare Schacht zwischen zwei Haeusern
+
+Der Befund: die Figur klettert in einen senkrechten Spalt zwischen zwei
+Haeusern, der architektonisch nichts ist.
+
+**Warum die bestehende Pruefung ihn nicht finden konnte.** Die
+Spaltpruefung in `tools/pruef/haeuserzeilen.js` suchte Spalte zwischen
+0,02 und 0,9 m - also Spalte, die zu schmal sind. Ein Spalt, in den die
+Figur HINEINPASST, ist aber definitionsgemaess breiter als ihre 0,9 m
+und lag ausserhalb des Suchbereichs. Neu gemessen wird deshalb der
+umgekehrte Bereich (`climbableDeadGap`): 0,9 bis 3,5 m breit,
+mindestens 1 m lang ist ein Schacht; ueber 3,5 m eine echte Gasse.
+
+**Zwei widerlegte Zwischenstaende, beide von mir.**
+
+| Behauptung | Messung |
+|---|---|
+| "Die Quelle ist der Mindestabstand 2,6 m in `passt()` am Ufer" | Falsch. Nach der Aenderung blieben bei Keim 4711 genau dieselben fuenf Schaechte stehen. Die Quelle war `buildFarShore`, wo es ueberhaupt keine Abstandspruefung gab. |
+| "Der Mindestabstand laesst sich stromneutral aendern, weil Breite und Hoehe vor `setze()` gezogen werden" | Falsch. Ein abgelehntes `setze()` ueberspringt `makeBuildingMesh`, und das zieht selbst einen Wuerfel fuer die Fassade. Die Zahl der Uferhaeuser sprang von 32 auf 44 - eine andere Stadt. Die Aenderung wurde zurueckgenommen. |
+
+**Was wirklich behoben wurde.** In `buildFarShore` standen vier Haeuser
+um einen Hof: der Abstand fest (5,5 + 1 m), die Breite unabhaengig davon
+gewuerfelt (7 bis 10 m). Der Zwischenraum war 13 minus die halbe
+Breitensumme - je nach Wurf 6 m Hof oder 1,4 m Schlitz. Jetzt wird der
+Abstand aus der eigenen Breite berechnet, jede Innenwand steht eine
+halbe Gassenbreite von der Blockmitte weg. Damit das auf den 22 m
+Bauflaeche aufgeht, ohne dass ein Haus ueber den Gehwegsockel ragt, wird
+enger gewuerfelt (7 bis 8,8 m).
+
+Dazu der Schritt der Dreierzeile in `buildBlockBuildings`: 12,2 statt
+11,5 m. Der loest keine zusaetzliche Ablehnung aus (noetig waeren
+8,5 + 2,6 = 11,1 m) und ist damit stromneutral.
+
+| Keim | Totspalte vorher | nachher | echte Gassen | Haeuser vorher/nachher |
+|---|---|---|---|---|
+| 4711 | 5 | 0 | 89 -> 94 | 617 / 617 |
+| 1234 | 8 | 0 | 76 -> 84 | 597 / 597 |
+| 8080 | 4 | 0 | 48 -> 52 | 599 / 599 |
+| 20250914 | 1 | 0 | 102 -> 103 | 626 / 626 |
+| 777 | 3 | 0 | 96 -> 99 | 592 / 592 |
+
+Gleiche Hauszahl und gleiche Uferhauszahl auf allen fuenf Keimen: der
+Zufallsstrom ist unveraendert, die Stadt dahinter dieselbe.
+
+**Das Bild.** `tools/pruef/hof-bilder.js` nimmt dieselben fuenf
+Uferbloecke mit der echten Spielkamera auf, von der Strasse und von
+oben. Vorher verschluckt der Schlitz die Laterne halb und ist unten
+schwarz; nachher steht die Laterne frei in einem durchgehenden,
+belichteten Durchgang. Von oben sieht ein tiefer Zwischenraum zwischen
+zwei 30-m-Tuermen weiterhin nach Schlucht aus - das ist bei 4 m Gasse
+normal und gilt fuer die 94 uebrigen Gassen der Stadt genauso.
+
+### Was an problem-1 NICHT bearbeitet werden konnte
+
+Die uebrigen fuenf Punkte des Befunds - schwebende Ampel, Reifen im
+Bordstein, Figur in Dachaufbauten, Zwischenebene im Dach, Gleiten mit W
+- nennen alle ein konkretes Bild oder Video. Diese Anhaenge sind von
+hier aus nicht erreichbar: das Projekt hat null Issues, kein Label
+`problem-1`, und die einzige Pull-Request traegt keinen Kommentar. Ohne
+die Stelle laesst sich keiner der Punkte reproduzieren, und raten
+verbietet die Regel "keine Reparatur ohne Reproduktion oder messbaren
+Befund".
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,
