@@ -19977,6 +19977,23 @@ function updateSpinnenSinn(dt) {
    den naechsten um; im Wagen selbst werden solange die einfachen Figuren
    ausgeblendet. Weiter weg bleibt es bei den einfachen - dort sieht man
    den Unterschied ohnehin nicht. */
+/* ---- INSASSEN-REGEL: lieber leer als ein Blockmensch ----
+   Die einfachen Sitzfiguren aus sitzMensch() waren bisher sichtbar,
+   solange kein echter Zivilist in dem Wagen sass. Gemessen bei Keim
+   4711: von 35 fahrenden Fahrzeugen hatten ALLE 35 solche Blockfiguren,
+   und 32 davon zeigten sie gerade. Echte Fahrer bekommen hoechstens acht
+   Wagen gleichzeitig, dazu ein Bus - der Rest blieb eckig.
+
+   Aus der Naehe faellt das sofort auf, und genau daneben faehrt man
+   vorbei. Deshalb sind die Blockfiguren jetzt IMMER aus. Nahe Wagen
+   bekommen einen echten Zivilisten, ferne haben einen leeren Sitz - und
+   ein leerer Sitz ist auf die Entfernung, auf die das ueberhaupt
+   zutrifft, nicht von einem besetzten zu unterscheiden.
+
+   Gemessen, wieviele Wagen ueberhaupt gleichzeitig nah genug sind: an
+   sechs Stellen quer durch die Stadt waren es null bis zwei. Die acht
+   Fahrer reichen also. Die Geometrie bleibt gebaut und nur unsichtbar -
+   sie kostet keinen Zeichenaufruf und laesst sich zurueckholen. */
 const AUTO_FAHRER = [];
 /* Von fuenf auf acht erhoeht und die Reichweite von 34 auf 46 m: mit
    fuenf blieb im Bild regelmaessig ein Wagen uebrig, in dem nur die
@@ -19988,7 +20005,16 @@ const _afP = new THREE.Vector3();
 function baueAutoFahrer() {
   if (AUTO_FAHRER.length || !actorsReady) return;
   for (let i = 0; i < AUTO_FAHRER_MAX; i++) {
-    const visual = makeCharacterVisual('civilian', {});
+    /* ---- Nicht achtmal derselbe Mensch ----
+       Alle acht Fahrer waren dasselbe Modell. Faehrt man eine Strasse
+       entlang, sitzt in jedem Wagen dieselbe Person.
+       Die fuenf Zivilistenmodelle sind fuer die Passanten ohnehin schon
+       geladen, die Vielfalt kostet also kein zusaetzliches Laden. Die
+       Wahl haengt am Platz im Pool und zieht KEINEN Zufall - ein
+       zusaetzlicher Zug wuerde den gemeinsamen Strom verschieben und
+       damit die ganze Stadt veraendern (siehe Stufe 5, Teil E). */
+    const slot = ZIVI_SLOTS[i % ZIVI_SLOTS.length];
+    const visual = makeCharacterVisual(slot, {}) || makeCharacterVisual('civilian', {});
     if (!visual || visual.procedural) return;    // ohne Modelle bleibt alles wie es war
     visual.root.visible = false;
     scene.add(visual.root);
@@ -20015,13 +20041,7 @@ function updateAutoFahrer(dt) {
     const pick = retained.has(f.auto) ? { c: f.auto } : nah.find(n => !retained.has(n.c));
     const ziel = pick ? pick.c : null;
     if (ziel) retained.add(ziel);
-    if (f.auto !== ziel) {
-      /* Beim Umsteigen die einfachen Figuren im alten Wagen wieder zeigen. */
-      if (f.auto && f.auto.mesh && f.auto.mesh.userData.insassen) {
-        f.auto.mesh.userData.insassen.visible = true;
-      }
-      f.auto = ziel;
-    }
+    if (f.auto !== ziel) f.auto = ziel;    // die Blockfiguren bleiben aus
     if (!ziel) { f.visual.root.visible = false; continue; }
     if (ziel.mesh.userData.insassen) ziel.mesh.userData.insassen.visible = false;
     const sitz = ziel.mesh.userData.fahrerSitz;
@@ -20077,12 +20097,7 @@ function updateBusGaeste(dt) {
                (p.z - player.pos.z) * (p.z - player.pos.z);
     if (d2 < bd) { bd = d2; bester = c; }
   }
-  if (busGastBus !== bester) {
-    if (busGastBus && busGastBus.mesh && busGastBus.mesh.userData.insassen) {
-      busGastBus.mesh.userData.insassen.visible = true;
-    }
-    busGastBus = bester;
-  }
+  if (busGastBus !== bester) busGastBus = bester;   // Blockfiguren bleiben aus
   if (!bester) { for (const g of BUS_GAST) g.visual.root.visible = false; return; }
   if (bester.mesh.userData.insassen) bester.mesh.userData.insassen.visible = false;
   const plaetze = bester.mesh.userData.sitzplaetze;
@@ -20568,6 +20583,7 @@ function makeCarMesh(color) {
   if (leute.length) {
     const im = new THREE.Mesh(verschmelzeTeile(leute),
                               new THREE.MeshLambertMaterial({ vertexColors: true }));
+    im.visible = false;                      // siehe INSASSEN-REGEL
     g.add(im);
     /* Merken: sitzt ein ECHTER Zivilist in diesem Wagen, werden die
        einfachen Sitzfiguren ausgeblendet, sonst sitzen zwei uebereinander. */
@@ -20837,7 +20853,8 @@ function makeFahrzeugMesh(typ, farbe) {
       for (const part of sitzMensch(seat.x, seat.y, seat.z, seat.ry, seat.scale, i)) people.push(part);
     }
     const crew = new THREE.Mesh(verschmelzeTeile(people), new THREE.MeshLambertMaterial({ vertexColors: true }));
-    crew.name = 'DistantBusPassengers'; bus.add(crew); bus.userData.insassen = crew;
+    crew.name = 'DistantBusPassengers'; crew.visible = false;   // siehe INSASSEN-REGEL
+    bus.add(crew); bus.userData.insassen = crew;
     scene.add(bus); return bus;
   }
   const g = new THREE.Group();
@@ -20972,6 +20989,7 @@ function makeFahrzeugMesh(typ, farbe) {
     if (leute.length) {
       const im = new THREE.Mesh(verschmelzeTeile(leute),
                                 new THREE.MeshLambertMaterial({ vertexColors: true }));
+      im.visible = false;                    // siehe INSASSEN-REGEL
       g.add(im);
       g.userData.insassen = im;
     }
@@ -21005,6 +21023,7 @@ function makeFahrzeugMesh(typ, farbe) {
     for (const t of sitzMensch(-(B / 2 - 0.6), 1.12, kz - 0.15, 0, 0.78)) leute.push(t);
     const truckCrew = new THREE.Mesh(verschmelzeTeile(leute),
       new THREE.MeshLambertMaterial({ vertexColors: true }));
+    truckCrew.visible = false;               // siehe INSASSEN-REGEL
     g.add(truckCrew);
     g.userData.insassen = truckCrew;
     g.userData.fahrerSitz = { x: -(B / 2 - 0.6), y: 1.12, z: kz - 0.15, scale: 0.78 };
@@ -29779,7 +29798,8 @@ function respBaueRtwMesh() {
     const vehicle = CITY_LOOK.createAmbulance(), seat = vehicle.userData.fahrerSitz;
     const crew = new THREE.Mesh(verschmelzeTeile(sitzMensch(seat.x, seat.y, seat.z, 0, seat.scale)),
       new THREE.MeshLambertMaterial({ vertexColors: true }));
-    crew.name = 'DistantAmbulanceDriver'; vehicle.add(crew); vehicle.userData.insassen = crew;
+    crew.name = 'DistantAmbulanceDriver'; crew.visible = false;  // siehe INSASSEN-REGEL
+    vehicle.add(crew); vehicle.userData.insassen = crew;
     return vehicle;
   }
   const g = new THREE.Group();
