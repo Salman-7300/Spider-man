@@ -93,8 +93,13 @@ const ALT = process.argv.indexOf('alt') > 0;
       for (let i = 0; i < bilder; i++) {
         d.schritt(1 / 60);
         const k = d.kletterLage();
-        if (k.imHaus && k.drinWer && drinRoh.length < 6)
-          drinRoh.push({ pos: k.pos, aufKoll: k.koll, drin: k.drinWer });
+        if (k.imHaus && k.drinWer) {
+          drinGes.gesamt++;
+          if (k.imBogen) drinGes.imBogen++;
+          if (drinRoh.length < 4)
+            drinRoh.push({ pos: k.pos, aufKoll: k.koll, imBogen: !!k.imBogen,
+                           drin: k.drinWer });
+        }
         const kam = d.kamera();
         reihe.push({ ...k, kam: kam.pos, blick: kam.blick,
                      kamAbst: kam.abstand, kamSteckt: kam.steckt });
@@ -152,6 +157,7 @@ const ALT = process.argv.indexOf('alt') > 0;
     }
 
     const drinRoh = [];
+    const drinGes = { gesamt: 0, imBogen: 0 };
     const clamp = (v, a, b2) => Math.max(a, Math.min(b2, v));
     const kisten = d.hausKisten().filter((k) => k.h > 16);
 
@@ -225,7 +231,7 @@ const ALT = process.argv.indexOf('alt') > 0;
                playerInsideBuilding: sum('playerInsideBuilding'),
                drinBsp: (liste.find((x) => x.drinBsp) || {}).drinBsp };
     };
-    return { kontrolle: fasse(kontrolle), uebergang: fasse(uebergang), drinRoh };
+    return { kontrolle: fasse(kontrolle), uebergang: fasse(uebergang), drinRoh, drinGes };
   });
 
   const zeig = (name, w) => {
@@ -253,6 +259,8 @@ const ALT = process.argv.indexOf('alt') > 0;
       console.log('    nach: ' + JSON.stringify(w.schlimmste.nach));
     }
   };
+  if (aus.drinGes) console.log('\n  im Haus gesamt ' + aus.drinGes.gesamt +
+      ', davon waehrend des Eckbogens ' + aus.drinGes.imBogen);
   if (aus.drinRoh && aus.drinRoh.length) {
     console.log('\n== Wo steckt die Figur angeblich? ==');
     for (const e of aus.drinRoh) console.log('  ' + JSON.stringify(e));

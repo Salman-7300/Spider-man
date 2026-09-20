@@ -17141,7 +17141,12 @@ function updatePlayer(dt) {
     /* ---- Der Eckbogen hat das letzte Wort ----
        Er laeuft nach den seitlichen Klemmwerten, sonst zoege ihn die
        Begrenzung der ALTEN Flaeche wieder zurueck. */
-    if (player.eckBogen) {
+    if (player.eckBogen && ECK_ALT) {
+      /* Alter Stand: sofort ans Ziel. */
+      player.pos.x = player.eckBogen.zx;
+      player.pos.z = player.eckBogen.zz;
+      player.eckBogen = null;
+    } else if (player.eckBogen) {
       const B = player.eckBogen;
       B.rest -= dt;
       const u = clamp(1 - B.rest / B.dauer, 0, 1);
@@ -19598,6 +19603,10 @@ const WAND_LUFT = 0.07;          // Haut ist rund 5 cm dick
    auch nichts. 180 Grad dauern damit 0,79 s. */
 let WAND_ROLL_TEMPO = 9;
 let WAND_ROLL_MAX = 4;
+/* Zum Vergleichen: mit __WEBHERO_ECK_ALT springt die Figur an der Ecke
+   wieder in EINEM Bild auf die neue Wandebene - der Stand vor
+   problem-2, Punkt A. */
+const ECK_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_ECK_ALT;
 /* Wie lange das Eckenfenster dauert - siehe player.eckT. */
 const WAND_ECK_ZEIT = 0.45;
 /* So lange gilt das Anlegen an eine Wand als Uebergang, siehe oben. */
@@ -36696,6 +36705,7 @@ if (window.__WEBHERO_TEST__ === true) {
       }
       return {
         zustand: player.state, anim: player.anim, imHaus: drin, drinWer,
+        imBogen: !!player.eckBogen,
         koll: c ? c.id : null,
         nx: w ? w.nx : null, nz: w ? w.nz : null,
         pos: [+player.pos.x.toFixed(4), +player.pos.y.toFixed(4),

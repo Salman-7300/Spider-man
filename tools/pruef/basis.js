@@ -95,6 +95,8 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.sturzAlt) window.__WEBHERO_STURZ_ALT = 1;
     /* Nur zum Messen: Kamera ohne Sprungdaempfung, Stand vor problem-2. */
     if (ein.kamSprungAlt) window.__WEBHERO_KAMSPRUNG_ALT = 1;
+    /* Nur zum Messen: Eckenwechsel ohne Bogen, Stand vor problem-2 A. */
+    if (ein.eckAlt) window.__WEBHERO_ECK_ALT = 1;
     /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
        damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
     if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
@@ -117,6 +119,7 @@ async function starte(breite, hoehe, seed, opt) {
        kroneAlt: !!(opt && opt.kroneAlt),
        sturzAlt: !!(opt && opt.sturzAlt),
        kamSprungAlt: !!(opt && opt.kamSprungAlt),
+       eckAlt: !!(opt && opt.eckAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
      WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright
