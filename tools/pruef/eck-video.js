@@ -61,7 +61,8 @@ fs.mkdirSync(ziel, { recursive: true });
       P.eckSperre = 0;
       d.setzeKamYaw(Math.atan2(-1, 0));
       for (let i = 0; i < 90; i++) d.schritt(1 / 60);
-      return { x: +K.x.toFixed(1), z: +K.z.toFixed(1), h: +K.h.toFixed(1) };
+      return { x: +K.x.toFixed(1), z: +K.z.toFixed(1), h: +K.h.toFixed(1),
+               r: +(Math.max(K.w, K.d) / 2).toFixed(2) };
     }
     return null;
   });
@@ -87,10 +88,15 @@ fs.mkdirSync(ziel, { recursive: true });
       await page.evaluate((q) => {
         const d = __dbg, P = d.player;
         /* Von schraeg aussen auf die Figur, Abstand fest. */
+        /* Nah genug, dass man die Figur sieht: radial vom Hausmittel-
+           punkt nach aussen, leicht ueber Schulterhoehe. 26 m waren zu
+           weit - da fuellt die Stadt das Bild und die Figur ist ein
+           Punkt. */
         const w = Math.atan2(P.pos.x - q.x, P.pos.z - q.z);
-        d.aufnahme(q.x + Math.sin(w) * 26, P.pos.y + 7, q.z + Math.cos(w) * 26,
+        d.aufnahme(q.x + Math.sin(w) * (q.r + 7.5), P.pos.y + 2.2,
+                   q.z + Math.cos(w) * (q.r + 7.5),
                    P.pos.x, P.pos.y + 1.0, P.pos.z);
-      }, { x: start.x, z: start.z });
+      }, { x: start.x, z: start.z, r: start.r });
     } else {
       await page.evaluate(() => __dbg.zeichne());
     }
