@@ -12871,7 +12871,7 @@ const player = {
   ziehtObjekt: false,                // ein Gegenstand fliegt gerade heran
   combo: 0, comboTimer: 0, stufe: 0, klettertempo: 0, ziel: null, keinHaltCd: 0,
   hartLandung: 0, saltoCd: 0, luftSalto: 0, warSchwung: 0, schrittT: 0,
-  eckT: 0, eckSperre: 0, sichtPos: null, wandStill: false, wandRuhe: 0,
+  eckT: 0, eckSperre: 0, eckBogen: null, sichtPos: null, wandStill: false, wandRuhe: 0,
   /* ---- Symbiont ----
      Kaempfen fuellt den Balken. Ist er voll, laesst sich der schwarze
      Anzug zuschalten: haerter, schneller, aber nur fuer eine Weile. */
@@ -14771,7 +14771,7 @@ function tryJump() {
     player.vel.set(zx, hoch, zz);
     player.wandSchwung = 0;
     player.wandlauf = false;
-    player.wallInfo = null;
+    player.wallInfo = null; player.eckBogen = null;
     /* ---- Der Wandsprung muss die Wand auch verlassen duerfen ----
        Gemessen (tools/pruef/uebergangsmatrix.js): mit gehaltenem W - also
        genau so, wie man die Wand hinaufrennt - kam der Absprung NIE in die
@@ -16980,7 +16980,7 @@ function updatePlayer(dt) {
         } else {
           player.pos.copy(ziel); player.state = 'air'; player.vel.set(0, 4, 0);
         }
-        player.wallInfo = null;
+        player.wallInfo = null; player.eckBogen = null;
         player.vel.set(0, 0, 0);
         updateHeroVisual(dt);
         return;
@@ -17035,6 +17035,31 @@ function updatePlayer(dt) {
       if (neuNx !== 0 || neuNz !== 0) {
         const nb = zeilenNachbarWand(c, w, neuNx, neuNz, player.pos.y);
         if (nb) {
+          /* ---- Auch die Naht wird gefahren, nicht gesprungen ----
+             Hier dreht sich nichts: die Wand wird nur an den Nachbarn
+             weitergereicht, die Normale bleibt. Die seitliche Begrenzung
+             weiter unten arbeitet danach aber mit den Massen des
+             NACHBARN und zieht die Figur in dessen gueltigen Bereich -
+             gemessen 0,48 m in einem Bild.
+
+             Anders als an der Aussenecke liegen beide Schauseiten in
+             DERSELBEN Ebene. Ein gerader Weg schneidet hier also nichts
+             an; der Stuetzpunkt liegt deshalb einfach auf der Mitte,
+             womit aus der Bezierkurve eine geglaettete Gerade wird. */
+          const zx2 = w.nz !== 0 ? clamp(player.pos.x, nb.x0 + 0.2, nb.x1 - 0.2)
+                                 : player.pos.x;
+          const zz2 = w.nx !== 0 ? clamp(player.pos.z, nb.z0 + 0.2, nb.z1 - 0.2)
+                                 : player.pos.z;
+          const weg = Math.hypot(zx2 - player.pos.x, zz2 - player.pos.z);
+          if (weg > 0.02) {
+            const tempo2 = Math.max(1.2, Math.hypot(player.vel.x, player.vel.z));
+            const dauer2 = clamp(weg / tempo2, 0.06, WAND_ECK_ZEIT);
+            player.eckBogen = { vx: player.pos.x, vz: player.pos.z,
+                                sx: (player.pos.x + zx2) / 2,
+                                sz: (player.pos.z + zz2) / 2,
+                                zx: zx2, zz: zz2,
+                                dauer: dauer2, rest: dauer2 };
+          }
           player.wallInfo = player.wall = { nx: w.nx, nz: w.nz, col: nb };
           c = nb;
           /* Ohne Sperre wuerde im naechsten Bild sofort wieder geprueft,
@@ -17063,10 +17088,49 @@ function updatePlayer(dt) {
            zurueck. Ein Versuch mit knappem Abstand hat genau das erzeugt:
            gemessen 200 Eckenwechsel in acht Sekunden, hin und her. */
         const hinter = rand + 0.10;
-        if (neuNx !== 0) player.pos.x = (neuNx > 0 ? c.x1 : c.x0) + neuNx * CFG.climbGap;
-        else player.pos.z = (neuNz > 0 ? c.z1 : c.z0) + neuNz * CFG.climbGap;
-        if (neuNx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + hinter, c.z1 - hinter);
-        else player.pos.x = clamp(player.pos.x, c.x0 + hinter, c.x1 - hinter);
+        /* ---- Um die Ecke HERUM, nicht hinueber ----
+           problem-2, Punkt A. Bis hierher wurde die Figur in EINEM Bild
+           auf die neue Wandebene gesetzt. Nachgerechnet und gemessen
+           sind das genau 0,50 m: 0,15 m Kletterabstand vor der alten
+           Flaeche plus 0,35 m, um die der Klemmwert sie hinter die neue
+           Kante zieht. Weil damit im selben Bild das Gebaeude zwischen
+           Kamera und Figur steht, holt die Sichtpruefung die Kamera um
+           5,3 m heran - das ist der Ruck aus dem Human-Video.
+
+           Das Ziel bleibt, wie es war. Nur der WEG dorthin wird
+           gefahren statt gesprungen, und zwar AUSSEN um die Kante: eine
+           gerade Verbindung wuerde durch den Gebaeudekoerper schneiden.
+           Der Stuetzpunkt liegt auf der Winkelhalbierenden der beiden
+           Wandnormalen, einen Kletterabstand vor der Kante; daraus wird
+           eine quadratische Bezierkurve, die ueberall ausserhalb des
+           Hauses liegt.
+
+           Die Dauer richtet sich nach dem Tempo an der Wand, nicht nach
+           einer festen Zeit: so bleibt die Bahngeschwindigkeit um die
+           Ecke dieselbe wie davor. Das Eckfenster eckT fuer die
+           VISUELLE Blendung bleibt unangetastet. */
+        const zx = neuNx !== 0 ? (neuNx > 0 ? c.x1 : c.x0) + neuNx * CFG.climbGap
+                               : clamp(player.pos.x, c.x0 + hinter, c.x1 - hinter);
+        const zz = neuNz !== 0 ? (neuNz > 0 ? c.z1 : c.z0) + neuNz * CFG.climbGap
+                               : clamp(player.pos.z, c.z0 + hinter, c.z1 - hinter);
+        /* Die Kante, um die es geht: je Achse die Seite, auf der die
+           jeweilige Normale zeigt. */
+        const kx = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0)
+                              : (neuNx > 0 ? c.x1 : c.x0);
+        const kz = w.nz !== 0 ? (w.nz > 0 ? c.z1 : c.z0)
+                              : (neuNz > 0 ? c.z1 : c.z0);
+        const bx = w.nx + neuNx, bz = w.nz + neuNz;
+        const bl = Math.hypot(bx, bz) || 1;
+        const vx = player.pos.x, vz = player.pos.z;
+        const sx = kx + (bx / bl) * CFG.climbGap * 1.35;
+        const sz = kz + (bz / bl) * CFG.climbGap * 1.35;
+        /* Laenge grob ueber das Stuetzpolygon - genau genug, um die
+           Dauer an das Tempo zu binden. */
+        const laenge = Math.hypot(sx - vx, sz - vz) + Math.hypot(zx - sx, zz - sz);
+        const tempo = Math.max(1.2, Math.hypot(player.vel.x, player.vel.z));
+        player.eckBogen = { vx, vz, sx, sz, zx, zz,
+                            dauer: clamp(laenge / tempo, 0.08, WAND_ECK_ZEIT),
+                            rest: clamp(laenge / tempo, 0.08, WAND_ECK_ZEIT) };
         player.eckT = WAND_ECK_ZEIT;
         player.eckSperre = WAND_ECK_ZEIT;
       }
@@ -17074,6 +17138,20 @@ function updatePlayer(dt) {
     // seitlich begrenzen
     if (w.nx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.2, c.z1 - 0.2);
     else player.pos.x = clamp(player.pos.x, c.x0 + 0.2, c.x1 - 0.2);
+    /* ---- Der Eckbogen hat das letzte Wort ----
+       Er laeuft nach den seitlichen Klemmwerten, sonst zoege ihn die
+       Begrenzung der ALTEN Flaeche wieder zurueck. */
+    if (player.eckBogen) {
+      const B = player.eckBogen;
+      B.rest -= dt;
+      const u = clamp(1 - B.rest / B.dauer, 0, 1);
+      /* Weich anfahren und weich ankommen, damit auch am Anfang und am
+         Ende des Bogens kein Tempo-Sprung entsteht. */
+      const g = u * u * (3 - 2 * u), ig = 1 - g;
+      player.pos.x = ig * ig * B.vx + 2 * ig * g * B.sx + g * g * B.zx;
+      player.pos.z = ig * ig * B.vz + 2 * ig * g * B.sz + g * g * B.zz;
+      if (B.rest <= 0) player.eckBogen = null;
+    }
     /* Der Takt lief mit 1 rad/s WEITER, auch wenn man bewegungslos an der
        Wand hing. Die Wandpose setzt Arme und Beine nach sin(Takt) - die
        Glieder pendelten also dauernd hin und her, obwohl die Figur stand.
@@ -17147,14 +17225,14 @@ function updatePlayer(dt) {
         player.vel.set(-w.nx * 3, 5, -w.nz * 3);
         player.state = 'air';
       }
-      player.wallInfo = null;
+      player.wallInfo = null; player.eckBogen = null;
     } else if (player.pos.y <= groundY(player.pos.x, player.pos.z, player.pos.y) + 0.05 && up <= 0) {
       player.state = 'ground';
-      player.wallInfo = null;
+      player.wallInfo = null; player.eckBogen = null;
     } else if (wantSwing && !keys['Space']) {
       // RMT: von der Wand in den Schwung
       player.state = 'air';
-      player.wallInfo = null;
+      player.wallInfo = null; player.eckBogen = null;
     }
     player.facing = dampAngle(player.facing, Math.atan2(-w.nx, -w.nz), dt * 14);
     /* Seitliches Hangeln hat seit mixamo-5 eine eigene Bewegung; senkrecht
@@ -32156,7 +32234,7 @@ function innenSpielerSetzen(p, yaw) {
   player.state = 'ground'; player.onGround = true;
   player.vel.set(0, 0, 0);
   player.gleiten = false;
-  player.wallInfo = null; player.wall = null;
+  player.wallInfo = null; player.wall = null; player.eckBogen = null;
   const gy = p.y === undefined || p.y === null ? groundY(p.x, p.z, 2) : p.y;
   player.pos.set(p.x, gy, p.z);
   player.facing = yaw;
@@ -36596,8 +36674,28 @@ if (window.__WEBHERO_TEST__ === true) {
         abst = w.nx !== 0 ? (player.pos.x - front) * w.nx
                           : (player.pos.z - front) * w.nz;
       }
+      /* Steckt die Figur in einem Gebaeude? Geprueft werden Becken und
+         Brust, nicht nur der Fusspunkt (problem-2, Punkt A.10). */
+      let drin = 0, drinWer = null;
+      for (const hoehe of [0.9, 1.4]) {
+        const py = player.pos.y + hoehe;
+        for (const n of collidersNear(player.pos.x, player.pos.z)) {
+          if (n.klein || n.innen || n.parkAuto || n.dachProp) continue;
+          const y0 = n.y0 === undefined ? -1e9 : n.y0;
+          if (player.pos.x > n.x0 + 0.02 && player.pos.x < n.x1 - 0.02 &&
+              player.pos.z > n.z0 + 0.02 && player.pos.z < n.z1 - 0.02 &&
+              py > y0 + 0.02 && py < n.h - 0.02) {
+            drin++;
+            if (!drinWer) drinWer = { id: n.id, hoehe,
+              x: [+n.x0.toFixed(2), +n.x1.toFixed(2)],
+              z: [+n.z0.toFixed(2), +n.z1.toFixed(2)],
+              y: [+(y0).toFixed(2), +(n.h || 0).toFixed(2)] };
+            break;
+          }
+        }
+      }
       return {
-        zustand: player.state, anim: player.anim,
+        zustand: player.state, anim: player.anim, imHaus: drin, drinWer,
         koll: c ? c.id : null,
         nx: w ? w.nx : null, nz: w ? w.nz : null,
         pos: [+player.pos.x.toFixed(4), +player.pos.y.toFixed(4),

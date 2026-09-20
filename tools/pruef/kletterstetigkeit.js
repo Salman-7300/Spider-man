@@ -36,6 +36,29 @@ const ALT = process.argv.indexOf('alt') > 0;
     const P = d.player;
     const SLAB_H = 0.25;
 
+    /* ---- Nur FREIE Schauseiten beklettern ----
+       Der erste Stand hat einfach die Ostwand genommen. In einer
+       Haeuserzeile ist die aber oft im Nachbarn vergraben: gemessen
+       stand die Figur dort in 598 Bildern "im Gebaeude", weil Kollider
+       32 bei x1 = -305,335 endet und Kollider 49 bei x0 = -305,33
+       beginnt. Sie kletterte also in der Fuge zwischen zwei buendigen
+       Haeusern - ein Fehler der Auswahl, kein Fehler des Spiels. */
+    const freieSeite = (c, y) => {
+      const seiten = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (const [nx, nz] of seiten) {
+        const px = nx !== 0 ? (nx > 0 ? c.x1 : c.x0) + nx * 1.0 : (c.x0 + c.x1) / 2;
+        const pz = nz !== 0 ? (nz > 0 ? c.z1 : c.z0) + nz * 1.0 : (c.z0 + c.z1) / 2;
+        let frei = true;
+        for (const n of d.colliderNah(px, pz)) {
+          if (n === c || n.klein || n.innen || n.parkAuto || n.dachProp) continue;
+          const y0 = n.y0 === undefined ? -1e9 : n.y0;
+          if (px > n.x0 && px < n.x1 && pz > n.z0 && pz < n.z1 &&
+              y > y0 && y < (n.h || 0)) { frei = false; break; }
+        }
+        if (frei) return { nx, nz };
+      }
+      return null;
+    };
     const kollVon = (k) => {
       for (const c of d.colliderNah(k.x, k.z)) {
         if (c.klein || c.innen || c.parkAuto || c.dachProp) continue;
@@ -70,6 +93,8 @@ const ALT = process.argv.indexOf('alt') > 0;
       for (let i = 0; i < bilder; i++) {
         d.schritt(1 / 60);
         const k = d.kletterLage();
+        if (k.imHaus && k.drinWer && drinRoh.length < 6)
+          drinRoh.push({ pos: k.pos, aufKoll: k.koll, drin: k.drinWer });
         const kam = d.kamera();
         reihe.push({ ...k, kam: kam.pos, blick: kam.blick,
                      kamAbst: kam.abstand, kamSteckt: kam.steckt });
@@ -81,8 +106,9 @@ const ALT = process.argv.indexOf('alt') > 0;
     /* Aus einer Reihe die Spruenge von Bild zu Bild ziehen. */
     function werte(reihe) {
       let posMax = 0, wandMax = 0, kamMax = 0, blickMax = 0, abstMax = 0;
-      let flattern = 0, normalen = 0, wechsel = 0;
-      let schlimmste = null;
+      let flattern = 0, normalen = 0, wechsel = 0, imHaus = 0;
+      let drinBsp = null;
+      let schlimmste = null, schlimmsteKam = null;
       const gesehen = [];
       for (let i = 1; i < reihe.length; i++) {
         const a = reihe[i - 1], c = reihe[i];
@@ -97,7 +123,8 @@ const ALT = process.argv.indexOf('alt') > 0;
         }
         const dk = Math.hypot(c.kam[0] - a.kam[0], c.kam[1] - a.kam[1],
                               c.kam[2] - a.kam[2]);
-        if (dk > kamMax) kamMax = dk;
+        if (dk > kamMax) { kamMax = dk; schlimmsteKam = { i, vor: a, nach: c,
+                                                         dk: +dk.toFixed(3) }; }
         const da = Math.abs((c.kamAbst || 0) - (a.kamAbst || 0));
         if (da > abstMax) abstMax = da;
         const db = Math.hypot(c.blick[0] - a.blick[0], c.blick[1] - a.blick[1],
@@ -112,15 +139,20 @@ const ALT = process.argv.indexOf('alt') > 0;
             flattern++;
         }
         if (c.nx !== a.nx || c.nz !== a.nz) normalen++;
+        if (c.imHaus) { imHaus++; if (!drinBsp) drinBsp = { pos: c.pos, koll: c.koll,
+                                                           wer: c.drinWer }; }
       }
       return { bilder: reihe.length,
                posSprung: +posMax.toFixed(4), wandSprung: +wandMax.toFixed(4),
                kamSprung: +kamMax.toFixed(4), blickSprung: +blickMax.toFixed(4),
                abstSprung: +abstMax.toFixed(4),
                flaechenWechsel: wechsel, surfaceOscillation: flattern,
-               normalenWechsel: normalen, schlimmste };
+               normalenWechsel: normalen, playerInsideBuilding: imHaus,
+               schlimmste, schlimmsteKam };
     }
 
+    const drinRoh = [];
+    const clamp = (v, a, b2) => Math.max(a, Math.min(b2, v));
     const kisten = d.hausKisten().filter((k) => k.h > 16);
 
     /* ---- Kontrolle: mitten auf EINER Wand, hoch und seitwaerts ---- */
@@ -131,8 +163,12 @@ const ALT = process.argv.indexOf('alt') > 0;
       const c = kollVon(K);
       if (!c) continue;
       const oben = SLAB_H + K.h;
+      const S = freieSeite(c, oben - 12);
+      if (!S) continue;
+      const sx0 = S.nx !== 0 ? (S.nx > 0 ? c.x1 : c.x0) + S.nx * 0.15 : (c.x0 + c.x1) / 2;
+      const sz0 = S.nz !== 0 ? (S.nz > 0 ? c.z1 : c.z0) + S.nz * 0.15 : (c.z0 + c.z1) / 2;
       for (const taste of ['KeyW', 'KeyD']) {
-        const r = fahrt(c.x1 + 0.15, oben - 12, K.z, 1, 0, c, taste, 120);
+        const r = fahrt(sx0, oben - 12, sz0, S.nx, S.nz, c, taste, 120);
         const w = werte(r);
         if (w.bilder > 60) kontrolle.push(w);
       }
@@ -159,7 +195,13 @@ const ALT = process.argv.indexOf('alt') > 0;
       if (!nachbar) continue;
       const oben = SLAB_H + K.h;
       /* Kurz vor der Kante ansetzen und seitwaerts darueber. */
-      const r = fahrt(c.x1 + 0.15, oben - 10, c.z1 - 1.2, 1, 0, c, 'KeyD', 150);
+      const S2 = freieSeite(c, oben - 10);
+      if (!S2) continue;
+      const ux = S2.nx !== 0 ? (S2.nx > 0 ? c.x1 : c.x0) + S2.nx * 0.15
+                             : clamp(c.x1 - 1.2, c.x0 + 0.5, c.x1 - 0.5);
+      const uz = S2.nz !== 0 ? (S2.nz > 0 ? c.z1 : c.z0) + S2.nz * 0.15
+                             : clamp(c.z1 - 1.2, c.z0 + 0.5, c.z1 - 0.5);
+      const r = fahrt(ux, oben - 10, uz, S2.nx, S2.nz, c, 'KeyD', 150);
       const w = werte(r);
       if (w.flaechenWechsel > 0) { uebergang.push(w); m++; }
     }
@@ -169,7 +211,9 @@ const ALT = process.argv.indexOf('alt') > 0;
       const max = (f) => Math.max(...liste.map((x) => x[f]));
       const sum = (f) => liste.reduce((a, x) => a + x[f], 0);
       const arg = liste.slice().sort((x, y) => y.posSprung - x.posSprung)[0];
+      const argK = liste.slice().sort((x, y) => y.kamSprung - x.kamSprung)[0];
       return { faelle: liste.length, schlimmste: arg && arg.schlimmste,
+               schlimmsteKam: argK && argK.schlimmsteKam,
                posSprung: +max('posSprung').toFixed(4),
                wandSprung: +max('wandSprung').toFixed(4),
                kamSprung: +max('kamSprung').toFixed(4),
@@ -177,9 +221,11 @@ const ALT = process.argv.indexOf('alt') > 0;
                abstSprung: +max('abstSprung').toFixed(4),
                flaechenWechsel: sum('flaechenWechsel'),
                surfaceOscillation: sum('surfaceOscillation'),
-               normalenWechsel: sum('normalenWechsel') };
+               normalenWechsel: sum('normalenWechsel'),
+               playerInsideBuilding: sum('playerInsideBuilding'),
+               drinBsp: (liste.find((x) => x.drinBsp) || {}).drinBsp };
     };
-    return { kontrolle: fasse(kontrolle), uebergang: fasse(uebergang) };
+    return { kontrolle: fasse(kontrolle), uebergang: fasse(uebergang), drinRoh };
   });
 
   const zeig = (name, w) => {
@@ -194,12 +240,23 @@ const ALT = process.argv.indexOf('alt') > 0;
     console.log('  Flaechenwechsel            ' + w.flaechenWechsel);
     console.log('  surfaceOscillation         ' + w.surfaceOscillation);
     console.log('  Normalenwechsel            ' + w.normalenWechsel);
+    console.log('  playerInsideBuilding       ' + w.playerInsideBuilding);
+    if (w.drinBsp) console.log('    Beispiel: ' + JSON.stringify(w.drinBsp));
+    if (w.schlimmsteKam) {
+      console.log('  groesster KAMERAsprung im Bild ' + w.schlimmsteKam.i + ':');
+      console.log('    vor : ' + JSON.stringify(w.schlimmsteKam.vor));
+      console.log('    nach: ' + JSON.stringify(w.schlimmsteKam.nach));
+    }
     if (w.schlimmste) {
       console.log('  groesster Sprung im Bild ' + w.schlimmste.i + ':');
       console.log('    vor : ' + JSON.stringify(w.schlimmste.vor));
       console.log('    nach: ' + JSON.stringify(w.schlimmste.nach));
     }
   };
+  if (aus.drinRoh && aus.drinRoh.length) {
+    console.log('\n== Wo steckt die Figur angeblich? ==');
+    for (const e of aus.drinRoh) console.log('  ' + JSON.stringify(e));
+  }
   zeig('Kontrolle: mitten auf EINER Wand', aus.kontrolle);
   zeig('Uebergang: ueber die Gebaeudekante', aus.uebergang);
 
