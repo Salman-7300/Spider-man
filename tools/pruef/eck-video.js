@@ -14,6 +14,13 @@ const ziel = ausgabePfad(process.argv[2]) || 'video-ecke';
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const seed = sArg === undefined ? 4711 : +sArg.slice(5);
 const ALT = process.argv.indexOf('alt') > 0;
+/* "frei" nimmt mit einer freien Kamera auf, die in festem Abstand um
+   das Haus mitfaehrt. Die echte Spielkamera zeigt an dieser Stelle vor
+   allem den NOCH NICHT behobenen Kamerafehler - sie wird von der
+   Sichtbegrenzung an die Wand gedrueckt und das Bild ist dunkel. Um zu
+   beurteilen, ob die FIGUR sauber um die Ecke faehrt, braucht es einen
+   Blick von aussen. */
+const FREI = process.argv.indexOf('frei') > 0;
 fs.mkdirSync(ziel, { recursive: true });
 
 (async () => {
@@ -76,7 +83,17 @@ fs.mkdirSync(ziel, { recursive: true });
       return { pos: kl.pos, koll: kl.koll, nx: kl.nx, nz: kl.nz,
                bogen: !!kl.imBogen, zustand: kl.zustand };
     }, { i });
-    await page.evaluate(() => __dbg.zeichne());
+    if (FREI) {
+      await page.evaluate((q) => {
+        const d = __dbg, P = d.player;
+        /* Von schraeg aussen auf die Figur, Abstand fest. */
+        const w = Math.atan2(P.pos.x - q.x, P.pos.z - q.z);
+        d.aufnahme(q.x + Math.sin(w) * 26, P.pos.y + 7, q.z + Math.cos(w) * 26,
+                   P.pos.x, P.pos.y + 1.0, P.pos.z);
+      }, { x: start.x, z: start.z });
+    } else {
+      await page.evaluate(() => __dbg.zeichne());
+    }
     await page.screenshot({ path: path.join(ziel, String(bild).padStart(4, '0') + '.jpg'),
                             type: 'jpeg', quality: 80 });
     if (werte.length && (st.nx !== werte[werte.length - 1].nx ||
