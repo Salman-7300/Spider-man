@@ -2168,7 +2168,13 @@ function merkeHaus(name, x, y, z, ry) { HAUS_STELLEN.push({ name, x, y, z, ry: r
 const colliders = [];          // {x0,x1,z0,z1,h} – Gebäude & Pylonen
 const colliderGrid = new Map(); // "ci,cj" -> [collider,...]
 
+let _kollNr = 0;
 function addCollider(c) {
+  /* Eine laufende Nummer, damit eine Messung ueber mehrere Bilder sagen
+     kann, ob die Kletterflaeche DIESELBE geblieben ist. Ohne sie laesst
+     sich ein Flattern zwischen zwei Flaechen nicht von einem einmaligen
+     Wechsel unterscheiden (problem-2, Punkt A). */
+  if (c.id === undefined) c.id = ++_kollNr;
   colliders.push(c);
   const ci0 = Math.floor((c.x0 - 1 - HASH_O) / PITCH), ci1 = Math.floor((c.x1 + 1 - HASH_O) / PITCH);
   const cj0 = Math.floor((c.z0 - 1 - HASH_O) / PITCH), cj1 = Math.floor((c.z1 + 1 - HASH_O) / PITCH);
@@ -13800,6 +13806,13 @@ function updateCamera(dt) {
   const d = camDist * kameraFreierAnteil(target, desired);
   /* Bei einem Hindernis sofort davor bleiben, bei freier Sicht sanft
      herausfahren. Die endgueltige Lage wird NACH dem Glaetten geprueft. */
+  /* ---- Warum hier NICHT geglaettet wird ----
+     Der naheliegende Versuch war, das Heranziehen zu daempfen. Gemessen
+     hat er GAR NICHTS geaendert (Abstandssprung 5,295 m vorher wie
+     nachher, auf die Nachkommastelle gleich). Der Grund steht acht
+     Zeilen weiter unten: begrenzeKamera() zieht die Kamera NACH dem
+     Glaetten hart auf das erste Hindernis. Was hier geglaettet wird,
+     ueberschreibt die Begrenzung danach wieder. */
   kamFrei = d < kamFrei ? d : lerp(kamFrei, d, 1 - Math.exp(-dt * (wand ? 6 : 2.2)));
   desired.copy(target).addScaledVector(dir, kamFrei);
   camPos.lerp(desired, 1 - Math.exp(-dt * 12));
@@ -36531,8 +36544,13 @@ if (window.__WEBHERO_TEST__ === true) {
         if (p.x > c.x0 && p.x < c.x1 && p.z > c.z0 && p.z < c.z1 &&
             p.y > y0 && p.y < c.h) { steckt = c; break; }
       }
-      return { pos: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)],
-               abstand: +p.distanceTo(player.pos).toFixed(2),
+      /* Das Ziel der Kamera ist ihre eigene Blickrichtung - daraus
+         laesst sich ein Sprung des Kameraziels erkennen, der im Bild
+         als Ruck ankommt. */
+      const r = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      return { pos: [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)],
+               blick: [+r.x.toFixed(4), +r.y.toFixed(4), +r.z.toFixed(4)],
+               abstand: +p.distanceTo(player.pos).toFixed(3),
                steckt: !!steckt };
     },
     setzeGrafik(v) { EINST.grafik = v; wendeGrafikAn(); },
@@ -36566,6 +36584,30 @@ if (window.__WEBHERO_TEST__ === true) {
        davon laesst sich aus player.facing allein ablesen. Hier kommt
        die tatsaechliche Weltdrehung des Figurenknotens heraus, in
        Gier/Nick/Roll, plus die Abweichung zur Flugrichtung. */
+    /* Alles, was eine Kletterbewegung von Bild zu Bild beschreibt -
+       fuer die Messung der zeitlichen Stetigkeit (problem-2, Punkt A). */
+    kletterLage() {
+      const w = player.wallInfo || player.wall;
+      const c = w && w.col;
+      let abst = null;
+      if (c && w) {
+        const front = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0)
+                                 : (w.nz > 0 ? c.z1 : c.z0);
+        abst = w.nx !== 0 ? (player.pos.x - front) * w.nx
+                          : (player.pos.z - front) * w.nz;
+      }
+      return {
+        zustand: player.state, anim: player.anim,
+        koll: c ? c.id : null,
+        nx: w ? w.nx : null, nz: w ? w.nz : null,
+        pos: [+player.pos.x.toFixed(4), +player.pos.y.toFixed(4),
+              +player.pos.z.toFixed(4)],
+        vel: [+player.vel.x.toFixed(3), +player.vel.y.toFixed(3),
+              +player.vel.z.toFixed(3)],
+        wandAbstand: abst === null ? null : +abst.toFixed(4),
+        facing: +player.facing.toFixed(4),
+      };
+    },
     heroLage() {
       if (!heroVisual || !heroVisual.root) return null;
       heroVisual.root.updateMatrixWorld(true);
