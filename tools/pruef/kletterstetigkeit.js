@@ -44,11 +44,18 @@ const ALT = process.argv.indexOf('alt') > 0;
        32 bei x1 = -305,335 endet und Kollider 49 bei x0 = -305,33
        beginnt. Sie kletterte also in der Fuge zwischen zwei buendigen
        Haeusern - ein Fehler der Auswahl, kein Fehler des Spiels. */
-    const freieSeite = (c, y) => {
+    /* lx/lz: die Stelle LAENGS der Wand, an der wirklich gestartet
+       wird. Ohne sie wurde in der Flaechenmitte geprueft - und eine
+       Wand kann in der Mitte frei sein und an ihrem Ende im Nachbarn
+       stecken. Genau daher kamen die angeblichen Faelle "Figur im
+       Gebaeude" (problem-2, Punkt A.2). */
+    const freieSeite = (c, y, lx, lz) => {
       const seiten = [[1, 0], [-1, 0], [0, 1], [0, -1]];
       for (const [nx, nz] of seiten) {
-        const px = nx !== 0 ? (nx > 0 ? c.x1 : c.x0) + nx * 1.0 : (c.x0 + c.x1) / 2;
-        const pz = nz !== 0 ? (nz > 0 ? c.z1 : c.z0) + nz * 1.0 : (c.z0 + c.z1) / 2;
+        const px = nx !== 0 ? (nx > 0 ? c.x1 : c.x0) + nx * 1.0
+                            : (lx === undefined ? (c.x0 + c.x1) / 2 : lx);
+        const pz = nz !== 0 ? (nz > 0 ? c.z1 : c.z0) + nz * 1.0
+                            : (lz === undefined ? (c.z0 + c.z1) / 2 : lz);
         let frei = true;
         for (const n of d.colliderNah(px, pz)) {
           if (n === c || n.klein || n.innen || n.parkAuto || n.dachProp) continue;
@@ -114,6 +121,9 @@ const ALT = process.argv.indexOf('alt') > 0;
     function werte(reihe) {
       let posMax = 0, wandMax = 0, kamMax = 0, blickMax = 0, abstMax = 0;
       let flattern = 0, normalen = 0, wechsel = 0, imHaus = 0, kamDrin = 0;
+      /* Getrennt nach Ursache: die eigene Dachkrone ragt aus der
+         bekletterten Fassade heraus, das Nachbarhaus steht davor. */
+      let imEigenen = 0, imFremden = 0;
       /* Der Human-Befund ist "die Kamera klebt an der Figur". Das ist
          genau der Fall, in dem der freie Anteil auf null faellt. Er
          wird nach der Ursache getrennt gezaehlt:
@@ -166,6 +176,9 @@ const ALT = process.argv.indexOf('alt') > 0;
           }
           else zuImHaus++;
         }
+        if (c.imHaus && c.drinWer) {
+          if (c.drinWer.krone || c.drinWer.eigene) imEigenen++; else imFremden++;
+        }
         if (c.imHaus) { imHaus++; if (!drinBsp) drinBsp = { pos: c.pos, koll: c.koll,
                                                            wer: c.drinWer }; }
       }
@@ -176,6 +189,7 @@ const ALT = process.argv.indexOf('alt') > 0;
                flaechenWechsel: wechsel, surfaceOscillation: flattern,
                normalenWechsel: normalen, playerInsideBuilding: imHaus,
                kameraImHindernis: kamDrin,
+               imEigenen, imFremden,
                kameraZuFrei: zuFrei, kameraZuImHaus: zuImHaus,
                kameraZuBoden: zuBoden, zuFreiBsp,
                schlimmste, schlimmsteKam };
@@ -225,13 +239,15 @@ const ALT = process.argv.indexOf('alt') > 0;
       }
       if (!nachbar) continue;
       const oben = SLAB_H + K.h;
-      /* Kurz vor der Kante ansetzen und seitwaerts darueber. */
-      const S2 = freieSeite(c, oben - 10);
+      /* Kurz vor der Kante ansetzen und seitwaerts darueber. Geprueft
+         wird die Schauseite an GENAU DIESER Stelle, nicht in ihrer
+         Mitte. */
+      const kx = clamp(c.x1 - 1.2, c.x0 + 0.5, c.x1 - 0.5);
+      const kz = clamp(c.z1 - 1.2, c.z0 + 0.5, c.z1 - 0.5);
+      const S2 = freieSeite(c, oben - 10, kx, kz);
       if (!S2) continue;
-      const ux = S2.nx !== 0 ? (S2.nx > 0 ? c.x1 : c.x0) + S2.nx * 0.15
-                             : clamp(c.x1 - 1.2, c.x0 + 0.5, c.x1 - 0.5);
-      const uz = S2.nz !== 0 ? (S2.nz > 0 ? c.z1 : c.z0) + S2.nz * 0.15
-                             : clamp(c.z1 - 1.2, c.z0 + 0.5, c.z1 - 0.5);
+      const ux = S2.nx !== 0 ? (S2.nx > 0 ? c.x1 : c.x0) + S2.nx * 0.15 : kx;
+      const uz = S2.nz !== 0 ? (S2.nz > 0 ? c.z1 : c.z0) + S2.nz * 0.15 : kz;
       const r = fahrt(ux, oben - 10, uz, S2.nx, S2.nz, c, 'KeyD', 150);
       const w = werte(r);
       if (w.flaechenWechsel > 0) { uebergang.push(w); m++; }
@@ -255,6 +271,7 @@ const ALT = process.argv.indexOf('alt') > 0;
                normalenWechsel: sum('normalenWechsel'),
                playerInsideBuilding: sum('playerInsideBuilding'),
                kameraImHindernis: sum('kameraImHindernis'),
+               imEigenen: sum('imEigenen'), imFremden: sum('imFremden'),
                kameraZuFrei: sum('kameraZuFrei'),
                kameraZuImHaus: sum('kameraZuImHaus'),
                kameraZuBoden: sum('kameraZuBoden'),
@@ -277,6 +294,8 @@ const ALT = process.argv.indexOf('alt') > 0;
     console.log('  surfaceOscillation         ' + w.surfaceOscillation);
     console.log('  Normalenwechsel            ' + w.normalenWechsel);
     console.log('  playerInsideBuilding       ' + w.playerInsideBuilding);
+    console.log('    davon eigene Dachkrone   ' + w.imEigenen);
+    console.log('    davon Nachbargebaeude    ' + w.imFremden);
     console.log('  Kamera in einem Hindernis  ' + w.kameraImHindernis);
     console.log('  Kamera klebt, Punkt frei   ' + w.kameraZuFrei);
     console.log('  Kamera klebt, Punkt im Haus' + w.kameraZuImHaus);

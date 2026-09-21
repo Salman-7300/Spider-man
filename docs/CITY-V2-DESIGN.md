@@ -1776,6 +1776,86 @@ durch.
 Der Pruefstand laesst jetzt erst den Gleitflug voll einblenden und
 drueckt dann W - so, wie man auch wirklich spielt.
 
+### Punkt A.2: vergrabene Kletterflaechen - Spielfehler, aber nicht behoben
+
+Aus Punkt A.1 blieben 58 bzw. 43 Bilder, in denen die Figur laut Messung
+im Nachbargebaeude stand. Zuerst war zu klaeren, was der Auftrag
+ausdruecklich verlangt: Spielfehler oder Auswahlfehler des Pruefstands?
+
+**Der eigene Messfehler zuerst.** `freieSeite()` hat geprueft, ob vor der
+MITTE einer Schauseite Platz ist. Eine Wand kann in der Mitte sechs
+Meter frei sein und an ihrem Ende im Nachbarn stecken. Geprueft wird
+jetzt an der Stelle, an der die Figur wirklich haengt.
+
+**Der echte Eingabeweg** (`tools/pruef/kletterflaeche.js`): die Figur
+steht auf der Strasse, laeuft mit Anlauf in die Fassade, die normale
+Anklebe-Logik entscheidet, dann klettert sie und kriecht seitwaerts.
+Nichts wird gesetzt, kein Zustand erzwungen, keine vergrabene Wand als
+Startflaeche gewaehlt.
+
+Ergebnis: **ja, ein echter Spieler kommt dorthin.** 415 Bilder mit
+weniger als 0,60 m Platz vor der Wand (climbGap 0,15 plus Koerperradius
+0,45), 576 Bilder im Nachbargebaeude. Beispiel: Kollider 52, Schauseite
+nz = -1 bei z = -243,835, davor Kollider 45 bis z = -243,830.
+
+**Wodurch** geraet sie dorthin? Mitgeschrieben wurde jeder Eintritt mit
+der Lage davor und danach. Es gibt genau eine Art: **seitwaerts auf
+derselben Flaeche**, von 2 m freiem Platz auf 0,1 m. Nicht beim
+Ankleben, nicht ueber die Ecke, nicht ueber die Naht.
+
+Zur Einordnung, ueber die ganze Stadt: von 7404 Schauseiten sind 4283
+frei, 16 liegen an einer Gasse, 3105 sind vergraben. Das ist normal -
+in einer Haeuserzeile stossen die Seitenwaende aneinander. Ein Fehler
+ist nur, dass die Figur in einen solchen Abschnitt hineinkriechen kann.
+
+**Fuenf Fassungen wurden gemessen, alle sind zurueckgenommen:**
+
+| Eingriff | Ergebnis |
+| --- | --- |
+| aus dem Nachbarn herausschieben | Ortssprung **19,795 m** in einem Bild, Flattern 0 -> 18 |
+| auf die letzte freie Stelle zurueck | Ortssprung **40,168 m**, im Gebaeude 43 -> 268 |
+| den seitlichen Schritt nicht zulassen | im Gebaeude 43 -> **893**, Flattern 0 -> 24 |
+| Ecke ohne Platz sperren | Bilder ohne Platz 415 -> **588** |
+| auf den freien Abschnitt klemmen | **ohne Wirkung** (415 -> 415) |
+
+Der gemeinsame Grund: die seitliche Klemmung arbeitet mit der Flaeche,
+die die Naht-Uebergabe aus Punkt A gerade gesetzt hat. Wer hier
+eingreift, greift in die Uebergabe ein - und die ist LOCKED. Der Befund
+ist damit **belegt, eingegrenzt und offen**; er gehoert zusammen mit der
+Uebergabe entschieden, nicht daneben. Im Quelltext steht er an der
+Klemmstelle.
+
+**Nebenbefund, sauber getrennt.** `kletterLage()` meldet jetzt, WAS da
+steckt: die eigene Dachkrone oder ein fremdes Haus. Beim Klettern an der
+eigenen Fassade schneidet die Dachkrone die Brust (Kollider 741, Band
+19,72 bis 20,42 m, 0,25 m vor der Fassade) - das ist ein Vorsprung des
+BEKLETTERTEN Hauses, kein Nachbar. Die Vorsprungs-Logik im Kletterzweig
+fasst nur Kollider mit `klein`; die Dachkrone ist seit problem-1 Punkt 6
+ausdruecklich nicht `klein`. Auch das ist notiert, nicht behoben.
+
+### Punkt B: die Stelle aus dem Video, nachgefahren
+
+`tools/pruef/dachprop-video.js` faehrt dieselbe Dachreihe zweimal ab -
+einmal auf dem Stand vor Punkt B, einmal jetzt - mit der echten
+Spielkamera, gleicher Weg, gleiches Tempo. Gefunden wird ein Dach auf
+15,2 m mit 15 Aufbauten auf einer Linie, davon 3 duenne.
+
+Die beiden Restkontakte aus der Messung sind jetzt klassifiziert
+(Punkt B2/B3):
+
+| | Dachkasten 1 | Dachkasten 2 |
+| --- | --- | --- |
+| Eindringtiefe der Kapsel | 0,31 m | 0,12 m |
+| Bilder mit Kontakt | 9 (0,15 s) | 3 (0,05 s) |
+| Becken im Kasten | 0 | 0 |
+| Torso im Kasten | 0 | 0 |
+| **Schulterknochen im Kasten** | **0 Bilder** | **0 Bilder** |
+
+Damit ist die Bedingung aus B3 erfuellt: kein Koerperpunkt im
+Sichtbaren, keine Schulter, die mehrere Bilder im Kasten verschwindet,
+und hindurchlaufen kann die Figur nicht. Es bleibt ein kurzer
+Beruehrungskontakt beim Haengen an der Dachkante.
+
 ---
 
 ## 7. Was noch aussteht

@@ -243,13 +243,33 @@ async function durchlauf(page) {
       d.setzeKamYaw(-Math.PI / 2);
       d.taste('KeyW', true);
       let tiefe = 0, hatBecken = false, hatBrust = false;
-      let start = P.pos.x;
+      let start = P.pos.x, bilderDrin = 0, schulterDrin = 0, schulterTief = 0;
       for (let i = 0; i < 220; i++) {
         d.schritt(1 / 60);
         const x = P.pos.x, y = P.pos.y, z = P.pos.z;
-        tiefe = Math.max(tiefe, kapselTiefe(x, y, z, k));
+        const t = kapselTiefe(x, y, z, k);
+        tiefe = Math.max(tiefe, t);
+        if (t > KAPSEL_TIEFE) bilderDrin++;
         if (punktDrin(x, y + 0.9, z, k)) hatBecken = true;
         if (punktDrin(x, y + 1.3, z, k)) hatBrust = true;
+        /* ---- Was steckt da wirklich drin? ----
+           problem-2, Punkt B3: eine Schulter, die sichtbar im Kasten
+           verschwindet und mehrere Bilder dort bleibt, ist ein eigener
+           Befund - "Becken = 0" allein schliesst nichts. Gefragt werden
+           deshalb die SCHULTERKNOCHEN, in Weltkoordinaten. */
+        if (t > KAPSEL_TIEFE && d.animKnochen) {
+          const kn = d.animKnochen(['leftarm', 'rightarm']);
+          for (const nm of ['leftarm', 'rightarm']) {
+            const b = kn[nm];
+            if (!b) continue;
+            if (b.x > k.x0 && b.x < k.x1 && b.z > k.z0 && b.z < k.z1 &&
+                b.y > k.y0 && b.y < k.h) {
+              schulterDrin++;
+              const ein = Math.min(b.x - k.x0, k.x1 - b.x, b.z - k.z0, k.z1 - b.z);
+              if (ein > schulterTief) schulterTief = ein;
+            }
+          }
+        }
       }
       const hatKapsel = tiefe > KAPSEL_TIEFE;
       d.taste('KeyW', false);
@@ -270,6 +290,8 @@ async function durchlauf(page) {
       if (hatKapsel && p.fest && bspFest.length < 8)
         bspFest.push({ art: p.art, w: p.w, d: p.d, h: p.h, y0: p.y0,
                        x: p.x, z: p.z, tiefe: +tiefe.toFixed(2),
+                       bilderDrin, schulterBilder: schulterDrin,
+                       schulterTiefe: +schulterTief.toFixed(3),
                        koll: p.koll ? 1 : 0,
                        endeX: +P.pos.x.toFixed(2), endeY: +P.pos.y.toFixed(2),
                        endeZ: +P.pos.z.toFixed(2),

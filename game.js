@@ -17206,6 +17206,27 @@ function updatePlayer(dt) {
        an der Fassade, obwohl man stand. */
     player.wandlauf = player.wandSchwung > 1.5 && (Math.abs(up) + Math.abs(side)) > 0.05;
     player.vel.set(tx * querTempo, hoch, tz * querTempo);
+    /* ---- Was hier NICHT funktioniert hat (problem-2, Punkt A.2) ----
+       Eine Schauseite kann an ihrem Ende im Nachbarhaus stecken:
+       gemessen haengt die Figur 0,15 m vor der Ostwand von Kollider 45
+       (x = -305,335), und Kollider 69 beginnt bei x = -305,330. Sie
+       kriecht von einem freien Abschnitt aus seitlich hinein und steht
+       dann IM Nachbarn - 58 bzw. 43 Bilder in der Stetigkeitsmessung.
+
+       Drei Fassungen wurden gemessen, alle drei DEUTLICH schlechter:
+
+         herausschieben        Ortssprung 19,795 m in einem Bild,
+                               Flattern 0 -> 18
+         auf die letzte freie  Ortssprung 40,168 m, Figur im Gebaeude
+         Stelle zurueck        43 -> 268
+         den Schritt gar nicht Figur im Gebaeude 43 -> 893,
+         zulassen              Flattern 0 -> 24
+
+       Der gemeinsame Grund: die Seitwaertsbewegung an der Wand haengt
+       an der Naht-Uebergabe aus Punkt A. Wer sie anhaelt oder versetzt,
+       bringt die Uebergabe ins Flattern. Der Befund bleibt offen und
+       benannt; er gehoert zusammen mit der Uebergabe entschieden, nicht
+       daneben. */
     player.pos.addScaledVector(player.vel, dt);
     /* Vorsprünge beim Klettern: Gesims, Vordach oder Feuerleiter ragen aus
        der Fassade heraus. Vorher steckte die Figur mit dem Oberkörper darin
@@ -17388,6 +17409,33 @@ function updatePlayer(dt) {
     // seitlich begrenzen
     if (w.nx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.2, c.z1 - 0.2);
     else player.pos.x = clamp(player.pos.x, c.x0 + 0.2, c.x1 - 0.2);
+    /* ---- Offener Befund: vergrabene Wandabschnitte (problem-2, A.2) ----
+       Eine Schauseite kann an einem Ende hinter einem anderen Baukoerper
+       liegen: gemessen Kollider 52, Schauseite nz = -1 bei z = -243,835,
+       davor Kollider 45 bis z = -243,830. Ueber den ECHTEN Eingabeweg
+       (Anlauf auf der Strasse, normales Ankleben, klettern, seitwaerts)
+       sind das 415 Bilder mit weniger als 0,60 m Platz vor der Wand und
+       576 Bilder im Nachbargebaeude. Der Eintritt geschieht auf genau
+       eine Art: "seitwaerts auf derselben Flaeche", von 2 m freiem Platz
+       auf 0,1 m.
+
+       Fuenf Fassungen sind gemessen und alle zurueckgenommen:
+
+         herausschieben              Ortssprung 19,795 m in einem Bild
+         letzte freie Stelle         Ortssprung 40,168 m, im Gebaeude
+                                     43 -> 268
+         Schritt nicht zulassen      im Gebaeude 43 -> 893, Flattern
+                                     0 -> 24
+         Ecke ohne Platz sperren     ohne Platz 415 -> 588
+         auf den freien Abschnitt    ohne Wirkung (415 -> 415): das
+         klemmen                     Fenster wird leer und faellt auf
+                                     die alte Klemmung zurueck
+
+       Der gemeinsame Grund: diese Klemmung arbeitet mit der Flaeche, die
+       die Naht-Uebergabe aus Punkt A gerade gesetzt hat. Wer hier
+       eingreift, greift in die Uebergabe ein - und die ist LOCKED. Der
+       Befund gehoert zusammen mit ihr entschieden, nicht daneben. */
+
     /* ---- Der Eckbogen hat das letzte Wort ----
        Er laeuft nach den seitlichen Klemmwerten, sonst zoege ihn die
        Begrenzung der ALTEN Flaeche wieder zurueck. */
@@ -36979,7 +37027,15 @@ if (window.__WEBHERO_TEST__ === true) {
               player.pos.z > n.z0 + 0.02 && player.pos.z < n.z1 - 0.02 &&
               py > y0 + 0.02 && py < n.h - 0.02) {
             drin++;
-            if (!drinWer) drinWer = { id: n.id, hoehe,
+            /* Was genau steckt da? Eine eigene Dachkrone ist etwas
+               anderes als das Nachbarhaus - die erste ragt aus der
+               bekletterten Fassade heraus, das zweite steht davor
+               (problem-2, Punkt A.2). */
+            if (!drinWer) drinWer = { id: n.id, hoehe, krone: !!n.krone,
+              eigene: !!(c && n !== c && Math.abs(n.x0 - c.x0) < 0.6 &&
+                         Math.abs(n.x1 - c.x1) < 0.6 &&
+                         Math.abs(n.z0 - c.z0) < 0.6 &&
+                         Math.abs(n.z1 - c.z1) < 0.6),
               x: [+n.x0.toFixed(2), +n.x1.toFixed(2)],
               z: [+n.z0.toFixed(2), +n.z1.toFixed(2)],
               y: [+(y0).toFixed(2), +(n.h || 0).toFixed(2)] };
