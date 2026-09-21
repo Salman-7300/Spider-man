@@ -24,12 +24,13 @@
 const { starte } = require('./basis');
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
-/* "alt" misst den Stand vor der Sprungdaempfung der Kamera. */
+/* "alt" misst den Stand vor der Korrektur des Strahlanfangs
+   (problem-2, Punkt A.1). */
 const ALT = process.argv.indexOf('alt') > 0;
 
 (async () => {
   const { b, page } = await starte(900, 540, SEED,
-    ALT ? { kamSprungAlt: true } : {});
+    ALT ? { kamEngAlt: true } : {});
   const aus = await page.evaluate(async () => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
@@ -112,7 +113,17 @@ const ALT = process.argv.indexOf('alt') > 0;
     /* Aus einer Reihe die Spruenge von Bild zu Bild ziehen. */
     function werte(reihe) {
       let posMax = 0, wandMax = 0, kamMax = 0, blickMax = 0, abstMax = 0;
-      let flattern = 0, normalen = 0, wechsel = 0, imHaus = 0;
+      let flattern = 0, normalen = 0, wechsel = 0, imHaus = 0, kamDrin = 0;
+      /* Der Human-Befund ist "die Kamera klebt an der Figur". Das ist
+         genau der Fall, in dem der freie Anteil auf null faellt. Er
+         wird nach der Ursache getrennt gezaehlt:
+           frei    der Blickpunkt steht neben dem Hindernis - das ist
+                   der Kamerafehler und muss null werden
+           imHaus  der Blickpunkt steckt IM Hindernis - dann ist schon
+                   die Figur im Gebaeude, ein anderer Fehler
+           Boden   Strasse oder Dach unter der Kamera */
+      let zuFrei = 0, zuImHaus = 0, zuBoden = 0;
+      let zuFreiBsp = null;
       let drinBsp = null;
       let schlimmste = null, schlimmsteKam = null;
       const gesehen = [];
@@ -145,6 +156,16 @@ const ALT = process.argv.indexOf('alt') > 0;
             flattern++;
         }
         if (c.nx !== a.nx || c.nz !== a.nz) normalen++;
+        if (c.kamSteckt) kamDrin++;
+        if (c.block && c.block.geklemmt <= 0.001) {
+          if (!c.block.blocker) zuBoden++;
+          else if (c.block.blocker.luft > 0) {
+            zuFrei++;
+            if (!zuFreiBsp) zuFreiBsp = { i, pos: c.pos, koll: c.koll,
+                                          nx: c.nx, nz: c.nz, block: c.block };
+          }
+          else zuImHaus++;
+        }
         if (c.imHaus) { imHaus++; if (!drinBsp) drinBsp = { pos: c.pos, koll: c.koll,
                                                            wer: c.drinWer }; }
       }
@@ -154,6 +175,9 @@ const ALT = process.argv.indexOf('alt') > 0;
                abstSprung: +abstMax.toFixed(4),
                flaechenWechsel: wechsel, surfaceOscillation: flattern,
                normalenWechsel: normalen, playerInsideBuilding: imHaus,
+               kameraImHindernis: kamDrin,
+               kameraZuFrei: zuFrei, kameraZuImHaus: zuImHaus,
+               kameraZuBoden: zuBoden, zuFreiBsp,
                schlimmste, schlimmsteKam };
     }
 
@@ -230,6 +254,11 @@ const ALT = process.argv.indexOf('alt') > 0;
                surfaceOscillation: sum('surfaceOscillation'),
                normalenWechsel: sum('normalenWechsel'),
                playerInsideBuilding: sum('playerInsideBuilding'),
+               kameraImHindernis: sum('kameraImHindernis'),
+               kameraZuFrei: sum('kameraZuFrei'),
+               kameraZuImHaus: sum('kameraZuImHaus'),
+               kameraZuBoden: sum('kameraZuBoden'),
+               zuFreiBsp: (liste.find((x) => x.zuFreiBsp) || {}).zuFreiBsp,
                drinBsp: (liste.find((x) => x.drinBsp) || {}).drinBsp };
     };
     return { kontrolle: fasse(kontrolle), uebergang: fasse(uebergang), drinRoh, drinGes };
@@ -248,6 +277,11 @@ const ALT = process.argv.indexOf('alt') > 0;
     console.log('  surfaceOscillation         ' + w.surfaceOscillation);
     console.log('  Normalenwechsel            ' + w.normalenWechsel);
     console.log('  playerInsideBuilding       ' + w.playerInsideBuilding);
+    console.log('  Kamera in einem Hindernis  ' + w.kameraImHindernis);
+    console.log('  Kamera klebt, Punkt frei   ' + w.kameraZuFrei);
+    console.log('  Kamera klebt, Punkt im Haus' + w.kameraZuImHaus);
+    console.log('  Kamera klebt, Boden im Weg ' + w.kameraZuBoden);
+    if (w.zuFreiBsp) console.log('    Beispiel: ' + JSON.stringify(w.zuFreiBsp));
     if (w.drinBsp) console.log('    Beispiel: ' + JSON.stringify(w.drinBsp));
     if (w.schlimmsteKam) {
       console.log('  groesster KAMERAsprung im Bild ' + w.schlimmsteKam.i + ':');

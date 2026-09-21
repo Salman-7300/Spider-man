@@ -13514,20 +13514,67 @@ let vorausGlatt = 0; // wie weit der Blickpunkt vorauswandert
 let kamFrei = 6;     // geglaettete freie Sichtweite hinter der Figur
 let kamZwang = 0;    // nur für Tests: feste Kameraentfernung
 const KAMERA_RADIUS = 0.30;
+/* Zum Vergleichen: Strahlstart in der aufgeblasenen Huelle zieht die
+   Kamera wie frueher auf null. */
+const KAM_ENG_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMENG_ALT;
 const _kameraAnker = new THREE.Vector3();
 const _kameraKandidaten = new Set();
 const _kameraProbe = new THREE.Vector3(), _kameraRichtung = new THREE.Vector3();
 const _kameraBeste = new THREE.Vector3();
 
+/* Steckt ein Punkt in irgendeinem Kollider? Ohne Filter, weil auch die
+   Kamerapruefung selbst keinen benutzt. */
+function punktSteckt(x, y, z, ausser) {
+  /* Ueber colliderGrid statt collidersNear: die Kamerapruefung selbst
+     liest dasselbe Raster, und die Offline-Tests stellen nur dieses
+     bereit. */
+  const i = Math.floor((x - HASH_O) / PITCH), j = Math.floor((z - HASH_O) / PITCH);
+  for (const c of colliderGrid.get(i + ',' + j) || []) {
+    if (c === ausser) continue;
+    const y0 = c.y0 === undefined ? -1e9 : c.y0;
+    if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1 && y > y0 && y < (c.h || 0))
+      return true;
+  }
+  return false;
+}
+
 function kameraWandAnker(anker, wand) {
-  if (!wand || !wand.col || anker.y > wand.col.h + KAMERA_RADIUS) return;
+  if (!wand || !wand.col) { KAM_BLOCK.ankerAus = 'keine Wand'; return; }
+  if (anker.y > wand.col.h + KAMERA_RADIUS) { KAM_BLOCK.ankerAus = 'ueber der Wand'; return; }
+  KAM_BLOCK.ankerAus = null;
   const c = wand.col, abstand = KAMERA_RADIUS + 0.05;
   // The climbing gap can be smaller than the camera radius. Keep the
   // camera pivot outside that expanded wall; never ignore the wall itself.
-  if (wand.nx > 0) anker.x = Math.max(anker.x, c.x1 + abstand);
-  if (wand.nx < 0) anker.x = Math.min(anker.x, c.x0 - abstand);
-  if (wand.nz > 0) anker.z = Math.max(anker.z, c.z1 + abstand);
-  if (wand.nz < 0) anker.z = Math.min(anker.z, c.z0 - abstand);
+  /* ---- Aber nicht in den Nachbarn hinein ----
+     problem-2, Punkt A.1. In einer Zeile stehen die Haeuser buendig.
+     Dreht die Figur um die Aussenecke, zeigt die Kletternormale genau
+     auf das Nachbarhaus - und der Schub nach vorne setzte den
+     Blickpunkt MITTEN in dessen Kollider. Gemessen: Anker bei
+     x = -294,94 im Kasten 7, der bei x = -295,28 beginnt; der Strahl
+     hatte danach keine freie Richtung mehr, in KEINE Himmelsrichtung,
+     und die Kamera fiel auf den Kopf der Figur.
+     Der Schub gilt deshalb nur, solange der Zielpunkt frei ist. Ist er
+     es nicht, bleibt der Anker, wo er war - dort steht er zwar dicht an
+     der Wand, aber im Freien, und kameraFreierAnteil kommt damit
+     zurecht. */
+  const schiebe = (achse, wert) => {
+    if (KAM_ENG_ALT) { anker[achse] = wert; return; }
+    const px = achse === 'x' ? wert : anker.x;
+    const pz = achse === 'z' ? wert : anker.z;
+    if (!punktSteckt(px, anker.y, pz, c)) anker[achse] = wert;
+  };
+  if (wand.nx > 0 && anker.x < c.x1 + abstand) schiebe('x', c.x1 + abstand);
+  if (wand.nx < 0 && anker.x > c.x0 - abstand) schiebe('x', c.x0 - abstand);
+  if (wand.nz > 0 && anker.z < c.z1 + abstand) schiebe('z', c.z1 + abstand);
+  if (wand.nz < 0 && anker.z > c.z0 - abstand) schiebe('z', c.z0 - abstand);
+  /* ---- Was hier NICHT hilft ----
+     Ein erster Versuch schob den Ankerpunkt zusaetzlich vor JEDE
+     benachbarte Wand. Gemessen hat er nichts geaendert: Kamerasprung
+     6,4053 m vorher wie nachher, auf die Nachkommastelle gleich. Der
+     Grund steht in kameraFreierAnteil - der Strahl scheiterte nicht am
+     Anker, sondern daran, dass sein Startpunkt in der um den
+     Kameraradius aufgeblasenen Huelle des Nachbarn lag. Der Versuch ist
+     deshalb zurueckgenommen. */
 }
 
 function kameraWandRichtung(target, dir, distanz, wand) {
@@ -13638,8 +13685,35 @@ function innenKamAusweichen(target, dir, dist, dt) {
   dir.set(Math.sin(y) * Math.cos(p2), Math.sin(p2), Math.cos(y) * Math.cos(p2));
 }
 
+/* Wie weit steht ein Punkt neben einem Kollisionskasten? Null heisst:
+   der Punkt liegt im Kasten.
+
+   Gezaehlt wird der GROESSTE Achsabstand, nicht der Luftlinienabstand.
+   Der Kasten wird fuer die Kamera achsweise aufgeblasen; ein Punkt
+   liegt also genau dann ausserhalb der aufgeblasenen Huelle, wenn er
+   auf MINDESTENS einer Achse weiter weg ist als der Radius. Mit der
+   Luftlinie gemessen war der erste Versuch wirkungslos: 0,15 m in x und
+   0,20 m in z ergeben 0,25 m Luftlinie, der Punkt liegt bei einem
+   Radius von 0,23 m aber trotzdem noch in der Huelle. */
+function kastenLuft(x, y, z, c) {
+  const y0 = c.y0 === undefined ? -1e9 : c.y0;
+  return Math.max(Math.max(c.x0 - x, 0, x - c.x1),
+                  Math.max(y0 - y, 0, y - (c.h || 0)),
+                  Math.max(c.z0 - z, 0, z - c.z1));
+}
+
 /* Wer hat die Kamera zuletzt eingeengt? Nur fuer die Fehlersuche. */
-const KAM_BLOCK = { wer: null, grund: null, wunsch: 0, geklemmt: 0 };
+const KAM_BLOCK = { wer: null, grund: null, wunsch: 0, geklemmt: 0,
+                    /* Der Blockierer des HAUPTstrahls. kameraFreierAnteil
+                       laeuft im selben Bild mehrfach - zuletzt fuer die
+                       kurze Strecke in begrenzeKamera(). Ohne diese
+                       Kopie meldete die Fehlersuche den Blockierer des
+                       LETZTEN Strahls zu der Weite des ersten; zwei
+                       angebliche Restfaelle waren nur das. */
+                    hauptWer: null, hauptGrund: null,
+                    /* Anfang und Ende des zuletzt geprueften Strahls. Feste
+                       Felder statt neuer Listen je Bild. */
+                    von: [0, 0, 0], nach: [0, 0, 0], ankerAus: null };
 function kameraFreierAnteil(von, nach) {
   const laenge = von.distanceTo(nach);
   if (laenge < 1e-8) return 1;
@@ -13655,7 +13729,24 @@ function kameraFreierAnteil(von, nach) {
     for (const c of colliderGrid.get(i + ',' + j) || []) {
       if (_kameraKandidaten.has(c)) continue;
       _kameraKandidaten.add(c);
-      const treffer = kameraKastenTreffer(von, nach, c, r);
+      let treffer = kameraKastenTreffer(von, nach, c, r);
+      /* ---- Der Strahl beginnt neben der Wand, nicht IN ihr ----
+         problem-2, Punkt A.1. Der Kasten wird um den Kameraradius von
+         0,30 m aufgeblasen. Beim Klettern steht die Figur aber nur
+         0,15 m vor der Fassade, und an einer Zeilennaht steht der
+         hoehere Nachbar gemessen 0,254 m neben dem Blickpunkt. Der
+         Startpunkt liegt damit IN der aufgeblasenen Huelle, der Treffer
+         ist null, und die Kamera faellt vollstaendig auf den Kopf der
+         Figur zusammen - im Bild das "Ankleben" aus dem Human-Video.
+
+         Fuer genau diesen Kasten gilt deshalb der Abstand, den der
+         Blickpunkt ohnehin schon hat, als Radius: die Kamera darf so
+         dicht heran wie die Figur selbst steht, aber keinen Zentimeter
+         dichter. In den Kasten hinein kommt sie weiterhin nicht. */
+      if (treffer <= 0 && !KAM_ENG_ALT) {
+        const luft = kastenLuft(von.x, von.y, von.z, c);
+        if (luft > 1e-4) treffer = kameraKastenTreffer(von, nach, c, Math.min(r, luft * 0.9));
+      }
       if (treffer < 1) {
         const neuFrei = Math.max(0, treffer - 0.04 / laenge);
         /* Wer engt die Sicht am staerksten ein? Fuer die Fehlersuche
@@ -13817,7 +13908,10 @@ function updateCamera(dt) {
   const desired = _v3.copy(target).addScaledVector(dir, camDist);
   const d = camDist * kameraFreierAnteil(target, desired);
   KAM_BLOCK.wunsch = camDist; KAM_BLOCK.geklemmt = d;
-  KAM_BLOCK.eigene = !!(wand && wand.col && KAM_BLOCK.wer === wand.col);
+  KAM_BLOCK.hauptWer = KAM_BLOCK.wer; KAM_BLOCK.hauptGrund = KAM_BLOCK.grund;
+  KAM_BLOCK.von[0] = target.x; KAM_BLOCK.von[1] = target.y; KAM_BLOCK.von[2] = target.z;
+  KAM_BLOCK.nach[0] = desired.x; KAM_BLOCK.nach[1] = desired.y; KAM_BLOCK.nach[2] = desired.z;
+  KAM_BLOCK.eigene = !!(wand && wand.col && KAM_BLOCK.hauptWer === wand.col);
   /* Bei einem Hindernis sofort davor bleiben, bei freier Sicht sanft
      herausfahren. Die endgueltige Lage wird NACH dem Glaetten geprueft. */
   /* ---- Warum hier NICHT geglaettet wird ----
@@ -36638,12 +36732,12 @@ if (window.__WEBHERO_TEST__ === true) {
        nicht nur als Eindruck. */
     /* Was engt die Kletterkamera ein? (problem-2, Punkt A.1) */
     kamBlock() {
-      const c = KAM_BLOCK.wer;
+      const c = KAM_BLOCK.hauptWer;
       const w = player.wallInfo || player.wall;
       return {
         wunsch: +KAM_BLOCK.wunsch.toFixed(3),
         geklemmt: +KAM_BLOCK.geklemmt.toFixed(3),
-        grund: KAM_BLOCK.grund,
+        grund: KAM_BLOCK.hauptGrund,
         eigeneWand: !!KAM_BLOCK.eigene,
         kletterFlaeche: w && w.col ? w.col.id : null,
         blocker: c ? { id: c.id, klein: !!c.klein, krone: !!c.krone,
@@ -36651,7 +36745,12 @@ if (window.__WEBHERO_TEST__ === true) {
                        x: [+c.x0.toFixed(2), +c.x1.toFixed(2)],
                        z: [+c.z0.toFixed(2), +c.z1.toFixed(2)],
                        y: [+(c.y0 === undefined ? -999 : c.y0).toFixed(2),
-                           +(c.h || 0).toFixed(2)] } : null,
+                           +(c.h || 0).toFixed(2)],
+                       luft: +kastenLuft(KAM_BLOCK.von[0], KAM_BLOCK.von[1],
+                                         KAM_BLOCK.von[2], c).toFixed(4) } : null,
+        ankerAus: KAM_BLOCK.ankerAus,
+        von: KAM_BLOCK.von.map((v) => +v.toFixed(3)),
+        nach: KAM_BLOCK.nach.map((v) => +v.toFixed(3)),
       };
     },
     kamera() {

@@ -1555,6 +1555,118 @@ Videos (55 s und 115 s), alle ausgewertet.
 
 ---
 
+## 6l. Human-Playtest problem-2
+
+Drei Befunde aus dem zweiten Spieltest: (A) der Wechsel von Haus zu Haus
+ruckelt, (B) Dachaufbauten sind weiter durchlaessig, (C) die Haltung beim
+Gleiten mit W stimmt nicht. Reihenfolge wie bestellt, ein Punkt nach dem
+anderen.
+
+Die Regel dieses Durchgangs steht ueber allem: **ein gruener Pruefstand
+ueberschreibt den Human-Befund nicht.** Widersprechen sich Video und
+Test, wird zuerst gesucht, WAS der Test nicht misst.
+
+### Punkt A: der Ruck beim Wechsel auf das Nachbarhaus
+
+Gemessen wurde Bild fuer Bild ueber den echten Eingabeweg
+(`tools/pruef/kletterstetigkeit.js`). Die Figur wurde an einer echten
+Aussenecke in EINEM Bild auf die neue Wandebene gesetzt: 0,15 m
+Kletterabstand vor der alten Flaeche plus 0,35 m, um die der Klemmwert
+sie hinter die neue Kante zieht - zusammen die 0,50 m, die in der
+Messung standen.
+
+Statt des Sprungs laeuft die Figur jetzt einen Bogen um die Kante, mit
+dem bereits vorhandenen `WAND_ECK_ZEIT` als Dauer und erhaltener
+Tangentialgeschwindigkeit.
+
+| Messung | vorher | nachher |
+| --- | --- | --- |
+| Ortssprung an der Ecke | 0,5042 m | 0,0646 m |
+| Ortssprung an der Naht | 0,48 m | 0,0647 m |
+| Ortssprung ueber vier Ecken | 1,466 m | 0,274 m |
+
+`zeilenuebergang.js` blieb dabei unveraendert gruen (221 von 221
+Uebergaben, 150 von 150 Aussenecken erkannt).
+
+### Punkt A.1: die Kletterkamera klebt an der Figur
+
+Der Human-Befund nach Punkt A: beim Klettern klebt die Kamera an der
+Figur und zeigt fast nur noch Wand.
+
+**Was der erste Pruefstand nicht gemessen hat.** `kletterkamera.js`
+stellte die Figur an eine freie Fassade, an eine Aussenecke, in eine
+enge Gasse und tief an die Wand - in allen vier Lagen blieb der Abstand
+bei 6,4 m, kein einziges Bild eingeengt. Die Lage aus dem Video ist eine
+fuenfte: dicht unter der Dachkante eines NIEDRIGEN Hauses, dessen
+hoeherer Nachbar buendig danebensteht. Dort klemmt es, und zwar in
+**90 von 90 Bildern auf 0 m**.
+
+**Die Ursache, nachgerechnet.** Fuer die Sichtpruefung wird jeder
+Kollisionskasten um den Kameraradius von 0,30 m aufgeblasen. Beim
+Klettern steht die Figur aber nur 0,15 m vor der Fassade, und an der
+Naht steht der hoehere Nachbar gemessen 0,195 m neben dem Blickpunkt.
+Der Startpunkt des Strahls liegt damit IN der aufgeblasenen Huelle, der
+Treffer ist null - und zwar in JEDE Richtung. Die Kamera faellt
+vollstaendig auf den Kopf der Figur; `lookAt` bekommt den eigenen
+Standort und liefert die Einheitsdrehung, im Protokoll als Blick
+`(0,0,-1)` zu erkennen.
+
+`kameraWandAnker` haette den Blickpunkt vor die Wand schieben sollen,
+steigt aber aus, sobald der Punkt ueber der Oberkante der bekletterten
+Wand liegt (`ankerAus: "ueber der Wand"`) - genau der Fall dicht unter
+der Dachkante.
+
+**Der Ausweg.** Fuer einen Kasten, in dessen Huelle der Blickpunkt schon
+steht, gilt der Abstand, den der Blickpunkt ohnehin hat, als Radius: die
+Kamera darf so dicht heran wie die Figur selbst steht, aber keinen
+Zentimeter dichter. In den Kasten hinein kommt sie weiterhin nicht,
+`begrenzeKamera()` bleibt in Kraft.
+
+**Zweite Ursache, beim Nachmessen gefunden.** In einer Zeile stehen die
+Haeuser buendig. Dreht die Figur um die Aussenecke, zeigt die
+Kletternormale auf das Nachbarhaus, und der Schub von `kameraWandAnker`
+setzte den Blickpunkt MITTEN in dessen Kollider (Anker bei x = -294,94
+im Kasten, der bei x = -295,28 beginnt). Der Schub gilt jetzt nur noch,
+solange der Zielpunkt frei ist.
+
+| Messung (Keim 4711) | vorher | nachher |
+| --- | --- | --- |
+| Naht-Lage: Bilder eingeengt | 90 von 90 | 0 von 90 |
+| Naht-Lage: Kameraabstand | 0 m | 6,4 m |
+| Kamera klebt, Blickpunkt frei (Kontrolle) | 12 | **0** |
+| Kamera klebt, Blickpunkt frei (Uebergang) | 27 | **0** |
+| freie Fassade / eng / tief / Ecke | 6,4 m | 6,4 m |
+| Bildschirmfoto an der Naht | Wand, keine Figur | Figur und Stadt |
+
+### Zwei eigene Messfehler in Punkt A.1
+
+* Der erste Versuch schob den Ankerpunkt zusaetzlich vor JEDE
+  benachbarte Wand. Er hat **nichts** geaendert - Kamerasprung 6,4053 m
+  vorher wie nachher, auf die Nachkommastelle gleich. Zurueckgenommen.
+* Der zweite Versuch rechnete den Abstand zum Kasten als Luftlinie. Der
+  Kasten wird aber achsweise aufgeblasen: 0,15 m in x und 0,20 m in z
+  ergeben 0,25 m Luftlinie, der Punkt liegt bei einem Radius von 0,23 m
+  aber trotzdem noch in der Huelle. Richtig ist der groesste
+  Achsabstand.
+* `kamBlock()` meldete den Blockierer des ZULETZT geprueften Strahls zu
+  der Weite des ERSTEN - `kameraFreierAnteil` laeuft im selben Bild
+  mehrfach, zuletzt fuer die kurze Strecke in `begrenzeKamera()`. Zwei
+  angebliche Restfaelle waren nur das. Der Hauptstrahl merkt sich seinen
+  Blockierer jetzt selbst.
+
+### Was in Punkt A.1 offen bleibt
+
+In 58 (Kontrolle) und 43 (Uebergang) Bildern steckt der Blickpunkt
+wirklich IM Gebaeude - genau die Bilder, in denen auch
+`playerInsideBuilding` anschlaegt. Dort steht schon die FIGUR im
+Nachbarhaus, weil zwei Haeuser einer Zeile buendig aneinandergrenzen
+(Kollider 32 endet bei x = -305,335, Kollider 49 beginnt bei
+x = -305,330). Von der Kamera aus ist das nicht zu heilen: ein
+Blickpunkt ohne Luft hat keine freie Richtung. Das ist ein eigener
+Befund an der Kletterflaeche, nicht an der Kamera, und bleibt notiert.
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,
