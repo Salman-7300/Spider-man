@@ -1731,43 +1731,50 @@ aber am Rand: der Landepunkt ist frei, der WEG dorthin nicht. Ein
 vollstaendiger Test des Weges hiesse, die Kante-Bewegung neu zu bauen;
 das gehoert gemessen und einzeln entschieden, nicht nebenbei.
 
-### Punkt C: die Haltung im Gleitflug mit W - Vorschlaege, noch keine Wahl
+### Punkt C: die Haltung im Gleitflug mit W
 
 Der Befund betrifft nicht mehr das Umschalten (das ist problem-1 Punkt 7)
 sondern das Aussehen. Das ist keine Zahl, sondern eine Wahl, und sie
-gehoert dem Menschen. Vorbereitet sind drei Haltungen - derselbe Rig,
+gehoert dem Menschen. Vorgelegt wurden drei Haltungen - derselbe Rig,
 dieselbe Bewegung, nur andere Zielpunkte fuer Haende, Ellbogen, Fuesse,
 Knie und Kopf (CHARACTER LOCK):
 
-* **A** der heutige Stand: Arme weit zur Seite, Beine leicht gespreizt
+* **A** der Stand bis hierher: Arme weit zur Seite, Beine leicht gespreizt
 * **B** Deltasegel: Arme nach hinten gepfeilt, Beine geschlossen
 * **C** Sturzbereit: Arme dicht am Koerper, Kopf hoeher, Beine gestreckt
 
-`tools/pruef/gleit-haltung.js` fotografiert alle drei aus drei
-Richtungen. **Bis zur Wahl bleibt A in Kraft** - es ist nichts
-umgestellt.
+**Gewaehlt wurde B.** A und C bleiben im Quelltext stehen, damit der
+Vergleich nachvollziehbar bleibt; `tools/pruef/gleit-haltung.js`
+fotografiert alle drei aus drei Richtungen.
 
-Was der Pruefstand beim Bauen zuerst falsch gemacht hat: er hat nach 110
-Bildern ausgeloest. Da ist die Nase bei 1,0 und der Sturzflug laeuft -
-ein eigener Clip, in dem `poseGleiten` gar nicht mehr vorkommt. Alle
-drei Vorschlaege sahen deshalb gleich aus, weil keiner von ihnen zu
-sehen war. Ausgeloest wird jetzt kurz vor der Schwelle, bei Nase 0,55.
+### Zwei Messfehler beim Bauen dieses Pruefstands
 
-**Nebenbefund, unabhaengig von der Wahl.** Die Haltung steht nicht
-symmetrisch. Im koerpereigenen System, links gegen rechts:
+1. Ausgeloest wurde nach 110 Bildern. Da ist die Nase bei 1,0 und der
+   Sturzflug laeuft - ein eigener Clip, in dem `poseGleiten` gar nicht
+   mehr vorkommt. Alle drei Vorschlaege sahen gleich aus, weil keiner
+   von ihnen zu sehen war.
+2. Ausgeloest wurde, sobald die Nase 0,55 erreicht - mit W von Anfang an
+   ist das nach einer knappen Viertelsekunde. Die Gleithaltung ist dann
+   erst zu **0,52** eingeblendet (`gleitMisch`), das Haltungsgewicht
+   liegt bei 0,47, und den Rest fuehrt die Bewegungsdatei.
 
-| | A | B | C |
-| --- | --- | --- | --- |
-| Fuss, Hoehenunterschied | 0,46 m | 0,61 m | 0,62 m |
-| Fuss, laengs | 0,43 m | 0,58 m | 0,60 m |
-| Knie, Hoehenunterschied | 0,26 m | 0,39 m | 0,39 m |
+Aus Fehler 2 ist ein **Befund entstanden, der keiner war**: die Haltung
+schien schief zu stehen, ein Fuss 0,46 bis 0,62 m tiefer als der andere.
+Mit voll eingeblendeter Haltung (`gleitMisch` 0,995) gemessen:
 
-Der Atemzug erklaert davon hoechstens 0,04 m. Die Zielpunkte sind
-gespiegelt gesetzt - die Schieflage entsteht erst beim Loesen der
-Gliedkette. Geprueft und verworfen: die Haltung mit vollem Gewicht statt
-0,9 zu setzen bringt nur 0,06 m (B 0,61 -> 0,55). Die Ursache liegt also
-nicht im Ueberblenden. Das ist ein eigener Befund und wartet auf eine
-eigene Runde.
+| links gegen rechts | halb eingeblendet | voll eingeblendet |
+| --- | --- | --- |
+| Fuss, Hoehe (A / B / C) | 0,46 / 0,61 / 0,62 m | **0,03 / 0,06 / 0,06 m** |
+| Knie, Hoehe | 0,26 / 0,39 / 0,39 m | **0,12 / 0,12 / 0,13 m** |
+| Hand, Hoehe | 0,28 / 0,32 / 0,27 m | **0,01 / 0,01 / 0,02 m** |
+
+Die Haltung steht also symmetrisch; gemessen wurde eine halbe Sekunde zu
+frueh. Die Schieflage ist zurueckgezogen. Die Einblendung selbst ist in
+Ordnung: `gleitMisch` laeuft mit der Rate 6, nach gut 0,8 s ist sie
+durch.
+
+Der Pruefstand laesst jetzt erst den Gleitflug voll einblenden und
+drueckt dann W - so, wie man auch wirklich spielt.
 
 ---
 

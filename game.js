@@ -8574,7 +8574,8 @@ function makeGlbVisual(m) {
          knieQ: 0.12, knieL: -0.46, knieH: -0.06,
          kopfL: 0.20, kopfH: 0.20 },
   };
-  let GLEIT_HALTUNG = 'A';
+  let GLEIT_HALTUNG = 'B';
+  const GLEIT_SPUR = { left: null, right: null };
 
   const root = new THREE.Group();
   /* Drehreihenfolge Y-X-Z: Erst die Blickrichtung, dann die Vorlage um die
@@ -10140,6 +10141,22 @@ function makeGlbVisual(m) {
     /* Gleitpose: Arme seitlich weit ausgebreitet, Beine gespreizt und
        leicht angewinkelt. Zwischen Armen und Rumpf spannt sich später die
        Netzhaut – dafür müssen die Arme wirklich weg vom Körper stehen. */
+    /* Nur fuer die Fehlersuche: die zuletzt gesetzten Zielpunkte der
+       Beine, im koerpereigenen System. */
+    gleitSpur() {
+      root.updateMatrixWorld(true);
+      const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+      const aus = {};
+      for (const side of ['left', 'right']) {
+        const e = GLEIT_SPUR[side];
+        if (!e) continue;
+        const f = e.fuss.clone().applyMatrix4(inv), k = e.knie.clone().applyMatrix4(inv);
+        aus[side] = { sign: e.sign, hat: e.hat,
+                      fuss: [+f.x.toFixed(3), +f.y.toFixed(3), +f.z.toFixed(3)],
+                      knie: [+k.x.toFixed(3), +k.y.toFixed(3), +k.z.toFixed(3)] };
+      }
+      return aus;
+    },
     /* Welche der drei Haltungen gilt? Nur fuer den Vergleich der
        Vorschlaege, im Spiel steht sie auf A. */
     setzeGleitHaltung(v) { if (GLEIT_HALTUNGEN[v]) GLEIT_HALTUNG = v; },
@@ -10177,11 +10194,15 @@ function makeGlbVisual(m) {
         if (!upper || !arm) continue;
         const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
         const H = GLEIT_HALTUNGEN[GLEIT_HALTUNG] || GLEIT_HALTUNGEN.A;
+        const fussZiel = hip.clone().addScaledVector(flight, H.fussL)
+          .addScaledVector(right, sign * H.fussQ)
+          .addScaledVector(up, H.fussH + breathe * sign);
+        const knieZiel = hip.clone().addScaledVector(flight, H.knieL)
+          .addScaledVector(right, sign * H.knieQ).addScaledVector(up, H.knieH);
+        GLEIT_SPUR[side] = { sign, fuss: fussZiel.clone(), knie: knieZiel.clone(),
+                             hat: !!(knochen[side + 'leg'] && knochen[side + 'foot']) };
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
-          hip.clone().addScaledVector(flight, H.fussL).addScaledVector(right, sign * H.fussQ)
-            .addScaledVector(up, H.fussH + breathe * sign),
-          hip.clone().addScaledVector(flight, H.knieL).addScaledVector(right, sign * H.knieQ)
-            .addScaledVector(up, H.knieH), w);
+          fussZiel, knieZiel, w);
         drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
         root.updateMatrixWorld(true);
         const shoulder = arm.getWorldPosition(new THREE.Vector3());
@@ -36899,6 +36920,9 @@ if (window.__WEBHERO_TEST__ === true) {
     },
     gleitHaltung() {
       return heroVisual && heroVisual.gleitHaltung ? heroVisual.gleitHaltung() : 'A';
+    },
+    gleitSpur() {
+      return heroVisual && heroVisual.gleitSpur ? heroVisual.gleitSpur() : {};
     },
     setzeGrafik(v) { EINST.grafik = v; wendeGrafikAn(); },
     setzeBrueckenSog(v) { BRUECKEN_SOG = v; },

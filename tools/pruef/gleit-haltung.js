@@ -53,15 +53,28 @@ const RICHTUNGEN = [
       P.vel.set(0, 0, 18);
       P.facing = 0; P.state = 'air'; P.onGround = false;
       P.gleiten = false; P.gleitMisch = 0; P.gleitNase = 0; P.gleitKurve = 0;
-      d.taste('ShiftLeft', true); d.taste('KeyW', true);
+      d.taste('ShiftLeft', true);
       /* ---- Den richtigen Augenblick treffen ----
-         Wer W lange genug haelt, landet im Sturzflug, und der ist ein
-         eigener Clip - poseGleiten kommt dort gar nicht mehr vor. Der
-         erste Versuch fotografierte genau das: alle drei Vorschlaege
-         sahen gleich aus, weil keiner von ihnen zu sehen war.
-         Gesucht ist der Gleitflug MIT W, also kurz vor der Schwelle. */
+         Zwei Fallen stecken hier, beide beim Bauen hineingelaufen:
+
+         1. Wer W lange genug haelt, landet im Sturzflug, und der ist
+            ein eigener Clip - poseGleiten kommt dort gar nicht mehr
+            vor. Der erste Versuch fotografierte genau das: alle drei
+            Vorschlaege sahen gleich aus, weil keiner zu sehen war.
+         2. Wer sofort W drueckt, fotografiert die Haltung, waehrend sie
+            erst zur Haelfte eingeblendet ist (gemessen gleitMisch
+            0,52, Haltungsgewicht also 0,47) - den Rest fuehrt die
+            Bewegungsdatei, und die steht schief. Das sah aus wie ein
+            Fehler der Haltung und war keiner.
+
+         Deshalb: erst den Gleitflug voll einblenden lassen, dann W. */
       let i = 0;
-      while (i < 240) {
+      while (i < 300) {
+        d.schritt(1 / 60); i++;
+        if (P.gleiten && (P.gleitMisch || 0) >= 0.99) break;
+      }
+      d.taste('KeyW', true);
+      while (i < 540) {
         d.schritt(1 / 60); i++;
         if (P.gleiten && !P.sturzflug && (P.gleitNase || 0) >= 0.55) break;
       }
@@ -85,7 +98,9 @@ const RICHTUNGEN = [
                          laengs: +(kn[l].z - kn[r].z).toFixed(3) };
       }
       const gew = d.animGewichte ? d.animGewichte() : {};
-      return { pos: [P.pos.x, P.pos.y, P.pos.z], bild: i, schief, gew,
+      const spur = d.gleitSpur ? d.gleitSpur() : {};
+      return { pos: [P.pos.x, P.pos.y, P.pos.z], bild: i, schief, gew, spur,
+               knochen: kn, misch: +(P.gleitMisch || 0).toFixed(3),
                nase: +(P.gleitNase || 0).toFixed(2), sturzflug: !!P.sturzflug,
                anim: P.anim, sinken: +P.vel.y.toFixed(1),
                tempo: +Math.hypot(P.vel.x, P.vel.z).toFixed(1) };
@@ -108,7 +123,12 @@ const RICHTUNGEN = [
                 '  Bewegung ' + String(mess.anim).padEnd(10) +
                 '  Sinken ' + String(mess.sinken).padStart(6) +
                 '  Tempo ' + String(mess.tempo).padStart(5));
+    console.log('      gleitMisch ' + mess.misch +
+                '   (Haltungsgewicht = 0,9 mal gleitMisch)');
     console.log('      Gewichte ' + JSON.stringify(mess.gew));
+    console.log('      Zielpunkte ' + JSON.stringify(mess.spur));
+    console.log('      Fuesse ist  links ' + JSON.stringify(mess.knochen.leftfoot) +
+                '  rechts ' + JSON.stringify(mess.knochen.rightfoot));
     console.log('      Schieflage links gegen rechts (quer / hoch / laengs):');
     for (const [name, v] of Object.entries(mess.schief))
       console.log('        ' + name.padEnd(6) +
