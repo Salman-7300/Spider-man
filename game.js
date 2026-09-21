@@ -13638,6 +13638,8 @@ function innenKamAusweichen(target, dir, dist, dt) {
   dir.set(Math.sin(y) * Math.cos(p2), Math.sin(p2), Math.cos(y) * Math.cos(p2));
 }
 
+/* Wer hat die Kamera zuletzt eingeengt? Nur fuer die Fehlersuche. */
+const KAM_BLOCK = { wer: null, grund: null, wunsch: 0, geklemmt: 0 };
 function kameraFreierAnteil(von, nach) {
   const laenge = von.distanceTo(nach);
   if (laenge < 1e-8) return 1;
@@ -13648,12 +13650,19 @@ function kameraFreierAnteil(von, nach) {
   const j1 = Math.floor((Math.max(von.z, nach.z) + r - HASH_O) / PITCH);
   _kameraKandidaten.clear();
   let frei = 1;
+  KAM_BLOCK.wer = null; KAM_BLOCK.grund = null;
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
     for (const c of colliderGrid.get(i + ',' + j) || []) {
       if (_kameraKandidaten.has(c)) continue;
       _kameraKandidaten.add(c);
       const treffer = kameraKastenTreffer(von, nach, c, r);
-      if (treffer < 1) frei = Math.min(frei, Math.max(0, treffer - 0.04 / laenge));
+      if (treffer < 1) {
+        const neuFrei = Math.max(0, treffer - 0.04 / laenge);
+        /* Wer engt die Sicht am staerksten ein? Fuer die Fehlersuche
+           muss der Blockierer BENANNT werden koennen, nicht nur "die
+           Sicht ist versperrt" (problem-2, Punkt A.1). */
+        if (neuFrei < frei) { frei = neuFrei; KAM_BLOCK.wer = c; KAM_BLOCK.grund = 'kasten'; }
+      }
     }
   }
   /* Strasse, Gehweg und die bisherige Dach-Untergrenze beibehalten. */
@@ -13662,7 +13671,10 @@ function kameraFreierAnteil(von, nach) {
     const t = frei * i / schritte;
     const x = lerp(von.x, nach.x, t), y = lerp(von.y, nach.y, t), z = lerp(von.z, nach.z, t);
     const unten = Math.max(groundY(x, z, y) + r, player.onGround ? player.pos.y + 0.35 : -Infinity);
-    if (y < unten) return frei * (i - 1) / schritte;
+    if (y < unten) {
+      KAM_BLOCK.wer = null; KAM_BLOCK.grund = 'boden';
+      return frei * (i - 1) / schritte;
+    }
   }
   return frei;
 }
@@ -13804,6 +13816,8 @@ function updateCamera(dt) {
   if (MISSION_INTERIOR.active) innenKamAusweichen(target, dir, camDist, dt);
   const desired = _v3.copy(target).addScaledVector(dir, camDist);
   const d = camDist * kameraFreierAnteil(target, desired);
+  KAM_BLOCK.wunsch = camDist; KAM_BLOCK.geklemmt = d;
+  KAM_BLOCK.eigene = !!(wand && wand.col && KAM_BLOCK.wer === wand.col);
   /* Bei einem Hindernis sofort davor bleiben, bei freier Sicht sanft
      herausfahren. Die endgueltige Lage wird NACH dem Glaetten geprueft. */
   /* ---- Warum hier NICHT geglaettet wird ----
@@ -36622,6 +36636,24 @@ if (window.__WEBHERO_TEST__ === true) {
        ausdruecklich die Kamera ("wird in den Spalt gedrueckt und zeigt
        fast nur noch Wand") - das laesst sich damit als Zahl pruefen und
        nicht nur als Eindruck. */
+    /* Was engt die Kletterkamera ein? (problem-2, Punkt A.1) */
+    kamBlock() {
+      const c = KAM_BLOCK.wer;
+      const w = player.wallInfo || player.wall;
+      return {
+        wunsch: +KAM_BLOCK.wunsch.toFixed(3),
+        geklemmt: +KAM_BLOCK.geklemmt.toFixed(3),
+        grund: KAM_BLOCK.grund,
+        eigeneWand: !!KAM_BLOCK.eigene,
+        kletterFlaeche: w && w.col ? w.col.id : null,
+        blocker: c ? { id: c.id, klein: !!c.klein, krone: !!c.krone,
+                       dachProp: !!c.dachProp,
+                       x: [+c.x0.toFixed(2), +c.x1.toFixed(2)],
+                       z: [+c.z0.toFixed(2), +c.z1.toFixed(2)],
+                       y: [+(c.y0 === undefined ? -999 : c.y0).toFixed(2),
+                           +(c.h || 0).toFixed(2)] } : null,
+      };
+    },
     kamera() {
       const p = camera.position;
       let steckt = null;

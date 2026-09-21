@@ -102,7 +102,8 @@ const ALT = process.argv.indexOf('alt') > 0;
         }
         const kam = d.kamera();
         reihe.push({ ...k, kam: kam.pos, blick: kam.blick,
-                     kamAbst: kam.abstand, kamSteckt: kam.steckt });
+                     kamAbst: kam.abstand, kamSteckt: kam.steckt,
+                     block: d.kamBlock() });
       }
       d.taste(taste, false);
       return reihe;
@@ -250,8 +251,10 @@ const ALT = process.argv.indexOf('alt') > 0;
     if (w.drinBsp) console.log('    Beispiel: ' + JSON.stringify(w.drinBsp));
     if (w.schlimmsteKam) {
       console.log('  groesster KAMERAsprung im Bild ' + w.schlimmsteKam.i + ':');
-      console.log('    vor : ' + JSON.stringify(w.schlimmsteKam.vor));
-      console.log('    nach: ' + JSON.stringify(w.schlimmsteKam.nach));
+      const kurz = (e) => ({ pos: e.pos, nx: e.nx, nz: e.nz, koll: e.koll,
+                             kam: e.kam, kamAbst: e.kamAbst, block: e.block });
+      console.log('    vor : ' + JSON.stringify(kurz(w.schlimmsteKam.vor)));
+      console.log('    nach: ' + JSON.stringify(kurz(w.schlimmsteKam.nach)));
     }
     if (w.schlimmste) {
       console.log('  groesster Sprung im Bild ' + w.schlimmste.i + ':');
