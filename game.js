@@ -8537,7 +8537,45 @@ function setzeAugen(inner) {
   }
 }
 
+
 function makeGlbVisual(m) {
+  /* ---- Haltung im Gleitflug: drei Vorschlaege (problem-2, Punkt C) ----
+     Der Human-Befund betrifft nicht das Umschalten - das ist mit
+     problem-1 Punkt 7 gemessen und behoben - sondern wie die Figur im
+     Gleitflug mit W AUSSIEHT. Das ist keine Zahl, sondern eine Wahl.
+     Deshalb liegen die Zielpunkte der Glieder hier als Tabelle, und der
+     Pruefstand kann alle drei nebeneinander fotografieren.
+  
+     Der Rig wird NICHT angefasst (CHARACTER LOCK): dieselben Knochen,
+     dieselbe Bewegung, nur andere Zielpunkte. Gemessen an den Achsen des
+     Koerpers - q quer nach aussen, l laengs (negativ nach hinten),
+     h hoch.
+  
+       A   der heutige Stand: Arme weit zur Seite, Beine leicht gespreizt
+       B   Deltasegel: Arme nach hinten gepfeilt, Beine geschlossen
+       C   Sturzbereit: Arme dicht am Koerper, Kopf hoeher, Beine
+           gestreckt
+  
+     Bis zur Wahl bleibt A in Kraft. */
+  const GLEIT_HALTUNGEN = {
+    A: { handQ: 0.48, handL: -0.11, handH: 0,
+         ellQ: 0.35, ellL: -0.05, ellH: 0.08,
+         fussQ: 0.11, fussL: -0.83, fussH: 0.015,
+         knieQ: 0.16, knieL: -0.40, knieH: -0.12,
+         kopfL: 0.22, kopfH: 0.13 },
+    B: { handQ: 0.44, handL: -0.28, handH: -0.02,
+         ellQ: 0.30, ellL: -0.14, ellH: 0.05,
+         fussQ: 0.055, fussL: -0.88, fussH: 0,
+         knieQ: 0.085, knieL: -0.44, knieH: -0.08,
+         kopfL: 0.24, kopfH: 0.16 },
+    C: { handQ: 0.34, handL: -0.34, handH: -0.05,
+         ellQ: 0.26, ellL: -0.18, ellH: 0.02,
+         fussQ: 0.09, fussL: -0.92, fussH: -0.03,
+         knieQ: 0.12, knieL: -0.46, knieH: -0.06,
+         kopfL: 0.20, kopfH: 0.20 },
+  };
+  let GLEIT_HALTUNG = 'A';
+
   const root = new THREE.Group();
   /* Drehreihenfolge Y-X-Z: Erst die Blickrichtung, dann die Vorlage um die
      KÖRPEREIGENE Querachse, dann die Kurvenlage um die Flugachse. In der
@@ -10102,6 +10140,18 @@ function makeGlbVisual(m) {
     /* Gleitpose: Arme seitlich weit ausgebreitet, Beine gespreizt und
        leicht angewinkelt. Zwischen Armen und Rumpf spannt sich später die
        Netzhaut – dafür müssen die Arme wirklich weg vom Körper stehen. */
+    /* Welche der drei Haltungen gilt? Nur fuer den Vergleich der
+       Vorschlaege, im Spiel steht sie auf A. */
+    setzeGleitHaltung(v) { if (GLEIT_HALTUNGEN[v]) GLEIT_HALTUNG = v; },
+    gleitHaltung() { return GLEIT_HALTUNG; },
+    /* ---- Drei Haltungen zur Wahl (problem-2, Punkt C) ----
+       Der Rig bleibt unangetastet: dieselben Knochen, dieselbe
+       Bewegung, nur andere Zielpunkte fuer Haende, Ellbogen, Fuesse,
+       Knie und Kopf. Gemessen an den Achsen des Koerpers:
+         q  quer  (nach aussen)
+         l  laengs (nach hinten, negativ = nach vorn)
+         h  hoch
+       A ist der heutige Stand. */
     poseGleiten(nase, kurve, t, k, tempo) {
       const w = clamp(k === undefined ? 0.9 : k, 0, 1);
       if (w <= 0 || !knochen.hips) return;
@@ -10126,22 +10176,28 @@ function makeGlbVisual(m) {
         const upper = knochen[side + 'upleg'], arm = knochen[side + 'arm'];
         if (!upper || !arm) continue;
         const sign = upper.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        const H = GLEIT_HALTUNGEN[GLEIT_HALTUNG] || GLEIT_HALTUNGEN.A;
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'],
-          hip.clone().addScaledVector(flight, -0.83).addScaledVector(right, sign * 0.11)
-            .addScaledVector(up, 0.015 + breathe * sign),
-          hip.clone().addScaledVector(flight, -0.4).addScaledVector(right, sign * 0.16).addScaledVector(up, -0.12), w);
+          hip.clone().addScaledVector(flight, H.fussL).addScaledVector(right, sign * H.fussQ)
+            .addScaledVector(up, H.fussH + breathe * sign),
+          hip.clone().addScaledVector(flight, H.knieL).addScaledVector(right, sign * H.knieQ)
+            .addScaledVector(up, H.knieH), w);
         drehZuRuhe(knochen[side + 'shoulder'], 0, 0, 0, w);
         root.updateMatrixWorld(true);
         const shoulder = arm.getWorldPosition(new THREE.Vector3());
         gliedZiel(arm, knochen[side + 'forearm'], knochen[side + 'hand'],
-          shoulder.clone().addScaledVector(right, sign * 0.48).addScaledVector(flight, -0.11)
-            .addScaledVector(up, bank * sign + breathe),
-          shoulder.clone().addScaledVector(right, sign * 0.35).addScaledVector(flight, -0.05).addScaledVector(up, 0.08), w);
+          shoulder.clone().addScaledVector(right, sign * H.handQ)
+            .addScaledVector(flight, H.handL)
+            .addScaledVector(up, bank * sign + breathe + H.handH),
+          shoulder.clone().addScaledVector(right, sign * H.ellQ)
+            .addScaledVector(flight, H.ellL).addScaledVector(up, H.ellH), w);
         setzeFuss(side, flight.clone().negate(), up.clone().negate(), w * 0.85);
         setzeHand(side, right.clone().multiplyScalar(sign), up.clone().negate(), w * 0.9);
       }
+      const HK = GLEIT_HALTUNGEN[GLEIT_HALTUNG] || GLEIT_HALTUNGEN.A;
       if (knochen.neck && knochen.head) zieleKnochen(knochen.neck, knochen.head,
-        knochen.neck.getWorldPosition(new THREE.Vector3()).addScaledVector(flight, 0.22).addScaledVector(up, 0.13), w * 0.8);
+        knochen.neck.getWorldPosition(new THREE.Vector3())
+          .addScaledVector(flight, HK.kopfL).addScaledVector(up, HK.kopfH), w * 0.8);
     },
     /* Den freien Arm hängen lassen. Beim Schirmhalten stand der zweite Arm
        mit offener Hand ebenfalls in der Luft – das sah aus, als würde die
@@ -36835,6 +36891,14 @@ if (window.__WEBHERO_TEST__ === true) {
                blick: [+r.x.toFixed(4), +r.y.toFixed(4), +r.z.toFixed(4)],
                abstand: +p.distanceTo(player.pos).toFixed(3),
                steckt: !!steckt };
+    },
+    /* Welche der drei Gleithaltungen gilt? Nur fuer den Vergleich der
+       Vorschlaege aus problem-2, Punkt C. */
+    setzeGleitHaltung(v) {
+      if (heroVisual && heroVisual.setzeGleitHaltung) heroVisual.setzeGleitHaltung(v);
+    },
+    gleitHaltung() {
+      return heroVisual && heroVisual.gleitHaltung ? heroVisual.gleitHaltung() : 'A';
     },
     setzeGrafik(v) { EINST.grafik = v; wendeGrafikAn(); },
     setzeBrueckenSog(v) { BRUECKEN_SOG = v; },

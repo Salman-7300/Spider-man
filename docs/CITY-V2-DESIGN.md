@@ -1731,6 +1731,44 @@ aber am Rand: der Landepunkt ist frei, der WEG dorthin nicht. Ein
 vollstaendiger Test des Weges hiesse, die Kante-Bewegung neu zu bauen;
 das gehoert gemessen und einzeln entschieden, nicht nebenbei.
 
+### Punkt C: die Haltung im Gleitflug mit W - Vorschlaege, noch keine Wahl
+
+Der Befund betrifft nicht mehr das Umschalten (das ist problem-1 Punkt 7)
+sondern das Aussehen. Das ist keine Zahl, sondern eine Wahl, und sie
+gehoert dem Menschen. Vorbereitet sind drei Haltungen - derselbe Rig,
+dieselbe Bewegung, nur andere Zielpunkte fuer Haende, Ellbogen, Fuesse,
+Knie und Kopf (CHARACTER LOCK):
+
+* **A** der heutige Stand: Arme weit zur Seite, Beine leicht gespreizt
+* **B** Deltasegel: Arme nach hinten gepfeilt, Beine geschlossen
+* **C** Sturzbereit: Arme dicht am Koerper, Kopf hoeher, Beine gestreckt
+
+`tools/pruef/gleit-haltung.js` fotografiert alle drei aus drei
+Richtungen. **Bis zur Wahl bleibt A in Kraft** - es ist nichts
+umgestellt.
+
+Was der Pruefstand beim Bauen zuerst falsch gemacht hat: er hat nach 110
+Bildern ausgeloest. Da ist die Nase bei 1,0 und der Sturzflug laeuft -
+ein eigener Clip, in dem `poseGleiten` gar nicht mehr vorkommt. Alle
+drei Vorschlaege sahen deshalb gleich aus, weil keiner von ihnen zu
+sehen war. Ausgeloest wird jetzt kurz vor der Schwelle, bei Nase 0,55.
+
+**Nebenbefund, unabhaengig von der Wahl.** Die Haltung steht nicht
+symmetrisch. Im koerpereigenen System, links gegen rechts:
+
+| | A | B | C |
+| --- | --- | --- | --- |
+| Fuss, Hoehenunterschied | 0,46 m | 0,61 m | 0,62 m |
+| Fuss, laengs | 0,43 m | 0,58 m | 0,60 m |
+| Knie, Hoehenunterschied | 0,26 m | 0,39 m | 0,39 m |
+
+Der Atemzug erklaert davon hoechstens 0,04 m. Die Zielpunkte sind
+gespiegelt gesetzt - die Schieflage entsteht erst beim Loesen der
+Gliedkette. Geprueft und verworfen: die Haltung mit vollem Gewicht statt
+0,9 zu setzen bringt nur 0,06 m (B 0,61 -> 0,55). Die Ursache liegt also
+nicht im Ueberblenden. Das ist ein eigener Befund und wartet auf eine
+eigene Runde.
+
 ---
 
 ## 7. Was noch aussteht
