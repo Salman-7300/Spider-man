@@ -1665,6 +1665,72 @@ x = -305,330). Von der Kamera aus ist das nicht zu heilen: ein
 Blickpunkt ohne Luft hat keine freie Richtung. Das ist ein eigener
 Befund an der Kletterflaeche, nicht an der Kamera, und bleibt notiert.
 
+### Punkt B: durch die Dachaufbauten hindurch
+
+Der Human-Befund: die Figur laeuft weiter durch Dachaufbauten. Der
+Pruefstand meldete dazu `playerInsideRoofProp 0`.
+
+**Was er nicht gemessen hat**, drei Dinge auf einmal:
+
+1. Angelaufen wurden nur Aufbauten ab 0,60 m Breite - also genau die,
+   die seit problem-1 ein Hindernis haben. Rohre (0,35 m) und Antennen
+   (0,22 m) sind absichtlich durchlaessig und kamen in der Stichprobe
+   nie vor. Das sind 1518 der 4612 Aufbauten.
+2. Geprueft wurde nur die ENDLAGE. Wer hindurchlaeuft, steht am Ende
+   dahinter und faellt nicht auf.
+3. Geprueft wurde ein PUNKT auf Huefthoehe, kein Koerper.
+
+Gemessen wird jetzt ueber den ganzen Weg, Bild fuer Bild, mit Kapsel
+(Radius 0,45 m), Becken und Brust. Gezaehlt wird die Eindringtiefe, nicht
+die Beruehrung - wer richtig vor einem Hindernis steht, steht genau einen
+Koerperradius davor, und das ist kein Fehler.
+
+**Die Behebung.** Auch duenne Aufbauten werden fest, aber als `klein`
+und `keinKlettern`: man laeuft nicht mehr hindurch, kann sich aber auch
+nicht an einem 22 cm dicken Mast hochziehen. Genau so sind Laternen,
+Ampeln und Poller eingetragen.
+
+**Zweite Ursache.** Die Bewegung `kante` - das Ueberziehen auf das Dach -
+interpoliert die Figur von der Wand auf die Dachflaeche und fragt dabei
+kein Hindernis; `collideBody` laeuft in diesem Zustand gar nicht. Steht
+am Landepunkt ein Aufbau, wandert der Koerper durch ihn hindurch.
+Niedriges (bis 0,9 m) wird deshalb zum Absatz, auf dem die Figur
+ankommt; bei Hoeherem wandert der Landepunkt bis zu zwei Meter weiter.
+
+| Messung (Keim 4711, 113 Begegnungen) | vorher | nachher |
+| --- | --- | --- |
+| playerCapsuleInsideRoofProp | 22 | 2 |
+| pelvisInsideRoofProp | 16 | **0** |
+| torsoInsideRoofProp | 15 | **0** |
+| ganz hindurchgelaufen | 22 | 4 |
+| Rohr: Koerper im Sichtbaren | 10 von 21 | 0 |
+| Antenne: Koerper im Sichtbaren | 9 von 21 | 0 |
+| Dachaufbauten ohne Hindernis (52 Daecher) | 99 von 311 | **0** |
+| Bild: von oben auf ein Rohr | Rohr durch die Brust | hockt obenauf |
+
+Zurueckgenommen, weil schlechter gemessen: eine schaerfere Fassung des
+Landepunkts, die nur ueber der nackten Grundflaeche obenauf ankommt und
+sonst bis zu 3,6 m ausweicht - Koerper im Sichtbaren 2 -> 3, Becken
+0 -> 1, ganz hindurch 4 -> 6. Wer weit ausweicht, landet im naechsten
+Aufbau.
+
+Regression: `node --test` 170 von 170; `dachtraversal` 0 auffaellige
+Versuche (aufs Nachbardach 7 -> 8); `dachhohlraum` 0 roofCavity, aufs
+Dach 26 -> 27; `zeilenuebergang` 221 von 221 und 150 von 150;
+`moebel-boden` 0 Beanstandungen; `wandlauf` 0 von 14 fehlerhaft;
+`wandkriechen` unveraendert; `kernsysteme` alle Valid-Zaehler null. Das
+Leistungstor ist nicht beruehrt: Hindernisse sind keine Zeichenaufrufe,
+und die Sichtbarkeit der Aufbauten aendert sich nicht.
+
+### Was in Punkt B offen bleibt
+
+Zwei der 113 Begegnungen bleiben: ein Dachkasten, den die Figur beim
+Haengen an der Dachkante mit der Schulter streift (0,31 m und 0,12 m,
+kein Koerperpunkt im Sichtbaren). Das ist dieselbe Bewegung wie oben,
+aber am Rand: der Landepunkt ist frei, der WEG dorthin nicht. Ein
+vollstaendiger Test des Weges hiesse, die Kante-Bewegung neu zu bauen;
+das gehoert gemessen und einzeln entschieden, nicht nebenbei.
+
 ---
 
 ## 7. Was noch aussteht

@@ -24,8 +24,11 @@
 const { starte } = require('./basis');
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
-/* "alt" misst dieselbe Stadt OHNE die neuen Hindernisse - das Vorher. */
+/* "alt" misst dieselbe Stadt OHNE die neuen Hindernisse - das Vorher zu
+   problem-1 Punkt 5. "duenn-alt" laesst nur Rohre und Antennen
+   durchlaessig - das Vorher zu problem-2 Punkt B. */
 const ALT = process.argv.indexOf('alt') > 0;
+const DUENN = process.argv.indexOf('duenn-alt') > 0;
 
 /* ---------------------------------------------------------------------
    5A/5C: Inventar der Dachaufbauten und die harten Kennzahlen
@@ -164,8 +167,127 @@ async function figurProbe(page) {
   });
 }
 
+/* ---------------------------------------------------------------------
+   problem-2, Punkt B: MIT DEM KOERPER hindurch, ueber den ganzen Weg
+   ------------------------------------------------------------------ */
+/* Was der bisherige Stand NICHT gemessen hat, und warum der
+   Human-Befund trotzdem stimmt:
+
+   1. figurProbe() waehlt nur Aufbauten ab 0,60 m Breite aus - also
+      genau die, die ein Hindernis bekommen haben. Rohre (0,35 m) und
+      Antennen (0,22 m) sind absichtlich ohne Hindernis und wurden
+      deshalb nie angelaufen. Das sind 1518 der 4612 Aufbauten.
+   2. Geprueft wurde nur die ENDLAGE. Wer durch einen Aufbau
+      hindurchlaeuft, steht am Ende dahinter - und faellt nicht auf.
+   3. Geprueft wurde ein PUNKT auf Huefthoehe, kein Koerper. Das Video
+      zeigt einen Kasten, der die Figur auf Huefthoehe schneidet; dabei
+      steckt nicht die Mitte im Kasten, sondern die Schulter.
+
+   Hier laeuft die Figur deshalb ueber den ganzen Weg, Bild fuer Bild,
+   und gemessen wird der KOERPER: Kapsel (Radius 0,45 m), Becken und
+   Brust. */
+async function durchlauf(page) {
+  return page.evaluate(() => {
+    const d = __dbg, P = d.player;
+    const props = d.dachProps();
+    /* Gleichmaessig ueber alle Arten, damit duenne und dicke Aufbauten
+       beide vorkommen - und mindestens hundert Begegnungen. */
+    const jeArt = new Map();
+    for (const p of props) {
+      if (!jeArt.has(p.art)) jeArt.set(p.art, []);
+      jeArt.get(p.art).push(p);
+    }
+    const proben = [];
+    for (const [art, liste] of jeArt) {
+      const schritt = Math.max(1, Math.floor(liste.length / 20));
+      for (let i = 0; i < liste.length && proben.length < 200; i += schritt)
+        proben.push(liste[i]);
+    }
+
+    const kiste = (p) => ({ x0: p.x - p.w / 2, x1: p.x + p.w / 2,
+                            z0: p.z - p.d / 2, z1: p.z + p.d / 2,
+                            y0: p.y0, h: p.y0 + p.h });
+    /* Liegt ein Punkt im Kasten? Mit kleiner Toleranz, weil dekoIm()
+       die Orte auf eine Nachkommastelle rundet. */
+    const punktDrin = (x, y, z, k) =>
+      x > k.x0 + 0.02 && x < k.x1 - 0.02 && z > k.z0 + 0.02 && z < k.z1 - 0.02 &&
+      y > k.y0 + 0.02 && y < k.h - 0.02;
+    /* Und die KAPSEL? Gefragt wird nach der EINDRINGTIEFE, nicht nach
+       einer Beruehrung: wer korrekt vor einem Hindernis steht, steht
+       genau einen Koerperradius davor, und das ist kein Fehler. Erst
+       wenn der Koerper mehr als 0,10 m tiefer im Sichtbaren steckt,
+       zaehlt es. Sonst meldete die Messung jedes richtig aufgehaltene
+       Hindernis als Fehler. */
+    const R = P.radius === undefined ? 0.45 : P.radius;
+    const KAPSEL_TIEFE = 0.10;
+    const kapselTiefe = (x, y, z, k) => {
+      if (y + 1.8 <= k.y0 + 0.02 || y >= k.h - 0.02) return 0;
+      const dx = Math.max(k.x0 - x, 0, x - k.x1);
+      const dz = Math.max(k.z0 - z, 0, z - k.z1);
+      const ab = Math.sqrt(dx * dx + dz * dz);
+      return Math.max(0, R - ab);
+    };
+
+    let kapsel = 0, becken = 0, brust = 0, begegnet = 0, durch = 0;
+    const jeArtZahl = {};
+    const bsp = [], bspFest = [];
+    for (const p of proben) {
+      const k = kiste(p);
+      for (const t of ['KeyW','KeyA','KeyS','KeyD','ShiftLeft','Space'])
+        d.taste(t, false);
+      /* Drei Meter davor los, quer durch die Mitte und drei Meter
+         dahinter wieder heraus. */
+      d.setzePos(p.x - (p.w / 2 + 3), p.y0 + 0.1, p.z);
+      P.vel.set(0, 0, 0); P.state = 'idle'; P.onGround = true;
+      P.facing = Math.PI / 2;
+      d.setzeKamYaw(-Math.PI / 2);
+      d.taste('KeyW', true);
+      let tiefe = 0, hatBecken = false, hatBrust = false;
+      let start = P.pos.x;
+      for (let i = 0; i < 220; i++) {
+        d.schritt(1 / 60);
+        const x = P.pos.x, y = P.pos.y, z = P.pos.z;
+        tiefe = Math.max(tiefe, kapselTiefe(x, y, z, k));
+        if (punktDrin(x, y + 0.9, z, k)) hatBecken = true;
+        if (punktDrin(x, y + 1.3, z, k)) hatBrust = true;
+      }
+      const hatKapsel = tiefe > KAPSEL_TIEFE;
+      d.taste('KeyW', false);
+      begegnet++;
+      const a = jeArtZahl[p.art] || (jeArtZahl[p.art] = { n: 0, kapsel: 0, durch: 0,
+                                                         tiefste: 0 });
+      a.n++;
+      a.tiefste = Math.max(a.tiefste, +tiefe.toFixed(2));
+      if (hatKapsel) { kapsel++; a.kapsel++; }
+      if (hatBecken) becken++;
+      if (hatBrust) brust++;
+      /* Ganz hindurch: hinter dem Aufbau angekommen, obwohl er im Weg
+         stand. */
+      if (P.pos.x > k.x1 + 0.1 && start < k.x0) { durch++; a.durch++; }
+      /* Getrennte Beispiele: die FESTEN Aufbauten sind der
+         ueberraschende Fall - dort steht ein Hindernis und der Koerper
+         steckt trotzdem drin. */
+      if (hatKapsel && p.fest && bspFest.length < 8)
+        bspFest.push({ art: p.art, w: p.w, d: p.d, h: p.h, y0: p.y0,
+                       x: p.x, z: p.z, tiefe: +tiefe.toFixed(2),
+                       koll: p.koll ? 1 : 0,
+                       endeX: +P.pos.x.toFixed(2), endeY: +P.pos.y.toFixed(2),
+                       endeZ: +P.pos.z.toFixed(2),
+                       becken: hatBecken, brust: hatBrust });
+      if (hatKapsel && bsp.length < 8)
+        bsp.push({ art: p.art, w: p.w, d: p.d, h: p.h, fest: p.fest,
+                   x: p.x, z: p.z, tiefe: +tiefe.toFixed(2),
+                   endeX: +P.pos.x.toFixed(2), becken: hatBecken, brust: hatBrust });
+    }
+    return { begegnet, playerCapsuleInsideRoofProp: kapsel,
+             pelvisInsideRoofProp: becken, torsoInsideRoofProp: brust,
+             durchgelaufen: durch, jeArt: jeArtZahl, bsp, bspFest };
+  });
+}
+
 (async () => {
-  const { b, page } = await starte(800, 480, SEED, ALT ? { dachAlt: true } : {});
+  const { b, page } = await starte(800, 480, SEED,
+    ALT ? { dachAlt: true } : DUENN ? { duennAlt: true } : {});
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true);
@@ -279,9 +401,30 @@ async function figurProbe(page) {
     for (const e of fp.bsp) console.log('    ' + JSON.stringify(e));
   }
 
+  const dl = await durchlauf(page);
+  console.log('\n== Punkt B: mit dem Koerper hindurch (' + dl.begegnet +
+              ' Begegnungen) ==');
+  console.log('  playerCapsuleInsideRoofProp ' + dl.playerCapsuleInsideRoofProp);
+  console.log('  pelvisInsideRoofProp        ' + dl.pelvisInsideRoofProp);
+  console.log('  torsoInsideRoofProp         ' + dl.torsoInsideRoofProp);
+  console.log('  ganz hindurchgelaufen       ' + dl.durchgelaufen);
+  console.log('  Art                 Anlaeufe  Kapsel drin  hindurch  tiefste');
+  for (const [art, a] of Object.entries(dl.jeArt))
+    console.log('  ' + art.padEnd(20) + String(a.n).padStart(8) +
+                String(a.kapsel).padStart(13) + String(a.durch).padStart(10) +
+                (a.tiefste.toFixed(2) + ' m').padStart(9));
+  if (dl.bspFest.length) {
+    console.log('\n  Beispiele MIT Hindernis (der ueberraschende Fall):');
+    for (const e of dl.bspFest) console.log('    ' + JSON.stringify(e));
+  }
+  if (dl.bsp.length) {
+    console.log('\n  Beispiele:');
+    for (const e of dl.bsp) console.log('    ' + JSON.stringify(e));
+  }
+
   const hart = inv.roofPropColliderMismatch + inv.invisibleRoofCollision +
                inv.propImNachbarhaus + fp.playerInsideRoofProp +
-               fp.landingInsideRoofProp;
+               fp.landingInsideRoofProp + dl.playerCapsuleInsideRoofProp;
   await b.close();
   process.exitCode = (fehler + hart) ? 1 : 0;
 })();

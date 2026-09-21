@@ -3182,6 +3182,10 @@ const DACH_PROP_DUENN = 0.6;
    Vorher nur an einem anderen Commit messen, und der kennt die
    Messpunkte nicht. */
 const DACH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_DACH_ALT;
+/* Zum Vergleichen: mit __WEBHERO_DUENN_ALT bleiben Rohre und Antennen
+   durchlaessig - der Stand vor problem-2 Punkt B, in derselben Stadt. */
+const DUENN_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_DUENN_ALT;
+const DUENN_ALT_TEIL = (w, d) => DUENN_ALT && Math.max(w, d) < DACH_PROP_DUENN;
 /* Requisiten aus stadtteile.glb, die auf DAECHERN stehen und deshalb
    ein Hindernis brauchen. Poller und Kanaldeckel stehen auf dem Gehweg
    und gehoeren nicht hierher - der Poller hat seinen eigenen, der
@@ -3189,13 +3193,29 @@ const DACH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_DACH_ALT;
 const DACH_PROP_ARTEN = ['Prop_ACUnit'];
 const DACH_PROPS = [];
 function dachProp(art, w, h, d, x, yUnten, z) {
-  const fest = Math.max(w, d) >= DACH_PROP_DUENN && !DACH_ALT;
+  /* ---- Auch das Duenne haelt auf ----
+     problem-2, Punkt B. Bis hierher bekam nur ein Aufbau ab 0,60 m
+     Breite ein Hindernis. Rohre (0,35 m) und Antennen (0,22 m) waren
+     absichtlich durchlaessig - und genau das zeigt das Human-Video:
+     die Figur laeuft durch ein Rohr, das ihr bis zur Brust reicht.
+     Gemessen ueber den ganzen Weg statt nur in der Endlage: von 42
+     Anlaeufen auf Rohre und Antennen steckte der Koerper 19 Mal im
+     Sichtbaren, 17 Mal lief die Figur glatt hindurch, mit einer
+     Eindringtiefe von 0,45 m - das ist der ganze Koerperradius.
+
+     Duenne Aufbauten werden deshalb fest, aber als "klein" und
+     "keinKlettern": man laeuft nicht mehr hindurch, kann sich aber
+     auch nicht an einem 22 cm dicken Mast hochziehen oder ihn
+     anspringen. Genau so sind Laternen, Ampeln und Poller eingetragen. */
+  const fest = !DACH_ALT && !DUENN_ALT_TEIL(w, d);
+  const duenn = Math.max(w, d) < DACH_PROP_DUENN;
   const eintrag = { art, w: +w.toFixed(2), h: +h.toFixed(2), d: +d.toFixed(2),
                     x: +x.toFixed(2), y0: +yUnten.toFixed(2), z: +z.toFixed(2),
-                    fest, koll: null };
+                    fest, duenn, koll: null };
   if (fest) {
     const c = { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
                 h: yUnten + h, y0: yUnten, dachProp: true };
+    if (duenn) { c.klein = true; c.keinKlettern = true; }
     addCollider(c);
     /* Der Rueckverweis ist fuer die Pruefung da. Ohne ihn muss sie das
        Hindernis anhand der Lage suchen - und findet dann das des
@@ -13983,6 +14003,51 @@ function bodenHoeheFuerFuss(x, z) {
   return h;
 }
 
+/* ---- Der Landepunkt beim Ueberziehen darf nicht besetzt sein ----
+   problem-2, Punkt B. Die Bewegung 'kante' interpoliert die Figur von
+   der Wand auf das Dach und fragt dabei KEIN Hindernis - collideBody
+   laeuft in diesem Zustand gar nicht. Steht am Landepunkt ein
+   Dachaufbau, wandert der Koerper durch ihn hindurch. Gemessen: drei
+   von 113 Anlaeufen, tiefste Eindringtiefe 0,45 m, und zwar bei
+   Aufbauten, die ein Hindernis HABEN.
+
+   Niedriges wird deshalb zum Absatz: die Figur kommt oben darauf an.
+   Hoeheres wird uebersprungen - der Landepunkt wandert bis zu zwei
+   Meter weiter nach vorn, bis er frei ist. Findet sich nichts, bleibt
+   es beim alten Punkt; dann ist das Dach so voll, dass jede Wahl
+   falsch waere. */
+/* Ein niedriger Aufbau wird zum Absatz, auf dem die Figur ankommt; auf
+   Hoeheres steigt sie nicht, dort wandert der Landepunkt weiter.
+
+   Was hier NICHT besser war: eine schaerfere Fassung, die nur dann
+   obenauf ankommt, wenn der Landepunkt ueber der nackten Grundflaeche
+   liegt, und sonst bis zu 3,6 m ausweicht. Gemessen wurde sie
+   SCHLECHTER - Koerper im Sichtbaren 2 -> 3, Becken 0 -> 1, ganz
+   hindurch 4 -> 6: wer weit ausweicht, landet im naechsten Aufbau.
+   Zurueckgenommen. */
+const KANTE_ABSATZ = 0.9;
+function kanteZielFrei(ziel, nx, nz) {
+  const besetzt = (x, y, z) => {
+    for (const c of collidersNear(x, z)) {
+      if (!c.dachProp) continue;
+      const y0 = c.y0 === undefined ? -1e9 : c.y0;
+      if (x <= c.x0 - player.radius || x >= c.x1 + player.radius) continue;
+      if (z <= c.z0 - player.radius || z >= c.z1 + player.radius) continue;
+      if ((c.h || 0) <= y + 0.05 || y0 >= y + 1.75) continue;
+      return c;
+    }
+    return null;
+  };
+  const erste = besetzt(ziel.x, ziel.y, ziel.z);
+  if (!erste) return ziel;
+  if ((erste.h || 0) - ziel.y <= KANTE_ABSATZ) { ziel.y = erste.h; return ziel; }
+  for (let weiter = 0.3; weiter <= 2.0; weiter += 0.3) {
+    const x = ziel.x - nx * weiter, z = ziel.z - nz * weiter;
+    if (!besetzt(x, ziel.y, z)) { ziel.x = x; ziel.z = z; return ziel; }
+  }
+  return ziel;
+}
+
 /* ======================= Kollision Figur <-> Welt ======================= */
 /* Zusätzlicher Abstand zur Wand, solange die Figur schnell durch die Luft
    fliegt. Der Kollisionsradius von 45 cm passt zu einer stehenden Figur;
@@ -17077,11 +17142,11 @@ function updatePlayer(dt) {
       if (player.pos.z < lc.z0 - player.radius || player.pos.z > lc.z1 + player.radius) continue;
       if (up > 0 && lc.h - player.pos.y < 2.6 && !lc.keinHalt) {
         const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
-        const ziel = V3(
+        const ziel = kanteZielFrei(V3(
           player.pos.x - w.nx * (player.radius + 0.75),
           lc.h,
           player.pos.z - w.nz * (player.radius + 0.75),
-        );
+        ), w.nx, w.nz);
         if (dauer > 0.2) {
           player.state = 'kante';
           player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: lc.h };
@@ -17324,11 +17389,11 @@ function updatePlayer(dt) {
        auf die Dachfläche. */
     if (player.pos.y + 1.75 > c.h && up > 0) {
       const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
-      const ziel = V3(
+      const ziel = kanteZielFrei(V3(
         player.pos.x - w.nx * (player.radius + 0.75),
         c.h,
         player.pos.z - w.nz * (player.radius + 0.75),
-      );
+      ), w.nx, w.nz);
       if (dauer > 0.2) {
         player.state = 'kante';
         player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: c.h };

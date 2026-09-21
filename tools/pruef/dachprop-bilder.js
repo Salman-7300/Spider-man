@@ -7,7 +7,12 @@
    den Aufbau und faellt von oben darauf. Aufgenommen wird an denselben
    Stellen einmal mit und einmal ohne die neuen Hindernisse ("alt").
 
-   Aufruf:  node tools/pruef/dachprop-bilder.js <ordner> [seed=4711] [alt]
+   problem-2, Punkt B: derselbe Befund noch einmal, diesmal an den
+   DUENNEN Aufbauten - die Figur laeuft durch ein Rohr, das ihr bis zur
+   Brust reicht. Mit "duenn-alt" wird der Stand davor aufgenommen.
+
+   Aufruf:  node tools/pruef/dachprop-bilder.js <ordner> [seed=4711]
+                                                [alt|duenn-alt]
    ========================================================================= */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -16,23 +21,34 @@ const ziel = ausgabePfad(process.argv[2]) || 'bilder-dachprop';
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const seed = sArg === undefined ? 4711 : +sArg.slice(5);
 const ALT = process.argv.indexOf('alt') > 0;
+const DUENN = process.argv.indexOf('duenn-alt') > 0;
 fs.mkdirSync(ziel, { recursive: true });
 
 (async () => {
-  const { b, page } = await starte(1280, 720, seed, ALT ? { dachAlt: true } : {});
+  const { b, page } = await starte(1280, 720, seed,
+    ALT ? { dachAlt: true } : DUENN ? { duennAlt: true } : {});
   /* Die groessten Aufbauten zuerst - dort sieht man es am deutlichsten.
      Die Auswahl haengt nur an der Stadt, ist also in beiden Laeufen
      dieselbe. */
   const stellen = await page.evaluate(() => {
     const d = __dbg; d.frier(true); d.setzeRegen(0);
-    return d.dachProps()
-      /* Kein Wasserturm: der Human-Screenshot zeigt einen KASTEN, und
-         die Figur verschwindet hinter der Tankhaube. */
+    const kurz = (p) => ({ art: p.art, x: p.x, z: p.z, y0: p.y0,
+                          w: p.w, h: p.h, d: p.d });
+    const alle = d.dachProps();
+    /* Kein Wasserturm: der Human-Screenshot zeigt einen KASTEN, und
+       die Figur verschwindet hinter der Tankhaube. */
+    const dick = alle
       .filter((p) => (p.art === 'Lueftungskasten' || p.art === 'Dachkasten') &&
                      Math.max(p.w, p.d) >= 2.3 && p.h >= 1.5 && p.y0 > 12)
       .sort((a, c) => (c.w * c.d) - (a.w * a.d))
-      .slice(0, 4)
-      .map((p) => ({ art: p.art, x: p.x, z: p.z, y0: p.y0, w: p.w, h: p.h, d: p.d }));
+      .slice(0, 2).map(kurz);
+    /* problem-2, Punkt B: die hoechsten Rohre - dort reicht der Aufbau
+       der Figur bis ueber die Brust, und das sieht man im Bild. */
+    const duenn = alle
+      .filter((p) => p.art === 'Rohr' && p.y0 > 12)
+      .sort((a, c) => c.h - a.h)
+      .slice(0, 2).map(kurz);
+    return dick.concat(duenn);
   });
 
   const werte = [];
