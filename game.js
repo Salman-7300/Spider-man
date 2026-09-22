@@ -13618,6 +13618,12 @@ const KAMERA_RADIUS = 0.30;
 /* Zum Vergleichen: Strahlstart in der aufgeblasenen Huelle zieht die
    Kamera wie frueher auf null. */
 const KAM_ENG_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMENG_ALT;
+/* Zum Vergleichen: Kamera zieht immer gleich langsam nach, auch wenn
+   die geglaettete Lage in Geometrie steckt - Stand vor problem-2 K2.
+   Die Konstante steht bewusst hier bei den anderen Kameraschaltern:
+   die Offline-Tests schneiden genau diesen Abschnitt aus game.js
+   heraus, und weiter oben war sie fuer sie nicht sichtbar. */
+const KAM_NACH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMNACH_ALT;
 const _kameraAnker = new THREE.Vector3();
 const _kameraKandidaten = new Set();
 const _kameraProbe = new THREE.Vector3(), _kameraRichtung = new THREE.Vector3();
@@ -13878,7 +13884,19 @@ function begrenzeKamera(von, nach) {
 }
 
 function updateCamera(dt) {
-  const wand = (player.state === 'climb' || player.state === 'kante') && (player.wallInfo || player.wall);
+  /* ---- Beim Ueberziehen behaelt die Kamera ihre Wand ----
+     problem-2, K1/K2. Waehrend der Bewegung "kante" wird wallInfo auf
+     null gesetzt - die Figur haengt ja nicht mehr. Damit fiel die
+     Kamera auf die normale Luftkamera zurueck: kein Ankerpunkt vor der
+     Fassade, keine Wandrichtung. Gemessen verliert sie dabei die Figur
+     ganz: 14 Bilder, in denen Kopf, Brust UND Becken hinter einem
+     Nachbargebaeude liegen, alle im Zustand "kante". Genau so sieht das
+     Human-Bild aus, das nur eine braune Wand zeigt.
+     Die Wand, ueber die gerade gezogen wird, bleibt deshalb fuer die
+     Kamera stehen, bis die Bewegung durch ist. */
+  const wand = (player.state === 'climb' || player.state === 'kante') &&
+               (player.wallInfo || player.wall ||
+                (player.kante && player.kante.wand));
   const emp = 0.0023 * (EINST.maus / 100);
   const mausAktiv = Math.abs(mouseDX) > 0.5 || Math.abs(mouseDY) > 0.5;
   camYaw -= mouseDX * emp;
@@ -14024,7 +14042,24 @@ function updateCamera(dt) {
      ueberschreibt die Begrenzung danach wieder. */
   kamFrei = d < kamFrei ? d : lerp(kamFrei, d, 1 - Math.exp(-dt * (wand ? 6 : 2.2)));
   desired.copy(target).addScaledVector(dir, kamFrei);
-  camPos.lerp(desired, 1 - Math.exp(-dt * 12));
+  /* ---- Die nachziehende Lage darf nicht durch Geometrie laufen ----
+     problem-2, K2/K4. Gemessen beim Ueberziehen auf ein Dach: der
+     Hauptstrahl ist frei (geklemmt 6,4 m von 6,4 m gewuenscht), die
+     Kamera steht trotzdem 1,35 m von der Figur - also genau auf dem
+     Blickpunkt. Der Grund liegt zwei Zeilen weiter: camPos zieht
+     geglaettet nach und haengt waehrend der schnellen Bewegung noch
+     unter der Dachkante, waehrend die Figur schon darueber ist. Die
+     Strecke Blickpunkt-camPos schneidet dann das Dach, und
+     begrenzeKamera() holt die Kamera bis auf den Blickpunkt heran. Im
+     Bild ist das die braune Wand ohne Figur aus dem Human-Test.
+
+     Ist die GEWUENSCHTE Lage frei und nur die nachziehende verdeckt,
+     wird schneller nachgefuehrt statt zusammengefallen. Der Abstand
+     wird dabei nicht erzwungen - er bleibt der, den die Geometrie
+     hergibt. */
+  const eilig = !KAM_NACH_ALT && wand && kamFrei > 3 &&
+                kameraFreierAnteil(target, camPos) < 0.9;
+  camPos.lerp(desired, 1 - Math.exp(-dt * (eilig ? 60 : 12)));
   begrenzeKamera(target, camPos);
   camera.position.copy(camPos);
   if (camShake > 0) {
@@ -14119,12 +14154,42 @@ function kanteZielFrei(ziel, nx, nz) {
     }
     return null;
   };
+  /* ---- Und nicht in ein GEBAEUDE ziehen ----
+     problem-2, K1/K2. Bis hierher wurde nur auf Dachaufbauten geprueft.
+     Gemessen ueber den echten Eingabeweg endet das Ueberziehen aber
+     auch mitten in einem Nachbarhaus: in 14 Bildern lagen Kopf, Brust
+     UND Becken in einem fremden Kollider. Die Kamera zeigt dann
+     richtigerweise nur noch Wand - das ist das Human-Bild, das
+     vollstaendig braun ist.
+     Der Landepunkt wandert deshalb zurueck zur Wand, bis er frei ist.
+     Im schlimmsten Fall bleibt die Figur an der Kante stehen; das ist
+     immer noch besser als im Haus. */
+  const imHaus = (x, y, z) => {
+    for (const n of collidersNear(x, z)) {
+      if (n.klein || n.innen || n.parkAuto || n.dachProp) continue;
+      const y0 = n.y0 === undefined ? -1e9 : n.y0;
+      if (x > n.x0 + 0.02 && x < n.x1 - 0.02 && z > n.z0 + 0.02 && z < n.z1 - 0.02 &&
+          y > y0 + 0.02 && y < (n.h || 0) - 0.02) return n;
+    }
+    return null;
+  };
+  const vorX = ziel.x, vorZ = ziel.z;
+  if (imHaus(ziel.x, ziel.y + 1.0, ziel.z)) {
+    let fertig = false;
+    for (let zurueck = 0.2; zurueck <= 1.2 && !fertig; zurueck += 0.2) {
+      const x = vorX + nx * zurueck, z = vorZ + nz * zurueck;
+      if (!imHaus(x, ziel.y + 1.0, z)) { ziel.x = x; ziel.z = z; fertig = true; }
+    }
+    if (!fertig) { ziel.x = vorX + nx * 1.2; ziel.z = vorZ + nz * 1.2; }
+  }
   const erste = besetzt(ziel.x, ziel.y, ziel.z);
   if (!erste) return ziel;
   if ((erste.h || 0) - ziel.y <= KANTE_ABSATZ) { ziel.y = erste.h; return ziel; }
   for (let weiter = 0.3; weiter <= 2.0; weiter += 0.3) {
     const x = ziel.x - nx * weiter, z = ziel.z - nz * weiter;
-    if (!besetzt(x, ziel.y, z)) { ziel.x = x; ziel.z = z; return ziel; }
+    if (!besetzt(x, ziel.y, z) && !imHaus(x, ziel.y + 1.0, z)) {
+      ziel.x = x; ziel.z = z; return ziel;
+    }
   }
   return ziel;
 }
@@ -17348,7 +17413,8 @@ function updatePlayer(dt) {
         ), w.nx, w.nz);
         if (dauer > 0.2) {
           player.state = 'kante';
-          player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: lc.h };
+          player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: lc.h,
+                           wand: { nx: w.nx, nz: w.nz, col: lc } };
         } else {
           player.pos.copy(ziel); player.state = 'air'; player.vel.set(0, 4, 0);
         }
@@ -17662,7 +17728,8 @@ function updatePlayer(dt) {
       ), w.nx, w.nz);
       if (dauer > 0.2) {
         player.state = 'kante';
-        player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: c.h };
+        player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: c.h,
+                         wand: { nx: w.nx, nz: w.nz, col: c } };
         player.vel.set(0, 0, 0);
       } else {
         player.pos.copy(ziel);

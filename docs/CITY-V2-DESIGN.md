@@ -1913,6 +1913,60 @@ dachtraversal 20 von 20 aufs Dach und 0 auffaellige Versuche,
 dachhohlraum roofCavity 0, wandkriechen 0 fehlerhafte Richtungen,
 wandlauf 0 von 14, kernsysteme climbSurfaceGap 0 und wallrunFailed 0.
 
+### Kletterkamera am Dach: die nachziehende Lage
+
+Der Human-Screenshot zeigt ein Bild, das praktisch vollstaendig aus
+einer braunen Gebaeudeflaeche besteht. `kletterkamera.js` war in allen
+synthetischen Lagen gruen - er misst den Abstand und ob die Kamera in
+einem Kollider steckt. Beides kann stimmen, waehrend die Kamera nur eine
+Wand filmt.
+
+`tools/pruef/kletterkamera-sicht.js` misst deshalb die SICHT: drei
+Strahlen von der Kamera zu Kopf, Brust und Becken, ueber den echten
+Eingabeweg (Strasse, Anlauf, ankleben, hochklettern bis aufs Dach).
+
+**Zwei eigene Messfehler zuerst.** Der Stand hielt 2,2 m unter der
+Dachkante an und fand nichts - das Bild entsteht aber erst beim
+Ueberziehen. Und die Tastpunkte liefen bis an den Knochen heran; der
+letzte liegt regelmaessig IN der Wand, an der die Figur haengt. Das ist
+Koerperkontakt, keine Verdeckung, und meldete 14 Bilder "ganz verdeckt",
+die in Wahrheit frei zu sehen waren. Die letzten 35 cm zaehlen jetzt
+nicht mehr mit.
+
+**Der Befund.** Beim Ueberziehen auf das Dach faellt der Kameraabstand
+auf 1,35 m - die Kamera steht auf dem Blickpunkt. Dabei ist der
+Hauptstrahl frei: `geklemmt 6,4` von `wunsch 6,4`. Die Ursache liegt
+hinter der Glaettung: `camPos` zieht nach und haengt waehrend der
+schnellen Bewegung noch unter der Dachkante, waehrend die Figur schon
+darueber ist. Die Strecke Blickpunkt-camPos schneidet dann das Dach, und
+`begrenzeKamera()` holt die Kamera bis auf den Blickpunkt heran.
+
+Dazu kam: waehrend `kante` wird `wallInfo` auf null gesetzt - die Figur
+haengt ja nicht mehr. Die Kamera fiel damit auf die normale Luftkamera
+zurueck, ohne Ankerpunkt vor der Fassade.
+
+**Behoben.** Die Wand, ueber die gerade gezogen wird, bleibt fuer die
+Kamera stehen, bis die Bewegung durch ist. Und ist die GEWUENSCHTE Lage
+frei und nur die nachziehende verdeckt, wird schneller nachgefuehrt
+statt zusammengefallen. Der Abstand wird nicht erzwungen - er bleibt
+der, den die Geometrie hergibt.
+
+| Messung (echter Eingabeweg, Keim 4711) | vorher | nachher |
+| --- | --- | --- |
+| kleinster Kameraabstand beim Ueberziehen | 1,35 m | **6,42 m** |
+| playerFullyOccluded | 1 von 204 | 1 von 204 |
+| Bild beim Ueberziehen | Dachflaeche ohne Orientierung | Figur und Stadt |
+
+Die eine verbliebene Verdeckung ist ein Bild, in dem ein Koerperpunkt
+waehrend des Ueberziehens die bekletterte Wand beruehrt - dieselbe
+Animation, ein eigener kleiner Befund.
+
+Regression: `node --test` 170/170, kletterkamera 0 von 150, 0 von 90 und
+0 von 220 Bildern eingeengt, kletterstetigkeit playerInsideBuilding 0,
+Naht 221/221, Aussenecke 150/150, innen-kamera 0 Bilder mit der Kamera
+in einer Wand, innenraum 0 von 209 Blickpunkten durch eine Wand,
+dachtraversal 20 von 20 und 0 auffaellige Versuche.
+
 ---
 
 ## 7. Was noch aussteht

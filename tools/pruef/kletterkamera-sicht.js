@@ -29,9 +29,15 @@ const ALT = process.argv.indexOf('alt') > 0;
 const bArg = process.argv.find((v) => v.indexOf('bilder=') === 0);
 const BILDER = bArg === undefined ? null : bArg.slice(7);
 if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
+/* Im Bildmodus wird nur die erste Stelle gefahren, dafuer Bild fuer
+   Bild - sonst dauert die Aufnahme ewig. */
+const NUR_ERSTE = !!BILDER;
 
 (async () => {
-  const { b, page } = await starte(960, 540, SEED, ALT ? { flaecheAlt: true } : {});
+  /* "alt" meint den Stand VOR diesem Durchgang: ganze Kolliderseite
+     kletterbar UND Kamera zieht immer gleich langsam nach. */
+  const { b, page } = await starte(960, 540, SEED,
+    ALT ? { flaecheAlt: true, kamNachAlt: true } : {});
   const stellen = await page.evaluate(() => {
     const d = __dbg; d.frier(true); d.setzeRegen(0);
     const SLAB_H = 0.25;
@@ -80,10 +86,12 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   });
 
   const werte = [];
+  const nahBsp = [];
   let kopfV = 0, brustV = 0, beckenV = 0, ganzV = 0, bilder = 0;
   const schlimm = [];
-  for (let n = 0; n < stellen.length; n++) {
+  for (let n = 0; n < (NUR_ERSTE ? Math.min(1, stellen.length) : stellen.length); n++) {
     const reihe = await page.evaluate(async (S) => {
+      const fenster = S.fenster;
       const d = __dbg, P = d.player;
       const SLAB_H = 0.25;
       for (const t of ['KeyW','KeyA','KeyS','KeyD','ShiftLeft','Space','KeyZ'])
@@ -101,20 +109,32 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       for (let i = 0; i < 150 && !dran; i++) { d.schritt(1 / 60); if (P.state === 'climb') dran = true; }
       if (!dran) { for (const t of ['KeyW','ShiftLeft']) d.taste(t, false); return null; }
       d.taste('ShiftLeft', false);
-      /* Bis dicht unter die Dachkante hoch. */
-      const ziel = (col.h || 0) - 2.2;
+      /* ---- Den ganzen oberen Abschnitt messen ----
+         Der erste Versuch hielt 2,2 m unter der Dachkante an und fand
+         nichts. Das Human-Bild entsteht aber irgendwo zwischen
+         Dachkrone und Dachkante - die Krone ragt 0,25 m aus der
+         Fassade und liegt im Band h-1,45 bis h. Gemessen wird deshalb
+         durchgehend von sechs Metern unter der Kante bis auf das Dach,
+         einschliesslich des Ueberziehens. */
+      const beginn = (col.h || 0) - 6;
       let i = 0;
-      while (i < 900 && P.pos.y < ziel && P.state === 'climb') { d.schritt(1 / 60); i++; }
-      d.taste('KeyW', false);
-      for (let k = 0; k < 20; k++) d.schritt(1 / 60);
+      while (i < 900 && P.pos.y < beginn && P.state === 'climb') { d.schritt(1 / 60); i++; }
 
       /* ---- Sicht messen ---- */
+      /* ---- Die letzten 35 cm zaehlen nicht ----
+         Die Figur haengt an einer Wand. Der letzte Tastpunkt vor dem
+         Knochen liegt deshalb regelmaessig IN dieser Wand, und das ist
+         keine Verdeckung, sondern Koerperkontakt. Ohne diesen Abzug
+         meldete die Messung 14 Bilder "ganz verdeckt", in denen die
+         Figur in Wahrheit frei zu sehen war. */
       const frei = (ax, ay, az, bx, by, bz) => {
         const dx = bx - ax, dy = by - ay, dz = bz - az;
         const len = Math.hypot(dx, dy, dz);
         const n2 = Math.max(2, Math.ceil(len / 0.12));
+        const bis = len > 0.7 ? (len - 0.35) / len : 0.5;
         for (let s = 1; s < n2; s++) {
           const t = s / n2;
+          if (t > bis) break;
           const x = ax + dx * t, y = ay + dy * t, z = az + dz * t;
           for (const c of d.colliderNah(x, z)) {
             if (c.innen || c.parkAuto) continue;
@@ -128,8 +148,9 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         return { frei: true };
       };
       const reihe = [];
-      for (let k = 0; k < 60; k++) {
+      for (let k = 0; k < (fenster || 240); k++) {
         d.schritt(1 / 60);
+        if (P.state !== 'climb' && P.state !== 'kante' && k > 30) break;
         const kam = d.kamera();
         const kn = d.animKnochen(['head', 'spine2', 'hips']);
         const kp = kam.pos;
@@ -139,16 +160,20 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
           if (!b2) { sicht[nm] = { frei: true }; continue; }
           sicht[nm] = frei(kp[0], kp[1], kp[2], b2.x, b2.y, b2.z);
         }
-        reihe.push({ abst: kam.abstand, steckt: kam.steckt, sicht,
+        reihe.push({ k, abst: kam.abstand, steckt: kam.steckt, sicht,
+                     block: d.kamBlock(),
+                     hoehe: +((col.h || 0) - P.pos.y).toFixed(2),
                      pos: [+P.pos.x.toFixed(2), +P.pos.y.toFixed(2), +P.pos.z.toFixed(2)],
                      zustand: P.state, koll: P.wallInfo && P.wallInfo.col
                        ? P.wallInfo.col.id : null });
       }
+      d.taste('KeyW', false);
       return reihe;
-    }, stellen[n]);
+    }, { ...stellen[n], fenster: null });
     if (!reihe) continue;
     let ganzHier = 0;
     for (const r of reihe) {
+      if (r.abst < 3.0 && nahBsp.length < 8) nahBsp.push({ stelle: n, ...r });
       bilder++;
       if (!r.sicht.kopf.frei) kopfV++;
       if (!r.sicht.brust.frei) brustV++;
@@ -162,10 +187,35 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                  bilder: reihe.length, ganzVerdeckt: ganzHier,
                  abstMin: +Math.min(...reihe.map((r) => r.abst)).toFixed(2) });
     if (BILDER) {
-      await page.evaluate(() => __dbg.zeichne());
-      await page.screenshot({ path: path.join(BILDER,
-        String(n + 1).padStart(2, '0') + '-koll' + stellen[n].koll + '.jpg'),
-        type: 'jpeg', quality: 85 });
+      /* Dieselbe Stelle noch einmal, diesmal mit Aufnahme je drei
+         Bildern - mit der ECHTEN Spielkamera. */
+      await page.evaluate(async (S) => {
+        const d = __dbg, P = d.player;
+        const SLAB_H = 0.25;
+        for (const t of ['KeyW','KeyA','KeyS','KeyD','ShiftLeft','Space','KeyZ'])
+          d.taste(t, false);
+        const col = d.colliderNah(S.fx, S.fz).find((q) => q.id === S.koll);
+        d.setzePos(S.fx + S.nx * 5, SLAB_H + 0.1, S.fz + S.nz * 5);
+        P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
+        P.wallInfo = null; P.wall = null;
+        P.facing = Math.atan2(-S.nx, -S.nz);
+        d.setzeKamYaw(Math.atan2(-S.nx, -S.nz));
+        for (let i = 0; i < 20; i++) d.schritt(1 / 60);
+        d.taste('ShiftLeft', true); d.taste('KeyW', true);
+        let dran = false;
+        for (let i = 0; i < 150 && !dran; i++) { d.schritt(1 / 60); if (P.state === 'climb') dran = true; }
+        d.taste('ShiftLeft', false);
+        const beginn = (col.h || 0) - 6;
+        let i = 0;
+        while (i < 900 && P.pos.y < beginn && P.state === 'climb') { d.schritt(1 / 60); i++; }
+      }, stellen[n]);
+      for (let f = 0; f < 90; f++) {
+        await page.evaluate(() => { for (let k = 0; k < 3; k++) __dbg.schritt(1 / 60); });
+        await page.evaluate(() => __dbg.zeichne());
+        await page.screenshot({ path: path.join(BILDER, String(f).padStart(4, '0') + '.jpg'),
+                                type: 'jpeg', quality: 85 });
+      }
+      await page.evaluate(() => __dbg.taste('KeyW', false));
     }
     console.log('  Stelle ' + (n + 1) + '  Kollider ' + stellen[n].koll +
                 (stellen[n].hoeher ? '  (hoeherer Nachbar)' : '') +
@@ -178,6 +228,10 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   console.log('  chestOccluded         ' + brustV);
   console.log('  pelvisOccluded        ' + beckenV);
   console.log('  playerFullyOccluded   ' + ganzV);
+  if (nahBsp.length) {
+    console.log('\n  Beispiele mit Kameraabstand unter 3 m:');
+    for (const e of nahBsp) console.log('    ' + JSON.stringify(e));
+  }
   if (schlimm.length) {
     console.log('\n  Beispiele ganz verdeckt:');
     for (const e of schlimm) console.log('    ' + JSON.stringify(e));
