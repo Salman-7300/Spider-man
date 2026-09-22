@@ -8578,7 +8578,57 @@ function makeGlbVisual(m) {
          knieQ: 0.12, knieL: -0.46, knieH: -0.06,
          kopfL: 0.20, kopfH: 0.20 },
   };
-  let GLEIT_HALTUNG = 'B';
+  /* ---- D: eine gebaute Haltung statt gerechneter Endpunkte ----
+     problem-2, Punkt C. A, B und C waren dieselbe Mechanik mit anderen
+     Zielpunkten fuer Haende und Fuesse: eine Zweiknochen-Kette loest
+     Ober- und Unterarm so, dass die Hand am Ziel landet. Steht das Ziel
+     0,45 m seitlich, ist der Arm fast gestreckt - daher die
+     Seestern-Silhouette, die der Human-Test abgelehnt hat.
+
+     D gibt stattdessen jedem Knochen seine RICHTUNG vor, einzeln. Die
+     Richtungen stehen im koerpereigenen System:
+
+       q  quer   (nach aussen, positiv = vom Koerper weg)
+       l  laengs (positiv = in Flugrichtung, negativ = nach hinten)
+       h  hoch
+
+     Die rechte Seite entsteht durch Spiegeln von q, nicht durch
+     Vorzeichen auf lokalen Eulerwinkeln - das haengt sonst an der
+     Ruheausrichtung des Rigs. Gemessen war die Vorzeichen-Fassung in
+     KEINER der acht Kombinationen symmetrisch (kleinste Abweichung
+     0,30 m an der Hand); so gebaut ist sie es von selbst.
+
+     Der Ellbogen ist sichtbar gebeugt, weil Ober- und Unterarm
+     verschiedene Richtungen bekommen - nicht, weil ein Polvektor ihn
+     zufaellig dorthin drueckt. Der Rig bleibt unangetastet. */
+  const GLEIT_BAU = {
+    cruise: {
+      /* Gemessen und ausgesucht: vier Spannweiten nebeneinander
+         fotografiert (gleit-bau.js). Bei 0,72/0,38 liegen die Arme zu
+         eng am Koerper und die Netzhaut ist nicht zu sehen, bei
+         0,93/0,82 steht die Figur wieder fast im T. Diese Werte geben
+         eine Handspannweite von 1,06 m. */
+      oberarm:  [0.85, -0.45, -0.04],
+      unterarm: [0.66, -0.72,  0.10],
+      oberbein: [0.16, -0.97, -0.04],
+      unterbein:[0.10, -0.92,  0.28],
+      fuss:     [0.06, -0.72, -0.62],
+      rumpf:    [0, 1, 0.06],
+      kopf:     [0, 0.88, 0.47],
+    },
+    dive: {
+      oberarm:  [0.30, -0.94, -0.08],
+      unterarm: [0.16, -0.98,  0.05],
+      oberbein: [0.07, -0.99, -0.02],
+      unterbein:[0.05, -0.99,  0.08],
+      fuss:     [0.03, -0.86, -0.50],
+      rumpf:    [0, 1, 0.02],
+      kopf:     [0, 0.95, 0.30],
+    },
+  };
+  /* Gewaehlt ist die gebaute Haltung D. A, B und C bleiben als
+     Vergleich im Quelltext, E ist die gebaute Sturzhaltung. */
+  let GLEIT_HALTUNG = 'D';
   const GLEIT_SPUR = { left: null, right: null };
 
   const root = new THREE.Group();
@@ -10161,9 +10211,85 @@ function makeGlbVisual(m) {
       }
       return aus;
     },
+    /* ---- Die gebaute Gleithaltung (problem-2, Punkt C) ----
+       Der Koerper wird wie bisher an der Flugrichtung ausgerichtet -
+       daran haengt die Physik und die Netzhaut. Alles andere sind
+       lokale Drehungen aus der Ruhehaltung, links und rechts
+       gespiegelt. Keine Endeffektor-Ziele, keine Zweiknochen-Kette. */
+    poseGleitBau(nase, kurve, t, k, tempo, art) {
+      const w = clamp(k === undefined ? 0.9 : k, 0, 1);
+      if (w <= 0 || !knochen.hips) return;
+      const H = GLEIT_BAU[art] || GLEIT_BAU.cruise;
+      root.updateMatrixWorld(true);
+      const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).normalize();
+      const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).normalize();
+      const up = new THREE.Vector3().crossVectors(forward, right).normalize();
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3());
+      const flight = forward.clone()
+        .addScaledVector(up, 0.1 - clamp(nase || 0, -1, 1) * 0.1).normalize();
+      const atem = Math.sin((t || 0) * 1.8) * 0.012;
+      const bank = clamp(kurve || 0, -1, 1);
+      const _r = new THREE.Vector3(), _z = new THREE.Vector3();
+      /* Eine Richtung aus dem Koerpersystem in die Welt. vz spiegelt
+         die Querachse fuer die rechte Seite. */
+      const richtung = (a, vz, extraH) => _r.copy(right).multiplyScalar(a[0] * vz)
+        .addScaledVector(flight, a[1])
+        .addScaledVector(up, a[2] + (extraH || 0)).normalize();
+      /* Einen Knochen in eine Richtung legen. */
+      const lege = (bone, kind, a, vz, kk, extraH) => {
+        if (!bone || !kind) return;
+        richtung(a, vz === undefined ? 1 : vz, extraH);
+        bone.getWorldPosition(_z);
+        zieleKnochen(bone, kind, _z.add(_r), kk);
+      };
+      /* Rumpf: Becken, Wirbelsaeule und Kopf in die Flugrichtung. */
+      lege(knochen.hips, knochen.spine, H.rumpf, 1, w);
+      for (const [nm, kind] of [['spine', 'spine1'], ['spine1', 'spine2'],
+                                ['spine2', 'neck']])
+        lege(knochen[nm], knochen[kind], H.rumpf, 1, w * 0.85);
+      lege(knochen.neck, knochen.head, H.kopf, 1, w * 0.85);
+      for (const seite of ['left', 'right']) {
+        const vz = seite === 'left' ? 1 : -1;
+        const q = vz;
+        drehZuRuhe(knochen[seite + 'shoulder'], 0, 0, 0, w * 0.7);
+        root.updateMatrixWorld(true);
+        /* Die Kurvenlage und der Atemzug heben den einen Arm etwas an
+           und senken den anderen - sonst steht die Haltung tot. */
+        lege(knochen[seite + 'arm'], knochen[seite + 'forearm'],
+             H.oberarm, vz, w, bank * 0.06 * q + atem * q);
+        root.updateMatrixWorld(true);
+        lege(knochen[seite + 'forearm'], knochen[seite + 'hand'],
+             H.unterarm, vz, w);
+        lege(knochen[seite + 'upleg'], knochen[seite + 'leg'],
+             H.oberbein, vz, w);
+        root.updateMatrixWorld(true);
+        lege(knochen[seite + 'leg'], knochen[seite + 'foot'],
+             H.unterbein, vz, w);
+        root.updateMatrixWorld(true);
+        /* Haende flach in den Fahrtwind, Fuesse nach hinten - das
+           spannt die Netzhaut auf. */
+        setzeHand(seite, richtung(H.unterarm, vz).clone(),
+                  up.clone().negate(), w * 0.8);
+        setzeFuss(seite, richtung(H.fuss, vz).clone(),
+                  up.clone().negate(), w * 0.8);
+      }
+    },
     /* Welche der drei Haltungen gilt? Nur fuer den Vergleich der
        Vorschlaege, im Spiel steht sie auf A. */
-    setzeGleitHaltung(v) { if (GLEIT_HALTUNGEN[v]) GLEIT_HALTUNG = v; },
+    setzeGleitHaltung(v) {
+      if (GLEIT_HALTUNGEN[v] || v === 'D' || v === 'E') GLEIT_HALTUNG = v;
+    },
+    /* Nur fuer die Abstimmung der gebauten Haltung: Werte zur Laufzeit
+       setzen, damit ein Browserstart viele Varianten zeigen kann. */
+    setzeGleitBau(art, teil) {
+      const H = GLEIT_BAU[art];
+      if (!H) return null;
+      for (const [nm, a] of Object.entries(teil || {})) H[nm] = a;
+      return H;
+    },
+    gleitBau(art) { return GLEIT_BAU[art] || null; },
+    setzeGleitSpiegel(gruppe, a) { if (a && GLEIT_SP[gruppe]) GLEIT_SP[gruppe] = a.slice(); },
+    gleitSpiegel() { return { arm: GLEIT_SP.arm.slice(), bein: GLEIT_SP.bein.slice() }; },
     gleitHaltung() { return GLEIT_HALTUNG; },
     /* ---- Drei Haltungen zur Wahl (problem-2, Punkt C) ----
        Der Rig bleibt unangetastet: dieselben Knochen, dieselbe
@@ -10176,6 +10302,9 @@ function makeGlbVisual(m) {
     poseGleiten(nase, kurve, t, k, tempo) {
       const w = clamp(k === undefined ? 0.9 : k, 0, 1);
       if (w <= 0 || !knochen.hips) return;
+      if (GLEIT_HALTUNG === 'D' || GLEIT_HALTUNG === 'E')
+        return this.poseGleitBau(nase, kurve, t, k, tempo,
+                                 GLEIT_HALTUNG === 'E' ? 'dive' : 'cruise');
       root.updateMatrixWorld(true);
       const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).normalize();
       const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).normalize();
@@ -37202,6 +37331,20 @@ if (window.__WEBHERO_TEST__ === true) {
     },
     gleitSpur() {
       return heroVisual && heroVisual.gleitSpur ? heroVisual.gleitSpur() : {};
+    },
+    /* Die gebaute Gleithaltung zur Laufzeit abstimmen (problem-2, C). */
+    setzeGleitBau(art, teil) {
+      return heroVisual && heroVisual.setzeGleitBau
+        ? heroVisual.setzeGleitBau(art, teil) : null;
+    },
+    gleitBau(art) {
+      return heroVisual && heroVisual.gleitBau ? heroVisual.gleitBau(art) : null;
+    },
+    setzeGleitSpiegel(gruppe, a) {
+      if (heroVisual && heroVisual.setzeGleitSpiegel) heroVisual.setzeGleitSpiegel(gruppe, a);
+    },
+    gleitSpiegel() {
+      return heroVisual && heroVisual.gleitSpiegel ? heroVisual.gleitSpiegel() : null;
     },
     setzeGrafik(v) { EINST.grafik = v; wendeGrafikAn(); },
     setzeBrueckenSog(v) { BRUECKEN_SOG = v; },

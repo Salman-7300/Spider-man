@@ -17,7 +17,11 @@
    Mit "alt" laeuft dieselbe Folge auf der alten Schwelle ohne
    Hysterese. Die Bilder sind damit Bild fuer Bild vergleichbar.
 
-   Aufruf:  node tools/pruef/gleit-video.js <ordner> [seed=4711] [alt]
+   "nah" setzt die Kamera dicht hinter die Figur, damit die Haltung zu
+   beurteilen ist (problem-2, C6) - die Spielkamera zeigt sie sonst nur
+   als Fleck. Ohne "nah" laeuft die echte Spielkamera.
+
+   Aufruf:  node tools/pruef/gleit-video.js <ordner> [seed=4711] [alt] [nah]
    ========================================================================= */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -26,6 +30,8 @@ const ziel = ausgabePfad(process.argv[2]) || 'video-gleit';
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const seed = sArg === undefined ? 4711 : +sArg.slice(5);
 const ALT = process.argv.indexOf('alt') > 0;
+const NAH = process.argv.indexOf('nah') > 0;
+const HALT = (process.argv.find((v) => v.indexOf('haltung=') === 0) || '').slice(8);
 fs.mkdirSync(ziel, { recursive: true });
 
 /* Die Folge: Name, Dauer in Simulationsbildern, gehaltene Tasten.
@@ -59,6 +65,7 @@ const FOLGE = [
     d.setzeKamYaw(Math.PI);
     d.taste('ShiftLeft', true);
   });
+  if (HALT) await page.evaluate((h) => __dbg.setzeGleitHaltung(h), HALT);
   /* Einschwingen, bevor die Aufnahme laeuft. */
   await page.evaluate(() => { for (let i = 0; i < 90; i++) __dbg.schritt(1 / 60); });
 
@@ -77,7 +84,16 @@ const FOLGE = [
         return { nase: +(P.gleitNase || 0).toFixed(2), sturz: !!P.sturzflug,
                  anim: P.anim, y: +P.pos.y.toFixed(1) };
       }, { tasten: abschnitt.tasten, tippen: !!abschnitt.tippen, i });
-      await page.evaluate(() => __dbg.zeichne());
+      if (NAH) {
+        /* Dicht hinter und etwas ueber der Figur, mitfliegend. */
+        await page.evaluate(() => {
+          const P = __dbg.player;
+          const v = Math.hypot(P.vel.x, P.vel.z) || 1;
+          const hx = P.vel.x / v, hz = P.vel.z / v;
+          __dbg.aufnahme(P.pos.x - hx * 3.2 + 1.2, P.pos.y + 1.6, P.pos.z - hz * 3.2,
+                         P.pos.x, P.pos.y + 0.9, P.pos.z);
+        });
+      } else await page.evaluate(() => __dbg.zeichne());
       await page.screenshot({ path: path.join(ziel, String(bild).padStart(4, '0') + '.jpg'),
                               type: 'jpeg', quality: 80 });
       werte.push({ bild, abschnitt: abschnitt.name, ...st });

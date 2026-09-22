@@ -1967,6 +1967,49 @@ Naht 221/221, Aussenecke 150/150, innen-kamera 0 Bilder mit der Kamera
 in einer Wand, innenraum 0 von 209 Blickpunkten durch eine Wand,
 dachtraversal 20 von 20 und 0 auffaellige Versuche.
 
+### Punkt C, zweiter Durchgang: eine gebaute Gleithaltung
+
+Der Human-Test hat B abgelehnt - "sieht praktisch genauso schlecht aus
+wie vorher". Das war richtig: A, B und C waren dieselbe Mechanik mit
+anderen Zielpunkten. Eine Zweiknochen-Kette loest Ober- und Unterarm so,
+dass die HAND am Ziel landet; steht das Ziel 0,45 m seitlich, ist der
+Arm fast gestreckt. Daher die Seestern-Silhouette.
+
+**D gibt jedem Knochen seine Richtung vor**, einzeln, im koerpereigenen
+System (quer / laengs / hoch). Der Ellbogen ist gebeugt, weil Ober- und
+Unterarm verschiedene Richtungen bekommen - nicht, weil ein Polvektor
+ihn zufaellig dorthin drueckt. Der Koerper wird weiter an der
+Flugrichtung ausgerichtet; daran haengt die Physik und die Netzhaut. Der
+Rig bleibt unangetastet.
+
+**Ein Versuch dazwischen, zurueckgenommen:** die Haltung ueber lokale
+Eulerwinkel zu setzen und die rechte Seite ueber Vorzeichen zu
+spiegeln. Der Pruefstand hat alle acht Vorzeichenkombinationen
+durchprobiert - in KEINER stand die Figur symmetrisch, die kleinste
+Abweichung an der Hand war 0,30 m. Die Ruheausrichtung des Rigs ist kein
+einfaches Spiegelbild. Ueber Richtungen im Koerpersystem gebaut ist die
+Haltung von selbst symmetrisch (0,03 m).
+
+**Die Spannweite ist ausgesucht, nicht geraten.** `gleit-bau.js` zeigt
+vier Spannweiten nebeneinander in einem Browserstart:
+
+| Kandidat | Handspannweite | Eindruck |
+| --- | --- | --- |
+| eng | 0,89 m | Arme am Koerper, Netzhaut nicht zu sehen |
+| **mittel** | **1,06 m** | **gewaehlt** |
+| weit | 1,16 m | wieder fast im T |
+| weit/ab | 1,11 m | wie mittel, Arme tiefer |
+
+Cruise und Dive bleiben getrennt: der Sturzflug laeuft weiter ueber
+seinen eigenen Clip mit der Hysterese aus problem-1 Punkt 7, die
+Ueberblendung haengt an der Zustandszeit und nicht an `gleitNase`.
+
+Regression: `node --test` 170/170; gleitflug 0 Beanstandungen, Wechsel
+der Haltungsquelle 0, groesster Gliedersprung 0,002 m je Bild, fremde
+Bewegung in der Pose 0, Koerper quer zur Flugrichtung 0;
+sprung-gleiten alle vier Boeden ok und die Flugphysik unveraendert
+(Gleitzahl 2,75 gerade und 1,66 mit Nase runter, wie vorher).
+
 ---
 
 ## 7. Was noch aussteht

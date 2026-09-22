@@ -31,16 +31,21 @@ fs.mkdirSync(ziel, { recursive: true });
 /* Nah genug, dass man die Haltung beurteilen kann: der erste Versuch
    stand 7,5 m weg, und die Figur war ein Fleck von einem Sechstel der
    Bildhoehe. */
+/* Nah genug, dass die Figur rund ein Drittel der Bildhoehe einnimmt
+   (problem-2, C6). Bei 3 m war sie ein Sechstel. */
 const RICHTUNGEN = [
-  { name: 'seite',  ab: [3.0, 0.2, 0] },
-  { name: 'vorn',   ab: [0.8, -1.2, 2.8] },
-  { name: 'hinten', ab: [0.4, 1.4, -3.0] },
+  { name: 'seite',  ab: [2.1, 0.15, 0] },
+  { name: 'vorn',   ab: [0.7, -0.9, 2.0] },
+  { name: 'hinten', ab: [0.3, 1.0, -2.1] },
 ];
 
 (async () => {
   const { b, page } = await starte(1280, 720, seed, {});
   const werte = [];
-  for (const variante of ['A', 'B', 'C']) {
+  const vArg = process.argv.find((v) => v.indexOf('haltungen=') === 0);
+  const VARIANTEN = vArg === undefined ? ['A', 'B', 'C']
+                                       : vArg.slice(10).split(',');
+  for (const variante of VARIANTEN) {
     const mess = await page.evaluate(async (v) => {
       const d = __dbg, P = d.player;
       d.frier(true); d.setzeRegen(0);
