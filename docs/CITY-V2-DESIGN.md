@@ -1856,6 +1856,63 @@ Sichtbaren, keine Schulter, die mehrere Bilder im Kasten verschwindet,
 und hindurchlaufen kann die Figur nicht. Es bleibt ein kurzer
 Beruehrungskontakt beim Haengen an der Dachkante.
 
+### Punkt A.2, zweiter Durchgang: Exposed Climb Regions
+
+Der Human-Test hat den ersten Durchgang abgelehnt - die Figur buggt
+weiter in Gebaeude. Der Befund war belegt, die Behebung fehlte.
+
+**Das Flaechenmodell war das Problem.** Eine Kolliderseite galt ueber
+ihre ganze Laenge als kletterbar. Eine 20 m lange Seitenflaeche kann
+aber auf den ersten zwoelf Metern frei sein und auf den letzten acht im
+Nachbarhaus stecken. Die Figur klebt bei 5 m richtig an und kriecht bis
+17 m weiter.
+
+Gefragt wird deshalb nicht mehr "ist diese Seite kletterbar?", sondern
+**"welcher Abschnitt dieser Seite ist von aussen erreichbar?"**
+`freieAbschnitte()` spannt vor der Wand einen flachen Quader auf, so
+tief wie die Figur braucht (Kletterabstand 0,15 plus Koerperradius 0,45
+= 0,60 m). Jeder solide Kollider darin schneidet seinen Laengsbereich
+heraus; uebrig bleiben die freien Abschnitte. Die Hoehe geht mit ein -
+ueber einem niedrigeren Nachbarn ist dieselbe Stelle wieder frei.
+
+Die Gebaeudekollider bleiben unveraendert. Das betrifft nur die Frage,
+wo geklettert werden darf.
+
+**Wo der Riegel sitzt.** Gemessen wurde zuerst, WODURCH die Figur
+ueberhaupt auf eine vergrabene Stelle geraet - mit der Lage davor und
+danach. Es waren nicht das Ankleben und nicht das Kriechen, sondern
+**drei Eckwechsel und eine Naht-Uebergabe**. Genau dort wird jetzt
+geprueft, und zwar an der Stelle, an der die Figur NACH dem Wechsel
+haengt. Zusaetzlich klemmt die seitliche Bewegung auf den freien
+Abschnitt, in dem die Figur vor dem Schritt hing.
+
+| Kennzahl (echter Eingabeweg, Keim 4711) | vorher | nachher |
+| --- | --- | --- |
+| exposedSurfaceViolation | 415 | **0** |
+| playerInsideNeighborWhileClimbing | 576 | **0** |
+| buriedSurfaceEntry | 4 | 3 |
+| climbOnBuriedFace | 459 | 30 |
+| playerInsideBuilding (Stetigkeitsmessung) | 58 / 43 | **0 / 0** |
+
+Die 30 verbliebenen Bilder haben **mehr** als 0,60 m Platz vor der Wand
+(exposedSurfaceViolation 0) - sie liegen auf der Grenze zwischen zwei
+Abschnitten, wo die Intervallpruefung und die Tiefenmessung um wenige
+Zentimeter auseinanderlaufen. Die drei Bilder "im Gebaeude" sind die
+EIGENE Dachkrone, ein eigener Befund.
+
+**Was dabei nicht funktioniert hat und zurueckgenommen ist:** die
+Pruefung an der Stelle VOR dem Wechsel (Naht 221 -> 0, Aussenecke
+150 -> 0 - der Riegel verwirft dann jede Uebergabe, weil die Figur dort
+noch 0,2 m vor der Kante des alten Hauses steht), und die Dachkrone in
+die Vorsprungs-Schleife des Kletterzweigs aufzunehmen (Bilder im fremden
+Gebaeude 3 -> 597, weil die Figur dann 0,40 m vor der Wand steht und
+ihren freien Abschnitt verlaesst).
+
+Regression: `node --test` 170/170, Naht 221/221, Aussenecke 150/150,
+dachtraversal 20 von 20 aufs Dach und 0 auffaellige Versuche,
+dachhohlraum roofCavity 0, wandkriechen 0 fehlerhafte Richtungen,
+wandlauf 0 von 14, kernsysteme climbSurfaceGap 0 und wallrunFailed 0.
+
 ---
 
 ## 7. Was noch aussteht

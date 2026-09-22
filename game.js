@@ -3171,6 +3171,10 @@ function baueDekoMesh() {
    sie vor problem-1 Punkt 6 war - nur das obere Band, und das als
    "klein", also fuer die Kletterlogik unsichtbar. */
 const KRONE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KRONE_ALT;
+/* Zum Vergleichen: mit __WEBHERO_FLAECHE_ALT gilt eine Kolliderseite
+   wieder ueber ihre ganze Laenge als kletterbar - der Stand vor
+   problem-2 Punkt A.2. */
+const FLAECHE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_FLAECHE_ALT;
 /* Hinein in den Sturzflug erst ab 0,62, heraus erst unter 0,42 - siehe
    die Begruendung an der Stelle, an der sie benutzt werden. */
 const STURZ_EIN = 0.80, STURZ_AUS = 0.30;
@@ -14125,6 +14129,88 @@ function kanteZielFrei(ziel, nx, nz) {
   return ziel;
 }
 
+/* ---- Welcher ABSCHNITT einer Schauseite zeigt wirklich nach aussen? ----
+   problem-2, Punkt A.2. Bis hierher galt eine Kolliderseite ueber ihre
+   ganze Laenge als kletterbar. Das ist geometrisch falsch: eine 20 m
+   lange Seitenflaeche kann auf den ersten zwoelf Metern frei sein und
+   auf den letzten acht vollstaendig im Nachbarhaus stecken. Die Figur
+   klebt dann bei 5 m richtig an und kriecht bis 17 m weiter - genau der
+   Befund aus dem Human-Test.
+
+   Gefragt wird deshalb nicht mehr "ist diese Seite kletterbar?", sondern
+   "welcher Abschnitt dieser Seite ist von aussen erreichbar?". Vor der
+   Wand wird ein flacher Quader aufgespannt, so tief wie die Figur
+   braucht (Kletterabstand plus Koerperradius). Jeder solide Kollider,
+   der in diesem Quader liegt, schneidet seinen Laengsbereich aus der
+   Flaeche heraus. Uebrig bleiben die freien Abschnitte.
+
+   Die Hoehe geht mit ein: Nachbarhaeuser sind unterschiedlich hoch, und
+   ueber einem niedrigen Nachbarn ist dieselbe Stelle wieder frei.
+
+   Die Gebaeudekollider bleiben unveraendert - das hier betrifft nur die
+   Frage, wo geklettert werden darf. */
+const KLETTER_LUFT = 0.60;          // climbGap 0,15 + Koerperradius 0,45
+const _abPruef = [];
+/* Liegt die Stelle t (Laengskoordinate) auf dieser Schauseite im
+   Freien? */
+function flaecheFrei(c, nx, nz, y, t) {
+  if (FLAECHE_ALT) return true;
+  const ab = freieAbschnitte(c, nx, nz, y, _abPruef);
+  for (let i = 0; i < ab.length; i += 2)
+    if (t >= ab[i] - 0.05 && t <= ab[i + 1] + 0.05) return true;
+  return false;
+}
+const _abSperren = [];
+const _abFrei = [];
+function freieAbschnitte(c, nx, nz, y, aus) {
+  const achseX = nx !== 0;          // Laengsachse ist dann z
+  const t0 = achseX ? c.z0 : c.x0, t1 = achseX ? c.z1 : c.x1;
+  aus.length = 0;
+  if (t1 - t0 <= 0) return aus;
+  /* Der Quader vor der Wand. */
+  const fx = achseX ? (nx > 0 ? c.x1 : c.x0) : 0;
+  const fz = achseX ? 0 : (nz > 0 ? c.z1 : c.z0);
+  const qx0 = achseX ? Math.min(fx, fx + nx * KLETTER_LUFT) : t0;
+  const qx1 = achseX ? Math.max(fx, fx + nx * KLETTER_LUFT) : t1;
+  const qz0 = achseX ? t0 : Math.min(fz, fz + nz * KLETTER_LUFT);
+  const qz1 = achseX ? t1 : Math.max(fz, fz + nz * KLETTER_LUFT);
+  _abSperren.length = 0;
+  const i0 = Math.floor((qx0 - HASH_O) / PITCH), i1 = Math.floor((qx1 - HASH_O) / PITCH);
+  const j0 = Math.floor((qz0 - HASH_O) / PITCH), j1 = Math.floor((qz1 - HASH_O) / PITCH);
+  _kameraKandidaten.clear();
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    for (const n of colliderGrid.get(i + ',' + j) || []) {
+      if (n === c || _kameraKandidaten.has(n)) continue;
+      _kameraKandidaten.add(n);
+      if (n.klein || n.innen || n.parkAuto || n.dachProp) continue;
+      const y0 = n.y0 === undefined ? -1e9 : n.y0;
+      if (y <= y0 || y >= (n.h || 0)) continue;
+      /* Liegt der Kollider im Quader VOR der Wand? */
+      if (n.x0 >= qx1 || n.x1 <= qx0 || n.z0 >= qz1 || n.z1 <= qz0) continue;
+      const a = achseX ? n.z0 : n.x0, b = achseX ? n.z1 : n.x1;
+      if (b <= t0 || a >= t1) continue;
+      _abSperren.push(Math.max(t0, a), Math.min(t1, b));
+    }
+  }
+  if (!_abSperren.length) { aus.push(t0, t1); return aus; }
+  /* Sperren nach Anfang sortieren (Paare, deshalb von Hand). */
+  for (let i = 0; i < _abSperren.length; i += 2)
+    for (let j = i + 2; j < _abSperren.length; j += 2)
+      if (_abSperren[j] < _abSperren[i]) {
+        let h = _abSperren[i]; _abSperren[i] = _abSperren[j]; _abSperren[j] = h;
+        h = _abSperren[i + 1]; _abSperren[i + 1] = _abSperren[j + 1]; _abSperren[j + 1] = h;
+      }
+  let t = t0;
+  for (let i = 0; i < _abSperren.length; i += 2) {
+    const a = _abSperren[i], b = _abSperren[i + 1];
+    if (a > t + 0.01) aus.push(t, a);
+    if (b > t) t = b;
+  }
+  if (t1 > t + 0.01) aus.push(t, t1);
+  return aus;
+}
+
+
 /* ======================= Kollision Figur <-> Welt ======================= */
 /* Zusätzlicher Abstand zur Wand, solange die Figur schnell durch die Luft
    fliegt. Der Kollisionsradius von 45 cm passt zu einer stehenden Figur;
@@ -17206,6 +17292,11 @@ function updatePlayer(dt) {
        an der Fassade, obwohl man stand. */
     player.wandlauf = player.wandSchwung > 1.5 && (Math.abs(up) + Math.abs(side)) > 0.05;
     player.vel.set(tx * querTempo, hoch, tz * querTempo);
+    /* Die Laengslage VOR dem Schritt. Sie entscheidet gleich, in welchem
+       freien Abschnitt der Wand die Figur gerade haengt - nicht die Lage
+       NACH dem Schritt, denn die kann schon im Nachbarn liegen
+       (problem-2, Punkt A.2). */
+    let tVorX = player.pos.x, tVorZ = player.pos.z;
     /* ---- Was hier NICHT funktioniert hat (problem-2, Punkt A.2) ----
        Eine Schauseite kann an ihrem Ende im Nachbarhaus stecken:
        gemessen haengt die Figur 0,15 m vor der Ostwand von Kollider 45
@@ -17232,6 +17323,16 @@ function updatePlayer(dt) {
        der Fassade heraus. Vorher steckte die Figur mit dem Oberkörper darin
        fest. Ist der Vorsprung in Griffhöhe und man klettert aufwärts, zieht
        sie sich darüber; sonst wird sie davor geschoben. */
+    /* ---- Was hier NICHT geht: die Dachkrone mitfassen ----
+       problem-2, Punkt A.2. Diese Schleife fasst nur Kollider mit
+       "klein" - Gesims, Vordach, Feuerleiter. Die Dachkrone ragt
+       0,25 m aus der Fassade und schneidet beim Hochklettern die
+       Brust. Sie hier mitzufassen und die Figur davor zu schieben war
+       der naheliegende Versuch und wurde GEMESSEN SCHLECHTER: die
+       Figur steht danach 0,40 m vor der Wand, verlaesst damit den
+       freien Abschnitt ihrer Flaeche, und die Zahl der Bilder im
+       fremden Gebaeude steigt von 3 auf 597. Zurueckgenommen; die
+       Krone ist ein eigener Befund. */
     for (const lc of collidersNear(player.pos.x, player.pos.z)) {
       if (!lc.klein || lc.y0 === undefined) continue;
       const kopf = player.pos.y + 1.85;
@@ -17304,7 +17405,24 @@ function updatePlayer(dt) {
          springt der Nachbar vor oder zurueck, ist es eine echte Ecke und
          es bleibt beim alten Verhalten. */
       if (neuNx !== 0 || neuNz !== 0) {
-        const nb = zeilenNachbarWand(c, w, neuNx, neuNz, player.pos.y);
+        let nb = zeilenNachbarWand(c, w, neuNx, neuNz, player.pos.y);
+        /* ---- Die Naht nur weiterreichen, wenn drueben Platz ist ----
+           problem-2, Punkt A.2. Gemessen ging eine der vier Eintritte in
+           vergrabenes Gebiet genau hier durch: 59:0,-1 wurde an 52:0,-1
+           uebergeben, und dort steht ein anderer Baukoerper davor. */
+        if (nb) {
+          /* Geprueft wird die Stelle, an der die Figur NACH der
+             Uebergabe haengt - nicht die, an der sie jetzt steht. Sie
+             steht im Bild davor noch 0,2 m vor der Kante des alten
+             Hauses und damit vor dem Beginn der Nachbarflaeche; wer
+             dort prueft, verwirft jede Naht (gemessen 221 -> 0). */
+          const nt = w.nx !== 0
+            ? clamp(player.pos.z, nb.z0 + 0.2, nb.z1 - 0.2)
+            : clamp(player.pos.x, nb.x0 + 0.2, nb.x1 - 0.2);
+          if (!flaecheFrei(nb, w.nx, w.nz, player.pos.y + 1.0, nt)) {
+            nb = null; neuNx = neuNz = 0;
+          } else if (w.nx !== 0) tVorZ = nt; else tVorX = nt;
+        }
         if (nb) {
           /* ---- Auch die Naht wird gefahren, nicht gesprungen ----
              Hier dreht sich nichts: die Wand wird nur an den Nachbarn
@@ -17339,6 +17457,23 @@ function updatePlayer(dt) {
           player.wandUebergaenge = (player.wandUebergaenge || 0) + 1;
           neuNx = neuNz = 0;
         }
+      }
+      /* ---- Um die Ecke nur auf eine freie Schauseite ----
+         problem-2, Punkt A.2. Drei der vier gemessenen Eintritte in
+         vergrabenes Gebiet gingen hier durch (739:-1,0 auf 739:0,1 und
+         so fort): die Querflaeche liegt hinter einem anderen
+         Baukoerper. Dann ist es keine Aussenecke - die Wand endet dort,
+         und die Figur bleibt wie frueher an der Kante stehen. Geprueft
+         wird die Stelle, an der sie nach dem Wechsel haengen wuerde. */
+      if (neuNx !== 0 || neuNz !== 0) {
+        /* Auch hier die Stelle NACH dem Wechsel: die Figur wird um die
+           Kante herum auf die Querflaeche gesetzt und dabei um 0,35 m
+           nach innen geklemmt. */
+        const et = neuNx !== 0
+          ? clamp(player.pos.z, c.z0 + rand + 0.10, c.z1 - rand - 0.10)
+          : clamp(player.pos.x, c.x0 + rand + 0.10, c.x1 - rand - 0.10);
+        if (!flaecheFrei(c, neuNx, neuNz, player.pos.y + 1.0, et)) neuNx = neuNz = 0;
+        else if (neuNx !== 0) tVorZ = et; else tVorX = et;
       }
       if (neuNx !== 0 || neuNz !== 0) {
         /* Der Wechsel um die Ecke sah aus wie ein Sprung: die Figur wurde
@@ -17406,36 +17541,42 @@ function updatePlayer(dt) {
         player.eckSperre = WAND_ECK_ZEIT;
       }
     }
-    // seitlich begrenzen
-    if (w.nx !== 0) player.pos.z = clamp(player.pos.z, c.z0 + 0.2, c.z1 - 0.2);
-    else player.pos.x = clamp(player.pos.x, c.x0 + 0.2, c.x1 - 0.2);
-    /* ---- Offener Befund: vergrabene Wandabschnitte (problem-2, A.2) ----
-       Eine Schauseite kann an einem Ende hinter einem anderen Baukoerper
-       liegen: gemessen Kollider 52, Schauseite nz = -1 bei z = -243,835,
-       davor Kollider 45 bis z = -243,830. Ueber den ECHTEN Eingabeweg
-       (Anlauf auf der Strasse, normales Ankleben, klettern, seitwaerts)
-       sind das 415 Bilder mit weniger als 0,60 m Platz vor der Wand und
-       576 Bilder im Nachbargebaeude. Der Eintritt geschieht auf genau
-       eine Art: "seitwaerts auf derselben Flaeche", von 2 m freiem Platz
-       auf 0,1 m.
+    /* ---- Seitlich begrenzen: auf den freien Abschnitt, nicht auf die
+       ganze Flaeche (problem-2, Punkt A.2) ----
+       Die Flaechenkanten allein reichen nicht: eine Schauseite kann an
+       einem Ende hinter einem anderen Baukoerper liegen. Geklemmt wird
+       deshalb auf den freien Abschnitt, in dem die Figur VOR dem Schritt
+       hing. Damit endet die Seitwaertsbewegung am letzten gueltigen
+       Punkt - so, wie sie an einer echten Wandkante endet.
 
-       Fuenf Fassungen sind gemessen und alle zurueckgenommen:
-
-         herausschieben              Ortssprung 19,795 m in einem Bild
-         letzte freie Stelle         Ortssprung 40,168 m, im Gebaeude
-                                     43 -> 268
-         Schritt nicht zulassen      im Gebaeude 43 -> 893, Flattern
-                                     0 -> 24
-         Ecke ohne Platz sperren     ohne Platz 415 -> 588
-         auf den freien Abschnitt    ohne Wirkung (415 -> 415): das
-         klemmen                     Fenster wird leer und faellt auf
-                                     die alte Klemmung zurueck
-
-       Der gemeinsame Grund: diese Klemmung arbeitet mit der Flaeche, die
-       die Naht-Uebergabe aus Punkt A gerade gesetzt hat. Wer hier
-       eingreift, greift in die Uebergabe ein - und die ist LOCKED. Der
-       Befund gehoert zusammen mit ihr entschieden, nicht daneben. */
-
+       Der Abschnitt wird ueber die Lage VOR dem Schritt gewaehlt. Haengt
+       die Figur schon in einem vergrabenen Stueck (etwa weil sie dort
+       angesprungen ist), wird nichts geklemmt und nichts versetzt: ein
+       Rueckversatz waere ein Teleport, und genau daran sind vier
+       fruehere Fassungen gescheitert (gemessene Ortsspruenge 19,795 m
+       und 40,168 m). */
+    {
+      const achseX = w.nx !== 0;            // Laengsachse ist dann z
+      let lo = achseX ? c.z0 + 0.2 : c.x0 + 0.2;
+      let hi = achseX ? c.z1 - 0.2 : c.x1 - 0.2;
+      if (!FLAECHE_ALT) {
+        const tVor = achseX ? tVorZ : tVorX;
+        const ab = freieAbschnitte(c, w.nx, w.nz, player.pos.y + 1.0, _abFrei);
+        for (let i = 0; i < ab.length; i += 2) {
+          /* Enge Toleranz: die Naht und der Eckwechsel fuehren tVor
+             oben selbst auf ihre Ziellage nach, eine grosse Toleranz
+             waere hier nur ein Loch. */
+          if (tVor >= ab[i] - 0.05 && tVor <= ab[i + 1] + 0.05) {
+            lo = Math.max(lo, ab[i]); hi = Math.min(hi, ab[i + 1]);
+            break;
+          }
+        }
+      }
+      if (lo > hi) { lo = achseX ? c.z0 + 0.2 : c.x0 + 0.2;
+                     hi = achseX ? c.z1 - 0.2 : c.x1 - 0.2; }
+      if (achseX) player.pos.z = clamp(player.pos.z, lo, hi);
+      else player.pos.x = clamp(player.pos.x, lo, hi);
+    }
     /* ---- Der Eckbogen hat das letzte Wort ----
        Er laeuft nach den seitlichen Klemmwerten, sonst zoege ihn die
        Begrenzung der ALTEN Flaeche wieder zurueck. */
@@ -36333,6 +36474,29 @@ if (window.__WEBHERO_TEST__ === true) {
     neonZahl() { return NEON_KISTEN.length; },
     zeigeKulisse(an) { for (const m of KULISSE_MESHES) m.visible = !!an; },
     colliderNah(x, z) { return collidersNear(x, z); },
+    /* Welche Abschnitte einer Schauseite zeigen nach aussen?
+       (problem-2, Punkt A.2) */
+    freieAbschnitte(kollId, nx, nz, y) {
+      let c = null;
+      for (const liste of colliderGrid.values()) {
+        for (const q of liste) if (q.id === kollId) { c = q; break; }
+        if (c) break;
+      }
+      if (!c) return null;
+      const aus = [];
+      freieAbschnitte(c, nx, nz, y, aus);
+      const paare = [];
+      for (let i = 0; i < aus.length; i += 2)
+        paare.push([+aus[i].toFixed(3), +aus[i + 1].toFixed(3)]);
+      return paare;
+    },
+    /* Ist ein Punkt auf einer Schauseite von aussen erreichbar? */
+    istFrei(kollId, nx, nz, y, t) {
+      const ab = __dbg.freieAbschnitte(kollId, nx, nz, y);
+      if (!ab) return null;
+      for (const [a, b] of ab) if (t >= a && t <= b) return true;
+      return false;
+    },
     ubLinien() { return UB_LINIEN; },
     ubSchaechte() { return UB_SCHAECHTE; },
     /* Zeichenaufrufe und Dreiecke des zuletzt gezeichneten Bildes. */

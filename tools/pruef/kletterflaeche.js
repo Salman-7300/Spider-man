@@ -28,14 +28,29 @@
      eng         bis 3,6 m - Gasse, Hof, Lichtschacht
      frei        mehr
 
-   Aufruf:  node tools/pruef/kletterflaeche.js [seed=4711]
+   Kennzahlen (problem-2, Punkt A.2):
+
+     climbOnBuriedFace             Bilder, in denen die Laengslage der
+                                   Figur in KEINEM freien Abschnitt der
+                                   bekletterten Schauseite liegt
+     exposedSurfaceViolation       Bilder mit weniger als 0,60 m Platz
+                                   vor der Wand, an der Stelle der Figur
+     playerInsideNeighborWhileClimbing  Bilder, in denen der Koerper in
+                                   einem fremden Kollider steckt
+     buriedSurfaceEntry            Uebergaenge frei -> vergraben
+
+   "alt" misst denselben Weg mit der ganzen Kolliderseite als
+   Kletterflaeche - der Stand vor Punkt A.2.
+
+   Aufruf:  node tools/pruef/kletterflaeche.js [seed=4711] [alt]
    ========================================================================= */
 const { starte } = require('./basis');
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
+const ALT = process.argv.indexOf('alt') > 0;
 
 (async () => {
-  const { b, page } = await starte(900, 540, SEED, {});
+  const { b, page } = await starte(900, 540, SEED, ALT ? { flaecheAlt: true } : {});
   const aus = await page.evaluate(async () => {
     const d = __dbg, P = d.player;
     d.frier(true); d.setzeRegen(0);
@@ -141,6 +156,9 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
     const laeufe = [];
     const engBsp = [], eintritte = [];
     let drinGes = 0, angeklebt = 0, drinEng = 0;
+    let vergrabenGes = 0, eintrittGes = 0, eintrittTiefe = 0, ankleben = 0;
+    let kroneGes = 0;
+    const ankBsp = [];
     const besucht = new Map();          // koll:nx,nz -> Zahl der Bilder
     const drinBsp = [];
     for (const S of starts) {
@@ -183,6 +201,7 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
       d.taste(hin, true);
       let drin = 0, engBesucht = 0, tiefsteEng = 9;
       let vorTiefe = null, vorLage = null;
+      let aufVergraben = 0, vorFrei = null, ersteLage = null;
       const flaechenHier = new Set();
       for (let i = 0; i < 600; i++) {
         d.schritt(1 / 60);
@@ -196,6 +215,32 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
            Figur gerade haengt? Weniger als climbGap plus Koerperradius
            heisst: sie steht dort, wo sie nicht hinpasst. */
         const c = nachId.get(k.koll);
+        /* Liegt die Figur in einem FREIEN ABSCHNITT ihrer Flaeche? */
+        let istFrei = null;
+        if (c) {
+          const t = k.nx !== 0 ? k.pos[2] : k.pos[0];
+          istFrei = d.istFrei(k.koll, k.nx, k.nz, k.pos[1] + 1.0, t);
+          if (ersteLage === null) {
+            ersteLage = istFrei;
+            if (istFrei === false) {
+              ankleben++;
+              if (ankBsp.length < 6)
+                ankBsp.push({ start: S.koll, koll: k.koll, nx: k.nx, nz: k.nz,
+                              pos: k.pos });
+            }
+          }
+          if (istFrei === false) {
+            aufVergraben++; vergrabenGes++;
+            if (vorFrei === true) {
+              eintrittGes++;
+              if (eintritte.length < 10)
+                eintritte.push({ art: 'frei -> vergraben', vor: vorLage,
+                                 nach: { koll: k.koll, nx: k.nx, nz: k.nz,
+                                         pos: k.pos, tiefe: null } });
+            }
+          }
+          vorFrei = istFrei;
+        }
         let tJetzt = null;
         if (c) {
           tJetzt = freieTiefe(c, k.nx, k.nz, k.pos[1] + 0.9, 2.0,
@@ -216,6 +261,7 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
            Riegel hingehoert - vier Versuche an der falschen Stelle
            haben die Zahlen jedes Mal verschlechtert. */
         if (tJetzt !== null && tJetzt < NOETIG && (vorTiefe === null || vorTiefe >= NOETIG)) {
+          eintrittTiefe++;
           if (eintritte.length < 10)
             eintritte.push({ vor: vorLage, nach: { koll: k.koll, nx: k.nx, nz: k.nz,
                                                    pos: k.pos, tiefe: tJetzt },
@@ -227,7 +273,11 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
         vorTiefe = tJetzt;
         vorLage = { koll: k.koll, nx: k.nx, nz: k.nz, pos: k.pos, tiefe: tJetzt };
         if (k.imHaus && k.drinWer) {
-          drin++; drinGes++;
+          /* Die eigene Dachkrone ist kein Nachbargebaeude - sie ragt
+             aus der bekletterten Fassade heraus und wird getrennt
+             gezaehlt. */
+          if (k.drinWer.krone || k.drinWer.eigene) kroneGes++;
+          else { drin++; drinGes++; }
           if (drinBsp.length < 6)
             drinBsp.push({ start: S.koll, pos: k.pos, aufKoll: k.koll,
                            nx: k.nx, nz: k.nz, wandAbstand: k.wandAbstand,
@@ -259,7 +309,9 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
 
     return { flaechen: flaechen.length, klasse, bsp,
              starts: starts.length, angeklebt, drinGes, drinEng, engBsp,
-             eintritte, laeufe,
+             climbOnBuriedFace: vergrabenGes, buriedSurfaceEntry: eintrittGes,
+             ankleben, ankBsp, kroneGes,
+             eintrittTiefe, eintritte, laeufe,
              besucht: besuchtListe.slice(0, 20),
              besuchtGes: besuchtListe.length,
              vergrabenBesucht: besuchtListe.filter((x) => x.vergraben).length,
@@ -282,8 +334,14 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
               aus.laeufe.filter((l) => l.eng).length);
   console.log('  davon angeklebt            ' + aus.angeklebt);
   console.log('  Bilder im Nachbarhaus      ' + aus.drinGes);
-  console.log('  Bilder ohne Platz davor    ' + aus.drinEng +
-              '   (weniger als 0,60 m vor der Wand)');
+  console.log('  climbOnBuriedFace                  ' + aus.climbOnBuriedFace);
+  console.log('  exposedSurfaceViolation            ' + aus.drinEng);
+  console.log('  playerInsideNeighborWhileClimbing  ' + aus.drinGes);
+  console.log('  davon eigene Dachkrone (anderer Befund): ' + aus.kroneGes);
+  console.log('  buriedSurfaceEntry                 ' + aus.buriedSurfaceEntry);
+  console.log('  davon schon BEIM ANKLEBEN vergraben: ' + aus.ankleben +
+              ' von ' + aus.angeklebt + ' Anlaeufen');
+  for (const e of (aus.ankBsp || [])) console.log('      ' + JSON.stringify(e));
   console.log('  besuchte Schauseiten       ' + aus.besuchtGes);
   console.log('  davon VERGRABEN            ' + aus.vergrabenBesucht);
   if (aus.eintritte.length) {
