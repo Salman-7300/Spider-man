@@ -14578,11 +14578,36 @@ function fassadeTraegt(c, nx, nz, y, t) {
   if (FASS_ALT || !c || !c.fassade) return true;
   return fassadenTiefe(c, nx, nz, y, t) <= FASS_LUFT;
 }
+/* ---- Wie HOCH ist das Loch? ----
+   Ein Fensterband oder eine zurueckgesetzte Geschossdecke ist ein
+   Spalt: die Figur greift darueber hinweg, so wie ein Kletterer eine
+   glatte Stelle ueberbrueckt. Eine Saeulenhalle, ein Lichthof oder eine
+   fehlende Gebaeudeecke ist etwas anderes - dort ist ueber die ganze
+   Reichweite nichts.
+
+   Ohne diese Unterscheidung liess die Figur an jedem Fensterband los:
+   gemessen kam sie in dachhohlraum.js nur noch an 18 von 28 Waenden
+   aufs Dach statt an 27 von 29. Gezaehlt werden deshalb die
+   zusammenhaengenden Lochzeilen nach oben; erst ab FASS_HOCH Metern
+   gibt es nichts mehr zu ueberbruecken. */
+const FASS_HOCH = 1.2;
+function lochHoehe(c, nx, nz, y, t) {
+  const f = c.fassade;
+  if (!f) return 0;
+  const zeile = (f.h * f.g.hLok) / FASS_NV;       // Zellhoehe in Metern
+  let h = 0;
+  for (let i = 0; i < FASS_NV && h < FASS_HOCH + zeile; i++) {
+    if (fassadeTraegt(c, nx, nz, y + i * zeile, t)) break;
+    h += zeile;
+  }
+  return h;
+}
 function wandTraegt(col, nx, nz, y, x, z) {
-  if (!col || (nx === 0 && nz === 0)) return true;
+  if (!col || (nx === 0 && nz === 0) || !col.fassade) return true;
   const t = nx !== 0 ? clamp(z, col.z0 + 0.05, col.z1 - 0.05)
                      : clamp(x, col.x0 + 0.05, col.x1 - 0.05);
-  return fassadeTraegt(col, nx, nz, y, t);
+  return fassadeTraegt(col, nx, nz, y, t) ||
+         lochHoehe(col, nx, nz, y, t) < FASS_HOCH;
 }
 /* Liegt die Stelle t (Laengskoordinate) auf dieser Schauseite im
    Freien? */
@@ -18056,7 +18081,8 @@ function updatePlayer(dt) {
          die Gegenprobe "echte Aussenecke" Federn laesst, sind Loecher
          ueber die ganze Koerperhoehe - dort ist wirklich keine Wand. */
       if (!fassadeTraegt(c, w.nx, w.nz, player.pos.y + 1.0, tJetzt) &&
-           fassadeTraegt(c, w.nx, w.nz, yVor + 1.0, tVorher)) {
+           fassadeTraegt(c, w.nx, w.nz, yVor + 1.0, tVorher) &&
+           lochHoehe(c, w.nx, w.nz, player.pos.y + 1.0, tJetzt) >= FASS_HOCH) {
         player.pos.y = yVor;
         player.state = 'air';
         player.wallInfo = null; player.wall = null; player.eckBogen = null;
