@@ -188,16 +188,26 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   if (BILDER) {
     for (let i = 0; i < Math.min(4, schlimm.length); i++) {
       const e = schlimm[i];
+      /* ---- Die Stelle WIRKLICH nachfahren ----
+         Die Figur einfach an die notierte Stelle zu setzen und 40
+         Bilder rechnen zu lassen ergibt ein anderes Bild: die Kamera
+         zieht neu nach, und die Figur laeuft weiter. Gefahren wird
+         deshalb derselbe Lauf noch einmal - gleicher Ort, gleiche
+         Richtung - und bei genau dem notierten Bild angehalten. */
       await page.evaluate(async (M) => {
         const d = __dbg, P = d.player;
         const SLAB_H = 0.25;
         for (const t of ['KeyW','KeyA','KeyS','KeyD','ShiftLeft']) d.taste(t, false);
-        d.setzePos(M.x, M.y, M.z);
+        d.setzePos(M.x, SLAB_H + M.h + 0.1, M.z);
         P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
+        P.wallInfo = null; P.wall = null;
         P.facing = M.gier; d.setzeKamYaw(M.gier);
-        for (let i = 0; i < 40; i++) d.schritt(1 / 60);
+        for (let i = 0; i < 30; i++) d.schritt(1 / 60);
+        d.taste('KeyW', true);
+        for (let k = 0; k <= M.k; k++) d.schritt(1 / 60);
+        d.taste('KeyW', false);
         d.zeichne();
-      }, { x: e.max.pos[0], y: e.max.pos[1], z: e.max.pos[2], gier: e.max.gier });
+      }, { x: e.x, z: e.z, h: e.h, gier: e.max.gier, k: e.max.k });
       await page.evaluate(() => new Promise((ok) => requestAnimationFrame(ok)));
       await page.evaluate(() => __dbg.zeichne());
       await page.screenshot({ path: path.join(BILDER,
