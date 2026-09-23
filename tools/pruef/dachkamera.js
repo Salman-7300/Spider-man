@@ -129,7 +129,30 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                                             kn.head.x, kn.head.y, kn.head.z);
           const brustFrei = !kn.spine2 || frei(kam.pos[0], kam.pos[1], kam.pos[2],
                                                kn.spine2.x, kn.spine2.y, kn.spine2.z);
+          /* ---- Welches Mesh beherrscht das Bild? ----
+             Fuer die Einzelanalyse der Restbilder: der naechste
+             Treffer und sein Name, dazu die Kameralage. */
+          let nahName = null, nahWeg = 9;
+          if (R.anteil > 0.4) {
+            RD.set(kam.blick[0], kam.blick[1], kam.blick[2]).normalize();
+            RO.set(kam.pos[0], kam.pos[1], kam.pos[2]);
+            RC.set(RO, RD); RC.near = 0; RC.far = NAH;
+            for (const iy of [-1, 0, 1]) for (const ix of [-1, 0, 1]) {
+              const tanY = Math.tan(kam.fov * Math.PI / 360), tanX = tanY * kam.seiten;
+              RD.set(kam.blick[0] + kam.rechts[0] * ix * tanX + kam.oben[0] * iy * tanY,
+                     kam.blick[1] + kam.rechts[1] * ix * tanX + kam.oben[1] * iy * tanY,
+                     kam.blick[2] + kam.rechts[2] * ix * tanX + kam.oben[2] * iy * tanY).normalize();
+              RC.set(RO, RD); RC.near = 0; RC.far = NAH;
+              const tr = RC.intersectObjects(ziele, true);
+              if (tr.length && tr[0].distance < nahWeg) {
+                nahWeg = tr[0].distance;
+                nahName = tr[0].object.name || '(ohne Namen)';
+              }
+            }
+          }
           reihe.push({ r, k, nahAnteil: R.anteil, nahMittel: R.mittel,
+                       nahName, nahWeg: +nahWeg.toFixed(2),
+                       block: d.kamBlock(),
                        kopfFrei, brustFrei, zustand: P.state,
                        abst: kam.abstand, steckt: kam.steckt,
                        kamY: +kam.pos[1].toFixed(2),

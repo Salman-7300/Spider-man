@@ -13974,6 +13974,10 @@ const KAM_ENG_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMENG_A
    kein zusaetzlicher Zug aus dem gemeinsamen Zufallsstrom. */
 const KAM_AUSWEICH = [[0, 0], [0, 0.30], [0.42, 0.12], [-0.42, 0.12],
                       [0.62, 0.32], [-0.62, 0.32]];
+/* Ab wieviel Abstand zur naechsten Kiste die Kamera als eingeengt
+   gilt. Gemessen liegt die beherrschende Flaeche in den Restbildern
+   1,81 bis 2,54 m neben der Kamera. */
+const KAM_LUFT_ENG = 2.6;
 const KAM_AUS_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMAUS_ALT;
 let kamAusWahl = 0, kamAusGier = 0, kamAusNeig = 0;
 const _kamAusR = new THREE.Vector3(), _kamAusZ = new THREE.Vector3();
@@ -14182,7 +14186,7 @@ const KAM_BLOCK = { wer: null, grund: null, wunsch: 0, geklemmt: 0,
                        Kopie meldete die Fehlersuche den Blockierer des
                        LETZTEN Strahls zu der Weite des ersten; zwei
                        angebliche Restfaelle waren nur das. */
-                    hauptWer: null, hauptGrund: null,
+                    hauptWer: null, hauptGrund: null, luft: 0,
                     /* Anfang und Ende des zuletzt geprueften Strahls. Feste
                        Felder statt neuer Listen je Bild. */
                     von: [0, 0, 0], nach: [0, 0, 0], ankerAus: null };
@@ -14244,6 +14248,29 @@ function kameraFreierAnteil(von, nach) {
 
 /* Eine Blickrichtung um dGier (um die Hochachse) und dNeig (Anhebung)
    versetzen. Rein rechnerisch, ohne Euler-Umweg. */
+/* ---- Wieviel Luft hat die Kamera an ihrem Platz? ----
+   problem-2, Blocker 2. Gemessen an den Restbildern: in der Mehrzahl
+   ist der Hauptstrahl voellig frei (geklemmt 5,853 von 5,853 m
+   gewuenscht) und das Bild trotzdem zu drei Fuenfteln von einer
+   Gebaeudeflaeche beherrscht, die 1,81 m neben der KAMERA steht. Ein
+   Strahl zur Figur kann das nicht sehen; der Abstand der Kamera zur
+   naechsten Kiste schon.
+
+   Ein Tastraster aus Strahlen war hier schon einmal der Versuch und
+   ist GEMESSEN SCHLECHTER gewesen (16 -> 37 Bilder). Dies hier ist
+   kein Raster, sondern ein einziger Abstand: ein Hashgriff und ein
+   paar Kistenabstaende, nur wenn ohnehin gesucht wird. */
+const KAM_LUFT_MAX = 3.0;
+function kameraLuft(p) {
+  let luft = KAM_LUFT_MAX;
+  for (const c of collidersNear(p.x, p.z)) {
+    if (c.innen || c.parkAuto) continue;
+    const l = kastenLuft(p.x, p.y, p.z, c);
+    if (l < luft) luft = l;
+    if (luft <= 0) return 0;
+  }
+  return luft;
+}
 function kamRichtungVersetzt(dir, dGier, dNeig, aus) {
   const c = Math.cos(dGier), s2 = Math.sin(dGier);
   const x = dir.x * c + dir.z * s2, z = -dir.x * s2 + dir.z * c;
@@ -14405,18 +14432,29 @@ function updateCamera(dt) {
   /* ---- Eingeklemmt? Dann die feste Liste der Ausweichlagen pruefen ----
      Siehe KAM_AUSWEICH. Geprueft wird nur, wenn die Kamera wirklich
      eingeengt ist - im Normalfall kostet das gar nichts. */
-  if (!KAM_AUS_ALT && !MISSION_INTERIOR.active && d < camDist * 0.8) {
+  /* Gesucht wird, wenn die Kamera eingeengt ist ODER wenn sie zu dicht
+     an einer Kiste steht - das zweite ist der Fall, in dem der
+     Hauptstrahl frei ist und das Bild trotzdem zu ist. */
+  const luftJetzt = KAM_AUS_ALT ? KAM_LUFT_MAX : kameraLuft(desired);
+  KAM_BLOCK.luft = +luftJetzt.toFixed(3);
+  if (!KAM_AUS_ALT && !MISSION_INTERIOR.active &&
+      (d < camDist * 0.8 || luftJetzt < KAM_LUFT_ENG)) {
     let bestW = -1e9, wahl = 0, bestFrei = d;
     for (let i = 0; i < KAM_AUSWEICH.length; i++) {
       const dy = KAM_AUSWEICH[i][0], dp = KAM_AUSWEICH[i][1];
-      let frei;
-      if (i === 0) frei = d;
+      let frei, luft;
+      if (i === 0) { frei = d; luft = luftJetzt; }
       else {
         kamRichtungVersetzt(dir, dy, dp, _kamAusR);
         _kamAusZ.copy(target).addScaledVector(_kamAusR, camDist);
         frei = camDist * kameraFreierAnteil(target, _kamAusZ);
+        /* Bewertet wird die Lage, die WIRKLICH eingenommen wuerde -
+           also die geklemmte, nicht die gewuenschte. */
+        _kamAusZ.copy(target).addScaledVector(_kamAusR, frei);
+        luft = kameraLuft(_kamAusZ);
       }
-      /* Freie Strecke zaehlt, und nah an der gewuenschten Lage bleiben. */
+      /* Freie Strecke zaehlt, Luft um die Kamera zaehlt, und nah an
+         der gewuenschten Lage bleiben. */
       let wert = frei - (Math.abs(dy) + Math.abs(dp)) * 1.6;
       /* ... und zeitlich ruhig: die zuletzt gewaehlte Lage hat Vorrang. */
       if (i === kamAusWahl) wert += 0.8;
@@ -37956,6 +37994,11 @@ if (window.__WEBHERO_TEST__ === true) {
         grund: KAM_BLOCK.hauptGrund,
         eigeneWand: !!KAM_BLOCK.eigene,
         kletterFlaeche: w && w.col ? w.col.id : null,
+        /* Welche Ausweichlage gilt gerade, und wie weit ist der Versatz
+           schon gefahren? (problem-2, Blocker 2) */
+        ausweichWahl: kamAusWahl, luft: KAM_BLOCK.luft,
+        ausweich: [+kamAusGier.toFixed(3), +kamAusNeig.toFixed(3)],
+        ausweichListe: KAM_AUSWEICH.length,
         blocker: c ? { id: c.id, klein: !!c.klein, krone: !!c.krone,
                        dachProp: !!c.dachProp,
                        x: [+c.x0.toFixed(2), +c.x1.toFixed(2)],
