@@ -14263,7 +14263,12 @@ function kameraFreierAnteil(von, nach) {
 const KAM_LUFT_MAX = 3.0;
 function kameraLuft(p) {
   let luft = KAM_LUFT_MAX;
-  for (const c of collidersNear(p.x, p.z)) {
+  /* Derselbe Zugriff wie in kameraFreierAnteil - ueber colliderGrid,
+     nicht ueber collidersNear: die Offline-Tests schneiden nur den
+     Kamerabereich aus game.js heraus, und collidersNear liegt
+     ausserhalb davon. */
+  const i = Math.floor((p.x - HASH_O) / PITCH), j = Math.floor((p.z - HASH_O) / PITCH);
+  for (const c of colliderGrid.get(i + ',' + j) || []) {
     if (c.innen || c.parkAuto) continue;
     const l = kastenLuft(p.x, p.y, p.z, c);
     if (l < luft) luft = l;
