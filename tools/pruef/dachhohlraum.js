@@ -149,10 +149,18 @@ async function hohlraum(page) {
       else if (y < oben - 8) { gefallen++; was = 'gefallen'; }
       else if (y >= oben - 2.6) { unterKrone++; was = 'unter der Krone'; }
       else { sonst++; was = 'steckengeblieben'; }
-      if ((was === 'unter der Krone' || was === 'steckengeblieben') && bsp.length < 10)
+      if (was !== 'Dach' && bsp.length < 12) {
+        /* Woran liegt es? Die Tiefenkarte an der Stelle, an der die
+           Figur steht, und einen Meter darueber. */
+        const t = nx !== 0 ? P.pos.z : P.pos.x;
         bsp.push({ was, x: +K.x.toFixed(1), z: +K.z.toFixed(1),
                    oben: +oben.toFixed(2), y: +y.toFixed(2),
-                   fehlt: +(oben - y).toFixed(2), zustand: P.state });
+                   fehlt: +(oben - y).toFixed(2), zustand: P.state,
+                   koll: c.id, nx, nz,
+                   modell: (K.modell || null),
+                   lage: d.fassLage ? d.fassLage(c.id, nx, nz, P.pos.y + 1.0, t) : null,
+                   lageOben: d.fassLage ? d.fassLage(c.id, nx, nz, P.pos.y + 2.5, t) : null });
+      }
     }
     return { geprueft, aufsDach, unterKrone, gefallen, sonst, bsp };
   });

@@ -107,6 +107,23 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
         if (k.imHaus && k.drinWer) {
           drinGes.gesamt++;
           if (k.imBogen) drinGes.imBogen++;
+          /* ---- WARUM steckt die Figur dort? ----
+             Nicht weiter aggregiert zaehlen: jeder Fall bekommt eine
+             Ursache (problem-2, Human Rejection Pass 2, Punkt 4). */
+          const W = k.drinWer;
+          const art = k.imBogen ? 'waehrend des Eckbogens'
+                    : W.krone ? 'eigene Dachkrone'
+                    : W.eigene ? 'eigener Baukoerper (zweite Kiste)'
+                    : (k.koll !== null && W.id === k.koll) ? 'die bekletterte Kiste selbst'
+                    : 'fremder Nachbarkollider';
+          drinArt[art] = (drinArt[art] || 0) + 1;
+          if ((drinBsp[art] || []).length < 2) {
+            const t = k.nx !== 0 ? k.pos[2] : k.pos[0];
+            (drinBsp[art] = drinBsp[art] || []).push({
+              art, pos: k.pos, aufKoll: k.koll, nx: k.nx, nz: k.nz, drin: W,
+              lage: (d.fassLage && k.koll !== null)
+                ? d.fassLage(k.koll, k.nx, k.nz, k.pos[1] + 1.0, t) : null });
+          }
           if (drinRoh.length < 4)
             drinRoh.push({ pos: k.pos, aufKoll: k.koll, imBogen: !!k.imBogen,
                            drin: k.drinWer });
@@ -200,6 +217,7 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
 
     const drinRoh = [];
     const drinGes = { gesamt: 0, imBogen: 0 };
+    const drinArt = {}, drinBsp = {};
     const clamp = (v, a, b2) => Math.max(a, Math.min(b2, v));
     const kisten = d.hausKisten().filter((k) => k.h > 16);
 
@@ -281,7 +299,8 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
                zuFreiBsp: (liste.find((x) => x.zuFreiBsp) || {}).zuFreiBsp,
                drinBsp: (liste.find((x) => x.drinBsp) || {}).drinBsp };
     };
-    return { kontrolle: fasse(kontrolle), uebergang: fasse(uebergang), drinRoh, drinGes };
+    return { kontrolle: fasse(kontrolle), uebergang: fasse(uebergang), drinRoh,
+             drinGes, drinArt, drinBsp };
   });
 
   const zeig = (name, w) => {
@@ -320,6 +339,14 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
   };
   if (aus.drinGes) console.log('\n  im Haus gesamt ' + aus.drinGes.gesamt +
       ', davon waehrend des Eckbogens ' + aus.drinGes.imBogen);
+  if (aus.drinArt) {
+    console.log('  nach Ursache:');
+    for (const [art, n] of Object.entries(aus.drinArt).sort((a, b2) => b2[1] - a[1])) {
+      console.log('    ' + String(n).padStart(5) + '  ' + art);
+      for (const e of ((aus.drinBsp || {})[art] || []).slice(0, 2))
+        console.log('        ' + JSON.stringify(e));
+    }
+  }
   if (aus.drinRoh && aus.drinRoh.length) {
     console.log('\n== Wo steckt die Figur angeblich? ==');
     for (const e of aus.drinRoh) console.log('  ' + JSON.stringify(e));

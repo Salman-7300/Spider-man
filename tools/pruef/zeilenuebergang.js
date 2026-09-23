@@ -192,6 +192,15 @@ const fassAlt = process.argv.indexOf('fassAlt') > 0;
         uebernommen: P.wandUebergaenge > 0,
         steckt: !!inKollider(P.pos.x, P.pos.y + 1.0, P.pos.z, null),
         zustand: P.state,
+        /* Fuer die Human-Bilder der Restfaelle: wo genau, an welcher
+           Wand, und was sagt die Tiefenkarte dort? */
+        pos: [+P.pos.x.toFixed(3), +P.pos.y.toFixed(3), +P.pos.z.toFixed(3)],
+        start: [+(laengsX ? laengs : front + nx * 0.15).toFixed(3), +y.toFixed(3),
+                +(laengsX ? front + nz * 0.15 : laengs).toFixed(3)],
+        nx, nz, koll: cE.id,
+        modell: E.modell || null,
+        lage: d.fassLage ? d.fassLage(cE.id, nx, nz, P.pos.y + 1.0,
+                nx !== 0 ? P.pos.z : P.pos.x) : null,
       });
     }
     return { paare: paare.length, gefahren: faelle.length, faelle, ecken };

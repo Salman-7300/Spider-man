@@ -43,6 +43,9 @@ const TIEF = tArg === undefined ? 0.25 : +tArg.slice(5);
 const ALT = process.argv.indexOf('alt') > 0;
 /* Der Pruefstand strahlt zehntausendfach; ein voller Lauf sprengt jedes
    Zeitfenster. teil= waehlt aus, was gemessen wird. */
+const fs = require('node:fs');
+const jArg = process.argv.find((v) => v.indexOf('json=') === 0);
+const JSONAUS = jArg === undefined ? null : jArg.slice(5);
 const teilArg = process.argv.find((v) => v.indexOf('teil=') === 0);
 const TEIL = teilArg === undefined ? 'alle' : teilArg.slice(5);
 
@@ -232,10 +235,35 @@ const TEIL = teilArg === undefined ? 'alle' : teilArg.slice(5);
     const alle = ['KeyW','KeyA','KeyS','KeyD','ShiftLeft','Space','KeyZ'];
     const los = () => { for (const t of alle) d.taste(t, false); };
     const HOEHEN = [['pelvis', 0.9], ['chest', 1.4], ['head', 1.75]];
+    /* ---- Die Ursachenarten ----
+       Reihenfolge ist Absicht: was zuerst passt, gewinnt. Ein Bild
+       neben der Schauseite ist ein Messfehler und kein Fassadenbefund,
+       auch wenn die Karte dort ein Loch meldet. */
+    const ursacheOhne = {}, ursacheUeber60 = {}, ursacheUeber100 = {};
+    const ursacheKeinGriff = {};
+    const bspUrsache = {}, bspOhneArt = {}, bspKeinGriff = {};
+    const einordnen = (L, k, laengsDrin, hochDrin) => {
+      if (!laengsDrin) return 'Pruefstand: neben der Schauseite';
+      if (!hochDrin) return 'Pruefstand: ueber der Traufe';
+      if (!L) return 'ohne Auskunft';
+      if (!L.karte) return 'ohne Tiefenkarte (Turm oder merged)';
+      if (L.ausserhalb) return 'Pruefstand: ausserhalb der Karte';
+      if (k.drinWer && (k.drinWer.krone || k.drinWer.eigene)) return 'Kronenproblem';
+      if (k.drinWer) return 'Nachbarproblem';
+      if (L.halt === 'tragend' && L.zelle !== null && L.zelle <= L.luft)
+        return 'solide Fassade (Strahl trifft Fuge)';
+      if (L.halt === 'tragend') return 'tragend ueber die Nachbarzelle';
+      if (L.halt === 'zurueckgesetzt') return 'zurueckgesetzte Wand (' + L.mit1 + ' m)';
+      if (L.halt === 'Band') return 'Fensterband, Fassade in Reichweite darueber';
+      if (L.halt === 'Pfeiler') return 'Pfeiler seitlich in Reichweite';
+      return 'echtes Void (Loch ' + L.lochHoch + ' m hoch, seitlich ' + L.wandSeitlich + ')';
+    };
     const zaehler = { pelvis: 0, chest: 0, head: 0, ohne: 0, bilder: 0,
                       ohneEcht: 0, nebenDerFlaeche: 0, ueberDemHaus: 0,
                       ueber30: 0, ueber60: 0, ueber100: 0, ueber200: 0,
-                      falschesLoch: 0, uebersehenesLoch: 0, losgelassen: 0 };
+                      falschesLoch: 0, uebersehenesLoch: 0, losgelassen: 0,
+                      griff30: 0, griff60: 0, griff100: 0, griff200: 0,
+                      griffSumme: 0, keinGriff: 0, keinGriffEcht: 0 };
     const bspLoch = [];
     const laeufe = [], bspTief = [], bspOhne = [];
     const nachTyp = new Map();
@@ -290,6 +318,38 @@ const TEIL = teilArg === undefined ? 'alle' : teilArg.slice(5);
             if (tr.t > z.maxTiefe) z.maxTiefe = tr.t;
           }
           if (teil !== 'chest') continue;
+          /* ---- Was die HAND erreicht, nicht was der Mittelstrahl trifft ----
+             Ein einzelner Strahl aus der Koerpermitte geht durch jede
+             Fensterfuge und meldet dann "keine Flaeche", obwohl einen
+             halben Meter daneben Wand steht. Die Figur greift aber mit
+             beiden Haenden. Gemessen wird deshalb zusaetzlich der
+             naechste Treffer aus drei Strahlen: Mitte und beide
+             Handstellen (je einen Koerperradius seitlich). */
+          let griff = tr.t;
+          for (const versatz of [-0.45, 0.45]) {
+            const q = sichtTiefe(obj, c, k.nx, k.nz, k.pos[1] + hoch, t + versatz);
+            if (q !== null && q.t < griff) griff = q.t;
+          }
+          zaehler.griffSumme += griff;
+          if (griff > 0.30) zaehler.griff30++;
+          if (griff > 0.60) zaehler.griff60++;
+          if (griff > 1.00) zaehler.griff100++;
+          if (griff > 2.00) zaehler.griff200++;
+          /* ---- Restfaelle nach URSACHE aufteilen ----
+             Nicht weiter aggregiert optimieren: fuer jedes Bild, das
+             auffaellt, wird festgehalten, WARUM. */
+          if (tr.t > 0.60 || ohneAlle) {
+            const L = d.fassLage ? d.fassLage(k.koll, k.nx, k.nz, k.pos[1] + 1.0, t) : null;
+            const art = einordnen(L, k, laengsDrin, hochDrin);
+            const topf = tr.t > 1.0 ? ursacheUeber100 : ursacheUeber60;
+            topf[art] = (topf[art] || 0) + 1;
+            if ((bspUrsache[art] || []).length < 3) {
+              (bspUrsache[art] = bspUrsache[art] || []).push({
+                art, modell: namNachKoll.get(k.koll), koll: k.koll,
+                nx: k.nx, nz: k.nz, pos: k.pos, strahl: tr.t, mesh: tr.mesh,
+                drin: k.drinWer || null, lage: L });
+            }
+          }
           /* ---- Karte gegen Strahl AUF DEM ECHTEN WEG ----
              Ein falsches Loch in der Karte laesst die Figur an einer
              tadellosen Wand loslassen. Deshalb wird hier, wo sie
@@ -332,9 +392,36 @@ const TEIL = teilArg === undefined ? 'alle' : teilArg.slice(5);
                            wandAbstand: k.wandAbstand });
           }
         }
+        /* Und findet ueberhaupt EINE der drei Handstellen etwas? */
+        {
+          let was = false;
+          for (const versatz of [-0.45, 0, 0.45])
+            if (sichtTiefe(obj, c, k.nx, k.nz, k.pos[1] + 1.4, t + versatz) !== null)
+              { was = true; break; }
+          if (!was) {
+            zaehler.keinGriff++;
+            if (laengsDrin && hochDrin) zaehler.keinGriffEcht++;
+            const L = d.fassLage ? d.fassLage(k.koll, k.nx, k.nz, k.pos[1] + 1.0, t) : null;
+            const art = einordnen(L, k, laengsDrin, hochDrin);
+            ursacheKeinGriff[art] = (ursacheKeinGriff[art] || 0) + 1;
+            if ((bspKeinGriff[art] || []).length < 2)
+              (bspKeinGriff[art] = bspKeinGriff[art] || []).push({
+                art, modell: namNachKoll.get(k.koll), koll: k.koll,
+                nx: k.nx, nz: k.nz, pos: k.pos, lage: L });
+          }
+        }
         if (ohneAlle) {
           z.ohne++; zaehler.ohne++;
           if (laengsDrin && hochDrin) zaehler.ohneEcht++;
+          {
+            const L = d.fassLage ? d.fassLage(k.koll, k.nx, k.nz, k.pos[1] + 1.0, t) : null;
+            const art = einordnen(L, k, laengsDrin, hochDrin);
+            ursacheOhne[art] = (ursacheOhne[art] || 0) + 1;
+            if ((bspOhneArt[art] || []).length < 3)
+              (bspOhneArt[art] = bspOhneArt[art] || []).push({
+                art, modell: namNachKoll.get(k.koll), koll: k.koll,
+                nx: k.nx, nz: k.nz, pos: k.pos, drin: k.drinWer || null, lage: L });
+          }
           if (bspOhne.length < 12) {
             /* Gegenprobe: WAS steht dort, wenn nicht dieses Modell?
                Ohne diese Frage waere "keine Flaeche" nicht von einem
@@ -421,6 +508,8 @@ const TEIL = teilArg === undefined ? 'alle' : teilArg.slice(5);
              stand: d.fassStand ? d.fassStand() : null,
              starts: starts.length, laeufe,
              zaehler, bspTief, bspOhne, bspLoch,
+             ursacheOhne, ursacheUeber60, ursacheUeber100, bspUrsache, bspOhneArt,
+             ursacheKeinGriff, bspKeinGriff,
              nachTyp: [...nachTyp].map(([n, e]) => Object.assign({ name: n }, e)) };
   }, { TIEF, TEIL });
 
@@ -472,6 +561,28 @@ const TEIL = teilArg === undefined ? 'alle' : teilArg.slice(5);
               '   umgekehrt ' + aus.zaehler.uebersehenesLoch +
               '   Loslassen ' + aus.zaehler.losgelassen);
   for (const e of (aus.bspLoch || [])) console.log('    ' + JSON.stringify(e));
+  const tafel = (nm, topf, bsp) => {
+    const zeilen = Object.entries(topf).sort((a, b2) => b2[1] - a[1]);
+    console.log('\n  ' + nm + ':');
+    if (!zeilen.length) { console.log('    (keine)'); return; }
+    for (const [art, n] of zeilen) console.log('    ' + String(n).padStart(5) + '  ' + art);
+    for (const [art] of zeilen.slice(0, 4))
+      for (const e of ((bsp && bsp[art]) || []).slice(0, 2))
+        console.log('      ' + JSON.stringify(e));
+  };
+  tafel('climbingWithoutVisibleSurface nach Ursache', aus.ursacheOhne, aus.bspOhneArt);
+  tafel('Brusttiefe 0,60-1,00 m nach Ursache', aus.ursacheUeber60, aus.bspUrsache);
+  tafel('Brusttiefe ueber 1,00 m nach Ursache', aus.ursacheUeber100, aus.bspUrsache);
+  console.log('  ---- was die HAND erreicht (Mitte und beide Handstellen) ----');
+  console.log('  Grifftiefe ueber 0,30 m ' + aus.zaehler.griff30 +
+              '   ueber 0,60 m ' + aus.zaehler.griff60 +
+              '   ueber 1,00 m ' + aus.zaehler.griff100 +
+              '   ueber 2,00 m ' + aus.zaehler.griff200);
+  console.log('  noGripWithinReach ' + aus.zaehler.keinGriff +
+              '   (davon vor der Schauseite und unter der Traufe: ' +
+              aus.zaehler.keinGriffEcht + ')');
+  tafel('noGripWithinReach nach Ursache', aus.ursacheKeinGriff, aus.bspKeinGriff);
+  console.log('  ---- was der MITTELSTRAHL trifft ----');
   console.log('  Brusttiefe ueber 0,30 m ' + aus.zaehler.ueber30 +
               '   ueber 0,60 m ' + aus.zaehler.ueber60 +
               '   ueber 1,00 m ' + aus.zaehler.ueber100 +
@@ -501,5 +612,12 @@ const TEIL = teilArg === undefined ? 'alle' : teilArg.slice(5);
                   '  ohne ' + String(l.ohne).padStart(4) +
                   '  max ' + l.maxTiefe
                  : ' NICHT angeklebt'));
+  if (JSONAUS) {
+    fs.writeFileSync(JSONAUS, JSON.stringify({
+      zaehler: aus.zaehler, ursacheOhne: aus.ursacheOhne,
+      ursacheUeber60: aus.ursacheUeber60, ursacheUeber100: aus.ursacheUeber100,
+      bspUrsache: aus.bspUrsache, bspOhneArt: aus.bspOhneArt }, null, 1));
+    console.log('\n  Beispiele geschrieben nach ' + JSONAUS);
+  }
   await b.close();
 })();

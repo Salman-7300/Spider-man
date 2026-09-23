@@ -14651,36 +14651,60 @@ const FASS_LUFT = 0.60;
    Beides steht unter Lock. */
 const FASS_GNADE = 0.80;
 const FASS_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_FASS_ALT;
+/* Die Stelle (y, t) in Zellen der Tiefenkarte aufloesen. Ein Feld,
+   damit kein Objekt je Bild entsteht. */
+const _fassZ = { g: null, ci: 0, cj: 0, mass: 0, breit: 0, hoch: 0 };
+function fassZelle(c, nx, nz, y, t) {
+  const f = c.fassade;
+  if (!f) return null;
+  const g = f.g.seiten[nx + ',' + nz];
+  if (!g) return null;
+  const achseX = nx !== 0;
+  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+  if (l1 <= l0) return null;
+  const u = (t - l0) / (l1 - l0);
+  const hoch = f.h * f.g.hLok;
+  const v = (y - SLAB_H) / hoch - f.g.vOff;
+  /* Ausserhalb der Karte wird nicht geurteilt - dort entscheiden die
+     freien Abschnitte allein. */
+  if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+  _fassZ.g = g;
+  _fassZ.ci = clamp(Math.floor(u * FASS_NU), 0, FASS_NU - 1);
+  _fassZ.cj = clamp(Math.floor(v * FASS_NV), 0, FASS_NV - 1);
+  _fassZ.mass = achseX ? f.w : f.d;
+  _fassZ.breit = (l1 - l0) / FASS_NU;
+  _fassZ.hoch = hoch / FASS_NV;
+  return _fassZ;
+}
+/* Tiefe EINER Zelle in Metern; ausserhalb der Karte gilt sie als Loch. */
+function fassZellTiefe(Z, i, j) {
+  if (i < 0 || i >= FASS_NU || j < 0 || j >= FASS_NV) return FASS_LEER;
+  const w = Z.g[j * FASS_NU + i];
+  return w >= FASS_LEER ? FASS_LEER : w * Z.mass;
+}
+/* Traegt die Zelle samt ihren beiden Nachbarn?
+   ---- Warum die Nachbarn mitzaehlen ----
+   Die Figur ist 0,9 m breit und greift mit beiden Haenden; steht eine
+   halbe Zelle weiter eine Wand, gibt es etwas zu halten. Ohne diese
+   Reichweite meldete die Karte am Hausrand Loecher, wo der Strahl eine
+   Wand sieht - gemessen 126 solche Bilder auf dem echten Weg, und die
+   Figur liess an einer tadellosen Fassade los. */
+function fassZellTraegt(Z, i, j) {
+  let w = fassZellTiefe(Z, i, j);
+  const a = fassZellTiefe(Z, i - 1, j); if (a < w) w = a;
+  const b = fassZellTiefe(Z, i + 1, j); if (b < w) w = b;
+  return w <= FASS_LUFT;
+}
 /* Wie weit hinter der Kletterebene liegt die sichtbare Fassade an der
    Stelle (y, t)? 0 heisst "buendig oder davor", FASS_LEER "gar keine
    Flaeche". Ohne Modell (merged, Turm) ist die Kiste die Fassade. */
 function fassadenTiefe(c, nx, nz, y, t) {
-  const f = c.fassade;
-  if (!f) return 0;
-  const g = f.g.seiten[nx + ',' + nz];
-  if (!g) return 0;
-  const achseX = nx !== 0;
-  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
-  if (l1 <= l0) return 0;
-  const u = (t - l0) / (l1 - l0);
-  const v = (y - SLAB_H) / (f.h * f.g.hLok) - f.g.vOff;
-  /* Ausserhalb der Karte wird nicht geurteilt - dort entscheiden die
-     freien Abschnitte allein. */
-  if (u < 0 || u > 1 || v < 0 || v > 1) return 0;
-  const ci = clamp(Math.floor(u * FASS_NU), 0, FASS_NU - 1);
-  const cj = clamp(Math.floor(v * FASS_NV), 0, FASS_NV - 1);
-  /* ---- Nicht nur die eine Zelle, sondern auch die beiden daneben ----
-     Die Figur ist 0,9 m breit und greift mit beiden Haenden; steht eine
-     halbe Zelle weiter eine Wand, gibt es etwas zu halten. Ohne diese
-     Reichweite meldete die Karte am Hausrand Loecher, wo der Strahl
-     eine Wand sieht - gemessen 126 solche Bilder auf dem echten Weg,
-     und die Figur liess an einer tadellosen Fassade los. Ein echtes
-     Loch (Saeulenhalle, Lichthof, L-Grundriss) ist breiter als zwei
-     Zellen und bleibt eines. */
-  let w = g[cj * FASS_NU + ci];
-  if (ci > 0) { const q = g[cj * FASS_NU + ci - 1]; if (q < w) w = q; }
-  if (ci < FASS_NU - 1) { const q = g[cj * FASS_NU + ci + 1]; if (q < w) w = q; }
-  return w >= FASS_LEER ? FASS_LEER : w * (achseX ? f.w : f.d);
+  const Z = fassZelle(c, nx, nz, y, t);
+  if (!Z) return 0;
+  let w = fassZellTiefe(Z, Z.ci, Z.cj);
+  const a = fassZellTiefe(Z, Z.ci - 1, Z.cj); if (a < w) w = a;
+  const b = fassZellTiefe(Z, Z.ci + 1, Z.cj); if (b < w) w = b;
+  return w;
 }
 const _abPruef = [];
 /* ---- Traegt diese Wand die Figur an DIESER Stelle? ----
@@ -14701,36 +14725,74 @@ function fassadeTraegt(c, nx, nz, y, t) {
   if (FASS_ALT || !c || !c.fassade) return true;
   return fassadenTiefe(c, nx, nz, y, t) <= FASS_LUFT;
 }
-/* ---- Wie HOCH ist das Loch? ----
-   Ein Fensterband oder eine zurueckgesetzte Geschossdecke ist ein
-   Spalt: die Figur greift darueber hinweg, so wie ein Kletterer eine
-   glatte Stelle ueberbrueckt. Eine Saeulenhalle, ein Lichthof oder eine
-   fehlende Gebaeudeecke ist etwas anderes - dort ist ueber die ganze
-   Reichweite nichts.
+/* ====================== Wo findet die Hand Halt? ======================
+   Die erste Fassung fragte nur, wie HOCH das Loch ist, und liess ab
+   einer Schwelle los. Das ist zu grob gewesen: gemessen fielen dadurch
+   der Weg aufs Dach (27/29 -> 19/28), die Aussenecke (150 -> 147) und
+   die Naht (221 -> 219), und 394 der 507 Bilder ohne sichtbare Flaeche
+   lagen in Wahrheit einen halben Meter neben einer tragenden Zelle -
+   also in Reichweite.
 
-   Ohne diese Unterscheidung liess die Figur an jedem Fensterband los:
-   gemessen kam sie in dachhohlraum.js nur noch an 18 von 28 Waenden
-   aufs Dach statt an 27 von 29. Gezaehlt werden deshalb die
-   zusammenhaengenden Lochzeilen nach oben; erst ab FASS_HOCH Metern
-   gibt es nichts mehr zu ueberbruecken. */
-const FASS_HOCH = 1.2;
-function lochHoehe(c, nx, nz, y, t) {
-  const f = c.fassade;
-  if (!f) return 0;
-  const zeile = (f.h * f.g.hLok) / FASS_NV;       // Zellhoehe in Metern
-  let h = 0;
-  for (let i = 0; i < FASS_NV && h < FASS_HOCH + zeile; i++) {
-    if (fassadeTraegt(c, nx, nz, y + i * zeile, t)) break;
-    h += zeile;
-  }
-  return h;
+   Gefragt wird deshalb, wie ein Kletterer fragt: gibt es in
+   KOERPERREICHWEITE etwas zu greifen?
+
+     tragend        die Zelle selbst (samt Nachbarn) steht vorn
+     ueberbrueckbar ueber dem Loch kommt in Armlaenge wieder Fassade -
+                    ein Fensterband, eine zurueckgesetzte Decke
+     Pfeiler        seitlich steht in Armlaenge eine Wand - die
+                    Gebaeudekante, eine Saeule, eine Lisene
+     Void           in keiner Richtung etwas: Arkade, Lichthof,
+                    fehlende Gebaeudeflaeche
+
+   Die beiden Reichweiten sind KEINE gedrehten Schwellen, sondern die
+   Masse der Figur: seitlich zwei Koerperradien (die Spannweite der
+   Arme), nach oben die Strecke von der Brusthoehe der Pruefung bis zur
+   Hand ueber dem Kopf. */
+const FASS_REICH_SEIT = 0.90;       // 2 * player.radius
+const FASS_REICH_HOCH = 1.20;       // Brustpruefpunkt -> Hand ueber dem Kopf
+/* ---- Zurueckgesetzt ist nicht gleich Loch ----
+   Ein Staffelgeschoss, eine Loggia oder eine tiefe Fensterlaibung hat
+   eine WAND, sie steht nur weiter hinten. Die Figur haengt davor etwas
+   ab - unschoen, aber sie haengt an etwas. Eine Arkade hat auch eine
+   Rueckwand, nur steht die Meter weit hinten: dort haengt die Figur
+   wirklich in der Luft, und dahinter sieht man die Stadt. Das ist der
+   Human-Befund.
+
+   Die Grenze ist deshalb wieder ein Mass der FIGUR und keine gedrehte
+   Zahl: der Koerper reicht mit 0,45 m Radius bei 0,15 m Kletterabstand
+   rund 0,30 m hinter die Kletterebene, der Arm noch einmal 0,90 m
+   weiter. Was innerhalb dieser Strecke steht, kann eine Hand beruehren;
+   was dahinter liegt, nicht mehr. */
+const FASS_TIEF = 1.2;              // 0,30 Koerper + 0,90 Arm
+const FASS_TRAGEND = 0, FASS_ZURUECK = 1, FASS_BAND = 2, FASS_PFEILER = 3,
+      FASS_VOID = 4;
+function fassadeHalt(c, nx, nz, y, t) {
+  if (FASS_ALT || !c || !c.fassade) return FASS_TRAGEND;
+  const Z = fassZelle(c, nx, nz, y, t);
+  if (!Z) return FASS_TRAGEND;                 // ausserhalb der Karte
+  let w = fassZellTiefe(Z, Z.ci, Z.cj);
+  const a = fassZellTiefe(Z, Z.ci - 1, Z.cj); if (a < w) w = a;
+  const b = fassZellTiefe(Z, Z.ci + 1, Z.cj); if (b < w) w = b;
+  if (w <= FASS_LUFT) return FASS_TRAGEND;
+  if (w <= FASS_TIEF) return FASS_ZURUECK;     // Wand, nur weiter hinten
+  /* Nach oben: wie weit bis zur naechsten tragenden Zeile? */
+  const nHoch = Math.ceil(FASS_REICH_HOCH / Z.hoch);
+  for (let k = 1; k <= nHoch; k++)
+    if (fassZellTraegt(Z, Z.ci, Z.cj + k)) return FASS_BAND;
+  /* Zur Seite: wie weit bis zur naechsten tragenden Zelle? Hier zaehlt
+     die Zelle allein, nicht samt Nachbarn - sonst zaehlte dieselbe
+     Reichweite zweimal. */
+  const nSeit = Math.ceil(FASS_REICH_SEIT / Z.breit);
+  for (let k = 1; k <= nSeit; k++)
+    if (fassZellTiefe(Z, Z.ci - k, Z.cj) <= FASS_LUFT ||
+        fassZellTiefe(Z, Z.ci + k, Z.cj) <= FASS_LUFT) return FASS_PFEILER;
+  return FASS_VOID;
 }
 function wandTraegt(col, nx, nz, y, x, z) {
   if (!col || (nx === 0 && nz === 0) || !col.fassade) return true;
   const t = nx !== 0 ? clamp(z, col.z0 + 0.05, col.z1 - 0.05)
                      : clamp(x, col.x0 + 0.05, col.x1 - 0.05);
-  return fassadeTraegt(col, nx, nz, y, t) ||
-         lochHoehe(col, nx, nz, y, t) < FASS_HOCH;
+  return fassadeHalt(col, nx, nz, y, t) !== FASS_VOID;
 }
 /* Liegt die Stelle t (Laengskoordinate) auf dieser Schauseite im
    Freien? */
@@ -18203,9 +18265,8 @@ function updatePlayer(dt) {
          Fuss- und Handhoehe zu verlangen. Die drei Stellen, an denen
          die Gegenprobe "echte Aussenecke" Federn laesst, sind Loecher
          ueber die ganze Koerperhoehe - dort ist wirklich keine Wand. */
-      if (!fassadeTraegt(c, w.nx, w.nz, player.pos.y + 1.0, tJetzt) &&
-           fassadeTraegt(c, w.nx, w.nz, yVor + 1.0, tVorher) &&
-           lochHoehe(c, w.nx, w.nz, player.pos.y + 1.0, tJetzt) >= FASS_HOCH) {
+      if (fassadeHalt(c, w.nx, w.nz, player.pos.y + 1.0, tJetzt) === FASS_VOID &&
+          fassadeHalt(c, w.nx, w.nz, yVor + 1.0, tVorher) !== FASS_VOID) {
         player.pos.y = yVor;
         player.state = 'air';
         player.wallInfo = null; player.wall = null; player.eckBogen = null;
@@ -37155,6 +37216,79 @@ if (window.__WEBHERO_TEST__ === true) {
       if (!c) return null;
       const w = fassadenTiefe(c, nx, nz, y, t);
       return { tiefe: w >= FASS_LEER ? null : +w.toFixed(3), karte: !!c.fassade };
+    },
+    /* ---- Die LAGE in der Tiefenkarte, roh ----
+       Fuer die Ursachenaufteilung der Restfaelle (problem-2, Human
+       Rejection Pass 2). Gibt zurueck, was an dieser Stelle steht, wie
+       hoch das Loch ist, und wie weit die naechste tragende Zelle
+       seitlich und nach oben entfernt ist - in Metern, nicht in Zellen.
+       Nur lesen, keine Wirkung aufs Spiel. */
+    fassLage(kollId, nx, nz, y, t) {
+      if (!_kollNachId) {
+        _kollNachId = new Map();
+        for (const q of colliders) _kollNachId.set(q.id, q);
+      }
+      const c = _kollNachId.get(kollId);
+      if (!c) return null;
+      const f = c.fassade;
+      if (!f) return { karte: false };
+      const g = f.g.seiten[nx + ',' + nz];
+      if (!g) return { karte: false };
+      const achseX = nx !== 0;
+      const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+      const mass = achseX ? f.w : f.d;
+      const u = (t - l0) / (l1 - l0);
+      const hoch = f.h * f.g.hLok;
+      const v = (y - SLAB_H) / hoch - f.g.vOff;
+      if (u < 0 || u > 1 || v < 0 || v > 1)
+        return { karte: true, ausserhalb: true, u: +u.toFixed(3), v: +v.toFixed(3) };
+      const ci = clamp(Math.floor(u * FASS_NU), 0, FASS_NU - 1);
+      const cj = clamp(Math.floor(v * FASS_NV), 0, FASS_NV - 1);
+      const zellBreit = (l1 - l0) / FASS_NU, zellHoch = hoch / FASS_NV;
+      const tief = (i, j) => {
+        if (i < 0 || i >= FASS_NU || j < 0 || j >= FASS_NV) return FASS_LEER;
+        const w = g[j * FASS_NU + i];
+        return w >= FASS_LEER ? FASS_LEER : w * mass;
+      };
+      const traegt = (i, j) => {
+        let w = tief(i, j);
+        const a = tief(i - 1, j); if (a < w) w = a;
+        const b2 = tief(i + 1, j); if (b2 < w) w = b2;
+        return w <= FASS_LUFT;
+      };
+      /* Wie hoch reicht das Loch nach oben und unten? */
+      let hochM = 0, runterM = 0;
+      for (let j = cj; j < FASS_NV && !traegt(ci, j); j++) hochM += zellHoch;
+      for (let j = cj - 1; j >= 0 && !traegt(ci, j); j--) runterM += zellHoch;
+      /* Wie weit ist die naechste tragende Zelle seitlich? */
+      let seit = null;
+      for (let k = 1; k < FASS_NU && seit === null; k++) {
+        if (tief(ci - k, cj) <= FASS_LUFT || tief(ci + k, cj) <= FASS_LUFT)
+          seit = +(k * zellBreit).toFixed(2);
+      }
+      /* Und nach oben? */
+      let oben = null;
+      for (let j = cj + 1; j < FASS_NV && oben === null; j++)
+        if (traegt(ci, j)) oben = +((j - cj) * zellHoch).toFixed(2);
+      const eig = tief(ci, cj);
+      let mit1 = eig; { const a = tief(ci - 1, cj), b2 = tief(ci + 1, cj);
+                        if (a < mit1) mit1 = a; if (b2 < mit1) mit1 = b2; }
+      let mit2 = mit1; { const a = tief(ci - 2, cj), b2 = tief(ci + 2, cj);
+                         if (a < mit2) mit2 = a; if (b2 < mit2) mit2 = b2; }
+      return { karte: true, ausserhalb: false,
+               ci, cj, u: +u.toFixed(3), v: +v.toFixed(3),
+               zellBreit: +zellBreit.toFixed(2), zellHoch: +zellHoch.toFixed(2),
+               zelle: eig >= FASS_LEER ? null : +eig.toFixed(3),
+               mit1: mit1 >= FASS_LEER ? null : +mit1.toFixed(3),
+               mit2: mit2 >= FASS_LEER ? null : +mit2.toFixed(3),
+               traegt: traegt(ci, cj),
+               lochHoch: +hochM.toFixed(2), lochRunter: +runterM.toFixed(2),
+               wandSeitlich: seit, wandOben: oben,
+               halt: ['tragend', 'zurueckgesetzt', 'Band', 'Pfeiler', 'Void'][
+                       fassadeHalt(c, nx, nz, y, t)],
+               luft: FASS_LUFT,
+               reichSeit: FASS_REICH_SEIT, reichHoch: FASS_REICH_HOCH,
+               tiefGrenze: FASS_TIEF };
     },
     /* Wieviele Haeuser haben eine Tiefenkarte, und wieviel davon ist
        Loch? Nur zum Messen. */
