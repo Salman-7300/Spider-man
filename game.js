@@ -13908,6 +13908,41 @@ const KAM_ENG_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMENG_A
    Die Konstante steht bewusst hier bei den anderen Kameraschaltern:
    die Offline-Tests schneiden genau diesen Abschnitt aus game.js
    heraus, und weiter oben war sie fuer sie nicht sichtbar. */
+/* ====================== Ausweichlagen der Kamera ======================
+   problem-2, Human Rejection Pass 2, Blocker 2. Gemessen auf Daechern
+   mit Krone oder hoeherem Nachbarn (tools/pruef/dachkamera.js, Keim
+   4711, 1647 Bilder): in 27 Bildern besteht mehr als die Haelfte des
+   Bildes aus Geometrie, die naeher steht als die Kamera selbst - bis zu
+   zwei Dritteln, Kameraabstand dabei 1,97 m statt 6,4 m. Kopf und Brust
+   sind in ALLEN diesen Bildern frei; die bisherige Sichtpruefung meldet
+   also nichts. Auf dem Bild steht die Figur bildfuellend vor einer
+   braunen Wand, und man sieht nicht mehr, wohin man laeuft.
+
+   Statt die Kamera nur naeher heranzuziehen, wird eine kleine, FESTE
+   Menge Ausweichlagen geprueft: hoeher, etwas nach links, etwas nach
+   rechts, und die beiden Mischungen. Bewertet wird, wieviel Weg jede
+   Lage frei hat, abzueglich der Abweichung von der gewuenschten Lage.
+   Die zuletzt gewaehlte Lage bekommt einen Bonus, und der Versatz wird
+   gefahren statt gesprungen - sonst springt die Wahl von Bild zu Bild.
+
+   Die Liste ist bewusst kurz und fest: keine Suche, keine Zufallszahl,
+   kein zusaetzlicher Zug aus dem gemeinsamen Zufallsstrom. */
+const KAM_AUSWEICH = [[0, 0], [0, 0.30], [0.42, 0.12], [-0.42, 0.12],
+                      [0.62, 0.32], [-0.62, 0.32]];
+const KAM_AUS_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMAUS_ALT;
+let kamAusWahl = 0, kamAusGier = 0, kamAusNeig = 0;
+const _kamAusR = new THREE.Vector3(), _kamAusZ = new THREE.Vector3();
+/* ---- Was hier NICHT funktioniert hat ----
+   Der naheliegende Zusatz war, ein Tastraster ueber das Bild zu legen
+   (drei mal drei Strahlen gegen die Kollider) und die Ausweichlagen
+   auch danach zu bewerten - "wenig nahe Geometrie". GEMESSEN WURDE ES
+   SCHLECHTER: die Bilder mit beherrschender Nahgeometrie stiegen von
+   16 auf 37 (tools/pruef/dachkamera.js, 1647 Bilder). Der Grund ist,
+   dass ein Raster gegen die KOLLIDER etwas anderes misst als das Bild:
+   das Dachgesims eines Modellhauses hat gar kein Hindernis, die
+   Nachbarwand dagegen zaehlt voll, obwohl man an ihr vorbeischaut.
+   Zurueckgenommen. Die Ausweichlagen entscheiden nach der freien
+   Strecke, und die misst, was die Kamera wirklich einengt. */
 const KAM_NACH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMNACH_ALT;
 const _kameraAnker = new THREE.Vector3();
 const _kameraKandidaten = new Set();
@@ -14162,6 +14197,17 @@ function kameraFreierAnteil(von, nach) {
   return frei;
 }
 
+/* Eine Blickrichtung um dGier (um die Hochachse) und dNeig (Anhebung)
+   versetzen. Rein rechnerisch, ohne Euler-Umweg. */
+function kamRichtungVersetzt(dir, dGier, dNeig, aus) {
+  const c = Math.cos(dGier), s2 = Math.sin(dGier);
+  const x = dir.x * c + dir.z * s2, z = -dir.x * s2 + dir.z * c;
+  const waag = Math.hypot(x, z) || 1e-6;
+  const neig = Math.atan2(dir.y, waag) + dNeig;
+  const cn = Math.cos(clamp(neig, -1.2, 1.3)), sn = Math.sin(clamp(neig, -1.2, 1.3));
+  aus.set(x / waag * cn, sn, z / waag * cn);
+  return aus;
+}
 function begrenzeKamera(von, nach) {
   const anteil = kameraFreierAnteil(von, nach);
   if (anteil < 1) nach.sub(von).multiplyScalar(anteil).add(von);
@@ -14310,7 +14356,39 @@ function updateCamera(dt) {
   /* ---- Im Innenraum zuerst AUSWEICHEN, dann erst heranziehen ---- */
   if (MISSION_INTERIOR.active) innenKamAusweichen(target, dir, camDist, dt);
   const desired = _v3.copy(target).addScaledVector(dir, camDist);
-  const d = camDist * kameraFreierAnteil(target, desired);
+  let d = camDist * kameraFreierAnteil(target, desired);
+  /* ---- Eingeklemmt? Dann die feste Liste der Ausweichlagen pruefen ----
+     Siehe KAM_AUSWEICH. Geprueft wird nur, wenn die Kamera wirklich
+     eingeengt ist - im Normalfall kostet das gar nichts. */
+  if (!KAM_AUS_ALT && !MISSION_INTERIOR.active && d < camDist * 0.8) {
+    let bestW = -1e9, wahl = 0, bestFrei = d;
+    for (let i = 0; i < KAM_AUSWEICH.length; i++) {
+      const dy = KAM_AUSWEICH[i][0], dp = KAM_AUSWEICH[i][1];
+      let frei;
+      if (i === 0) frei = d;
+      else {
+        kamRichtungVersetzt(dir, dy, dp, _kamAusR);
+        _kamAusZ.copy(target).addScaledVector(_kamAusR, camDist);
+        frei = camDist * kameraFreierAnteil(target, _kamAusZ);
+      }
+      /* Freie Strecke zaehlt, und nah an der gewuenschten Lage bleiben. */
+      let wert = frei - (Math.abs(dy) + Math.abs(dp)) * 1.6;
+      /* ... und zeitlich ruhig: die zuletzt gewaehlte Lage hat Vorrang. */
+      if (i === kamAusWahl) wert += 0.8;
+      if (wert > bestW) { bestW = wert; wahl = i; bestFrei = frei; }
+    }
+    kamAusWahl = wahl;
+    d = bestFrei;
+  } else kamAusWahl = 0;
+  /* Der Versatz wird gefahren, nicht gesprungen. */
+  kamAusGier = lerp(kamAusGier, KAM_AUSWEICH[kamAusWahl][0], 1 - Math.exp(-dt * 4));
+  kamAusNeig = lerp(kamAusNeig, KAM_AUSWEICH[kamAusWahl][1], 1 - Math.exp(-dt * 4));
+  if (Math.abs(kamAusGier) > 1e-3 || Math.abs(kamAusNeig) > 1e-3) {
+    kamRichtungVersetzt(dir, kamAusGier, kamAusNeig, _kamAusR);
+    dir.copy(_kamAusR);
+    desired.copy(target).addScaledVector(dir, camDist);
+    d = Math.min(d, camDist * kameraFreierAnteil(target, desired));
+  }
   KAM_BLOCK.wunsch = camDist; KAM_BLOCK.geklemmt = d;
   KAM_BLOCK.hauptWer = KAM_BLOCK.wer; KAM_BLOCK.hauptGrund = KAM_BLOCK.grund;
   KAM_BLOCK.von[0] = target.x; KAM_BLOCK.von[1] = target.y; KAM_BLOCK.von[2] = target.z;
@@ -37676,8 +37754,16 @@ if (window.__WEBHERO_TEST__ === true) {
          laesst sich ein Sprung des Kameraziels erkennen, der im Bild
          als Ruck ankommt. */
       const r = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      /* Fuer die Bildabdeckung (problem-2, Blocker 2): ohne Oeffnungs-
+         winkel, Seitenverhaeltnis und die beiden Bildachsen laesst sich
+         von aussen kein Tastraster ueber das Bild legen. */
+      const re = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const ob = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
       return { pos: [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)],
                blick: [+r.x.toFixed(4), +r.y.toFixed(4), +r.z.toFixed(4)],
+               rechts: [+re.x.toFixed(4), +re.y.toFixed(4), +re.z.toFixed(4)],
+               oben: [+ob.x.toFixed(4), +ob.y.toFixed(4), +ob.z.toFixed(4)],
+               fov: +camera.fov.toFixed(2), seiten: +camera.aspect.toFixed(4),
                abstand: +p.distanceTo(player.pos).toFixed(3),
                steckt: !!steckt };
     },

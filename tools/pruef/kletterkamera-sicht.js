@@ -88,6 +88,8 @@ const NUR_ERSTE = !!BILDER;
   const werte = [];
   const nahBsp = [];
   let kopfV = 0, brustV = 0, beckenV = 0, ganzV = 0, bilder = 0;
+  let tunnelGes = 0, lesbarGes = 0;
+  const tunnelBsp = [];
   const schlimm = [];
   for (let n = 0; n < (NUR_ERSTE ? Math.min(1, stellen.length) : stellen.length); n++) {
     const reihe = await page.evaluate(async (S) => {
@@ -147,11 +149,54 @@ const NUR_ERSTE = !!BILDER;
         }
         return { frei: true };
       };
+    /* ---- Wieviel des BILDES ist nahe Geometrie? ----
+       Drei Strahlen zu Kopf, Brust und Becken sagen, ob die Figur
+       verdeckt ist. Der neue Human-Screenshot zeigt aber etwas anderes:
+       die Figur ist zu sehen, und trotzdem ist das Bild unbrauchbar,
+       weil ein Dachvorsprung wie ein Tunnel davor haengt. Gemessen wird
+       das mit einem Raster ueber das Bild: fuer jeden Tastpunkt die
+       Entfernung bis zur ersten Geometrie.
+
+         nahAnteil   Anteil der Tastpunkte mit Geometrie naeher als NAH
+         playerReadable        Kopf UND Brust frei und nahAnteil klein
+         nearGeometryDominatesView   nahAnteil ueber der Schwelle */
+      const NAH = 7.0, ANTEIL = 0.5;
+      /* ---- Getastet wird gegen das SICHTBARE, nicht gegen die Kisten ----
+         Der erste Versuch tastete die Kollider ab und fand nichts
+         (hoechster Anteil 0,18). Das Dachgesims eines Modellhauses hat
+         aber gar kein Hindernis - nur die Dachkrone bekommt eine kleine
+         Kiste. Genau deshalb faehrt die Kamera hinein: kameraFreier-
+         Anteil sieht das Gesims nicht. Getastet wird daher gegen die
+         gesetzten Hausmodelle und die verschmolzenen Fassaden. */
+      const RC = new THREE.Raycaster();
+      const RO = new THREE.Vector3(), RD = new THREE.Vector3();
+      const ziele = d.hausModelle().concat(d.hausFassaden ? d.hausFassaden() : []);
+      const probenRaster = (kam) => {
+        const tanY = Math.tan(kam.fov * Math.PI / 360);
+        const tanX = tanY * kam.seiten;
+        let nah = 0, ges = 0, summe = 0;
+        for (let iy = 0; iy < 3; iy++) for (let ix = 0; ix < 5; ix++) {
+          const sx = (ix / 4 * 2 - 1) * tanX, sy = (iy / 2 * 2 - 1) * tanY;
+          RD.set(kam.blick[0] + kam.rechts[0] * sx + kam.oben[0] * sy,
+                 kam.blick[1] + kam.rechts[1] * sx + kam.oben[1] * sy,
+                 kam.blick[2] + kam.rechts[2] * sx + kam.oben[2] * sy).normalize();
+          RO.set(kam.pos[0], kam.pos[1], kam.pos[2]);
+          RC.set(RO, RD); RC.near = 0; RC.far = NAH;
+          const tr = RC.intersectObjects(ziele, true);
+          const weg = tr.length ? tr[0].distance : NAH;
+          ges++; summe += weg;
+          if (weg < NAH) nah++;
+        }
+        return { anteil: +(nah / ges).toFixed(3), mittel: +(summe / ges).toFixed(2) };
+      };
       const reihe = [];
+      let letztesRaster = { anteil: 0, mittel: NAH };
       for (let k = 0; k < (fenster || 240); k++) {
         d.schritt(1 / 60);
         if (P.state !== 'climb' && P.state !== 'kante' && k > 30) break;
         const kam = d.kamera();
+        const raster = (k % 4 === 0) ? probenRaster(kam) : letztesRaster;
+        letztesRaster = raster;
         const kn = d.animKnochen(['head', 'spine2', 'hips']);
         const kp = kam.pos;
         const punkte = { kopf: kn.head, brust: kn.spine2, becken: kn.hips };
@@ -161,6 +206,10 @@ const NUR_ERSTE = !!BILDER;
           sicht[nm] = frei(kp[0], kp[1], kp[2], b2.x, b2.y, b2.z);
         }
         reihe.push({ k, abst: kam.abstand, steckt: kam.steckt, sicht,
+                     nahAnteil: raster.anteil, nahMittel: raster.mittel,
+                     nearGeometryDominatesView: raster.anteil > ANTEIL,
+                     playerReadable: sicht.kopf.frei && sicht.brust.frei &&
+                                     raster.anteil <= ANTEIL,
                      block: d.kamBlock(),
                      hoehe: +((col.h || 0) - P.pos.y).toFixed(2),
                      pos: [+P.pos.x.toFixed(2), +P.pos.y.toFixed(2), +P.pos.z.toFixed(2)],
@@ -171,8 +220,11 @@ const NUR_ERSTE = !!BILDER;
       return reihe;
     }, { ...stellen[n], fenster: null });
     if (!reihe) continue;
-    let ganzHier = 0;
+    let ganzHier = 0, tunnelHier = 0, lesbarHier = 0;
     for (const r of reihe) {
+      if (r.nearGeometryDominatesView) { tunnelHier++; tunnelGes++;
+        if (tunnelBsp.length < 8) tunnelBsp.push({ stelle: n, ...r }); }
+      if (r.playerReadable) { lesbarHier++; lesbarGes++; }
       if (r.abst < 3.0 && nahBsp.length < 8) nahBsp.push({ stelle: n, ...r });
       bilder++;
       if (!r.sicht.kopf.frei) kopfV++;
@@ -185,6 +237,8 @@ const NUR_ERSTE = !!BILDER;
     }
     werte.push({ stelle: n, koll: stellen[n].koll, hoeher: stellen[n].hoeher,
                  bilder: reihe.length, ganzVerdeckt: ganzHier,
+                 tunnel: tunnelHier, lesbar: lesbarHier,
+                 nahMax: +Math.max(...reihe.map((r) => r.nahAnteil)).toFixed(2),
                  abstMin: +Math.min(...reihe.map((r) => r.abst)).toFixed(2) });
     if (BILDER) {
       /* Dieselbe Stelle noch einmal, diesmal mit Aufnahme je drei
@@ -217,7 +271,9 @@ const NUR_ERSTE = !!BILDER;
       }
       await page.evaluate(() => __dbg.taste('KeyW', false));
     }
-    console.log('  Stelle ' + (n + 1) + '  Kollider ' + stellen[n].koll +
+    console.log('  Stelle ' + (n + 1) + '  nahMax ' + werte[werte.length - 1].nahMax +
+                '  Tunnel ' + werte[werte.length - 1].tunnel +
+                '  Kollider ' + stellen[n].koll +
                 (stellen[n].hoeher ? '  (hoeherer Nachbar)' : '') +
                 '  kleinster Abstand ' + werte[werte.length - 1].abstMin +
                 ' m   ganz verdeckt ' + ganzHier + ' von ' + reihe.length);
@@ -228,6 +284,12 @@ const NUR_ERSTE = !!BILDER;
   console.log('  chestOccluded         ' + brustV);
   console.log('  pelvisOccluded        ' + beckenV);
   console.log('  playerFullyOccluded   ' + ganzV);
+  console.log('  nearGeometryDominatesView ' + tunnelGes +
+              '   playerReadable ' + lesbarGes + ' von ' + bilder);
+  if (tunnelBsp.length) {
+    console.log('\n  Beispiele "nahe Geometrie beherrscht das Bild":');
+    for (const e of tunnelBsp) console.log('    ' + JSON.stringify(e));
+  }
   if (nahBsp.length) {
     console.log('\n  Beispiele mit Kameraabstand unter 3 m:');
     for (const e of nahBsp) console.log('    ' + JSON.stringify(e));

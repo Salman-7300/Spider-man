@@ -108,6 +108,9 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: Kletterflaechen ohne Tiefenkarte der sichtbaren
        Fassade - Stand vor Human Rejection Pass 2, Blocker 1. */
     if (ein.fassAlt) window.__WEBHERO_FASS_ALT = 1;
+    /* Nur zum Messen: Kamera ohne Ausweichlagen - Stand vor Human
+       Rejection Pass 2, Blocker 2. */
+    if (ein.kamAusAlt) window.__WEBHERO_KAMAUS_ALT = 1;
     /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
        damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
     if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
@@ -135,6 +138,7 @@ async function starte(breite, hoehe, seed, opt) {
        flaecheAlt: !!(opt && opt.flaecheAlt),
        kamNachAlt: !!(opt && opt.kamNachAlt),
        fassAlt: !!(opt && opt.fassAlt),
+       kamAusAlt: !!(opt && opt.kamAusAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
      WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright
