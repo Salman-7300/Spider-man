@@ -14187,6 +14187,7 @@ const KAM_BLOCK = { wer: null, grund: null, wunsch: 0, geklemmt: 0,
                        LETZTEN Strahls zu der Weite des ersten; zwei
                        angebliche Restfaelle waren nur das. */
                     hauptWer: null, hauptGrund: null, luft: 0,
+                    ausweichBest: 0, ausweichGesucht: false,
                     /* Anfang und Ende des zuletzt geprueften Strahls. Feste
                        Felder statt neuer Listen je Bild. */
                     von: [0, 0, 0], nach: [0, 0, 0], ankerAus: null };
@@ -14261,8 +14262,12 @@ function kameraFreierAnteil(von, nach) {
    kein Raster, sondern ein einziger Abstand: ein Hashgriff und ein
    paar Kistenabstaende, nur wenn ohnehin gesucht wird. */
 const KAM_LUFT_MAX = 3.0;
+/* Die naechste Kiste und die Seite, auf der die Kamera vor ihr steht.
+   Ein Feld, damit kein Objekt je Bild entsteht. */
+const _kamNah = { c: null, nx: 0, nz: 0, oben: 0 };
 function kameraLuft(p) {
   let luft = KAM_LUFT_MAX;
+  _kamNah.c = null; _kamNah.nx = 0; _kamNah.nz = 0; _kamNah.oben = 0;
   /* Derselbe Zugriff wie in kameraFreierAnteil - ueber colliderGrid,
      nicht ueber collidersNear: die Offline-Tests schneiden nur den
      Kamerabereich aus game.js heraus, und collidersNear liegt
@@ -14271,8 +14276,18 @@ function kameraLuft(p) {
   for (const c of colliderGrid.get(i + ',' + j) || []) {
     if (c.innen || c.parkAuto) continue;
     const l = kastenLuft(p.x, p.y, p.z, c);
-    if (l < luft) luft = l;
-    if (luft <= 0) return 0;
+    if (l >= luft) continue;
+    luft = l;
+    /* ---- Auf welcher Seite der Kiste steht die Kamera? ----
+       Die Achse mit dem GROESSTEN Abstand ist die, ueber die die Kamera
+       vor der Kiste liegt - dieselbe Rechnung wie in kastenLuft. Daraus
+       kommt die Flaechennormale, ohne ein einziges Dreieck. */
+    const dx = Math.max(c.x0 - p.x, p.x - c.x1);
+    const dz = Math.max(c.z0 - p.z, p.z - c.z1);
+    _kamNah.c = c;
+    _kamNah.oben = c.h || 0;
+    if (dx >= dz) { _kamNah.nx = p.x < c.x0 ? -1 : 1; _kamNah.nz = 0; }
+    else { _kamNah.nx = 0; _kamNah.nz = p.z < c.z0 ? -1 : 1; }
   }
   return luft;
 }
@@ -14444,6 +14459,20 @@ function updateCamera(dt) {
   KAM_BLOCK.luft = +luftJetzt.toFixed(3);
   if (!KAM_AUS_ALT && !MISSION_INTERIOR.active &&
       (d < camDist * 0.8 || luftJetzt < KAM_LUFT_ENG)) {
+    /* ---- Was hier NICHT geholfen hat ----
+       problem-2, Blocker 2C. Zwei zusaetzliche Kandidaten, beide aus
+       der BoundingBox der naechsten Kiste abgeleitet statt aus der
+       festen Liste: einer von der Flaeche WEG gedreht (halbe Differenz
+       zwischen Blickrichtung und Flaechennormale), einer ueber die
+       Oberkante hinweg (noetige Neigung aus c.h, keine feste Hoehe).
+
+       GEMESSEN: nearGeometryDominatesView blieb bei 7, die Aufteilung
+       nach Objekttyp blieb gleich, und die Kamera wurde UNRUHIGER -
+       0,6 statt 0,4 Wechsel je Sekunde. Nach der Regel "eine Aenderung
+       wird nur behalten, wenn der Messwert besser UND die Kamera nicht
+       unruhiger wird" ist beides zurueckgenommen. Die Ableitung der
+       Flaechennormalen aus der Kiste (_kamNah) bleibt stehen - sie
+       kostet nichts und beschreibt den Befund. */
     let bestW = -1e9, wahl = 0, bestFrei = d;
     for (let i = 0; i < KAM_AUSWEICH.length; i++) {
       const dy = KAM_AUSWEICH[i][0], dp = KAM_AUSWEICH[i][1];
@@ -14467,7 +14496,9 @@ function updateCamera(dt) {
     }
     kamAusWahl = wahl;
     d = bestFrei;
-  } else kamAusWahl = 0;
+    KAM_BLOCK.ausweichBest = +bestFrei.toFixed(3);
+    KAM_BLOCK.ausweichGesucht = true;
+  } else { kamAusWahl = 0; KAM_BLOCK.ausweichGesucht = false; }
   /* Der Versatz wird gefahren, nicht gesprungen. */
   kamAusGier = lerp(kamAusGier, KAM_AUSWEICH[kamAusWahl][0], 1 - Math.exp(-dt * 4));
   kamAusNeig = lerp(kamAusNeig, KAM_AUSWEICH[kamAusWahl][1], 1 - Math.exp(-dt * 4));
@@ -38002,6 +38033,8 @@ if (window.__WEBHERO_TEST__ === true) {
         /* Welche Ausweichlage gilt gerade, und wie weit ist der Versatz
            schon gefahren? (problem-2, Blocker 2) */
         ausweichWahl: kamAusWahl, luft: KAM_BLOCK.luft,
+        ausweichBest: KAM_BLOCK.ausweichBest,
+        ausweichGesucht: !!KAM_BLOCK.ausweichGesucht,
         ausweich: [+kamAusGier.toFixed(3), +kamAusNeig.toFixed(3)],
         ausweichListe: KAM_AUSWEICH.length,
         blocker: c ? { id: c.id, klein: !!c.klein, krone: !!c.krone,
