@@ -14788,11 +14788,50 @@ function fassadeHalt(c, nx, nz, y, t) {
         fassZellTiefe(Z, Z.ci + k, Z.cj) <= FASS_LUFT) return FASS_PFEILER;
   return FASS_VOID;
 }
+/* ---- Der ganze Koerper sucht Halt, nicht ein Punkt ----
+   Gemessen (tools/pruef/dach-restbilder.js, Keim 4711) liess die Figur
+   an sechs Waenden dicht unter der Dachkante los, fiel 1,3 m, klebte
+   wieder an, kletterte hoch und liess an derselben Hoehe wieder los -
+   viermal in vier Sekunden. Auf dem Bild ist dort eine glatte Wand mit
+   einer Attika darueber; ueber dem oertlichen Dach ist offener Himmel,
+   und die Karte meldet deshalb oberhalb ein Void. Das ist kein Loch zum
+   Hineinfallen, sondern eine Dachkante zum Hochziehen.
+
+   Gefragt werden deshalb drei Punkte: Fuesse, Huefte und die Haende
+   ueber dem Kopf. Solange EINER von ihnen Halt findet, haelt die Figur.
+   Erst wenn keiner mehr etwas findet, ist da wirklich nichts. */
+const FASS_KOERPER = [0.4, 1.0, 1.8];     // Fuss, Huefte, Hand ueber dem Kopf
+/* ---- Eine Dachkante ist kein Loch ----
+   Zwei Fassungen sind gemessen und beide haben einen Lock gebrochen:
+   loslassen liess die Figur flattern (1,3 m fallen, wieder ankleben,
+   wieder loslassen - viermal in vier Sekunden an sechs von sechs
+   Waenden), den Schritt zuruecknehmen liess sie festhaengen
+   (dachtraversal 1 auffaelliger Versuch, wallclimbIntoRoofVoid 1).
+
+   Die Messung trennt die beiden Lagen aber sauber:
+
+     unter der Dachkante   ueber der Figur ist offener Himmel, UNTER
+                           ihr feste Wand - lochRunter nahe null
+     echtes Void           auch unter ihr ist nichts; bei
+                           Downtown_ModernOffice_1, Kollider 1216,
+                           reicht das Loch 17,29 m nach unten
+
+   Gehandelt wird deshalb nur, wenn auch UNTER der Figur nichts ist.
+   Ueber einer festen Wand ist ein Void oben eine Kante, und an einer
+   Kante zieht man sich hoch, statt loszulassen. */
+const FASS_UNTEN = 1.0;             // ein Koerper tiefer nachsehen
+const FASS_IM_LAUF_AUS = typeof window !== 'undefined' && !!window.__WEBHERO_FASS_LAUF_AUS;
+function koerperHalt(col, nx, nz, y, t) {
+  if (FASS_ALT || !col || !col.fassade) return false;   // false = kein Void
+  for (let i = 0; i < FASS_KOERPER.length; i++)
+    if (fassadeHalt(col, nx, nz, y + FASS_KOERPER[i], t) !== FASS_VOID) return false;
+  return true;                                           // ueberall Void
+}
 function wandTraegt(col, nx, nz, y, x, z) {
   if (!col || (nx === 0 && nz === 0) || !col.fassade) return true;
   const t = nx !== 0 ? clamp(z, col.z0 + 0.05, col.z1 - 0.05)
                      : clamp(x, col.x0 + 0.05, col.x1 - 0.05);
-  return fassadeHalt(col, nx, nz, y, t) !== FASS_VOID;
+  return !koerperHalt(col, nx, nz, y - 1.0, t);
 }
 /* Liegt die Stelle t (Laengskoordinate) auf dieser Schauseite im
    Freien? */
@@ -18235,25 +18274,28 @@ function updatePlayer(dt) {
       if (achseX) player.pos.z = clamp(player.pos.z, lo, hi);
       else player.pos.x = clamp(player.pos.x, lo, hi);
     }
-    /* ---- Ueber einem Fassadenloch gibt es nichts zu halten ----
+    /* ---- In ein Fassadenloch hinein geht es nicht weiter ----
        Die seitliche Klemmung oben fragt ueber freieAbschnitte laengst
        auch die Tiefenkarte ab. Das Hochklettern tat es nicht - und
        genau so kam die Figur ins Bild: sie klebt unten an einer echten
        Wand an und steigt senkrecht in die Saeulenhalle darueber.
-       Gemessen (tools/pruef/fassade-bilder.js, Keim 4711, Haus
-       Brownstone_Commercial_1_C, Kollider 873): Kartentiefe 0,72 m,
-       auf der Nahaufnahme haengt die Figur zwischen zwei Saeulen in der
-       Luft, hinter ihr die Stadt.
 
-       Auf der Hoehe ANHALTEN war der erste Versuch und ist GEMESSEN
-       SCHLECHTER: die Figur bleibt dann die ganze Zeit am Rand des
-       Lochs haengen, Bilder mit mehr als 1 m Tiefe stiegen von 3 auf
-       198, Bilder ohne jede Flaeche von 55 auf 99. Zurueckgenommen.
+       LOSLASSEN war der zweite Versuch und ist GEMESSEN FALSCH: die
+       Figur liess los, fiel 1,3 m, klebte wieder an, kletterte hoch und
+       liess an derselben Hoehe wieder los - viermal in vier Sekunden an
+       sechs von sechs geprueften Waenden (tools/pruef/dach-restbilder.js).
+       Ein Flattern ist schlimmer als der Befund, den es heilen sollte.
 
-       Sie laesst jetzt los. Das ist auch das Richtige: vor einem Loch
-       ist keine Wand, an der eine Hand halten koennte. Losgelassen wird
-       nur beim UEBERGANG von tragend nach nicht tragend - wer schon im
-       Loch haengt, wird nicht versetzt. */
+       Der Schritt wird deshalb zurueckgenommen statt der Halt. Die
+       Figur bleibt am letzten Griff haengen und kommt nicht weiter -
+       so, wie ein Kletterer vor einer Dachkante ohne Griff haengen
+       bleibt. Sie faellt nicht, sie flattert nicht, und in das Loch
+       hinein kommt sie nicht.
+
+       Zurueckgenommen wird nur der UEBERGANG von Halt nach kein Halt.
+       Wer schon im Loch haengt, wird nicht versetzt - ein Rueckversatz
+       waere ein Teleport, und genau daran sind vier fruehere Fassungen
+       gescheitert. */
     if (player.fassGnade > 0) player.fassGnade -= dt;
     if (!FASS_ALT && c.fassade && !player.eckBogen && !(player.fassGnade > 0) &&
         !(player.eckSperre > 0)) {
@@ -18265,16 +18307,14 @@ function updatePlayer(dt) {
          Fuss- und Handhoehe zu verlangen. Die drei Stellen, an denen
          die Gegenprobe "echte Aussenecke" Federn laesst, sind Loecher
          ueber die ganze Koerperhoehe - dort ist wirklich keine Wand. */
-      if (fassadeHalt(c, w.nx, w.nz, player.pos.y + 1.0, tJetzt) === FASS_VOID &&
-          fassadeHalt(c, w.nx, w.nz, yVor + 1.0, tVorher) !== FASS_VOID) {
+      if (!FASS_IM_LAUF_AUS &&
+          koerperHalt(c, w.nx, w.nz, player.pos.y, tJetzt) &&
+          koerperHalt(c, w.nx, w.nz, player.pos.y - FASS_UNTEN, tJetzt) &&
+          !koerperHalt(c, w.nx, w.nz, yVor, tVorher)) {
         player.pos.y = yVor;
-        player.state = 'air';
-        player.wallInfo = null; player.wall = null; player.eckBogen = null;
-        player.wandSchwung = 0; player.wandlauf = false;
-        player.wandSperre = 0.25;         // nicht im naechsten Bild wieder greifen
-        player.vel.set(w.nx * 1.2, 0, w.nz * 1.2);
-        updateHeroVisual(dt);
-        return;
+        if (w.nx !== 0) player.pos.z = tVorher; else player.pos.x = tVorher;
+        player.vel.set(0, 0, 0);
+        player.wandSchwung = 0;
       }
     }
     /* ---- Der Eckbogen hat das letzte Wort ----
