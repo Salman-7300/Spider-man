@@ -8772,6 +8772,35 @@ function makeGlbVisual(m) {
       rumpf:    [0, 1, 0.06],
       kopf:     [0, 0.88, 0.47],
     },
+    /* ---- F: aus Silhouettenbeziehungen gebaut, nicht aus Endpunkten ----
+       problem-2, Human Rejection Pass 2, Blocker 3. D ist nachweislich
+       gezeichnet worden (gleit-beweis.js: lokale Knochendrehungen D
+       gegen A bis 59 Grad am rechten Oberarm, D gegen D unter 0,6 Grad)
+       und trotzdem abgelehnt. Auf der Aufnahme von unten liest sich die
+       Silhouette von D als fallende Figur: die Arme stehen fast
+       rechtwinklig ab und sind im Ellbogen geknickt, die Netzhaut ist
+       nur ein kleines Dreieck, der Kopf ist eingezogen.
+
+       F aendert die Silhouette selbst, nicht die Winkel um ein paar
+       Grad:
+         - Ober- und Unterarm liegen fast auf EINER Linie (kein Knick),
+           und die Linie ist leicht nach VORN gezogen statt nach hinten.
+           Damit spannt sich die Netzhaut als langes Dreieck VOR der
+           Schulter auf, so wie ein Segel.
+         - Die Beine liegen geschlossen und gestreckt im Windschatten,
+           die Fussspitzen zeigen nach hinten.
+         - Der Rumpf ist aufgewoelbt und der Kopf schaut nach vorn oben,
+           statt eingezogen zu sein.
+       Zusammen ergibt das den Umriss Pfeilspitze statt Kreuz. */
+    segel: {
+      oberarm:  [0.88,  0.22, -0.02],
+      unterarm: [0.94,  0.14,  0.04],
+      oberbein: [0.09, -0.995, -0.03],
+      unterbein:[0.07, -0.997,  0.05],
+      fuss:     [0.04, -0.90, -0.42],
+      rumpf:    [0, 1, 0.18],
+      kopf:     [0, 0.72, 0.69],
+    },
     dive: {
       oberarm:  [0.30, -0.94, -0.08],
       unterarm: [0.16, -0.98,  0.05],
@@ -8782,9 +8811,9 @@ function makeGlbVisual(m) {
       kopf:     [0, 0.95, 0.30],
     },
   };
-  /* Gewaehlt ist die gebaute Haltung D. A, B und C bleiben als
+  /* Gewaehlt ist die gebaute Haltung F. A, B, C und D bleiben als
      Vergleich im Quelltext, E ist die gebaute Sturzhaltung. */
-  let GLEIT_HALTUNG = 'D';
+  let GLEIT_HALTUNG = 'F';
   const GLEIT_SPUR = { left: null, right: null };
 
   const root = new THREE.Group();
@@ -10140,6 +10169,21 @@ function makeGlbVisual(m) {
        Haltung stetig bleibt. */
     /* Ruhedrehung eines Knochens - fuer die Torsionsmessung. */
     ruheVon(bone) { const q = ruheDrehung.get(bone); return q ? q.clone() : null; },
+    /* Die LOKALEN Drehungen am Ende des Bildes - genau das, was
+       gezeichnet wird. Positionen allein beantworten nicht, ob eine
+       Haltung angewandt wurde: sie koennen von der Bewegungsdatei
+       stammen (problem-2, Human Rejection Pass 2, Blocker 3). */
+    laborKnochenDreh(liste) {
+      const namen = liste || LABOR_KNOCHEN;
+      const aus = {};
+      for (const n of namen) {
+        const b = knochen[n];
+        if (!b) continue;
+        const q = b.quaternion;
+        aus[n] = [+q.x.toFixed(5), +q.y.toFixed(5), +q.z.toFixed(5), +q.w.toFixed(5)];
+      }
+      return aus;
+    },
     laborKnochenLokal(liste) {
       root.updateMatrixWorld(true);
       const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
@@ -10433,7 +10477,7 @@ function makeGlbVisual(m) {
     /* Welche der drei Haltungen gilt? Nur fuer den Vergleich der
        Vorschlaege, im Spiel steht sie auf A. */
     setzeGleitHaltung(v) {
-      if (GLEIT_HALTUNGEN[v] || v === 'D' || v === 'E') GLEIT_HALTUNG = v;
+      if (GLEIT_HALTUNGEN[v] || v === 'D' || v === 'E' || v === 'F') GLEIT_HALTUNG = v;
     },
     /* Nur fuer die Abstimmung der gebauten Haltung: Werte zur Laufzeit
        setzen, damit ein Browserstart viele Varianten zeigen kann. */
@@ -10458,9 +10502,10 @@ function makeGlbVisual(m) {
     poseGleiten(nase, kurve, t, k, tempo) {
       const w = clamp(k === undefined ? 0.9 : k, 0, 1);
       if (w <= 0 || !knochen.hips) return;
-      if (GLEIT_HALTUNG === 'D' || GLEIT_HALTUNG === 'E')
+      if (GLEIT_HALTUNG === 'D' || GLEIT_HALTUNG === 'E' || GLEIT_HALTUNG === 'F')
         return this.poseGleitBau(nase, kurve, t, k, tempo,
-                                 GLEIT_HALTUNG === 'E' ? 'dive' : 'cruise');
+                                 GLEIT_HALTUNG === 'E' ? 'dive'
+                               : GLEIT_HALTUNG === 'F' ? 'segel' : 'cruise');
       root.updateMatrixWorld(true);
       const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).normalize();
       const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).normalize();
@@ -37004,7 +37049,16 @@ if (window.__WEBHERO_TEST__ === true) {
     rollBlende() { return BLEND_ROLLE; },
     animKnochen(liste) { return heroVisual && heroVisual.laborKnochen ? heroVisual.laborKnochen(liste) : {}; },
     animKnochenLokal(liste) { return heroVisual && heroVisual.laborKnochenLokal ? heroVisual.laborKnochenLokal(liste) : {}; },
+    animKnochenDreh(liste) { return heroVisual && heroVisual.laborKnochenDreh ? heroVisual.laborKnochenDreh(liste) : {}; },
     animGewichte() { return heroVisual && heroVisual.laborGewichte ? heroVisual.laborGewichte() : {}; },
+    /* Welche Sonderhaltung wird gerade mit welchem Anteil gesetzt?
+       (problem-2, Human Rejection Pass 2, Blocker 3: rendert das Spiel
+       die gebaute Gleithaltung ueberhaupt?) */
+    mischStand() {
+      const aus = { wunsch: MISCH.wunsch, gleitArg: MISCH.gleitArg || null };
+      for (const n of MISCH_NAMEN) aus[n] = +(MISCH[n] || 0).toFixed(4);
+      return aus;
+    },
     get animClipJetzt() { return heroVisual ? heroVisual.aktuellerClip : null; },
     /* Die Figur fuer Laboraufnahmen an einen freien Ort stellen. */
     animBuehne(x, y, z, gier) {
