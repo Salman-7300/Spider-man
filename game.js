@@ -5680,17 +5680,23 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
   }
   if (zeile) letzteFassade[zeile] = texIdx;
   const visual = hausVisual(h, info);
-  HAUS_KISTEN.push({ w, h, d, x, z, visual, textur: texIdx,
-                     zeile: info && info.zeile,
-                     art: (info && info.art) || null,
-                     ecke: !!(info && info.ecke) });
+  const kiste = { w, h, d, x, z, visual, textur: texIdx,
+                  zeile: info && info.zeile,
+                  art: (info && info.art) || null,
+                  ecke: !!(info && info.ecke) };
+  HAUS_KISTEN.push(kiste);
   sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx, visual === 'model');
   /* Die Häuserkollision endet einen Meter unter der Straße. Ohne diese
      Untergrenze reicht sie beliebig tief ins Erdreich – in der U-Bahn-
      Station stand man dadurch an einer unsichtbaren Hauswand und kletterte
      daran wieder ans Tageslicht. */
-  addCollider({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
-                h: SLAB_H + h, y0: -1.0 });
+  const hausKoll = { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
+                     h: SLAB_H + h, y0: -1.0 };
+  addCollider(hausKoll);
+  /* Die Kiste und ihr Hindernis kennen einander. setzeHausModelle haengt
+     spaeter die Tiefenkarte des gesetzten Modells an das Hindernis - ohne
+     diese Verbindung muesste es dafuer den Hash durchsuchen. */
+  kiste.koll = hausKoll;
   /* Hohe Häuser bekommen Staffelgeschosse: Der Turm wird nach oben
      schmaler, statt als glatter Quader zu enden. Jede Stufe ist ein
      eigenes Hindernis, an dem man auch klettern kann.
@@ -7023,6 +7029,140 @@ function ladeHaeuser(loader) {
   }, undefined, (e) => { window.__hausFehler = 'laden: ' + String(e && e.message || e); });
 }
 
+/* ====================== Wo steht wirklich eine Wand? ======================
+   Die Kollision eines Hauses ist seine Kiste (siehe HAUS_KISTEN). Das
+   Modell, das darauf gestellt wird, fuellt diese Kiste aber nicht
+   ueberall aus: Fensternischen springen ein paar Zentimeter zurueck,
+   Lichthoefe, Innenecken und L-Grundrisse mehrere METER.
+
+   Gemessen am 26 Anlaeufe umfassenden Pruefstand tools/pruef/fassadentiefe.js
+   (Keim 4711): in 824 von 2940 Kletterbildern lag die sichtbare Fassade
+   mehr als 0,25 m hinter der Kletterebene, bei Downtown_PublicBuilding_1
+   bis zu 5,96 m, bei Brownstone_Commercial_1_C bis zu 7,90 m. In 877
+   Bildern stand an der Stelle der Figur ueberhaupt keine Flaeche. Auf dem
+   Bild haengt die Figur dann frei in einem Fensterloch - genau der
+   Human-Befund.
+
+   Eine Abhilfe darf NICHT pro Bild durch Dreiecke strahlen. Deshalb wird
+   je MODELLTYP einmal eine Tiefenkarte gebaut: fuer jede der vier
+   Schauseiten ein Raster aus 16 x 32 Zellen, in jeder Zelle der Abstand
+   der aeussersten nach aussen gewandten Flaeche von der Kolliderebene -
+   als Anteil der Hausbreite bzw. -tiefe, damit dieselbe Karte fuer jedes
+   Haus gilt, auf dem dieses Modell steht. Zur Laufzeit kostet eine
+   Abfrage zwei Multiplikationen und einen Feldzugriff.
+
+   Leere Zellen sind Loecher. Damit ein Rasterloch (ein Dreieck, dessen
+   Mitte knapp neben jedem Zellmittelpunkt liegt) nicht als Fassadenloch
+   durchgeht, werden am Ende einzelne leere Zellen geschlossen, deren
+   Nachbarn alle Wand sind. Ein echtes Loch ist viele Zellen breit. */
+/* FASS_NU, FASS_NV und FASS_LEER stehen weiter unten bei KLETTER_LUFT -
+   dort, wo die Karte GELESEN wird. Gebaut wird sie hier, gelesen beim
+   Klettern; beides greift auf dieselben Zahlen zu. */
+const FASS_SEITEN = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const FASS_GITTER = new Map();      // Quellmodell -> Tiefenkarte
+
+function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
+  const W = X1 - X0, D = Z1 - Z0, HB = H * anteil;
+  if (!(W > 0) || !(D > 0) || !(HB > 0)) return null;
+  const seiten = {};
+  for (const [nx, nz] of FASS_SEITEN)
+    seiten[nx + ',' + nz] = new Float32Array(FASS_NU * FASS_NV).fill(FASS_LEER);
+  const yOben = Y0 + HB;
+  const m = new THREE.Matrix4();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), nn = new THREE.Vector3();
+  const uu = [0, 0, 0], vv = [0, 0, 0], tt = [0, 0, 0];
+  o.traverse((k) => {
+    if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+    m.multiplyMatrices(di, k.matrixWorld);
+    const p = k.geometry.attributes.position, idx = k.geometry.index;
+    const anz = idx ? idx.count : p.count;
+    for (let i = 0; i + 2 < anz; i += 3) {
+      const i0 = idx ? idx.getX(i) : i, i1 = idx ? idx.getX(i + 1) : i + 1,
+            i2 = idx ? idx.getX(i + 2) : i + 2;
+      a.fromBufferAttribute(p, i0).applyMatrix4(m);
+      b.fromBufferAttribute(p, i1).applyMatrix4(m);
+      c.fromBufferAttribute(p, i2).applyMatrix4(m);
+      /* Alles ueber dem Baukoerper ist Krone - sie hat ihr eigenes
+         Hindernis und gehoert nicht zur Kletterflaeche. */
+      if (a.y > yOben && b.y > yOben && c.y > yOben) continue;
+      e1.subVectors(b, a); e2.subVectors(c, a); nn.crossVectors(e1, e2);
+      const lang = nn.length();
+      if (!(lang > 1e-12)) continue;
+      for (const [nx, nz] of FASS_SEITEN) {
+        /* Nur nach AUSSEN gewandte Dreiecke - die Rueckseite einer
+           Fassade ist keine sichtbare Flaeche. */
+        if ((nn.x * nx + nn.z * nz) <= 0.15 * lang) continue;
+        const g = seiten[nx + ',' + nz];
+        for (let j = 0; j < 3; j++) {
+          const q = j === 0 ? a : j === 1 ? b : c;
+          uu[j] = nx !== 0 ? (q.z - Z0) / D : (q.x - X0) / W;
+          vv[j] = (q.y - Y0) / HB;
+          tt[j] = nx !== 0 ? (nx > 0 ? (X1 - q.x) / W : (q.x - X0) / W)
+                           : (nz > 0 ? (Z1 - q.z) / D : (q.z - Z0) / D);
+        }
+        const u0 = Math.min(uu[0], uu[1], uu[2]), u1 = Math.max(uu[0], uu[1], uu[2]);
+        const v0 = Math.min(vv[0], vv[1], vv[2]), v1 = Math.max(vv[0], vv[1], vv[2]);
+        if (u1 < 0 || u0 > 1 || v1 < 0 || v0 > 1) continue;
+        const ci0 = clamp(Math.floor(u0 * FASS_NU), 0, FASS_NU - 1);
+        const ci1 = clamp(Math.floor(u1 * FASS_NU), 0, FASS_NU - 1);
+        const cj0 = clamp(Math.floor(v0 * FASS_NV), 0, FASS_NV - 1);
+        const cj1 = clamp(Math.floor(v1 * FASS_NV), 0, FASS_NV - 1);
+        /* Zellmitten im Dreieck - dazu immer die drei Eckzellen, damit
+            ein Dreieck, das kleiner ist als eine Zelle, nicht durchfaellt. */
+        for (let j = 0; j < 3; j++) {
+          /* Eckpunkte ausserhalb der Karte NICHT an den Rand klemmen -
+             sonst schriebe ein Kronendreieck seine Tiefe in die oberste
+             Zeile der Fassade. */
+          if (uu[j] < 0 || uu[j] > 1 || vv[j] < 0 || vv[j] > 1) continue;
+          const ci = clamp(Math.floor(uu[j] * FASS_NU), 0, FASS_NU - 1);
+          const cj = clamp(Math.floor(vv[j] * FASS_NV), 0, FASS_NV - 1);
+          const q = cj * FASS_NU + ci;
+          if (tt[j] < g[q]) g[q] = tt[j];
+        }
+        if (ci1 - ci0 + (cj1 - cj0) === 0) continue;
+        const d21u = uu[1] - uu[0], d21v = vv[1] - vv[0];
+        const d31u = uu[2] - uu[0], d31v = vv[2] - vv[0];
+        const det = d21u * d31v - d31u * d21v;
+        if (Math.abs(det) < 1e-14) continue;
+        for (let cj = cj0; cj <= cj1; cj++) {
+          const v = (cj + 0.5) / FASS_NV;
+          for (let ci = ci0; ci <= ci1; ci++) {
+            const u = (ci + 0.5) / FASS_NU;
+            const pu = u - uu[0], pv = v - vv[0];
+            const l1 = (pu * d31v - d31u * pv) / det;
+            const l2 = (d21u * pv - pu * d21v) / det;
+            if (l1 < -0.001 || l2 < -0.001 || l1 + l2 > 1.001) continue;
+            const t = tt[0] + l1 * (tt[1] - tt[0]) + l2 * (tt[2] - tt[0]);
+            const q = cj * FASS_NU + ci;
+            if (t < g[q]) g[q] = t;
+          }
+        }
+      }
+    }
+  });
+  /* Einzelne Rasterloecher schliessen. */
+  for (const [nx, nz] of FASS_SEITEN) {
+    const g = seiten[nx + ',' + nz], kopie = g.slice();
+    for (let cj = 0; cj < FASS_NV; cj++) for (let ci = 0; ci < FASS_NU; ci++) {
+      const q = cj * FASS_NU + ci;
+      if (kopie[q] < FASS_LEER) continue;
+      let wand = 0, summe = 0;
+      for (const [du, dv] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = ci + du, nj = cj + dv;
+        if (ni < 0 || ni >= FASS_NU || nj < 0 || nj >= FASS_NV) continue;
+        const w = kopie[nj * FASS_NU + ni];
+        if (w < FASS_LEER) { wand++; summe += w; }
+      }
+      if (wand >= 3) g[q] = summe / wand;
+    }
+  }
+  /* Die Abbildung Welt-Hoehe -> Rasterzeile haengt daran, wo der
+     Modellursprung liegt. Sie wird hier mitgegeben, statt sie zur
+     Laufzeit anzunehmen. */
+  return { seiten, hLok: H, vOff: Y0 / (H * anteil) };
+}
+
 function setzeHausModelle(szene) {
   const bau = [];
   szene.children.slice().forEach((o) => {
@@ -7136,6 +7276,11 @@ function setzeHausModelle(szene) {
       if (alle[i + 2] < kz0) kz0 = alle[i + 2]; if (alle[i + 2] > kz1) kz1 = alle[i + 2];
     }
     o.userData.dachAnteil = anteil;
+    /* Die Tiefenkarte der vier Schauseiten - einmal je Modelltyp.
+       Sie liegt bewusst NICHT in userData: Object3D.clone() zieht
+       userData durch JSON, und dabei wuerde aus jedem Float32Array ein
+       Objekt mit 512 Schluesseln - je Haus. */
+    FASS_GITTER.set(o, baueFassadenGitter(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
     o.userData.krone = (anteil < 0.995 && kx1 > kx0) ? {
       x0: (kx0 - X0) / W - 0.5, x1: (kx1 - X0) / W - 0.5,
       z0: (kz0 - Z0) / D - 0.5, z1: (kz1 - Z0) / D - 0.5,
@@ -7193,7 +7338,8 @@ function setzeHausModelle(szene) {
     kopie.position.set(e.x, SLAB_H, e.z);
     kopie.scale.set(e.w, e.h / mass.dachAnteil, e.d);
     kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    const eintrag = { obj: kopie, kiste: e, modell: liste[i].name || ('Modell_' + i) };
+    const eintrag = { obj: kopie, kiste: e, modell: liste[i].name || ('Modell_' + i),
+                      fassade: FASS_GITTER.get(liste[i]) || null };
     if (mass.krone) {
       const k = mass.krone;
       eintrag.kollider = { x0: e.x + k.x0 * e.w, x1: e.x + k.x1 * e.w,
@@ -7213,6 +7359,16 @@ function setzeHausModelle(szene) {
   }
   for (const t of fertig) {
     cityGroup.add(t.obj);
+    /* Welche Kiste traegt dieses Modell, und welches Modell ist es?
+       Wird nur gelesen (Pruefstand, Fassadentiefe) und kostet eine
+       Zuweisung je Haus. */
+    t.obj.userData.hausKiste = t.kiste;
+    t.obj.userData.modellName = t.modell;
+    /* Die Tiefenkarte des Modelltyps an das Hindernis des Hauses -
+       gemeinsam genutzt, nicht kopiert. */
+    if (t.kiste && t.kiste.koll && t.fassade)
+      t.kiste.koll.fassade = { g: t.fassade, w: t.kiste.w, d: t.kiste.d,
+                               h: t.kiste.h };
     HAUS_MODELLE.push(t.obj);
     if (t.kollider) addCollider(t.kollider);
     /* Fuer den Wiederholungs-Pruefstand: welches Modell steht hier? */
@@ -14344,7 +14500,90 @@ function kanteZielFrei(ziel, nx, nz) {
    Die Gebaeudekollider bleiben unveraendert - das hier betrifft nur die
    Frage, wo geklettert werden darf. */
 const KLETTER_LUFT = 0.60;          // climbGap 0,15 + Koerperradius 0,45
+/* ---- Und steht dort ueberhaupt eine sichtbare Wand? ----
+   Die freien Abschnitte oben beantworten, ob ein NACHBAR davorsteht. Sie
+   wissen nichts davon, dass das Hausmodell seine eigene Kiste nicht
+   ueberall ausfuellt. Gemessen (tools/pruef/fassadentiefe.js, Keim 4711):
+   bei Downtown_PublicBuilding_1 liegt die sichtbare Fassade im Mittel
+   0,79 m und stellenweise 4,97 m hinter der Kletterebene, bei
+   Downtown_Brutal_1 fehlt auf 30 % der Proben ueberhaupt eine Flaeche.
+   Genau dort haengt die Figur im Human-Bild frei im Loch.
+
+   Die Tiefenkarte dazu steht am Hindernis (c.fassade) und wurde EINMAL
+   je Modelltyp gebaut. Hier kostet die Frage einen Feldzugriff.
+
+   FASS_LUFT ist der Abstand, den die sichtbare Flaeche hoechstens hinter
+   der Kletterebene liegen darf. Der Koerper reicht mit 0,45 m Radius bei
+   0,15 m Kletterabstand rund 0,30 m hinter die Ebene; liegt die Wand
+   weiter zurueck, klafft ein sichtbarer Spalt. */
+const FASS_NU = 16, FASS_NV = 32;   // Zellen je Schauseite: quer, hoch
+const FASS_LEER = 1e9;              // Zelle ohne jede sichtbare Flaeche
+const FASS_LUFT = 0.60;
+/* ---- Nach einem Wandwechsel wird nicht losgelassen ----
+   Naht und Aussenecke setzen die Figur dicht an die Kante der neuen
+   Flaeche - und genau dort hat mancher Hausbau eine Kerbe im Modell.
+   Ohne diese Frist liess die Figur nach jedem zweiten Eckwechsel los:
+   gemessen fiel die Gegenprobe "echte Aussenecke" von 150/150 auf
+   131/150 und die Zeilennaht von 221 auf 214 weitergekletterte Waende.
+   Beides steht unter Lock. */
+const FASS_GNADE = 0.80;
+const FASS_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_FASS_ALT;
+/* Wie weit hinter der Kletterebene liegt die sichtbare Fassade an der
+   Stelle (y, t)? 0 heisst "buendig oder davor", FASS_LEER "gar keine
+   Flaeche". Ohne Modell (merged, Turm) ist die Kiste die Fassade. */
+function fassadenTiefe(c, nx, nz, y, t) {
+  const f = c.fassade;
+  if (!f) return 0;
+  const g = f.g.seiten[nx + ',' + nz];
+  if (!g) return 0;
+  const achseX = nx !== 0;
+  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+  if (l1 <= l0) return 0;
+  const u = (t - l0) / (l1 - l0);
+  const v = (y - SLAB_H) / (f.h * f.g.hLok) - f.g.vOff;
+  /* Ausserhalb der Karte wird nicht geurteilt - dort entscheiden die
+     freien Abschnitte allein. */
+  if (u < 0 || u > 1 || v < 0 || v > 1) return 0;
+  const ci = clamp(Math.floor(u * FASS_NU), 0, FASS_NU - 1);
+  const cj = clamp(Math.floor(v * FASS_NV), 0, FASS_NV - 1);
+  /* ---- Nicht nur die eine Zelle, sondern auch die beiden daneben ----
+     Die Figur ist 0,9 m breit und greift mit beiden Haenden; steht eine
+     halbe Zelle weiter eine Wand, gibt es etwas zu halten. Ohne diese
+     Reichweite meldete die Karte am Hausrand Loecher, wo der Strahl
+     eine Wand sieht - gemessen 126 solche Bilder auf dem echten Weg,
+     und die Figur liess an einer tadellosen Fassade los. Ein echtes
+     Loch (Saeulenhalle, Lichthof, L-Grundriss) ist breiter als zwei
+     Zellen und bleibt eines. */
+  let w = g[cj * FASS_NU + ci];
+  if (ci > 0) { const q = g[cj * FASS_NU + ci - 1]; if (q < w) w = q; }
+  if (ci < FASS_NU - 1) { const q = g[cj * FASS_NU + ci + 1]; if (q < w) w = q; }
+  return w >= FASS_LEER ? FASS_LEER : w * (achseX ? f.w : f.d);
+}
 const _abPruef = [];
+/* ---- Traegt diese Wand die Figur an DIESER Stelle? ----
+   Bisher entschied das Ankleben allein ueber das Hindernis: wer eine
+   Kiste beruehrte, hing daran. Ob an der Stelle ueberhaupt etwas
+   Sichtbares steht, wurde nie gefragt - die Riegel an Naht und Ecke
+   pruefen nur UEBERGAENGE. Gemessen (tools/pruef/fassade-bilder.js,
+   Keim 4711) klebte die Figur deshalb an einer Stelle an, deren Zelle
+   in der Tiefenkarte 0,72 m zurueckliegt, und blieb dort haengen: auf
+   dem Bild haengt sie in einer dunklen Nische, genau der Human-Befund.
+
+   Gefragt wird an der Laengsstelle der FIGUR, nicht in der
+   Flaechenmitte - eine Wand kann in der Mitte frei sein und am Ende im
+   Nachbarn stecken. */
+/* Traegt die sichtbare Fassade an dieser Stelle? Ohne Tiefenkarte
+   (merged, Turm) und ausserhalb der Karte immer ja. */
+function fassadeTraegt(c, nx, nz, y, t) {
+  if (FASS_ALT || !c || !c.fassade) return true;
+  return fassadenTiefe(c, nx, nz, y, t) <= FASS_LUFT;
+}
+function wandTraegt(col, nx, nz, y, x, z) {
+  if (!col || (nx === 0 && nz === 0)) return true;
+  const t = nx !== 0 ? clamp(z, col.z0 + 0.05, col.z1 - 0.05)
+                     : clamp(x, col.x0 + 0.05, col.x1 - 0.05);
+  return fassadeTraegt(col, nx, nz, y, t);
+}
 /* Liegt die Stelle t (Laengskoordinate) auf dieser Schauseite im
    Freien? */
 function flaecheFrei(c, nx, nz, y, t) {
@@ -14386,6 +14625,13 @@ function freieAbschnitte(c, nx, nz, y, aus) {
       _abSperren.push(Math.max(t0, a), Math.min(t1, b));
     }
   }
+  /* ---- Die Fassadenloecher gehoeren NICHT hierher ----
+     Der erste Versuch hat sie als weitere Sperren in diese Liste
+     gelegt. Damit fragten Naht- und Eckenriegel sie mit ab - und die
+     Zeilennaht brach ein: 221/221 uebergebene Waende wurden 206/203,
+     die echte Aussenecke 150/150 wurde 133. Beides steht unter Lock.
+     Zurueckgenommen; die Tiefenkarte wirkt jetzt allein beim Ankleben
+     und beim Loslassen (siehe fassadeTraegt). */
   if (!_abSperren.length) { aus.push(t0, t1); return aus; }
   /* Sperren nach Anfang sortieren (Paare, deshalb von Hand). */
   for (let i = 0; i < _abSperren.length; i += 2)
@@ -17491,6 +17737,9 @@ function updatePlayer(dt) {
        NACH dem Schritt, denn die kann schon im Nachbarn liegen
        (problem-2, Punkt A.2). */
     let tVorX = player.pos.x, tVorZ = player.pos.z;
+    /* Die Hoehe VOR dem Schritt - sie entscheidet unten, ob die Figur
+       aus einer tragenden Zelle in ein Fassadenloch steigt. */
+    const yVor = player.pos.y;
     /* ---- Was hier NICHT funktioniert hat (problem-2, Punkt A.2) ----
        Eine Schauseite kann an ihrem Ende im Nachbarhaus stecken:
        gemessen haengt die Figur 0,15 m vor der Ostwand von Kollider 45
@@ -17645,6 +17894,9 @@ function updatePlayer(dt) {
                                 dauer: dauer2, rest: dauer2 };
           }
           player.wallInfo = player.wall = { nx: w.nx, nz: w.nz, col: nb };
+          /* Siehe FASS_GNADE: direkt nach einer Uebergabe wird nicht
+             losgelassen. */
+          player.fassGnade = FASS_GNADE;
           c = nb;
           /* Ohne Sperre wuerde im naechsten Bild sofort wieder geprueft,
              und an der Gegenkante des Nachbarn ginge es zurueck. */
@@ -17683,6 +17935,7 @@ function updatePlayer(dt) {
            die Ecke, das Bild folgt aber weich - man klettert um die Ecke,
            statt hinueberzuspringen. */
         player.wallInfo = player.wall = { nx: neuNx, nz: neuNz, col: c };
+        player.fassGnade = FASS_GNADE;          // siehe FASS_GNADE
         /* Der Sicherheitsabstand hinter der Kante MUSS groesser sein als
            das Suchband (rand), sonst steht die Figur auf der neuen Seite
            sofort wieder im Suchband und wechselt im naechsten Bild
@@ -17771,6 +18024,48 @@ function updatePlayer(dt) {
                      hi = achseX ? c.z1 - 0.2 : c.x1 - 0.2; }
       if (achseX) player.pos.z = clamp(player.pos.z, lo, hi);
       else player.pos.x = clamp(player.pos.x, lo, hi);
+    }
+    /* ---- Ueber einem Fassadenloch gibt es nichts zu halten ----
+       Die seitliche Klemmung oben fragt ueber freieAbschnitte laengst
+       auch die Tiefenkarte ab. Das Hochklettern tat es nicht - und
+       genau so kam die Figur ins Bild: sie klebt unten an einer echten
+       Wand an und steigt senkrecht in die Saeulenhalle darueber.
+       Gemessen (tools/pruef/fassade-bilder.js, Keim 4711, Haus
+       Brownstone_Commercial_1_C, Kollider 873): Kartentiefe 0,72 m,
+       auf der Nahaufnahme haengt die Figur zwischen zwei Saeulen in der
+       Luft, hinter ihr die Stadt.
+
+       Auf der Hoehe ANHALTEN war der erste Versuch und ist GEMESSEN
+       SCHLECHTER: die Figur bleibt dann die ganze Zeit am Rand des
+       Lochs haengen, Bilder mit mehr als 1 m Tiefe stiegen von 3 auf
+       198, Bilder ohne jede Flaeche von 55 auf 99. Zurueckgenommen.
+
+       Sie laesst jetzt los. Das ist auch das Richtige: vor einem Loch
+       ist keine Wand, an der eine Hand halten koennte. Losgelassen wird
+       nur beim UEBERGANG von tragend nach nicht tragend - wer schon im
+       Loch haengt, wird nicht versetzt. */
+    if (player.fassGnade > 0) player.fassGnade -= dt;
+    if (!FASS_ALT && c.fassade && !player.eckBogen && !(player.fassGnade > 0) &&
+        !(player.eckSperre > 0)) {
+      const tJetzt = w.nx !== 0 ? player.pos.z : player.pos.x;
+      const tVorher = w.nx !== 0 ? tVorZ : tVorX;
+      /* Zwei Zusaetze sind hier gemessen worden und haben NICHTS
+         geaendert, deshalb stehen sie nicht mehr da: die letzten 0,8 m
+         vor der Kante auszunehmen, und das Loch zusaetzlich auf
+         Fuss- und Handhoehe zu verlangen. Die drei Stellen, an denen
+         die Gegenprobe "echte Aussenecke" Federn laesst, sind Loecher
+         ueber die ganze Koerperhoehe - dort ist wirklich keine Wand. */
+      if (!fassadeTraegt(c, w.nx, w.nz, player.pos.y + 1.0, tJetzt) &&
+           fassadeTraegt(c, w.nx, w.nz, yVor + 1.0, tVorher)) {
+        player.pos.y = yVor;
+        player.state = 'air';
+        player.wallInfo = null; player.wall = null; player.eckBogen = null;
+        player.wandSchwung = 0; player.wandlauf = false;
+        player.wandSperre = 0.25;         // nicht im naechsten Bild wieder greifen
+        player.vel.set(w.nx * 1.2, 0, w.nz * 1.2);
+        updateHeroVisual(dt);
+        return;
+      }
     }
     /* ---- Der Eckbogen hat das letzte Wort ----
        Er laeuft nach den seitlichen Klemmwerten, sonst zoege ihn die
@@ -18712,7 +19007,8 @@ function updatePlayer(dt) {
         ok: !!(rein && hochGenug && tempoRein > 3.8) };
       WL_LOG.kopf++;
     }
-    if (rein && hochGenug && tempoRein > 3.8) {
+    if (rein && hochGenug && tempoRein > 3.8 &&
+        wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z)) {
       player.state = 'climb';
       player.wallInfo = w;
       player.onGround = false;
@@ -18746,7 +19042,8 @@ function updatePlayer(dt) {
        die Gleithaltung an der Wand weiterläuft. */
     const noetig = player.gleiten ? 0.12 : 0;
     onWallTimer = (movingIn || kleben) && !gesperrt ? onWallTimer + dt : 0;
-    if ((movingIn || kleben) && !gesperrt && onWallTimer >= noetig) {
+    if ((movingIn || kleben) && !gesperrt && onWallTimer >= noetig &&
+        wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z)) {
       player.state = 'climb';
       player.wallInfo = w;
       player.vel.set(0, 0, 0);
@@ -36475,6 +36772,7 @@ animate();
 
 // Nur für automatisierte Tests sichtbar
 if (window.__WEBHERO_TEST__ === true) {
+  let _kollNachId = null;          // nur fuer Pruefstands-Abfragen
   window.__dbg = {
     player, enemies, civilians, cars, glbModels, camera, gangs, szene: scene,
     get actorsReady() { return actorsReady; },
@@ -36685,6 +36983,42 @@ if (window.__WEBHERO_TEST__ === true) {
       for (let i = 0; i < aus.length; i += 2)
         paare.push([+aus[i].toFixed(3), +aus[i + 1].toFixed(3)]);
       return paare;
+    },
+    /* Wie weit hinter der Kletterebene liegt die sichtbare Fassade?
+       (problem-2, Human Rejection Pass 2, Blocker 1) */
+    fassTiefe(kollId, nx, nz, y, t) {
+      /* Nach Kennung nachschlagen, nicht den ganzen Hash durchsuchen -
+         der Pruefstand fragt zehntausendfach. */
+      if (!_kollNachId) {
+        _kollNachId = new Map();
+        for (const q of colliders) _kollNachId.set(q.id, q);
+      }
+      const c = _kollNachId.get(kollId);
+      if (!c) return null;
+      const w = fassadenTiefe(c, nx, nz, y, t);
+      return { tiefe: w >= FASS_LEER ? null : +w.toFixed(3), karte: !!c.fassade };
+    },
+    /* Wieviele Haeuser haben eine Tiefenkarte, und wieviel davon ist
+       Loch? Nur zum Messen. */
+    fassStand() {
+      let mitKarte = 0, zellen = 0, leer = 0, tief = 0;
+      for (const K of HAUS_KISTEN) {
+        const c = K.koll;
+        if (!c || !c.fassade) continue;
+        mitKarte++;
+        for (const [nx, nz] of FASS_SEITEN) {
+          const g = c.fassade.g.seiten[nx + ',' + nz];
+          if (!g) continue;
+          const mass = nx !== 0 ? K.w : K.d;
+          for (let i = 0; i < g.length; i++) {
+            zellen++;
+            if (g[i] >= FASS_LEER) leer++;
+            else if (g[i] * mass > FASS_LUFT) tief++;
+          }
+        }
+      }
+      return { modelle: HAUS_MODELLE.length, mitKarte, zellen, leer, tief,
+               karten: FASS_GITTER.size, luft: FASS_LUFT };
     },
     /* Ist ein Punkt auf einer Schauseite von aussen erreichbar? */
     istFrei(kollId, nx, nz, y, t) {
@@ -37555,6 +37889,9 @@ if (window.__WEBHERO_TEST__ === true) {
     /* CITY V2 Stufe 5: die gesetzten Gebaeudemodelle selbst - nur zum
        Messen, wieviel ein einzelnes Haus an Objekten und Dreiecken kostet. */
     hausModelle() { return HAUS_MODELLE; },
+    /* Die verschmolzenen Fassaden der 'merged'-Haeuser - Vergleichsgruppe
+       zu den Modellhaeusern. */
+    hausFassaden() { return HAUS_FASSADEN_PROD; },
     hausInfo() {
       return { kisten: HAUS_KISTEN.length, modelle: HAUS_MODELLE.length,
                model: HAUS_KISTEN.filter((b) => b.visual === 'model').length,

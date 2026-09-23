@@ -48,9 +48,12 @@ const { starte } = require('./basis');
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
 const ALT = process.argv.indexOf('alt') > 0;
+/* Vergleichslauf ohne die Tiefenkarte der sichtbaren Fassade. */
+const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
 
 (async () => {
-  const { b, page } = await starte(900, 540, SEED, ALT ? { flaecheAlt: true } : {});
+  const { b, page } = await starte(900, 540, SEED,
+    Object.assign({}, ALT ? { flaecheAlt: true } : {}, FASS_ALT ? { fassAlt: true } : {}));
   const aus = await page.evaluate(async () => {
     const d = __dbg, P = d.player;
     d.frier(true); d.setzeRegen(0);

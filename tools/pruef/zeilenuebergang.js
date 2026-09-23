@@ -39,9 +39,12 @@ const max = zahl(process.argv[3], 0);       // 0 = alle
 /* "alt" schaltet die Uebergabe an den Nachbarn ab - damit misst derselbe
    Pruefstand das Verhalten vor der Korrektur. */
 const alt = process.argv.indexOf('alt') > 0;
+/* Vergleichslauf ohne die Tiefenkarte der sichtbaren Fassade. */
+const fassAlt = process.argv.indexOf('fassAlt') > 0;
 
 (async () => {
-  const { b, page } = await starte(900, 540, seed, alt ? { nahtAlt: true } : {});
+  const { b, page } = await starte(900, 540, seed,
+    Object.assign({}, alt ? { nahtAlt: true } : {}, fassAlt ? { fassAlt: true } : {}));
   const aus = await page.evaluate(async (MAX) => {
     const d = __dbg, P = d.player;
     d.frier(true);
@@ -224,6 +227,16 @@ const alt = process.argv.indexOf('alt') > 0;
   p('    faelschlich an Nachbarn uebergeben ' + E.filter((f) => f.uebernommen).length);
   p('    steckt in einem Hindernis          ' + E.filter((f) => f.steckt).length);
   p('    nicht mehr im Kletterzustand       ' + E.filter((f) => f.zustand !== 'climb').length);
+  const losE = E.filter((f) => f.zustand !== 'climb').slice(0, 6);
+  if (losE.length) {
+    p('    davon im Einzelnen:');
+    for (const f of losE) p('      ' + JSON.stringify(f));
+  }
+  const losF = F.filter((f) => f.zustand !== 'climb').slice(0, 6);
+  if (losF.length) {
+    p('  Naht, nicht mehr im Kletterzustand:');
+    for (const f of losF) p('      ' + JSON.stringify(f));
+  }
   const schlimm = F.filter((f) => f.steckt || f.wandGedreht).slice(0, 12);
   p('');
   p('  Auffaellige Faelle (' + F.filter((f) => f.steckt || f.wandGedreht).length + '):');

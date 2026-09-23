@@ -27,10 +27,13 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
 /* "alt" misst den Stand vor der Korrektur des Strahlanfangs
    (problem-2, Punkt A.1). */
 const ALT = process.argv.indexOf('alt') > 0;
+/* Vergleichslauf ohne die Tiefenkarte der sichtbaren Fassade. */
+const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
 
 (async () => {
   const { b, page } = await starte(900, 540, SEED,
-    ALT ? { kamEngAlt: true } : {});
+    Object.assign({}, ALT ? { kamEngAlt: true } : {},
+                  FASS_ALT ? { fassAlt: true } : {}));
   const aus = await page.evaluate(async () => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
