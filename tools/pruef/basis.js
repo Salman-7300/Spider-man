@@ -114,6 +114,8 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: die Tiefenkarte waehrend des Kletterns
        abschalten (siehe FASS_IM_LAUF_AUS). */
     if (ein.fassLaufAus) window.__WEBHERO_FASS_LAUF_AUS = 1;
+    /* Nur zum Messen: Rumpfpruefung aus (Stand vor Ort-1-Fix). */
+    if (ein.rumpfAlt) window.__WEBHERO_RUMPF_ALT = 1;
     /* Nur zum Messen: die Wiederholungsbremsen aus Teil E abschalten,
        damit derselbe Pruefstand beide Verhaltensweisen messen kann. */
     if (ein.wdhAlt) window.__WEBHERO_WDH_ALT = 1;
@@ -143,6 +145,7 @@ async function starte(breite, hoehe, seed, opt) {
        fassAlt: !!(opt && opt.fassAlt),
        kamAusAlt: !!(opt && opt.kamAusAlt),
        fassLaufAus: !!(opt && opt.fassLaufAus),
+       rumpfAlt: !!(opt && opt.rumpfAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
   /* ---- Rueckfalltest: haeuser.glb mit 404 beantworten ----
      WICHTIG: diese Route wird NACH der Sammelroute registriert. Playwright

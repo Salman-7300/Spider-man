@@ -41,10 +41,13 @@ const max = zahl(process.argv[3], 0);       // 0 = alle
 const alt = process.argv.indexOf('alt') > 0;
 /* Vergleichslauf ohne die Tiefenkarte der sichtbaren Fassade. */
 const fassAlt = process.argv.indexOf('fassAlt') > 0;
+/* Vergleichslauf ohne die Rumpf-Flaechenuebergabe. */
+const rumpfAlt = process.argv.indexOf('rumpfAlt') > 0;
 
 (async () => {
   const { b, page } = await starte(900, 540, seed,
-    Object.assign({}, alt ? { nahtAlt: true } : {}, fassAlt ? { fassAlt: true } : {}));
+    Object.assign({}, alt ? { nahtAlt: true } : {}, fassAlt ? { fassAlt: true } : {},
+      rumpfAlt ? { rumpfAlt: true } : {}));
   const aus = await page.evaluate(async (MAX) => {
     const d = __dbg, P = d.player;
     d.frier(true);
@@ -70,6 +73,21 @@ const fassAlt = process.argv.indexOf('fassAlt') > 0;
       return null;
     };
 
+    /* Die Rumpfstreifen auf dem Weg vom Start zur Kante - fuer die
+       Ursache, wenn der Uebergang nicht gelingt. */
+    const rumpfWeg = (c, nx, nz, y, t0, t1) => {
+      if (!d.rumpfLage) return null;
+      const aus = [], n = 16;
+      for (let i = 0; i <= n; i++) {
+        const t = t0 + (t1 - t0) * i / n;
+        const r = d.rumpfLage(c.id, nx, nz, y, t);
+        if (!r || r.getragen) continue;
+        const k = r.a + '-' + r.b;
+        if (!aus.some((q) => q.k === k))
+          aus.push({ k, breite: r.breite, zelle: r.zelle, rand: r.rand, leer: r.leer });
+      }
+      return aus;
+    };
     const zeilen = new Map();
     for (const h of K) {
       if (!zeilen.has(h.zeile)) zeilen.set(h.zeile, []);
@@ -143,6 +161,8 @@ const fassAlt = process.argv.indexOf('fassAlt') > 0;
                                        P.pos.z - steckt.z0, steckt.z1 - P.pos.z).toFixed(2) : 0,
         abstand,
         gefallen: +(y - P.pos.y).toFixed(2),
+        koll: cA.id, rest: +((naht - endeL) * Math.sign(naht - vor)).toFixed(2),
+        rumpf: rumpfWeg(cA, nx, nz, y, laengs, naht),
       });
     }
     /* ================================================================
@@ -198,6 +218,7 @@ const fassAlt = process.argv.indexOf('fassAlt') > 0;
         start: [+(laengsX ? laengs : front + nx * 0.15).toFixed(3), +y.toFixed(3),
                 +(laengsX ? front + nz * 0.15 : laengs).toFixed(3)],
         nx, nz, koll: cE.id,
+        rumpf: rumpfWeg(cE, nx, nz, y, laengs, aussen),
         modell: E.modell || null,
         lage: d.fassLage ? d.fassLage(cE.id, nx, nz, P.pos.y + 1.0,
                 nx !== 0 ? P.pos.z : P.pos.x) : null,
@@ -245,6 +266,14 @@ const fassAlt = process.argv.indexOf('fassAlt') > 0;
   if (losF.length) {
     p('  Naht, nicht mehr im Kletterzustand:');
     for (const f of losF) p('      ' + JSON.stringify(f));
+  }
+  if (process.argv.indexOf('rumpf') > 0) {
+    p('  Naht NICHT ueberschritten:');
+    for (const f of F.filter((f) => !f.nahtUeberschritten))
+      p('    koll ' + f.koll + ' ' + f.seite + ' rest ' + f.rest + ' m  Rumpf ' + JSON.stringify(f.rumpf));
+    p('  Aussenecke dreht NICHT:');
+    for (const f of E.filter((f) => !f.gedreht))
+      p('    koll ' + f.koll + ' ' + f.seite + '  Rumpf ' + JSON.stringify(f.rumpf));
   }
   const schlimm = F.filter((f) => f.steckt || f.wandGedreht).slice(0, 12);
   p('');

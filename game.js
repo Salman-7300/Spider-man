@@ -14901,6 +14901,86 @@ function koerperHalt(col, nx, nz, y, t) {
     if (fassadeHalt(col, nx, nz, y + FASS_KOERPER[i], t) !== FASS_VOID) return false;
   return true;                                           // ueberall Void
 }
+/* ====================== Traegt die Wand den RUMPF? ======================
+   problem-2, finaler Blocker-Pass, Ort 1. Die drei Koerperpunkte oben
+   pruefen senkrecht - Fuss, Huefte, Hand. An einer abgefasten
+   Gebaeudeecke reicht das nicht: gemessen an Downtown_ModernOffice_1,
+   Kollider 1216, Seite -X, hat das Modell ueber die ganze Hoehe eine
+   Fase (bis z 159,9 buendig, dann Flaechen mit den Normalen
+   (-0,8, 0, 0,6) und (-0,33, 0, 0,94)), die Kiste aber eine scharfe
+   Ecke. Die Figur parkte bei z 161,26: Brust und Becken 1,775 m vor der
+   Fase, links in Armlaenge noch Wand, rechts 5,35 m nichts. Senkrecht
+   findet sie ueberall "Halt" - ueber die Nachbarzelle.
+
+   Die schraege Flaeche selbst kann die Figur nicht tragen: sie liegt
+   bis zu 9,9 m INNERHALB der Kollisionskiste, und das Klettersystem
+   kennt nur achsparallele Waende. Die echte tragende Flaeche, die ohne
+   Eindringen in die Kiste erreichbar ist, ist der buendige Teil
+   derselben Fassade - 0,6 m seitlich.
+
+   Gefragt wird deshalb nur fuer den RUMPF und nur mit der EIGENEN
+   Zelle (ohne Nachbarzellen): steht vor Becken oder Brust eine Flaeche
+   in FASS_LUFT? Das ist dieselbe Grenze, die "buendig genug" schon
+   ueberall bedeutet, keine neue Zahl. An Ort 2 (PublicBuilding_1, vom
+   Menschen als richtig beurteilt) liegt das Becken 0,36 m vor der Wand
+   - dort bleibt alles, wie es ist. */
+const FASS_RUMPF = [0.9, 1.4];      // Becken, Brust
+/* Nur zum Messen: die Rumpfpruefung abschalten (Stand vor dem finalen
+   Blocker-Pass). */
+const FASS_RUMPF_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_RUMPF_ALT;
+function rumpfGetragen(c, nx, nz, y, t) {
+  if (FASS_ALT || !c || !c.fassade) return true;
+  for (let i = 0; i < FASS_RUMPF.length; i++) {
+    const Z = fassZelle(c, nx, nz, y + FASS_RUMPF[i], t);
+    if (!Z) return true;                         // ausserhalb der Karte
+    if (fassZellTiefe(Z, Z.ci, Z.cj) <= FASS_LUFT) return true;
+  }
+  return false;
+}
+/* Die naechste Laengsstelle in Armlaenge, an der der Rumpf getragen
+   ist - die Mitte dieser Zelle. null, wenn es keine gibt. */
+function naechsterRumpfHalt(c, nx, nz, y, t) {
+  const achseX = nx !== 0;
+  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+  const breit = (l1 - l0) / FASS_NU;
+  const ci = clamp(Math.floor((t - l0) / breit), 0, FASS_NU - 1);
+  const n = Math.ceil(FASS_REICH_SEIT / breit);
+  for (let k = 1; k <= n; k++) {
+    for (const s of [-1, 1]) {
+      const zi = ci + s * k;
+      if (zi < 0 || zi >= FASS_NU) continue;
+      const tt = l0 + (zi + 0.5) * breit;
+      if (rumpfGetragen(c, nx, nz, y, tt)) return tt;
+    }
+  }
+  return null;
+}
+/* Der zusammenhaengende Streifen nicht tragender Rumpfzellen um t:
+   erste und letzte Zelle, Breite in Metern, und ob er an ein Ende der
+   Kiste stoesst. null, wenn der Rumpf an t getragen ist. */
+function rumpfStreifen(c, nx, nz, y, t) {
+  if (rumpfGetragen(c, nx, nz, y, t)) return null;
+  const achseX = nx !== 0;
+  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+  const breit = (l1 - l0) / FASS_NU;
+  const ci = clamp(Math.floor((t - l0) / breit), 0, FASS_NU - 1);
+  const mitte = (i) => l0 + (i + 0.5) * breit;
+  let a = ci, b = ci;
+  while (a > 0 && !rumpfGetragen(c, nx, nz, y, mitte(a - 1))) a--;
+  while (b < FASS_NU - 1 && !rumpfGetragen(c, nx, nz, y, mitte(b + 1))) b++;
+  /* Findet die bestehende Klassifikation (fassadeHalt, mit Nachbarzelle
+     und seitlicher Reichweite) in diesem Streifen fuer Becken UND Brust
+     irgendwo nur Void? */
+  let leer = false;
+  for (let i = a; i <= b && !leer; i++) {
+    let alle = true;
+    for (let k = 0; k < FASS_RUMPF.length && alle; k++)
+      if (fassadeHalt(c, nx, nz, y + FASS_RUMPF[k], mitte(i)) !== FASS_VOID) alle = false;
+    if (alle) leer = true;
+  }
+  return { a, b, zelle: breit, breite: (b - a + 1) * breit,
+           rand: a === 0 || b === FASS_NU - 1, leer };
+}
 function wandTraegt(col, nx, nz, y, x, z) {
   if (!col || (nx === 0 && nz === 0) || !col.fassade) return true;
   const t = nx !== 0 ? clamp(z, col.z0 + 0.05, col.z1 - 0.05)
@@ -18389,6 +18469,57 @@ function updatePlayer(dt) {
         if (w.nx !== 0) player.pos.z = tVorher; else player.pos.x = tVorher;
         player.vel.set(0, 0, 0);
         player.wandSchwung = 0;
+      }
+      /* ---- Seitlich: den Rumpf auf die tragende Flaeche fuehren ----
+         Siehe rumpfGetragen. Zwei Faelle, beide nur SEITLICH:
+
+           hinein   der Schritt fuehrt den Rumpf von einer tragenden
+                    auf eine nicht tragende Stelle - dann bleibt die
+                    Laengslage, wo sie war. Das ist dieselbe Art
+                    Begrenzung wie die freien Abschnitte aus Punkt A.2:
+                    die Wand endet dort fuer den Rumpf.
+           drin     der Rumpf steht schon an einer nicht tragenden
+                    Stelle (etwa nach dem Ankleben) - dann wird er mit
+                    dem seitlichen Klettertempo zur naechsten tragenden
+                    Stelle in Armlaenge gefuehrt. Kein Sprung, kein
+                    Loslassen, kein Wiederankleben; die Hoehe, die
+                    Wandnormale und der Kletterzustand bleiben.
+
+         Nach Naht und Ecke gilt die Gnadenfrist wie oben, und waehrend
+         des Eckbogens entscheidet der Bogen.
+
+         Gehandelt wird nur, wenn der nicht tragende Streifen um den Rumpf
+         irgendwo fuer Becken UND Brust Void ist (rumpfStreifen.leer).
+         Gemessen (tools/pruef/zeilenuebergang.js ... rumpf): ohne diese
+         Bedingung kamen 23 Naehte und 32 Aussenecken nicht mehr ueber die
+         Kante - jedes Mal genau EINE nicht tragende Randzelle (0,47 bis
+         1,03 m), die die bestehende Klassifikation ueber die Nachbarzelle
+         als tragend fuehrt. Dort ist die Randzelle der Weg zur Kante und
+         gehoert der Naht- und Eckuebergabe. An Ort 1 liegt im Streifen
+         echtes Void; dort bleibt die Figur sonst haengen. */
+      /* Das Ziel der Fuehrung ist die MITTE der naechsten tragenden
+         Zelle, nicht ihr Rand: gemessen blieb die Figur sonst am
+         aeusseren Zellrand stehen, 0,90 m vor der Fase, weil die Karte
+         je Zelle die aeusserste Flaeche meldet. Das Ziel gilt nur fuer
+         diese Wand; mit jeder anderen verfaellt es. */
+      if (player.rumpfZiel && player.rumpfZiel.c !== c) player.rumpfZiel = null;
+      const tNeu = w.nx !== 0 ? player.pos.z : player.pos.x;
+      const rumpfS = FASS_IM_LAUF_AUS || FASS_RUMPF_ALT ? null
+        : rumpfStreifen(c, w.nx, w.nz, player.pos.y, tJetzt);
+      if (rumpfS && rumpfS.leer) {
+        if (rumpfGetragen(c, w.nx, w.nz, yVor, tVorher)) {
+          if (w.nx !== 0) player.pos.z = tVorher; else player.pos.x = tVorher;
+        } else {
+          const ziel = naechsterRumpfHalt(c, w.nx, w.nz, player.pos.y, tNeu);
+          if (ziel !== null) player.rumpfZiel = { c, t: ziel };
+        }
+      }
+      if (player.rumpfZiel) {
+        const schritt = sTempo * dt;
+        const rest = player.rumpfZiel.t - (w.nx !== 0 ? player.pos.z : player.pos.x);
+        const neu = (w.nx !== 0 ? player.pos.z : player.pos.x) + clamp(rest, -schritt, schritt);
+        if (w.nx !== 0) player.pos.z = neu; else player.pos.x = neu;
+        if (Math.abs(rest) <= schritt) player.rumpfZiel = null;
       }
     }
     /* ---- Der Eckbogen hat das letzte Wort ----
@@ -37337,6 +37468,18 @@ if (window.__WEBHERO_TEST__ === true) {
        hoch das Loch ist, und wie weit die naechste tragende Zelle
        seitlich und nach oben entfernt ist - in Metern, nicht in Zellen.
        Nur lesen, keine Wirkung aufs Spiel. */
+    rumpfLage(kollId, nx, nz, y, t) {
+      if (!_kollNachId) {
+        _kollNachId = new Map();
+        for (const q of colliders) _kollNachId.set(q.id, q);
+      }
+      const c = _kollNachId.get(kollId);
+      if (!c || !c.fassade) return null;
+      const S = rumpfStreifen(c, nx, nz, y, t);
+      return S ? { getragen: false, a: S.a, b: S.b, zelle: +S.zelle.toFixed(3),
+                   breite: +S.breite.toFixed(3), rand: S.rand, leer: S.leer }
+               : { getragen: true };
+    },
     fassLage(kollId, nx, nz, y, t) {
       if (!_kollNachId) {
         _kollNachId = new Map();
