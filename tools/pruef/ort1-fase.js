@@ -114,6 +114,11 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       await page.evaluate(() => { const P = __dbg.player;
         __dbg.aufnahme(P.pos.x - 3.4, P.pos.y + 1.4, P.pos.z + 2.6, P.pos.x + 0.3, P.pos.y + 1.1, P.pos.z); });
       await page.screenshot({ path: path.join(BILDER, vor + '-seite.png') });
+      /* Von oben, schraeg: der Abstand Rumpf - Flaeche ist hier direkt
+         zu sehen, in der Seitenansicht verschwindet er in der Tiefe. */
+      await page.evaluate(() => { const P = __dbg.player;
+        __dbg.aufnahme(P.pos.x - 2.2, P.pos.y + 4.2, P.pos.z - 0.6, P.pos.x + 0.6, P.pos.y + 1.1, P.pos.z + 0.4); });
+      await page.screenshot({ path: path.join(BILDER, vor + '-oben.png') });
       await page.evaluate(() => __dbg.zeichne());
       await page.screenshot({ path: path.join(BILDER, vor + '-spielkamera.png') });
     }

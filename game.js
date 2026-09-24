@@ -2169,12 +2169,16 @@ const colliders = [];          // {x0,x1,z0,z1,h} – Gebäude & Pylonen
 const colliderGrid = new Map(); // "ci,cj" -> [collider,...]
 
 let _kollNr = 0;
+const KOLL_QUELLE = typeof window !== 'undefined' && !!window.__WEBHERO_KOLL_QUELLE;
 function addCollider(c) {
   /* Eine laufende Nummer, damit eine Messung ueber mehrere Bilder sagen
      kann, ob die Kletterflaeche DIESELBE geblieben ist. Ohne sie laesst
      sich ein Flattern zwischen zwei Flaechen nicht von einem einmaligen
      Wechsel unterscheiden (problem-2, Punkt A). */
   if (c.id === undefined) c.id = ++_kollNr;
+  /* Nur zum Messen: wo im Code wurde dieses Hindernis angelegt? Fuer die
+     Frage "Gesims, Krone oder etwas anderes?" (problem-2, 2G). */
+  if (KOLL_QUELLE) c.quelle = (new Error().stack || '').split('\n').slice(2, 4).join(' | ');
   colliders.push(c);
   const ci0 = Math.floor((c.x0 - 1 - HASH_O) / PITCH), ci1 = Math.floor((c.x1 + 1 - HASH_O) / PITCH);
   const cj0 = Math.floor((c.z0 - 1 - HASH_O) / PITCH), cj1 = Math.floor((c.z1 + 1 - HASH_O) / PITCH);
@@ -14291,6 +14295,108 @@ function kameraLuft(p) {
   }
   return luft;
 }
+/* ====================== Kamera-Occluder fuer Dachprops - ZURUECKGENOMMEN ======================
+   problem-2, finaler Blocker-Pass, 2B bis 2F. Gebaut und gemessen: ein
+   Lueftungs-, Dachkasten, Rohr oder eine Antenne (dachProp mit eigener
+   Kiste im Deko-Mesh) verschwindet fuer die Kamera - sichtbar und als
+   Kamerahindernis -, wenn alle sechs Bedingungen zutreffen; das
+   Hindernis fuer die Figur bleibt (gemessen: die Figur steht auf dem
+   ausgeblendeten Kasten). Ein/Aus mit getrennten Bedingungen (aus erst
+   mit Kameraradius + 0,30 m Abstand).
+     A  die 24 Eckpunkte der Kiste im gemeinsamen Deko-Mesh falten -
+        kein Material, kein Zeichenaufruf mehr
+     B  eigene Kopie mit eigenem transparentem Material, blendet aus
+
+   GEMESSEN (tools/pruef/kamera-occluder.js, fuenf Sekunden je Ort, die
+   Figur bleibt auf dem Dach):
+     Stelle 9 Ri 3   Kamera bleibt 6,2..6,8 m statt bis 1,96 m heran,
+                     nahAnteil 0/50 statt 3/50 - aber im Bild verdeckt
+                     jetzt eine Dachleben-Kiste OHNE Hindernis die Figur,
+                     vor der die Kamera nichts weiss
+     Stelle 7 Ri 0   gleiches Bild, Ausweichwechsel 0,4 statt 0,2 je s,
+                     nahAnteil 3/50 statt 1/50
+     Stelle 11 Ri 1  greift nicht (die beste Ausweichlage ist frei)
+   Zeichenaufrufe und Materialien unveraendert (A). Das Bild ist nicht
+   sichtbar besser und die Kamera an einem Ort unruhiger - nach der
+   Regel zurueckgenommen. Der Stand liegt im Pruefstand beschrieben. */
+/* ====================== Ist die Figur LESBAR? (2I) ======================
+   problem-2, finaler Blocker-Pass. Gemessen (kamera-restfaelle.js mit
+   echter Sichtpruefung gegen die Szene, __dbg.koerperSicht): mit
+   geerbter Kamera ist an Stelle 9 der Hauptstrahl frei und von der
+   Figur trotzdem NICHTS zu sehen - 0 von 5 Koerperpunkten. Verdeckt
+   wird sie von einer Kiste aus baueDachaufbauten ("Dachleben",
+   Instanz-Mesh). Diese Kisten haben kein Hindernis; kameraFreierAnteil
+   kann sie deshalb nicht sehen.
+
+   Gezaehlt werden fuenf Punkte: Kopf, Brust, Becken, linke und rechte
+   Schulter (quer zur Blickrichtung). Ein Punkt gilt als sichtbar, wenn
+   die Strecke Kamera-Punkt weder ein Hindernis noch eine Dachleben-
+   Kiste schneidet. Lesbar heisst: Kopf UND Brust sichtbar - dieselbe
+   Definition wie playerReadable in tools/pruef/dachkamera.js.
+
+   Das ist KEIN neuer Kandidat und kein Ausblenden: es entscheidet nur
+   zwischen den vorhandenen sechs Ausweichlagen, nur wenn die Figur
+   nicht lesbar ist, und nur unter den Lagen, die nicht naeher an die
+   Figur heranruecken als die sonst gewaehlte.
+
+   GEMESSEN (kamera-restfaelle.js): geerbte Kamera 36 -> 21 schlechte
+   Bilder, Stelle 9 Ri 2 weg, Stelle 9 Ri 1 von 0/5 auf 3/5 sichtbare
+   Punkte; fester Start unveraendert (10 Bilder, 3 Ereignisse, gleiche
+   Wechsel und Spruenge an allen drei Orten). Ohne die Bedingung "nicht
+   lesbar" schaltete er auch zwischen 4 und 5 sichtbaren Punkten um:
+   11 Bilder und 1,0 statt 0,6 Wechsel je Sekunde - so nicht. */
+const KAM_SICHT_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAM_SICHT_ALT;
+const KAM_SICHT_H = [1.7, 1.4, 0.95, 1.45, 1.45];     // Kopf, Brust, Becken, Schulter L, R
+const KAM_SICHT_Q = [0, 0, 0, -0.2, 0.2];
+let _kamSichtGitter = null;
+const _ksA = new THREE.Vector3(), _ksB = new THREE.Vector3();
+/* Die Dachleben-Kisten im Kollisionsraster - einmal, beim ersten Bedarf. */
+function kamSichtGitter() {
+  if (_kamSichtGitter) return _kamSichtGitter;
+  _kamSichtGitter = new Map();
+  const teile = typeof DACH_TEILE !== 'undefined' ? DACH_TEILE : [];
+  for (const t of teile) {
+    const k = { x0: t.x - t.bx / 2, x1: t.x + t.bx / 2, z0: t.z - t.bz / 2, z1: t.z + t.bz / 2,
+                y0: t.y - t.by / 2, h: t.y + t.by / 2 };
+    const i0 = Math.floor((k.x0 - HASH_O) / PITCH), i1 = Math.floor((k.x1 - HASH_O) / PITCH);
+    const j0 = Math.floor((k.z0 - HASH_O) / PITCH), j1 = Math.floor((k.z1 - HASH_O) / PITCH);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const s2 = i + ',' + j;
+      if (!_kamSichtGitter.has(s2)) _kamSichtGitter.set(s2, []);
+      _kamSichtGitter.get(s2).push(k);
+    }
+  }
+  return _kamSichtGitter;
+}
+function kamStreckeFrei(a, b) {
+  const i0 = Math.floor((Math.min(a.x, b.x) - HASH_O) / PITCH), i1 = Math.floor((Math.max(a.x, b.x) - HASH_O) / PITCH);
+  const j0 = Math.floor((Math.min(a.z, b.z) - HASH_O) / PITCH), j1 = Math.floor((Math.max(a.z, b.z) - HASH_O) / PITCH);
+  const G = kamSichtGitter();
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const s2 = i + ',' + j;
+    for (const c of colliderGrid.get(s2) || []) {
+      if (c.innen || c.parkAuto) continue;
+      if (kameraKastenTreffer(a, b, c, 0) < 1) return false;
+    }
+    for (const c of G.get(s2) || []) if (kameraKastenTreffer(a, b, c, 0) < 1) return false;
+  }
+  return true;
+}
+/* Anzahl sichtbarer Punkte (0..5); lesbar in KAM_SICHT.lesbar. */
+const KAM_SICHT = { n: 5, lesbar: true };
+const _kamSichtN = [], _kamSichtFrei = [], _kamSichtLuft = [], _kamSichtLesbar = [];
+function kamKoerperSicht(kp) {
+  const qx = -(kp.z - player.pos.z), qz = kp.x - player.pos.x;
+  const ql = Math.hypot(qx, qz) || 1;
+  let n = 0, kopf = false, brust = false;
+  for (let i = 0; i < KAM_SICHT_H.length; i++) {
+    _ksB.set(player.pos.x + qx / ql * KAM_SICHT_Q[i], player.pos.y + KAM_SICHT_H[i],
+             player.pos.z + qz / ql * KAM_SICHT_Q[i]);
+    if (kamStreckeFrei(kp, _ksB)) { n++; if (i === 0) kopf = true; if (i === 1) brust = true; }
+  }
+  KAM_SICHT.n = n; KAM_SICHT.lesbar = kopf && brust;
+  return n;
+}
 function kamRichtungVersetzt(dir, dGier, dNeig, aus) {
   const c = Math.cos(dGier), s2 = Math.sin(dGier);
   const x = dir.x * c + dir.z * s2, z = -dir.x * s2 + dir.z * c;
@@ -14457,8 +14563,16 @@ function updateCamera(dt) {
      Hauptstrahl frei ist und das Bild trotzdem zu ist. */
   const luftJetzt = KAM_AUS_ALT ? KAM_LUFT_MAX : kameraLuft(desired);
   KAM_BLOCK.luft = +luftJetzt.toFixed(3);
+  /* Ist die Figur von der geklemmten Lage aus lesbar? (2I) */
+  let lesbarJetzt = true;
+  if (!KAM_AUS_ALT && !KAM_SICHT_ALT && !MISSION_INTERIOR.active) {
+    _ksA.copy(target).addScaledVector(dir, d);
+    kamKoerperSicht(_ksA);
+    lesbarJetzt = KAM_SICHT.lesbar;
+  }
+  KAM_BLOCK.sichtJetzt = KAM_SICHT.n;
   if (!KAM_AUS_ALT && !MISSION_INTERIOR.active &&
-      (d < camDist * 0.8 || luftJetzt < KAM_LUFT_ENG)) {
+      (d < camDist * 0.8 || luftJetzt < KAM_LUFT_ENG || !lesbarJetzt)) {
     /* ---- Was hier NICHT geholfen hat ----
        problem-2, Blocker 2C. Zwei zusaetzliche Kandidaten, beide aus
        der BoundingBox der naechsten Kiste abgeleitet statt aus der
@@ -14493,6 +14607,27 @@ function updateCamera(dt) {
       /* ... und zeitlich ruhig: die zuletzt gewaehlte Lage hat Vorrang. */
       if (i === kamAusWahl) wert += 0.8;
       if (wert > bestW) { bestW = wert; wahl = i; bestFrei = frei; }
+      /* Sichtbare Koerperpunkte von der Lage aus, die wirklich
+         eingenommen wuerde. */
+      if (!KAM_SICHT_ALT) {
+        if (i === 0) _ksA.copy(target).addScaledVector(dir, d);
+        else _ksA.copy(_kamAusZ);
+        _kamSichtN[i] = kamKoerperSicht(_ksA);
+        _kamSichtLesbar[i] = KAM_SICHT.lesbar;
+      } else { _kamSichtN[i] = 5; _kamSichtLesbar[i] = true; }
+      _kamSichtFrei[i] = frei; _kamSichtLuft[i] = luft;
+    }
+    /* ---- Tie-Breaker: mehr sichtbare Koerperpunkte (siehe KAM_SICHT) ----
+       Nur wenn die Wahl nach Punkten die Figur NICHT lesbar zeigt, nur
+       unter Lagen, die nicht naeher heranruecken und nicht in einer
+       Kiste stehen, und nur bei ECHT mehr sichtbaren Punkten. */
+    if (!KAM_SICHT_ALT && !_kamSichtLesbar[wahl]) {
+      const w0 = wahl, frei0 = bestFrei;
+      let bestN = _kamSichtN[w0];
+      for (let i = 0; i < KAM_AUSWEICH.length; i++) {
+        if (i === w0 || _kamSichtFrei[i] < frei0 || _kamSichtLuft[i] <= 0) continue;
+        if (_kamSichtN[i] > bestN) { bestN = _kamSichtN[i]; wahl = i; bestFrei = _kamSichtFrei[i]; }
+      }
     }
     kamAusWahl = wahl;
     d = bestFrei;
@@ -38020,6 +38155,74 @@ if (window.__WEBHERO_TEST__ === true) {
     get ziehLose() { return ZIEH; },
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     setzeKamYaw(v) { camYaw = v; },
+    /* ---- Fester Kamerastart fuer einen Messlauf ----
+       problem-2, finaler Blocker-Pass, 2: dachkamera.js und
+       kamera-restfaelle.js fahren dieselben Laeufe, zaehlten aber 7 und
+       36 schlechte Bilder. Der Grund: Neigung und Glaettung der Kamera
+       wurden aus dem VORIGEN Lauf geerbt, und die beiden Staende hatten
+       verschiedene Vorgeschichten. Hiermit beginnt jeder Lauf gleich:
+       Neigung wie beim Spielstart, keine Ausweichlage. */
+    kamStart(gier) {
+      camYaw = gier; camPitch = 0.22;
+      kamAusWahl = 0; kamAusGier = 0; kamAusNeig = 0;
+      kamFrei = camDist; vorausGlatt = 0; flugGlatt = gier + Math.PI;
+    },
+    /* ---- Welche Koerperpunkte sieht die Kamera WIRKLICH? ----
+       Je Knochen: liegt er im Bildausschnitt, und trifft der Strahl von
+       der Kamera bis kurz vor ihn irgendein sichtbares Mesh der Szene
+       (ohne die Figur selbst)? Nur fuer Pruefstaende - teuer. */
+    koerperSicht(namen) {
+      if (!heroVisual) return null;
+      camera.updateMatrixWorld(true);
+      const kn = heroVisual.laborKnochen(namen);
+      const rc = new THREE.Raycaster(), p = new THREE.Vector3(), r = new THREE.Vector3();
+      const ziele = [];
+      scene.traverseVisible((o) => {
+        if ((o.isMesh || o.isInstancedMesh) && !o.isSkinnedMesh) ziele.push(o);
+      });
+      const figur = new Set();
+      heroVisual.root.traverse((o) => figur.add(o));
+      const aus = {};
+      let n = 0;
+      for (const q of namen) {
+        const k = kn[q];
+        if (!k) { aus[q] = null; continue; }
+        p.set(k.x, k.y, k.z);
+        const ndc = p.clone().project(camera);
+        const imBild = Math.abs(ndc.x) <= 1 && Math.abs(ndc.y) <= 1 && ndc.z > -1 && ndc.z < 1;
+        const len = p.distanceTo(camera.position);
+        r.copy(p).sub(camera.position).normalize();
+        rc.set(camera.position, r); rc.near = 0.05; rc.far = Math.max(0.06, len - 0.2);
+        const tr = rc.intersectObjects(ziele, false).filter((t) => !figur.has(t.object));
+        const frei = tr.length === 0;
+        let wer = null;
+        if (!frei) {
+          const t0 = tr[0], o = t0.object;
+          wer = { name: o.name || o.type, abst: +t0.distance.toFixed(2),
+                  punkt: [+t0.point.x.toFixed(2), +t0.point.y.toFixed(2), +t0.point.z.toFixed(2)],
+                  eltern: o.parent ? (o.parent.name || o.parent.type) : null,
+                  haus: !!(o.userData && o.userData.hausKiste) ||
+                        !!(o.parent && o.parent.userData && o.parent.userData.hausKiste) };
+        }
+        aus[q] = { imBild, frei, wer };
+        if (imBild && frei) n++;
+      }
+      return { n, punkte: aus };
+    },
+    /* Ein Bild zeichnen und seine Kosten melden: Zeichenaufrufe,
+       Dreiecke, verschiedene Materialien sichtbarer Meshes. */
+    renderKosten() {
+      renderer.render(scene, camera);
+      const i = renderer.info.render;
+      const mats = new Set();
+      scene.traverseVisible((o) => {
+        if (!o.isMesh || !o.material) return;
+        if (Array.isArray(o.material)) o.material.forEach((m) => mats.add(m)); else mats.add(o.material);
+      });
+      return { calls: i.calls, dreiecke: i.triangles, materialien: mats.size };
+    },
+    /* Das Spielbild als JPEG - fuer Bilder mitten aus einem Messlauf. */
+    bildDaten(q) { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/jpeg', q || 0.8); },
     lookAt(x, z) { camYaw = Math.atan2(-(x - player.pos.x), -(z - player.pos.z)); },
     schritt(dt, n) {
       for (let i = 0; i < (n || 1); i++) simuliere(dt || 1 / 60);
@@ -38180,6 +38383,7 @@ if (window.__WEBHERO_TEST__ === true) {
         ausweichGesucht: !!KAM_BLOCK.ausweichGesucht,
         ausweich: [+kamAusGier.toFixed(3), +kamAusNeig.toFixed(3)],
         ausweichListe: KAM_AUSWEICH.length,
+        sichtJetzt: KAM_BLOCK.sichtJetzt === undefined ? null : KAM_BLOCK.sichtJetzt,
         blocker: c ? { id: c.id, klein: !!c.klein, krone: !!c.krone,
                        dachProp: !!c.dachProp,
                        x: [+c.x0.toFixed(2), +c.x1.toFixed(2)],

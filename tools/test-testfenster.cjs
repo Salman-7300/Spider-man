@@ -122,8 +122,10 @@ test('Das Testfenster hat keine doppelten Schluessel', () => {
      MEHR hiesse, er zaehlt Werte hinter einem Doppelpunkt mit. Beides
      ist in dieser Datei schon passiert, daher die Spanne.
      Sie waechst mit dem Testfenster - was sie nicht darf, ist still
-     gross werden, ohne dass jemand hinsieht. */
-  assert.ok(k.length >= 340 && k.length <= 395,
+     gross werden, ohne dass jemand hinsieht.
+     problem-2, finaler Blocker-Pass: rumpfLage, kamStart, koerperSicht,
+     renderKosten und bildDaten fuer die Pruefstaende - knapp ueber 395. */
+  assert.ok(k.length >= 340 && k.length <= 420,
     k.length + ' Eintraege gefunden, erwartet rund 370 - der Parser stimmt nicht');
   const zahl = {};
   for (const n of k) zahl[n] = (zahl[n] || 0) + 1;

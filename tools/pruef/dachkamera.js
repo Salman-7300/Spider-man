@@ -27,12 +27,19 @@ const { starte } = require('./basis');
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
 const ALT = process.argv.indexOf('alt') > 0;
+/* start=fest: jeder Lauf beginnt mit derselben Kamera (d.kamStart) statt
+   mit der geerbten Neigung und Glaettung des vorigen Laufs. */
+const FEST = process.argv.indexOf('start=fest') > 0;
+/* sichtAlt: ohne den Koerperpunkt-Tie-Breaker (KAM_SICHT in game.js). */
+const SICHT_ALT = process.argv.indexOf('sichtAlt') > 0;
 const bArg = process.argv.find((v) => v.indexOf('bilder=') === 0);
 const BILDER = bArg === undefined ? null : bArg.slice(7);
 if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
 
 (async () => {
-  const { b, page } = await starte(1280, 720, SEED, ALT ? { kamAusAlt: true } : {});
+  const { b, page } = await starte(1280, 720, SEED,
+    Object.assign({}, ALT ? { kamAusAlt: true } : {},
+      SICHT_ALT ? { kamSichtAlt: true } : {}));
   const stellen = await page.evaluate(() => {
     const d = __dbg; d.frier(true); d.setzeRegen(0);
     const SLAB_H = 0.25;
@@ -116,7 +123,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         d.setzePos(S.x, SLAB_H + S.h + 0.1, S.z);
         P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
         P.wallInfo = null; P.wall = null; P.facing = gier;
-        d.setzeKamYaw(gier);
+        if (S.fest) d.kamStart(gier); else d.setzeKamYaw(gier);
         for (let i = 0; i < 30; i++) d.schritt(1 / 60);
         d.taste('KeyW', true);
         for (let k = 0; k < 110; k++) {
@@ -163,11 +170,14 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         d.taste('KeyW', false);
       }
       return reihe;
-    }, stellen[n]);
+    }, Object.assign({ fest: FEST }, stellen[n]));
     const max = reihe.reduce((a, r) => r.nahAnteil > a.nahAnteil ? r : a,
                              { nahAnteil: -1 });
     const tunnel = reihe.filter((r) => r.nahAnteil > 0.5).length;
-    alle.push({ n, ...stellen[n], bilder: reihe.length, tunnel, max });
+    const schlecht = reihe.filter((r) => r.nahAnteil > 0.5)
+      .map((r) => ({ stelle: n, richtung: r.r, bild: r.k, y: r.pos[1], zustand: r.zustand,
+                     anteil: r.nahAnteil }));
+    alle.push({ n, ...stellen[n], bilder: reihe.length, tunnel, max, schlecht });
     console.log('  ' + String(n + 1).padStart(2) + '  ' +
                 (stellen[n].modell || '?').padEnd(26) +
                 ' Bilder ' + String(reihe.length).padStart(4) +
@@ -180,6 +190,20 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   const tun = alle.reduce((a, e) => a + e.tunnel, 0);
   console.log('\n== Zusammen ==');
   console.log('  Bilder ' + ges + '   nearGeometryDominatesView ' + tun);
+  /* Ein Ereignis ist eine ununterbrochene Folge schlechter Proben (alle
+     3 Bilder) in demselben Lauf - dieselbe Definition wie in
+     kamera-restfaelle.js. */
+  const sl = [].concat(...alle.map((e) => e.schlecht));
+  let ev = 0, vor = null;
+  for (const f of sl) {
+    if (!vor || vor.stelle !== f.stelle || vor.richtung !== f.richtung ||
+        f.bild - vor.bild > 3) ev++;
+    vor = f;
+  }
+  console.log('  badFrames ' + sl.length + '   uniqueBadCameraEvents ' + ev);
+  for (const f of sl)
+    console.log('    Stelle ' + f.stelle + ' Ri ' + f.richtung + ' Bild ' + String(f.bild).padStart(3) +
+                '  Figur y ' + f.y + '  ' + f.zustand + '  Anteil ' + f.anteil);
   const schlimm = alle.slice().sort((a, c) => c.max.nahAnteil - a.max.nahAnteil).slice(0, 5);
   console.log('  schlimmste Stellen:');
   for (const e of schlimm)
@@ -201,13 +225,13 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         d.setzePos(M.x, SLAB_H + M.h + 0.1, M.z);
         P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
         P.wallInfo = null; P.wall = null;
-        P.facing = M.gier; d.setzeKamYaw(M.gier);
+        P.facing = M.gier; if (M.fest) d.kamStart(M.gier); else d.setzeKamYaw(M.gier);
         for (let i = 0; i < 30; i++) d.schritt(1 / 60);
         d.taste('KeyW', true);
         for (let k = 0; k <= M.k; k++) d.schritt(1 / 60);
         d.taste('KeyW', false);
         d.zeichne();
-      }, { x: e.x, z: e.z, h: e.h, gier: e.max.gier, k: e.max.k });
+      }, { x: e.x, z: e.z, h: e.h, gier: e.max.gier, k: e.max.k, fest: FEST });
       await page.evaluate(() => new Promise((ok) => requestAnimationFrame(ok)));
       await page.evaluate(() => __dbg.zeichne());
       await page.screenshot({ path: path.join(BILDER,
