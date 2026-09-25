@@ -14824,7 +14824,12 @@ function kamRichtungVersetzt(dir, dGier, dNeig, aus) {
      hinter der Fassadenebene   75 -> 0      naeher 0,5 m    140 -> 2
      Sprung (> 0,6 m / 12 Grad) 16 -> 1
    Rest: Aufstieg aus dem Hof (hausStellen[3]) - im Uebergang 0,45 s vor
-   der Kante klebt die gewoehnliche Kletterkamera noch an der Krone. */
+   der Kante klebt die gewoehnliche Kletterkamera noch an der Krone.
+   Mit dem Eintritt aus dem Kamerapfad (kletterKameraBricht) und ohne
+   Schritt in die Enge: naeher 0,5 m 2 -> 0, Sprung bleibt 1 - die
+   Uebergabe an die Dachkamera im Hof nach TOP_LAND_MAX, weil deren
+   Strecke dort nie frei wird. Im Hof ist die Figur beim Ueberziehen
+   hinter der Kante verdeckt (Lichtschacht, die Kamera bleibt unten). */
 const TOP_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_TOPOUT_ALT;
 const TOP_VOR = 1.2;
 const TOP_DREH = 1.35;                              // Drehpunkt der Wandkamera
@@ -14838,17 +14843,51 @@ const TOP_VERSATZ = [[0, 0, 0], [2, 0, 0], [4, 0, 0], [0, 2, 0], [0, 4, 0], [2, 
 const TOP = { aktiv: false, nx: 0, nz: 0, tx: 0, tz: 0, ebene: 0, hoch: 0, col: null, seite: 0,
               kante: new THREE.Vector3(), pos: new THREE.Vector3(), blick: new THREE.Vector3(),
               wunsch: new THREE.Vector3(), anker: new THREE.Vector3(),
-              wahl: 0, land: 0, aus: 0, eintritte: 0, grund: null };
+              wahl: 0, land: 0, aus: 0, eintritte: 0, grund: null, eintrittRest: 0, grundEin: null };
 const _topQ = new THREE.Vector3(), _topZ = new THREE.Vector3(), _topB = new THREE.Vector3();
+/* ---- Wann beginnt der Zustand? Aus dem Kamerapfad, nicht fest ----
+   problem-3, finaler Pass. Mit festen 1,2 m unter der Kante begann der
+   Zustand im engen Hof (hausStellen[3]) zu spaet: gemessen 0,45 s vorher
+   stand die gewoehnliche Kletterkamera schon 0,32 m vor einer Kiste.
+   Jetzt wird der Pfad dieser Kamera vorausgerechnet: wo steht sie in
+   TOP_VORAUS Sekunden, wenn die Figur weiter steigt (jetzige Lage plus
+   Steigen)? Ist diese Lage naeher als TOP_NAH an einer Kiste, ist die
+   Strecke vom Drehpunkt dorthin verdeckt, oder liegt sie hinter dem
+   Halbraum vor der Fassade, beginnt der Zustand sofort - also bevor es
+   im Bild passiert. Geprueft wird nur, solange die Kante in
+   Kamerareichweite ist (camDist); die feste Grenze TOP_VOR bleibt als
+   Untergrenze. Einmal begonnen, bleibt der Zustand (Hysterese: bis 0,6 m
+   unter den Eintrittspunkt zurueck). */
+const TOP_VORAUS = 0.5;              // s Vorausschau
+const TOP_NAH = 0.5;                 // m, wie "zu nah" in topout.js
+const _topP = new THREE.Vector3(), _topK = new THREE.Vector3();
+function kletterKameraBricht(w) {
+  const c = w.col;
+  const rest = c.h - (player.pos.y + 1.75);
+  if (rest > camDist) return false;
+  const hoch = Math.max(0, player.vel.y) * TOP_VORAUS;
+  _topK.copy(camPos); _topK.y += hoch;
+  _topP.copy(player.pos); _topP.y += TOP_DREH + hoch;
+  kameraWandAnker(_topP, w);
+  const face = w.nx > 0 ? c.x1 : w.nx < 0 ? c.x0 : w.nz > 0 ? c.z1 : c.z0;
+  const ab = w.nx !== 0 ? (_topK.x - face) * w.nx : (_topK.z - face) * w.nz;
+  return ab < TOP_MIN_AUSSEN || kameraLuft(_topK) < TOP_NAH ||
+         kameraFreierAnteil(_topP, _topK) < 0.999;
+}
 function topOutWand() {
   if (player.state === 'kante' && player.kante && player.kante.wand && player.kante.wand.col)
     return player.kante.wand;
   const w = player.wallInfo;
   if (player.state !== 'climb' || !w || !w.col || player.eckBogen) return null;
   const rest = w.col.h - (player.pos.y + 1.75);
-  if (TOP.aktiv && TOP.col === w.col) return rest < TOP_VOR + 0.6 ? w : null;
-  return player.vel.y > 0.1 && rest < TOP_VOR ? w : null;
+  if (TOP.aktiv && TOP.col === w.col) return rest < TOP.eintrittRest + 0.6 ? w : null;
+  if (player.vel.y <= 0.1) return null;
+  if (rest < TOP_VOR) { TOP.eintrittRest = Math.max(rest, TOP_VOR); TOP.grundEin = 'fest'; return w; }
+  if (!TOP_VORAUS_ALT && kletterKameraBricht(w)) { TOP.eintrittRest = rest; TOP.grundEin = 'Kamerapfad'; return w; }
+  return null;
 }
+/* Nur zum Messen: Eintritt wie vorher (feste 1,2 m). */
+const TOP_VORAUS_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_TOPVORAUS_ALT;
 /* Ist q eine zulaessige Lage? (siehe oben: Luft, Strecke von der Fassade,
    am Ende auch vom Blickpunkt der Dachkamera) */
 function topFrei(q, dachZiel) {
@@ -14939,11 +14978,26 @@ function kamTopOut(dt, target) {
                    TOP.kante.z + TOP.nz * TOP_AUSSEN + TOP.tz * TOP.seite);
     begrenzeKamera(TOP.anker, TOP.wunsch);
   } else TOP.wahl = gewaehlt;
-  TOP.pos.lerp(TOP.wunsch, 1 - Math.exp(-dt * TOP_TEMPO));
+  /* ---- Kein Schritt in die Enge ----
+     problem-3, finaler Pass. Im engen Hof (hausStellen[3]) fuhr die
+     Kamera nach dem Eintritt senkrecht auf die Traufe des Hauses
+     gegenueber zu (Luft 2,0 -> 0,34 m in fuenf Bildern). Ein Schritt, der
+     sie naeher als TOP_NAH an eine Kiste braechte, wird nicht gemacht -
+     sie bleibt stehen und schaut weiter auf die Figur. */
+  _topQ.copy(TOP.pos).lerp(TOP.wunsch, 1 - Math.exp(-dt * TOP_TEMPO));
+  if (kameraLuft(_topQ) >= TOP_NAH || kameraLuft(_topQ) >= kameraLuft(TOP.pos)) TOP.pos.copy(_topQ);
   /* Halbraum vor der Fassade, jedes Bild */
   const ab = (TOP.pos.x - TOP.kante.x) * TOP.nx + (TOP.pos.z - TOP.kante.z) * TOP.nz;
   if (ab < TOP_MIN_AUSSEN) { TOP.pos.x += TOP.nx * (TOP_MIN_AUSSEN - ab); TOP.pos.z += TOP.nz * (TOP_MIN_AUSSEN - ab); }
-  begrenzeKamera(TOP.anker, TOP.pos);
+  /* ---- Heranziehen nur, wenn die Kamera selbst keine Luft hat ----
+     problem-3, finaler Pass. Mit dem frueheren Eintritt (Kamerapfad)
+     beginnt der Zustand, waehrend die Kamera noch Meter unter der Kante
+     steht. Die Strecke vom Kantenanker zu ihr schnitt dann ein Bauteil
+     der eigenen Fassade, und begrenzeKamera zog sie in EINEM Bild 4,8 m
+     heran, auf 0,32 m an eine Kiste (topout.js, Hof hausStellen[3],
+     Bild 25). Steht die Kamera frei, bleibt sie, wo sie ist, und faehrt
+     weiter weich zur Wunschlage; nur ohne Luft wird sie begrenzt. */
+  if (kameraLuft(TOP.pos) < KAMERA_RADIUS) begrenzeKamera(TOP.anker, TOP.pos);
   camPos.copy(TOP.pos);
   /* Blick: echte Knochen */
   if (_kamPunkteEcht) {
@@ -39169,6 +39223,7 @@ if (window.__WEBHERO_TEST__ === true) {
     /* CLIMB_TOP_OUT: laeuft der Zustand, woran haengt er, warum endete er? */
     topOut() {
       return { aktiv: TOP.aktiv, aus: +TOP.aus.toFixed(3), wahl: TOP.wahl, eintritte: TOP.eintritte,
+               eintrittRest: +TOP.eintrittRest.toFixed(2), grundEin: TOP.grundEin,
                grund: TOP.grund, n: [TOP.nx, TOP.nz], kante: [TOP.kante.x, TOP.kante.y, TOP.kante.z].map((v) => +v.toFixed(3)),
                pos: [TOP.pos.x, TOP.pos.y, TOP.pos.z].map((v) => +v.toFixed(3)),
                blick: [TOP.blick.x, TOP.blick.y, TOP.blick.z].map((v) => +v.toFixed(3)) };

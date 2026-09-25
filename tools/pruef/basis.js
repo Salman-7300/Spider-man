@@ -124,6 +124,9 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: Kamera ohne den Zustand CLIMB_TOP_OUT (Stand vor
        problem-3, Blocker 2). */
     if (ein.topAlt) window.__WEBHERO_TOPOUT_ALT = 1;
+    /* Nur zum Messen: CLIMB_TOP_OUT beginnt wie vorher fest 1,2 m unter
+       der Kante (ohne Vorausschau auf den Kamerapfad). */
+    if (ein.topVorausAlt) window.__WEBHERO_TOPVORAUS_ALT = 1;
     /* Nur zum Messen: Gleithaltung ohne die gespiegelten Gelenkziele
        (Stand vor problem-3, Blocker 3). */
     if (ein.gelenkAlt) window.__WEBHERO_GLEIT_GELENK_ALT = 1;
@@ -169,6 +172,7 @@ async function starte(breite, hoehe, seed, opt) {
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
        proxyAlt: !!(opt && opt.proxyAlt),
        topAlt: !!(opt && opt.topAlt),
+       topVorausAlt: !!(opt && opt.topVorausAlt),
        gelenkAlt: !!(opt && opt.gelenkAlt),
        fadeMin: opt && opt.fadeMin !== undefined ? opt.fadeMin : null,
        fassLaufAus: !!(opt && opt.fassLaufAus),

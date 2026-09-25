@@ -22,19 +22,23 @@
    gezaehlt: Strahltests gegen die zusammengefassten Stadtmeshes kosten
    20 Minuten je Haus.
 
-   Aufruf:  node tools/pruef/topout.js [bilder=ordner] [topAlt] [nur=Name]
+   Aufruf:  node tools/pruef/topout.js [bilder=ordner] [topAlt | vorausAlt] [nur=Name]
    ========================================================================= */
 const fs = require('node:fs');
 const { starte } = require('./basis');
 const bArg = process.argv.find((v) => v.indexOf('bilder=') === 0);
 const BILDER = bArg === undefined ? null : bArg.slice(7);
 const ALT = process.argv.indexOf('topAlt') > 0;
+/* spur=von,bis: Zustand von CLIMB_TOP_OUT je Bild ausgeben */
+const spArg = process.argv.find((v) => v.indexOf('spur=') === 0);
+const SPUR = spArg === undefined ? null : spArg.slice(5).split(',').map(Number);
 if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
 const TYPEN = ['Downtown_PublicBuilding_1', 'Downtown_ModernOffice_2', 'Brownstone_Commercial_1_C',
                'Brownstone_FlatFacade_6', 'Brownstone_FlatFacade_1', 'Brownstone_Harlem_1'];
 
 (async () => {
-  const { b, page } = await starte(960, 540, 4711, ALT ? { topAlt: true } : {});
+  const VALT = process.argv.indexOf('vorausAlt') > 0;
+  const { b, page } = await starte(960, 540, 4711, ALT ? { topAlt: true } : VALT ? { topVorausAlt: true } : {});
   const faelle = await page.evaluate((T) => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
@@ -70,6 +74,21 @@ const TYPEN = ['Downtown_PublicBuilding_1', 'Downtown_ModernOffice_2', 'Brownsto
       if (!s) continue;
       genommen.add(n);
       aus.push({ name: n, koll: c.id, nx: s[0], nz: s[1] });
+    }
+    /* ---- Zusatzfall: schraege Rueckseite (problem-3, finaler Pass) ----
+       ModernOffice_1 an seiner +z-Seite: die Fassade weicht schraeg bis
+       2,9 m hinter die Kiste zurueck. Getrennt gezaehlt, nicht in der
+       Summe der 8 Haeuser. (Das Haus aus dem Human-Video ist der Turm -
+       Fall Turm_1.) */
+    for (const o of d.hausModelle()) {
+      const K = o.userData.hausKiste, c = K && K.koll;
+      if (o.userData.modellName !== 'Downtown_ModernOffice_1' || !c || aus.some((a) => a.mensch)) continue;
+      let ok = true;
+      for (const f of [0.3, 0.5, 0.7]) {
+        const t = c.x0 + (c.x1 - c.x0) * f;
+        for (const y of [c.h - 6, c.h - 2]) if (!frei1m(c, 0, 1, y, t)) ok = false;
+      }
+      if (ok) aus.push({ name: 'Zusatz ModernOffice_1 +z schraeg', koll: c.id, nx: 0, nz: 1, mensch: true });
     }
     /* eine Zeilenfassade (prozedural oder Modell, wie zeilenuebergang.js) */
     for (const h of d.hausKisten()) {
@@ -174,7 +193,7 @@ const TYPEN = ['Downtown_PublicBuilding_1', 'Downtown_ModernOffice_2', 'Brownsto
         return true;
       };
       const zaehl = { bilder: 0, imGebaeude: 0, unterDach: 0, hinterFassade: 0, nahVoll: 0, unlesbar: 0, sprung: 0 };
-      const schlimm = [];
+      const schlimm = [], spur = [];
       const bilder = [];
       let alt = null, altR = null, oben = -1;
       const N = 360;
@@ -211,18 +230,25 @@ const TYPEN = ['Downtown_PublicBuilding_1', 'Downtown_ModernOffice_2', 'Brownsto
         for (const x of befund) zaehl[x]++;
         if (befund.length && (schlimm.length < 12 || befund.indexOf('sprung') >= 0))
           schlimm.push({ i, zustand: P.state, befund: befund.join(','), cam: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)],
-                         ab: +ab.toFixed(2), ueberDach: +(p.y - c.h).toFixed(2), luft: nah });
+                         ab: +ab.toFixed(2), ueberDach: +(p.y - c.h).toFixed(2), luft: nah,
+                         top: d.topOut ? (({ aktiv, wahl, grundEin, eintrittRest }) => ({ aktiv, wahl, grundEin, eintrittRest }))(d.topOut()) : null });
+        if (F.spur && i >= F.spur[0] && i <= F.spur[1]) {
+          const t = d.topOut();
+          spur.push({ i, zustand: P.state, rest: +(c.h - P.pos.y - 1.75).toFixed(2), vy: +P.vel.y.toFixed(2), cam: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)],
+                      luft: nah, top: t.aktiv, wahl: t.wahl, ein: t.grundEin, topPos: t.pos, befund: befund.join(',') });
+        }
         if (F.bilder && i % 3 === 0) bilder.push(d.bildDaten(0.8));
       }
       frei();
-      return { zaehl, schlimm, bilder, kanteAb: oben, koll: c.id, h: +c.h.toFixed(2), seite: [nx, nz] };
-    }, Object.assign({ bilder: !!BILDER }, F));
+      return { zaehl, schlimm, spur, bilder, kanteAb: oben, koll: c.id, h: +c.h.toFixed(2), seite: [nx, nz] };
+    }, Object.assign({ bilder: !!BILDER, spur: SPUR }, F));
     if (r.fehler) { console.log(F.name.padEnd(34), r.fehler); continue; }
     const z = r.zaehl;
-    for (const k of Object.keys(summe)) summe[k] += z[k];
+    if (!F.mensch) for (const k of Object.keys(summe)) summe[k] += z[k];
     console.log(F.name.padEnd(34) + ' koll ' + r.koll + ' h ' + r.h + ' Kante ab Bild ' + r.kanteAb + '  ' +
                 Object.keys(z).filter((k) => k !== 'bilder').map((k) => k + ' ' + z[k]).join('  '));
     for (const s of r.schlimm) console.log('    ' + JSON.stringify(s));
+    for (const s of (r.spur || [])) console.log('      spur ' + JSON.stringify(s));
     if (BILDER) {
       const dir = BILDER + '/' + String(nr).padStart(2, '0') + '-' + F.name.replace(/[^A-Za-z0-9_]/g, '_');
       fs.mkdirSync(dir, { recursive: true });
