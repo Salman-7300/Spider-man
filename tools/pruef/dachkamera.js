@@ -32,6 +32,8 @@ const ALT = process.argv.indexOf('alt') > 0;
 const FEST = process.argv.indexOf('start=fest') > 0;
 /* sichtAlt: ohne den Koerperpunkt-Tie-Breaker (KAM_SICHT in game.js). */
 const SICHT_ALT = process.argv.indexOf('sichtAlt') > 0;
+/* dachlebenAlt: die Dachleben-Kaesten ohne Hindernis (Stand 820f96e). */
+const DL_ALT = process.argv.indexOf('dachlebenAlt') > 0;
 const bArg = process.argv.find((v) => v.indexOf('bilder=') === 0);
 const BILDER = bArg === undefined ? null : bArg.slice(7);
 if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
@@ -39,7 +41,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
 (async () => {
   const { b, page } = await starte(1280, 720, SEED,
     Object.assign({}, ALT ? { kamAusAlt: true } : {},
-      SICHT_ALT ? { kamSichtAlt: true } : {}));
+      SICHT_ALT ? { kamSichtAlt: true } : {}, DL_ALT ? { dachlebenAlt: true } : {}));
   const stellen = await page.evaluate(() => {
     const d = __dbg; d.frier(true); d.setzeRegen(0);
     const SLAB_H = 0.25;
@@ -63,8 +65,10 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         if (fest(c) && (c.h || 0) > (koll.h || 0) + 4) hoeherNachbar = c.id;
       }
       if (!krone && !hoeherNachbar) continue;
+      /* Start am naechsten freien Punkt zur Dachmitte (d.freierDachpunkt) */
+      const st = d.freierDachpunkt(K.x, K.z, SLAB_H + K.h, koll.x0, koll.x1, koll.z0, koll.z1);
       aus.push({ koll: koll.id, modell: o.userData.modellName || o.name,
-                 x: K.x, z: K.z, w: K.w, d: K.d, h: K.h,
+                 x: K.x, z: K.z, w: K.w, d: K.d, h: K.h, sx: st[0], sz: st[1],
                  krone, hoeherNachbar });
     }
     return aus;
@@ -120,7 +124,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       const reihe = [];
       for (let r = 0; r < 4; r++) {
         const gier = r * Math.PI / 2;
-        d.setzePos(S.x, SLAB_H + S.h + 0.1, S.z);
+        d.setzePos(S.sx, SLAB_H + S.h + 0.1, S.sz);
         P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
         P.wallInfo = null; P.wall = null; P.facing = gier;
         if (S.fest) d.kamStart(gier); else d.setzeKamYaw(gier);
@@ -222,7 +226,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         const d = __dbg, P = d.player;
         const SLAB_H = 0.25;
         for (const t of ['KeyW','KeyA','KeyS','KeyD','ShiftLeft']) d.taste(t, false);
-        d.setzePos(M.x, SLAB_H + M.h + 0.1, M.z);
+        d.setzePos(M.sx, SLAB_H + M.h + 0.1, M.sz);
         P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
         P.wallInfo = null; P.wall = null;
         P.facing = M.gier; if (M.fest) d.kamStart(M.gier); else d.setzeKamYaw(M.gier);
@@ -231,7 +235,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         for (let k = 0; k <= M.k; k++) d.schritt(1 / 60);
         d.taste('KeyW', false);
         d.zeichne();
-      }, { x: e.x, z: e.z, h: e.h, gier: e.max.gier, k: e.max.k, fest: FEST });
+      }, { sx: e.sx, sz: e.sz, h: e.h, gier: e.max.gier, k: e.max.k, fest: FEST });
       await page.evaluate(() => new Promise((ok) => requestAnimationFrame(ok)));
       await page.evaluate(() => __dbg.zeichne());
       await page.screenshot({ path: path.join(BILDER,

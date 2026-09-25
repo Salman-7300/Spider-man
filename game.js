@@ -14330,8 +14330,10 @@ function kameraLuft(p) {
 
    Gezaehlt werden fuenf Punkte: Kopf, Brust, Becken, linke und rechte
    Schulter (quer zur Blickrichtung). Ein Punkt gilt als sichtbar, wenn
-   die Strecke Kamera-Punkt weder ein Hindernis noch eine Dachleben-
-   Kiste schneidet. Lesbar heisst: Kopf UND Brust sichtbar - dieselbe
+   die Strecke Kamera-Punkt kein Hindernis schneidet. Seit die Dachleben-
+   Kaesten ein echtes Hindernis haben (siehe DACH_TEILE), gibt es dafuer
+   keine eigene Liste mehr - eine Wahrheit fuer Bild, Spiel und Kamera.
+   Lesbar heisst: Kopf UND Brust sichtbar - dieselbe
    Definition wie playerReadable in tools/pruef/dachkamera.js.
 
    Das ist KEIN neuer Kandidat und kein Ausblenden: es entscheidet nur
@@ -14348,37 +14350,15 @@ function kameraLuft(p) {
 const KAM_SICHT_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAM_SICHT_ALT;
 const KAM_SICHT_H = [1.7, 1.4, 0.95, 1.45, 1.45];     // Kopf, Brust, Becken, Schulter L, R
 const KAM_SICHT_Q = [0, 0, 0, -0.2, 0.2];
-let _kamSichtGitter = null;
 const _ksA = new THREE.Vector3(), _ksB = new THREE.Vector3();
-/* Die Dachleben-Kisten im Kollisionsraster - einmal, beim ersten Bedarf. */
-function kamSichtGitter() {
-  if (_kamSichtGitter) return _kamSichtGitter;
-  _kamSichtGitter = new Map();
-  const teile = typeof DACH_TEILE !== 'undefined' ? DACH_TEILE : [];
-  for (const t of teile) {
-    const k = { x0: t.x - t.bx / 2, x1: t.x + t.bx / 2, z0: t.z - t.bz / 2, z1: t.z + t.bz / 2,
-                y0: t.y - t.by / 2, h: t.y + t.by / 2 };
-    const i0 = Math.floor((k.x0 - HASH_O) / PITCH), i1 = Math.floor((k.x1 - HASH_O) / PITCH);
-    const j0 = Math.floor((k.z0 - HASH_O) / PITCH), j1 = Math.floor((k.z1 - HASH_O) / PITCH);
-    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-      const s2 = i + ',' + j;
-      if (!_kamSichtGitter.has(s2)) _kamSichtGitter.set(s2, []);
-      _kamSichtGitter.get(s2).push(k);
-    }
-  }
-  return _kamSichtGitter;
-}
 function kamStreckeFrei(a, b) {
   const i0 = Math.floor((Math.min(a.x, b.x) - HASH_O) / PITCH), i1 = Math.floor((Math.max(a.x, b.x) - HASH_O) / PITCH);
   const j0 = Math.floor((Math.min(a.z, b.z) - HASH_O) / PITCH), j1 = Math.floor((Math.max(a.z, b.z) - HASH_O) / PITCH);
-  const G = kamSichtGitter();
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
-    const s2 = i + ',' + j;
-    for (const c of colliderGrid.get(s2) || []) {
+    for (const c of colliderGrid.get(i + ',' + j) || []) {
       if (c.innen || c.parkAuto) continue;
       if (kameraKastenTreffer(a, b, c, 0) < 1) return false;
     }
-    for (const c of G.get(s2) || []) if (kameraKastenTreffer(a, b, c, 0) < 1) return false;
   }
   return true;
 }
@@ -23770,16 +23750,85 @@ baueBesondereOrte();
    (Vorgabe 12). Alles landet in EINEM zusammengefassten Mesh je Bauart,
    damit aus rund hundert Aufbauten nicht hundert Zeichenaufrufe werden
    (Vorgabe 13). */
-const DACH_TEILE = [];        // {x,y,z, bx,by,bz} nur fuer die Pruefung
+const DACH_TEILE = [];        // {x,y,z, bx,by,bz, art, fest}
+/* ---- Was sichtbar massiv ist, haelt auf ----
+   problem-2, Blocker 2 (Human-Entscheidung zu 820f96e). Gemessen: diese
+   Aufbauten hatten KEIN Hindernis. Die Figur lief durch sie hindurch,
+   und die Kamera stand hinter ihnen, ohne sie zu kennen - an Stelle 9
+   war die Figur davon ganz verdeckt.
+
+   Eingestuft wird nach derselben Grenze wie bei allen Dachaufbauten
+   (DACH_PROP_DUENN, 0,60 m):
+     fest    Lueftungskasten, Klimageraet, Wassertank - sichtbar massive
+             Kaesten; sie bekommen ihr Hindernis ueber dachProp(), aus
+             GENAU den Zahlen, aus denen auch ihre Instanzmatrix entsteht
+             (keine Drehung, Unterkante auf dem Dach)
+     Deko    die Antenne (0,18 m) - keine unsichtbare Wand um ein
+             duennes Teil
+   Dazu kommt der Sitz auf der echten Dachflaeche (siehe darueber und
+   unterUeberhang in baueDachaufbauten). Gemessen (tools/pruef/
+   dachleben.js, Keim 4711): 802 feste Kaesten, davon 139 um 0,75 m auf
+   die Dachflaeche gehoben, 96 ganz im Gebaeude und 12 unter einem
+   Ueberhang verworfen, 694 mit Hindernis - genau so gross wie das
+   Sichtbare. Dasselbe Hindernis sieht die Kamera; es gibt keinen
+   zweiten Weg fuer sie. */
+const DACHLEBEN_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_DACHLEBEN_ALT;
 function baueDachaufbauten() {
   const kandidaten = colliders.filter((c) => !c.klein && (c.h || 0) > 22 &&
     (c.x1 - c.x0) > 9 && (c.z1 - c.z0) > 9);
   if (!kandidaten.length) return;
   const kasten = [];            // gesammelte Boxen
   const rohre = [];
-  const nimm = (arr, x, y, z, bx, by, bz) => {
-    arr.push({ x, y, z, bx, by, bz });
-    DACH_TEILE.push({ x, y, z, bx, by, bz });
+  /* ---- Wo ist die echte Dachflaeche unter dem Kasten? ----
+     Die Kandidaten oben sind alle grossen Hindernisse - dazu gehoeren
+     auch die Kronenbaender, deren Oberkante 0,75 bis 0,9 m UNTER der
+     Dachflaeche liegt. Ein Kasten darauf steckt entsprechend tief im
+     Dach (gemessen an Stelle 9: Unterkante 32,41, Dachflaeche 33,16).
+     Und steht in der Dachmitte ein Staffelturm, steht der Kasten in ihm.
+     Gefragt wird deshalb nach dem hoechsten Gebaeudeteil ueber dem Fuss:
+       ragt der Kasten darueber hinaus  -> auf dessen Oberkante gesetzt
+       steckt er ganz darin             -> nie zu sehen: kein Bild, kein
+                                           Hindernis
+     Die Zufallszuege bleiben dieselben. */
+  const darueber = (x, z, fuss) => {
+    let h = null;
+    for (const c of collidersNear(x, z)) {
+      if (c.dachProp || c.klein || c.innen || c.parkAuto) continue;
+      if (c.h === undefined || c.h <= fuss + 0.05) continue;
+      if (x > c.x0 + 0.05 && x < c.x1 - 0.05 && z > c.z0 + 0.05 && z < c.z1 - 0.05 &&
+          (h === null || c.h > h)) h = c.h;
+    }
+    return h;
+  };
+  /* Haengt ueber dem Kasten etwas, unter dem man auf ihm nicht stehen
+     kann - etwa der Tank eines Wasserturms (Hindernis erst ab 1,3 m,
+     die Beine haben keins)? Gemessen: ein Klimageraet unter einem Tank,
+     0,6 m Luft darueber; die Figur stieg darauf und steckte mit Kopf und
+     Brust im Tank (tools/pruef/dachaufbauten.js, Punkt B). Kopffreiheit
+     ist die Figurhoehe, 1,8 m. */
+  const unterUeberhang = (x, z, bx, bz, fuss, oben) => {
+    for (const c of collidersNear(x, z)) {
+      if (c.innen || c.parkAuto || c.y0 === undefined || c.y0 <= fuss + 0.05) continue;
+      if (c.x1 <= x - bx / 2 || c.x0 >= x + bx / 2 || c.z1 <= z - bz / 2 || c.z0 >= z + bz / 2) continue;
+      if (c.y0 - oben < 1.8) return true;
+    }
+    return false;
+  };
+  const nimm = (arr, x, y, z, bx, by, bz, art) => {
+    let grund = false, angehoben = 0;
+    if (!DACHLEBEN_ALT) {
+      const h = darueber(x, z, y - by / 2);
+      if (h !== null) {
+        if (y + by / 2 > h + 0.05) { angehoben = h - (y - by / 2); y = h + by / 2; }
+        else grund = 'Gebaeude';
+      }
+      if (!grund && unterUeberhang(x, z, bx, bz, y - by / 2, y + by / 2)) grund = 'Ueberhang';
+    }
+    const t = { x, y, z, bx, by, bz, art, fest: Math.max(bx, bz) >= DACH_PROP_DUENN,
+                dach: y - by / 2, angehoben, imHaus: grund,
+                mesh: null, idx: -1, koll: null };
+    arr.push(t);
+    DACH_TEILE.push(t);
   };
   let n = 0;
   for (const c of kandidaten) {
@@ -23796,18 +23845,18 @@ function baueDachaufbauten() {
       if (art < 0.4) {
         /* Lueftungskasten */
         const bx = rand(1.2, 2.2), bz = rand(1.2, 2.2), by = rand(0.7, 1.3);
-        nimm(kasten, px, y + by / 2, pz, bx, by, bz);
+        nimm(kasten, px, y + by / 2, pz, bx, by, bz, 'Lueftungskasten');
       } else if (art < 0.7) {
         /* Klimageraet, flacher und breiter */
-        nimm(kasten, px, y + 0.35, pz, rand(1.6, 2.6), 0.7, rand(1.0, 1.6));
+        nimm(kasten, px, y + 0.35, pz, rand(1.6, 2.6), 0.7, rand(1.0, 1.6), 'Klimageraet');
       } else if (art < 0.9) {
         /* Wassertank auf Fuessen */
         const h = rand(1.8, 2.6);
-        nimm(kasten, px, y + h / 2, pz, 1.8, h, 1.8);
+        nimm(kasten, px, y + h / 2, pz, 1.8, h, 1.8, 'Wassertank');
       } else {
         /* Antenne */
         const h = rand(2.5, 4.5);
-        nimm(rohre, px, y + h / 2, pz, 0.18, h, 0.18);
+        nimm(rohre, px, y + h / 2, pz, 0.18, h, 0.18, 'Antenne');
       }
     }
   }
@@ -23825,9 +23874,14 @@ function baueDachaufbauten() {
     const mesh = new THREE.InstancedMesh(geo, mat, liste.length);
     const m4 = new THREE.Matrix4();
     liste.forEach((t, i) => {
-      m4.makeScale(t.bx, t.by, t.bz);
+      /* Im Gebaeude: die Instanz bleibt (gleiche Reihenfolge), ist aber
+         auf null geschrumpft. */
+      if (t.imHaus) m4.makeScale(0, 0, 0);
+      else m4.makeScale(t.bx, t.by, t.bz);
       m4.setPosition(t.x, t.y, t.z);
       mesh.setMatrixAt(i, m4);
+      /* Fuer die Pruefung: welches Mesh, welche Instanz. */
+      t.mesh = mesh; t.idx = i;
     });
     mesh.instanceMatrix.needsUpdate = true;
     mesh.castShadow = false; mesh.receiveShadow = true;
@@ -23883,6 +23937,19 @@ function bezirkeLesen() {
   }
 }
 bezirkeLesen();
+/* Die Hindernisse der Dachleben-Kaesten (siehe DACH_TEILE) erst hier:
+   bezirkeLesen() mittelt die Hoehen aller nicht kleinen Hindernisse je
+   Block, und die Kaesten sollen die Bezirke nicht verschieben. */
+function dachlebenHindernisse() {
+  if (DACHLEBEN_ALT) return;
+  for (const t of DACH_TEILE) {
+    if (!t.fest || t.imHaus) continue;
+    dachProp('Dachleben-' + t.art, t.bx, t.by, t.bz, t.x, t.y - t.by / 2, t.z);
+    t.koll = DACH_PROPS[DACH_PROPS.length - 1].koll;
+    if (t.koll) t.koll.dachleben = true;
+  }
+}
+dachlebenHindernisse();
 
 /* ======================= Umgebungsmomente =======================
    Kleine Dinge ohne Aufgabe, ohne Punkte, ohne Anzeige. Sie sollen nur
@@ -37996,6 +38063,65 @@ if (window.__WEBHERO_TEST__ === true) {
       return true;
     },
     herRinge() { return HER.ringe.filter((r) => r.visible).length; },
+    /* ---- Ein freier Startpunkt auf einem Dach, fuer Pruefstaende ----
+       Die Dachmitte liegt oft IN einem Aufbau (gemessen: Residential_3,
+       Mitte im Dachaufbau des Modells) - dort abgesetzt, wird die Figur
+       herausgedrueckt, und wohin, haengt vom Zufall der Nachbarkiste ab.
+       Gesucht wird in Ringen um (x, z) der naechste Punkt, der 0,6 m
+       Abstand zu allem hat, was ueber der Dachflaeche steht: Hindernisse
+       UND die sichtbaren Dachleben-Kaesten (auch wenn sie kein Hindernis
+       haben - so starten Vorher- und Nachher-Lauf am selben Ort). */
+    freierDachpunkt(x, z, dach, x0, x1, z0, z1) {
+      const kisten = [];
+      for (const c of collidersNear(x, z)) {
+        if (c.innen || c.parkAuto) continue;
+        const y0 = c.y0 === undefined ? -1e9 : c.y0;
+        if ((c.h || 0) <= dach + 0.05 || y0 >= dach + 1.8) continue;
+        kisten.push(c);
+      }
+      for (const t of DACH_TEILE) {
+        if (!t.fest || t.imHaus || Math.abs(t.dach - dach) > 0.05) continue;
+        kisten.push({ x0: t.x - t.bx / 2, x1: t.x + t.bx / 2, z0: t.z - t.bz / 2, z1: t.z + t.bz / 2 });
+      }
+      const frei = (px, pz) => {
+        if (px < x0 + 1 || px > x1 - 1 || pz < z0 + 1 || pz > z1 - 1) return false;
+        for (const c of kisten) {
+          const dx = Math.max(c.x0 - px, 0, px - c.x1), dz = Math.max(c.z0 - pz, 0, pz - c.z1);
+          if (Math.hypot(dx, dz) < 0.6) return false;
+        }
+        return true;
+      };
+      if (frei(x, z)) return [x, z];
+      for (let r = 0.5; r <= 12; r += 0.5) {
+        const n = Math.max(8, Math.round(2 * Math.PI * r / 0.5));
+        for (let i = 0; i < n; i++) {
+          const w = i / n * Math.PI * 2;
+          const px = x + Math.cos(w) * r, pz = z + Math.sin(w) * r;
+          if (frei(px, pz)) return [+px.toFixed(3), +pz.toFixed(3)];
+        }
+      }
+      return [x, z];
+    },
+    /* Dachleben-Kaesten: die SICHTBARE Kiste aus ihrer Instanzmatrix,
+       ob die Matrix gedreht ist, und das Hindernis dazu. */
+    dachleben() {
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+            p = new THREE.Vector3(), sk = new THREE.Vector3(), b = new THREE.Box3();
+      return DACH_TEILE.map((t) => {
+        let vis = null, gedreht = null;
+        if (t.mesh) {
+          t.mesh.getMatrixAt(t.idx, m);
+          m.decompose(p, q, sk);
+          gedreht = Math.abs(q.w) < 0.99999;
+          if (!t.mesh.geometry.boundingBox) t.mesh.geometry.computeBoundingBox();
+          b.copy(t.mesh.geometry.boundingBox).applyMatrix4(m).applyMatrix4(t.mesh.matrixWorld);
+          vis = { x0: b.min.x, x1: b.max.x, y0: b.min.y, y1: b.max.y, z0: b.min.z, z1: b.max.z };
+        }
+        const k = t.koll;
+        return { art: t.art, fest: t.fest, imHaus: t.imHaus, angehoben: t.angehoben, x: t.x, z: t.z, dach: t.dach, vis, gedreht, mesh: t.mesh,
+                 koll: k ? { id: k.id, x0: k.x0, x1: k.x1, y0: k.y0, y1: k.h, z0: k.z0, z1: k.z1 } : null };
+      });
+    },
     dachTeile() { return DACH_TEILE.map((t) => ({ x: +t.x.toFixed(2), y: +t.y.toFixed(2),
       z: +t.z.toFixed(2), bx: +t.bx.toFixed(2), by: +t.by.toFixed(2), bz: +t.bz.toFixed(2) })); },
     vorfaelle() { return VORFALL.liste.map((v) => ({ x: +v.x.toFixed(1),

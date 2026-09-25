@@ -29,6 +29,8 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
    durchlaessig - das Vorher zu problem-2 Punkt B. */
 const ALT = process.argv.indexOf('alt') > 0;
 const DUENN = process.argv.indexOf('duenn-alt') > 0;
+/* "dachleben-alt": die Dachleben-Kaesten ohne Hindernis (Stand 820f96e). */
+const DL_ALT = process.argv.indexOf('dachleben-alt') > 0;
 
 /* ---------------------------------------------------------------------
    5A/5C: Inventar der Dachaufbauten und die harten Kennzahlen
@@ -309,7 +311,8 @@ async function durchlauf(page) {
 
 (async () => {
   const { b, page } = await starte(800, 480, SEED,
-    ALT ? { dachAlt: true } : DUENN ? { duennAlt: true } : {});
+    Object.assign(ALT ? { dachAlt: true } : DUENN ? { duennAlt: true } : {},
+                  DL_ALT ? { dachlebenAlt: true } : {}));
   const aus = await page.evaluate(() => {
     const d = __dbg;
     d.frier(true);

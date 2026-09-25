@@ -26,6 +26,13 @@ const ALT = process.argv.indexOf('alt') > 0;
 const FEST = process.argv.indexOf('start=fest') > 0;
 /* sichtAlt: ohne den Koerperpunkt-Tie-Breaker (KAM_SICHT in game.js). */
 const SICHT_ALT = process.argv.indexOf('sichtAlt') > 0;
+/* dachlebenAlt: die Dachleben-Kaesten ohne Hindernis (Stand 820f96e). */
+const DL_ALT = process.argv.indexOf('dachlebenAlt') > 0;
+/* ruhe=9:0,9:3,...: die Ruhe an GENAU diesen Orten (Stelle:Richtung)
+   messen statt an denen mit schlechten Bildern - fuer Vorher/Nachher am
+   selben Ort. */
+const rArg = process.argv.find((v) => v.indexOf('ruhe=') === 0);
+const RUHE = rArg === undefined ? null : rArg.slice(5).split(',').map((q) => q.split(':').map(Number));
 const bArg = process.argv.find((v) => v.indexOf('bilder=') === 0);
 const BILDER = bArg === undefined ? null : bArg.slice(7);
 if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
@@ -33,9 +40,9 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
 (async () => {
   const { b, page } = await starte(1280, 720, SEED,
     Object.assign({ kollQuelle: true }, ALT ? { kamAusAlt: true } : {},
-      SICHT_ALT ? { kamSichtAlt: true } : {}));
+      SICHT_ALT ? { kamSichtAlt: true } : {}, DL_ALT ? { dachlebenAlt: true } : {}));
   const aus = await page.evaluate(async (O) => {
-    const FEST = O.fest, BILD = O.bild;
+    const FEST = O.fest, BILD = O.bild, RUHE = O.ruhe;
     const d = __dbg, P = d.player;
     d.frier(true); d.setzeRegen(0);
     const SLAB_H = 0.25, NAH = 7.0;
@@ -133,8 +140,11 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         if (fest(c) && (c.h || 0) > (koll.h || 0) + 4) hoeher = c.id;
       }
       if (!krone && !hoeher) continue;
+      /* Start am naechsten freien Punkt zur Dachmitte (d.freierDachpunkt) */
+      const st = d.freierDachpunkt(K.x, K.z, SLAB_H + K.h, koll.x0, koll.x1, koll.z0, koll.z1);
       stellen.push({ koll: koll.id, modell: o.userData.modellName || o.name,
-                     x: K.x, z: K.z, h: K.h });
+                     x: st[0], z: st[1], h: K.h, mitteVerschoben: +Math.hypot(st[0] - K.x, st[1] - K.z).toFixed(2),
+                     dach: [koll.x0, koll.x1, koll.z0, koll.z1] });
     }
     const alle = ['KeyW','KeyA','KeyS','KeyD','ShiftLeft','Space','KeyZ'];
     const los = () => { for (const t of alle) d.taste(t, false); };
@@ -168,7 +178,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
           const kn = d.animKnochen(['head', 'spine2', 'hips']);
           faelle.push({
             ort: [S.x, S.z], modell: S.modell, richtung: r, bild: k,
-            stelle: si, imDachLauf, dachY: +(SLAB_H + S.h).toFixed(2),
+            stelle: si, imDachLauf, dachY: +(SLAB_H + S.h).toFixed(2), dachKiste: S.dach,
             pos: [+P.pos.x.toFixed(2), +P.pos.y.toFixed(2), +P.pos.z.toFixed(2)],
             zustand: P.state, gier: +gier.toFixed(2),
             kam: kam.pos, kamAbstand: kam.abstand, kamSteckt: kam.steckt,
@@ -201,38 +211,63 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
     }
     /* ---- Teil 2: Ruhe an denselben Orten ---- */
     const ruhe = [];
+    const ruheBilder = [];
     const gesehen = new Set();
-    for (const F of faelle) {
+    const ruheListe = RUHE ? RUHE.map(([si, r]) => {
+      const S = stellen[si];
+      return { ort: [S.x, S.z], modell: S.modell, richtung: r, gier: +(r * Math.PI / 2).toFixed(2),
+               stelle: si, dachY: +(SLAB_H + S.h).toFixed(2), dachKiste: S.dach };
+    }) : faelle;
+    for (const F of ruheListe) {
       const schl = F.ort[0] + ',' + F.ort[1] + ',' + F.richtung;
       if (gesehen.has(schl)) continue;
       gesehen.add(schl);
       los();
-      d.setzePos(F.ort[0], SLAB_H + 0.1 + (F.pos[1] - SLAB_H), F.ort[1]);
+      d.setzePos(F.ort[0], F.dachY + 0.1, F.ort[1]);
       P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
       P.wallInfo = null; P.wall = null; P.facing = F.gier;
       if (FEST) d.kamStart(F.gier); else d.setzeKamYaw(F.gier);
       for (let i = 0; i < 30; i++) d.schritt(1 / 60);
       d.taste('KeyW', true);
+      /* Die Figur laeuft, bis sie 1,5 m vor der Dachkante ist, und bleibt
+         dort stehen - sonst misst die Ruhe den Absturz vom Dach mit
+         (gemessen: Spruenge bis 5,6 m, alle im Fall am Hauskoerper). */
+      const DK = F.dachKiste;
+      let laeuft = true;
       let vorKam = null, vorBlick = null, vorWahl = null;
       let maxOrt = 0, maxDreh = 0, wechsel = 0, minAb = 99, maxAb = 0, tunnel = 0;
+      let sprungInfo = null, vorAb = null, vorBlk = null;
       let imKoll = 0, sichtMin = 5, sichtSumme = 0, sichtProben = 0, lesbarNicht = 0;
       for (let i = 0; i < 300; i++) {
+        if (laeuft && Math.min(P.pos.x - DK[0], DK[1] - P.pos.x, P.pos.z - DK[2], DK[3] - P.pos.z) < 1.5) {
+          d.taste('KeyW', false); laeuft = false;
+        }
         d.schritt(1 / 60);
         const kam = d.kamera(), blk = d.kamBlock();
         if (vorKam) {
           const dd = Math.hypot(kam.pos[0] - vorKam[0], kam.pos[1] - vorKam[1],
                                 kam.pos[2] - vorKam[2]);
-          if (dd > maxOrt) maxOrt = dd;
+          if (dd > maxOrt) {
+            maxOrt = dd;
+            sprungInfo = { bild: i, abstandVor: vorAb, abstandNach: kam.abstand,
+                           wahlVor: vorBlk ? vorBlk.ausweichWahl : null, wahlNach: blk.ausweichWahl,
+                           blocker: blk.blocker ? blk.blocker.id + (blk.blocker.dachProp ? ' dachProp' : blk.blocker.klein ? ' klein' : '') : null,
+                           zustand: P.state, figurY: +P.pos.y.toFixed(2) };
+          }
           const dr = Math.hypot(kam.blick[0] - vorBlick[0], kam.blick[1] - vorBlick[1],
                                 kam.blick[2] - vorBlick[2]);
           if (dr > maxDreh) maxDreh = dr;
         }
         if (vorWahl !== null && blk.ausweichWahl !== vorWahl) wechsel++;
         vorKam = kam.pos; vorBlick = kam.blick; vorWahl = blk.ausweichWahl;
+        vorAb = kam.abstand; vorBlk = blk;
         if (kam.abstand < minAb) minAb = kam.abstand;
         if (kam.abstand > maxAb) maxAb = kam.abstand;
         if (i % 6 === 0 && raster(kam).anteil > 0.5) tunnel++;
         if (kam.steckt) imKoll++;
+        if (BILD && (i === 60 || i === 150 || i === 290))
+          ruheBilder.push({ name: 'ruhe-st' + F.stelle + '-ri' + F.richtung + '-bild' + String(i).padStart(3, '0'),
+                            u: d.bildDaten(0.75) });
         if (i % 6 === 0) {
           const ks = d.koerperSicht(PUNKTE);
           if (ks) {
@@ -251,10 +286,12 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                   tunnelProben: tunnel, proben: 50,
                   kameraImKollider: imKoll,
                   sichtMin, sichtMittel: sichtProben ? +(sichtSumme / sichtProben).toFixed(2) : null,
-                  nichtLesbar: lesbarNicht });
+                  nichtLesbar: lesbarNicht, sprungInfo, stelle: F.stelle });
     }
-    return { faelle, ruhe, stellen: stellen.length };
-  }, { fest: FEST, bild: !!BILDER });
+    return { faelle, ruhe, ruheBilder, stellen: stellen.length,
+             starts: stellen.map((q, i) => i + ' ' + q.modell + ' Start ' + q.x.toFixed(2) + ',' + q.z.toFixed(2) +
+                                             ' (' + q.mitteVerschoben + ' m neben der Dachmitte)') };
+  }, { fest: FEST, bild: !!BILDER, ruhe: RUHE });
 
   /* ---- badFrames und uniqueBadCameraEvents ----
      Ein Ereignis ist eine ununterbrochene Folge schlechter Proben (alle
@@ -271,6 +308,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   };
   const dach = aus.faelle.filter((f) => f.imDachLauf);
   const fall = aus.faelle.filter((f) => !f.imDachLauf);
+  console.log('\n== Startpunkte ==');
+  for (const z of aus.starts) console.log('  ' + z);
   console.log('\n== Zaehlung ==');
   console.log('  alle Proben          badFrames ' + aus.faelle.length +
               '   uniqueBadCameraEvents ' + ereignisse(aus.faelle));
@@ -339,8 +378,12 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                 String(r.tunnelProben + '/' + r.proben).padStart(14) +
                 String(r.kameraImKollider).padStart(8) +
                 String(r.sichtMin + ' / ' + r.sichtMittel).padStart(18) +
-                String(r.nichtLesbar + '/' + 50).padStart(14));
+                String(r.nichtLesbar + '/' + 50).padStart(14) +
+                '   St ' + r.stelle + '  groesster Sprung: ' + JSON.stringify(r.sprungInfo));
   if (BILDER) {
+    for (const rb of aus.ruheBilder || [])
+      fs.writeFileSync(path.join(BILDER, rb.name + '.jpg'), Buffer.from(rb.u.split(',')[1], 'base64'));
+    aus.ruheBilder = null;
     for (const f of aus.faelle) {
       if (!f.bild64) continue;
       fs.writeFileSync(path.join(BILDER, 'st' + f.stelle + '-ri' + f.richtung + '-bild' +

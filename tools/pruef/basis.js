@@ -113,6 +113,7 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.kamAusAlt) window.__WEBHERO_KAMAUS_ALT = 1;
     if (ein.kollQuelle) window.__WEBHERO_KOLL_QUELLE = 1;
     if (ein.kamSichtAlt) window.__WEBHERO_KAM_SICHT_ALT = 1;
+    if (ein.dachlebenAlt) window.__WEBHERO_DACHLEBEN_ALT = 1;
     /* Nur zum Messen: die Tiefenkarte waehrend des Kletterns
        abschalten (siehe FASS_IM_LAUF_AUS). */
     if (ein.fassLaufAus) window.__WEBHERO_FASS_LAUF_AUS = 1;
@@ -148,6 +149,7 @@ async function starte(breite, hoehe, seed, opt) {
        kamAusAlt: !!(opt && opt.kamAusAlt),
        kollQuelle: !!(opt && opt.kollQuelle),
        kamSichtAlt: !!(opt && opt.kamSichtAlt),
+       dachlebenAlt: !!(opt && opt.dachlebenAlt),
        fassLaufAus: !!(opt && opt.fassLaufAus),
        rumpfAlt: !!(opt && opt.rumpfAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });
