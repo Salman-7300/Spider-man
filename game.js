@@ -2971,6 +2971,7 @@ const DEKO_KOPIE = [];
 function deko(w, h, d, x, y, z, farbe, ry, rz) {
   const t = { w, h, d, x, y, z, farbe, ry: ry || 0, rz: rz || 0 };
   dekoTeile.push(t); DEKO_KOPIE.push(t);
+  return t;
 }
 
 /* Eine Liste von Kisten {w,h,d,x,y,z,farbe,ry} zu EINER Geometrie
@@ -3005,6 +3006,10 @@ function verschmelzeBoxen(teile) {
       farben[(vo + i) * 3] = farbe.r; farben[(vo + i) * 3 + 1] = farbe.g; farben[(vo + i) * 3 + 2] = farbe.b;
     }
     for (let i = 0; i < bi.count; i++) indizes[io + i] = bi.getX(i) + vo;
+    /* Wo die Kiste in der gemeinsamen Geometrie steht - fuer den
+       Kamera-Fade (siehe KAM_FADE), der genau diese eine Kiste
+       ausduennen darf. */
+    t.vo = vo; t.vn = bp.count;
     vo += bp.count; io += bi.count;
   }
   const g = new THREE.BufferGeometry();
@@ -3013,6 +3018,7 @@ function verschmelzeBoxen(teile) {
   g.setAttribute('color', new THREE.BufferAttribute(farben, 3));
   g.setIndex(new THREE.BufferAttribute(indizes, 1));
   g.computeBoundingSphere();
+  for (const t of teile) t.geom = g;
   return g;
 }
 
@@ -3123,10 +3129,41 @@ function sitzMensch(x, y, z, ry, groesse, seed) {
   return teile;
 }
 
+/* ====================== Kamera-Fade: Dither im bestehenden Material ======================
+   problem-2, Human-Entscheidung zu a7e1e20: bleibt die Figur hinter
+   einem Dachaufbau verdeckt, obwohl keine Kameralage mehr hilft, darf
+   GENAU dieses Objekt fuer das Bild ausgeduennt werden. Das Hindernis
+   bleibt voll.
+
+   Ein Material wie opacity darf es nicht sein: das Deko-Mesh ist EIN
+   Mesh mit EINEM Material fuer tausende Kisten, die Dachleben-Kaesten
+   ein Instanz-Mesh. Stattdessen traegt jede Ecke (Deko) bzw. jede
+   Instanz (Dachleben) einen eigenen Wert "fade" (1 = ganz da), und der
+   Fragment-Shader verwirft nach einem festen 4x4-Bayer-Muster so viele
+   Pixel, wie der Wert fehlt. Das Material bleibt deckend: keine
+   Transparenz-Sortierung, kein zusaetzlicher Zeichenaufruf, kein
+   zusaetzliches Material, kein zusaetzliches Objekt. Der Schatten
+   bleibt stehen - das Objekt ist raeumlich weiter zu lesen. */
+function fadeMaterial(mat, attr) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'attribute float ' + attr + ';\nvarying float vFade;\n' +
+      sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vFade = ' + attr + ';');
+    sh.fragmentShader = 'varying float vFade;\n' +
+      'float fadeBayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }\n' +
+      'float fadeBayer4(vec2 a) { return fadeBayer2(0.5 * a) * 0.25 + fadeBayer2(a); }\n' +
+      sh.fragmentShader.replace('#include <clipping_planes_fragment>',
+        '#include <clipping_planes_fragment>\n' +
+        '  if (vFade < 0.999 && fadeBayer4(gl_FragCoord.xy) + 0.03125 > vFade) discard;');
+  };
+  mat.customProgramCacheKey = () => 'kamFade-' + attr;
+  return mat;
+}
+
 function baueDekoMesh() {
   if (!dekoTeile.length) return;
-  const mesh = new THREE.Mesh(verschmelzeBoxen(dekoTeile),
-                              new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const g = verschmelzeBoxen(dekoTeile);
+  g.setAttribute('fade', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(1), 1));
+  const mesh = new THREE.Mesh(g, fadeMaterial(new THREE.MeshLambertMaterial({ vertexColors: true }), 'fade'));
   mesh.castShadow = true; mesh.receiveShadow = true;
   cityGroup.add(mesh);
   dekoTeile.length = 0;
@@ -3194,13 +3231,51 @@ const DACH_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_DACH_ALT;
    durchlaessig - der Stand vor problem-2 Punkt B, in derselben Stadt. */
 const DUENN_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_DUENN_ALT;
 const DUENN_ALT_TEIL = (w, d) => DUENN_ALT && Math.max(w, d) < DACH_PROP_DUENN;
+/* ====================== Eine Regel fuer alle Dachaufbauten ======================
+   problem-2, Human-Entscheidung zu a7e1e20: Rohre und Antennen werden nach
+   ihrer GEOMETRIE eingestuft, nicht nach der Quelle (schmueckeHaus,
+   baueDachaufbauten, ...). Drei Klassen:
+     MASSIVE           echtes Hindernis, kletterbar, die Kamera sieht es
+     THIN_SOLID        passgenaues Hindernis, "klein" und "keinKlettern"
+     THIN_DECORATIVE   kein Hindernis - auch fuer die Kamera nicht
+   Gemessen (tools/pruef/duenne-dachteile.js, Keim 4711):
+     Querschnitte  0,18 m  Dachleben-Antenne   92
+                   0,22 m  Antenne            284
+                   0,35 m  Rohr              1234
+                   ab 1,2 m nur noch Kaesten
+     Haengenbleiben an einem einzelnen Hindernis (gerade und schraeg,
+     Versatz 0 bis 0,5 m): bei 0,18 / 0,22 / 0,35 / 0,60 m GLEICH - wer
+     gerade darauf zulaeuft, steht, und zwar eine Kapselbreite (0,45 m)
+     vor der Oberflaeche. Diese Luecke ist bei der Antenne 2,5 bzw. 2,0
+     mal so breit wie das Teil selbst (eine unsichtbare Wand um einen
+     Mast), beim Rohr 1,3 mal, bei einem Kasten hoechstens 0,4 mal.
+   Die natuerliche Trennung liegt in der Luecke zwischen 0,22 und 0,35 m
+   (dazwischen gibt es kein Teil); die Grenze steht in ihrer Mitte. Jeder
+   Wert in dieser Luecke ergibt dieselben Klassen:
+     MASSIVE           Kaesten, Wasserturm, Klimageraete (ab 0,60 m)
+     THIN_SOLID        Rohr 0,35 m - wie seit problem-2 Punkt B: der
+                       Rumpf lief sichtbar durch ein brusthohes Rohr
+     THIN_DECORATIVE   Antennen 0,18 und 0,22 m - gleich, aus welcher
+                       Quelle
+   Nur zum Messen: __WEBHERO_DUENN_KLASSE = 'fest' | 'deko' zwingt alle
+   duennen Teile in eine Klasse. */
+const DUENN_KLASSE = typeof window !== 'undefined' && window.__WEBHERO_DUENN_KLASSE
+  ? String(window.__WEBHERO_DUENN_KLASSE) : null;
+const DACH_DUENN_DEKO = 0.28;
+function roofPropCollisionClass(w, d, h, art) {
+  const q = Math.max(w, d);
+  if (q >= DACH_PROP_DUENN) return 'MASSIVE';
+  if (DUENN_KLASSE === 'fest') return 'THIN_SOLID';
+  if (DUENN_KLASSE === 'deko') return 'THIN_DECORATIVE';
+  return q < DACH_DUENN_DEKO ? 'THIN_DECORATIVE' : 'THIN_SOLID';
+}
 /* Requisiten aus stadtteile.glb, die auf DAECHERN stehen und deshalb
    ein Hindernis brauchen. Poller und Kanaldeckel stehen auf dem Gehweg
    und gehoeren nicht hierher - der Poller hat seinen eigenen, der
    Kanaldeckel liegt flach. */
 const DACH_PROP_ARTEN = ['Prop_ACUnit'];
 const DACH_PROPS = [];
-function dachProp(art, w, h, d, x, yUnten, z) {
+function dachProp(art, w, h, d, x, yUnten, z, sicht) {
   /* ---- Auch das Duenne haelt auf ----
      problem-2, Punkt B. Bis hierher bekam nur ein Aufbau ab 0,60 m
      Breite ein Hindernis. Rohre (0,35 m) und Antennen (0,22 m) waren
@@ -3215,15 +3290,20 @@ function dachProp(art, w, h, d, x, yUnten, z) {
      "keinKlettern": man laeuft nicht mehr hindurch, kann sich aber
      auch nicht an einem 22 cm dicken Mast hochziehen oder ihn
      anspringen. Genau so sind Laternen, Ampeln und Poller eingetragen. */
-  const fest = !DACH_ALT && !DUENN_ALT_TEIL(w, d);
-  const duenn = Math.max(w, d) < DACH_PROP_DUENN;
+  const klasse = roofPropCollisionClass(w, d, h, art);
+  const fest = !DACH_ALT && !DUENN_ALT_TEIL(w, d) && klasse !== 'THIN_DECORATIVE';
+  const duenn = klasse !== 'MASSIVE';
   const eintrag = { art, w: +w.toFixed(2), h: +h.toFixed(2), d: +d.toFixed(2),
                     x: +x.toFixed(2), y0: +yUnten.toFixed(2), z: +z.toFixed(2),
-                    fest, duenn, koll: null };
+                    fest, duenn, klasse, koll: null };
   if (fest) {
     const c = { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
                 h: yUnten + h, y0: yUnten, dachProp: true };
     if (duenn) { c.klein = true; c.keinKlettern = true; }
+    /* Das SICHTBARE Gegenstueck: { deko: Kiste im Deko-Mesh } oder
+       { instanz: Dachleben-Teil }. Nur damit darf die Kamera genau
+       dieses eine Objekt ausduennen (KAM_FADE); das Hindernis bleibt. */
+    if (sicht) c.sicht = sicht;
     addCollider(c);
     /* Der Rueckverweis ist fuer die Pruefung da. Ohne ihn muss sie das
        Hindernis anhand der Lage suchen - und findet dann das des
@@ -3329,8 +3409,8 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
     const kw = rand(1.2, 2.6), kh = rand(0.7, 1.8), kd = rand(1.2, 2.6);
     const kx = x + rand(-w / 2 + 1.5, w / 2 - 1.5);
     const kz = z + rand(-d / 2 + 1.5, d / 2 - 1.5);
-    deko(kw, kh, kd, kx, oben + kh / 2, kz, pick([0x767c85, 0x646a72, 0x878d96]));
-    dachProp('Lueftungskasten', kw, kh, kd, kx, oben, kz);
+    const kt = deko(kw, kh, kd, kx, oben + kh / 2, kz, pick([0x767c85, 0x646a72, 0x878d96]));
+    dachProp('Lueftungskasten', kw, kh, kd, kx, oben, kz, { deko: kt });
   }
   /* Die Rohre standen mit FESTER Mitte auf oben + 1,0, ihre Hoehe wurde
      aber gewuerfelt (1,2 bis 2,4 m). Nur ein Rohr von genau zwei Metern
@@ -3345,8 +3425,8 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
   for (let i = 0; i < 2; i++) {
     const ph = rand(1.2, 2.4);
     const px = x + rand(-w / 3, w / 3), pz = z + rand(-d / 3, d / 3);
-    deko(0.35, ph, 0.35, px, oben + ph / 2, pz, 0x555b63);
-    dachProp('Rohr', 0.35, ph, 0.35, px, oben, pz);
+    const rt = deko(0.35, ph, 0.35, px, oben + ph / 2, pz, 0x555b63);
+    dachProp('Rohr', 0.35, ph, 0.35, px, oben, pz, { deko: rt });
   }
   /* Freien Platz auf dem Dach suchen: nicht unter dem Staffelturm. */
   const dachFrei = (px, pz, halbW, halbD) => !frei ||
@@ -3355,8 +3435,8 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
     const ah = rand(4, 9);
     const ax = x + rand(-w / 4, w / 4), az = z + rand(-d / 4, d / 4);
     if (dachFrei(ax, az, 0.3, 0.3)) {
-      deko(0.22, ah, 0.22, ax, oben + ah / 2, az, 0x484d55);
-      dachProp('Antenne', 0.22, ah, 0.22, ax, oben, az);
+      const at = deko(0.22, ah, 0.22, ax, oben + ah / 2, az, 0x484d55);
+      dachProp('Antenne', 0.22, ah, 0.22, ax, oben, az, { deko: at });
     }
   }
   /* Die Reklametafeln auf den Daechern sind weg - sie waren einfarbige
@@ -5731,8 +5811,8 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
     const pl = dachPlatz(2.0, 1.6);
     if (pl) {
       const bw = rand(1.5, 3), bd = rand(1.5, 3);
-      deko(bw, bh, bd, pl.px, SLAB_H + h + bh / 2, pl.pz, 0x777d84);
-      dachProp('Dachkasten', bw, bh, bd, pl.px, SLAB_H + h, pl.pz);
+      const kt = deko(bw, bh, bd, pl.px, SLAB_H + h + bh / 2, pl.pz, 0x777d84);
+      dachProp('Dachkasten', bw, bh, bd, pl.px, SLAB_H + h, pl.pz, { deko: kt });
     }
   }
   /* Ein paar echte Klimageraete auf dem Dach - beim Schwingen sieht man
@@ -10203,6 +10283,22 @@ function makeGlbVisual(m) {
       }
       return aus;
     },
+    /* Die fuenf Koerperpunkte der Kamera (KAM_SICHT) in Weltkoordinaten:
+       Kopf, Brust, Becken, linke und rechte Schulter - aus den ECHTEN
+       Knochen, nicht aus festen Hoehen. Gemessen: an der Dachkante
+       stand der Kopf deutlich unter der festen Schaetzung (1,7 m), die
+       Figur war hinter einem Kasten verdeckt, und die Schaetzung sagte
+       "lesbar". */
+    kameraPunkte(out) {
+      const namen = ['head', 'spine2', 'hips', 'leftarm', 'rightarm'];
+      root.updateMatrixWorld(true);
+      for (let i = 0; i < namen.length; i++) {
+        const b = knochen[namen[i]];
+        if (!b) return false;
+        b.getWorldPosition(out[i]);
+      }
+      return true;
+    },
     /* Weltlage der wichtigen Knochen - Grundlage fuer die Sprungmessung. */
     laborKnochen(liste) {
       root.updateMatrixWorld(true);
@@ -14351,31 +14447,119 @@ const KAM_SICHT_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAM_SI
 const KAM_SICHT_H = [1.7, 1.4, 0.95, 1.45, 1.45];     // Kopf, Brust, Becken, Schulter L, R
 const KAM_SICHT_Q = [0, 0, 0, -0.2, 0.2];
 const _ksA = new THREE.Vector3(), _ksB = new THREE.Vector3();
-function kamStreckeFrei(a, b) {
+/* Welches Hindernis schneidet die Strecke zuerst? null = frei. */
+function kamStreckeFrei(a, b) { return kamStreckeBlocker(a, b) === null; }
+function kamStreckeBlocker(a, b) {
   const i0 = Math.floor((Math.min(a.x, b.x) - HASH_O) / PITCH), i1 = Math.floor((Math.max(a.x, b.x) - HASH_O) / PITCH);
   const j0 = Math.floor((Math.min(a.z, b.z) - HASH_O) / PITCH), j1 = Math.floor((Math.max(a.z, b.z) - HASH_O) / PITCH);
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
     for (const c of colliderGrid.get(i + ',' + j) || []) {
       if (c.innen || c.parkAuto) continue;
-      if (kameraKastenTreffer(a, b, c, 0) < 1) return false;
+      if (kameraKastenTreffer(a, b, c, 0) < 1) return c;
     }
   }
-  return true;
+  return null;
 }
 /* Anzahl sichtbarer Punkte (0..5); lesbar in KAM_SICHT.lesbar. */
-const KAM_SICHT = { n: 5, lesbar: true };
+const KAM_SICHT = { n: 5, lesbar: true, haupt: null, alle: new Set() };
 const _kamSichtN = [], _kamSichtFrei = [], _kamSichtLuft = [], _kamSichtLesbar = [];
+/* Die Koerperpunkte EINMAL je Bild holen (siehe kameraPunkte in der
+   Figur); ohne Figur (Offline-Tests) die festen Hoehen. */
+const _kamPunkte = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(),
+                    new THREE.Vector3(), new THREE.Vector3()];
+let _kamPunkteEcht = false;
+function kamKoerperPunkteHolen() {
+  _kamPunkteEcht = typeof heroVisual !== 'undefined' && !!heroVisual && !!heroVisual.kameraPunkte &&
+                   heroVisual.kameraPunkte(_kamPunkte);
+}
 function kamKoerperSicht(kp) {
   const qx = -(kp.z - player.pos.z), qz = kp.x - player.pos.x;
   const ql = Math.hypot(qx, qz) || 1;
   let n = 0, kopf = false, brust = false;
+  KAM_SICHT.haupt = null; KAM_SICHT.alle.clear();
   for (let i = 0; i < KAM_SICHT_H.length; i++) {
-    _ksB.set(player.pos.x + qx / ql * KAM_SICHT_Q[i], player.pos.y + KAM_SICHT_H[i],
-             player.pos.z + qz / ql * KAM_SICHT_Q[i]);
-    if (kamStreckeFrei(kp, _ksB)) { n++; if (i === 0) kopf = true; if (i === 1) brust = true; }
+    if (_kamPunkteEcht) _ksB.copy(_kamPunkte[i]);
+    else _ksB.set(player.pos.x + qx / ql * KAM_SICHT_Q[i], player.pos.y + KAM_SICHT_H[i],
+                  player.pos.z + qz / ql * KAM_SICHT_Q[i]);
+    const c = kamStreckeBlocker(kp, _ksB);
+    if (c === null) { n++; if (i === 0) kopf = true; if (i === 1) brust = true; }
+    else {
+      KAM_SICHT.alle.add(c);
+      /* Wer verdeckt Kopf oder Brust? Der zaehlt fuer den Fade. */
+      if (i <= 1 && KAM_SICHT.haupt === null) KAM_SICHT.haupt = c;
+    }
   }
   KAM_SICHT.n = n; KAM_SICHT.lesbar = kopf && brust;
   return n;
+}
+/* ====================== Kamera-Fade: die letzte Stufe ======================
+   problem-2, Human-Entscheidung zu a7e1e20. Reihenfolge:
+     1  Wunschkamera
+     2  die vorhandenen Ausweichlagen (KAM_AUSWEICH, Tie-Breaker KAM_SICHT)
+     3  erst wenn KEINE davon die Figur lesbar macht: GENAU das Objekt,
+        das Kopf oder Brust verdeckt, fuer das Bild ausduennen
+   Nur Dachaufbauten mit sichtbarem Gegenstueck (c.sicht, siehe dachProp)
+   - kein Dach, kein Haus, kein Nachbar. Das Hindernis bleibt voll: die
+   Figur landet, steht und stoesst weiter daran, und auch die Kamera
+   rechnet weiter mit ihm - deshalb gibt es keine Rueckkopplung, die den
+   Fade flattern laesst.
+
+   Ein: Suche lief, gewaehlte Lage nicht lesbar, von der TATSAECHLICHEN
+        Kameralage aus verdeckt dieses Objekt Kopf oder Brust.
+   Aus: das Objekt verdeckt keinen der fuenf Koerperpunkte mehr.
+   Die Werte fahren weich (1 - e^(-KAM_FADE_TEMPO dt)), nie in einem Bild.
+   KAM_FADE_MIN ist der kleinste noetige Fade - im Human-Bild verglichen,
+   siehe tools/pruef/kamera-fade.js. */
+const KAM_FADE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_FADE_ALT;
+const KAM_FADE_MIN = typeof window !== 'undefined' && window.__WEBHERO_FADE_MIN !== undefined
+  ? Number(window.__WEBHERO_FADE_MIN) : 0.35;
+const KAM_FADE_TEMPO = 4;
+const KAM_FADE = { aktiv: new Map(), ausgeloest: 0, wechsel: 0, ziel: new Set() };
+function kamFadeFaehig(c) {
+  if (!c || !c.dachProp || !c.sicht) return false;
+  if (c.sicht.deko) return !!(c.sicht.deko.geom && c.sicht.deko.geom.attributes.fade);
+  if (c.sicht.instanz) return !!(c.sicht.instanz.mesh && c.sicht.instanz.mesh.geometry.attributes.instFade);
+  return false;
+}
+function kamFadeSetze(c, f) {
+  const s = c.sicht;
+  if (s.deko) {
+    const t = s.deko, a = t.geom.attributes.fade;
+    for (let i = 0; i < t.vn; i++) a.array[t.vo + i] = f;
+    const r = a.updateRange;
+    if (r.count === -1) { r.offset = t.vo; r.count = t.vn; }
+    else { const e = Math.max(r.offset + r.count, t.vo + t.vn); r.offset = Math.min(r.offset, t.vo); r.count = e - r.offset; }
+    a.needsUpdate = true;
+  } else if (s.instanz) {
+    const t = s.instanz, a = t.mesh.geometry.attributes.instFade;
+    a.array[t.idx] = f;
+    a.needsUpdate = true;
+  }
+}
+function kamFadePruefe(kp, gesucht, wahlLesbar, dt) {
+  if (KAM_FADE_ALT) return;
+  kamKoerperSicht(kp);
+  const ziel = KAM_FADE.ziel;
+  ziel.clear();
+  for (const c of KAM_FADE.aktiv.keys()) if (KAM_SICHT.alle.has(c)) ziel.add(c);
+  const h = KAM_SICHT.haupt;
+  if (gesucht && !wahlLesbar && !KAM_SICHT.lesbar && h && !ziel.has(h) && kamFadeFaehig(h)) {
+    ziel.add(h);
+    if (!KAM_FADE.aktiv.has(h)) { KAM_FADE.aktiv.set(h, 1); KAM_FADE.ausgeloest++; KAM_FADE.wechsel++; }
+  }
+  const k = 1 - Math.exp(-dt * KAM_FADE_TEMPO);
+  for (const [c, f] of KAM_FADE.aktiv) {
+    const soll = ziel.has(c) ? KAM_FADE_MIN : 1;
+    let neu = f + (soll - f) * k;
+    if (soll === 1 && neu > 0.995) neu = 1;
+    if (neu !== f) kamFadeSetze(c, neu);
+    if (neu === 1 && soll === 1) { KAM_FADE.aktiv.delete(c); KAM_FADE.wechsel++; }
+    else KAM_FADE.aktiv.set(c, neu);
+  }
+}
+function kamFadeAlleZurueck() {
+  for (const c of KAM_FADE.aktiv.keys()) kamFadeSetze(c, 1);
+  KAM_FADE.aktiv.clear();
 }
 function kamRichtungVersetzt(dir, dGier, dNeig, aus) {
   const c = Math.cos(dGier), s2 = Math.sin(dGier);
@@ -14545,6 +14729,7 @@ function updateCamera(dt) {
   KAM_BLOCK.luft = +luftJetzt.toFixed(3);
   /* Ist die Figur von der geklemmten Lage aus lesbar? (2I) */
   let lesbarJetzt = true;
+  kamKoerperPunkteHolen();
   if (!KAM_AUS_ALT && !KAM_SICHT_ALT && !MISSION_INTERIOR.active) {
     _ksA.copy(target).addScaledVector(dir, d);
     kamKoerperSicht(_ksA);
@@ -14665,6 +14850,10 @@ function updateCamera(dt) {
     camShake = Math.max(0, camShake - dt * 1.6);
     begrenzeKamera(target, camera.position);
   }
+  /* Letzte Stufe: Fade (siehe KAM_FADE). */
+  if (!MISSION_INTERIOR.active)
+    kamFadePruefe(camera.position, !!KAM_BLOCK.ausweichGesucht,
+                  !KAM_BLOCK.ausweichGesucht || _kamSichtLesbar[kamAusWahl] !== false, dt);
   camera.lookAt(target);
 
   /* Kameraneigung: Beim Schwingen legt sich das Bild in die Kurve, beim
@@ -23870,7 +24059,9 @@ function baueDachaufbauten() {
   const baue = (liste, farbe) => {
     if (!liste.length) return;
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshLambertMaterial({ color: farbe });
+    /* Je Instanz ein Fade-Wert (siehe fadeMaterial). */
+    geo.setAttribute('instFade', new THREE.InstancedBufferAttribute(new Float32Array(liste.length).fill(1), 1));
+    const mat = fadeMaterial(new THREE.MeshLambertMaterial({ color: farbe }), 'instFade');
     const mesh = new THREE.InstancedMesh(geo, mat, liste.length);
     const m4 = new THREE.Matrix4();
     liste.forEach((t, i) => {
@@ -23943,8 +24134,10 @@ bezirkeLesen();
 function dachlebenHindernisse() {
   if (DACHLEBEN_ALT) return;
   for (const t of DACH_TEILE) {
-    if (!t.fest || t.imHaus) continue;
-    dachProp('Dachleben-' + t.art, t.bx, t.by, t.bz, t.x, t.y - t.by / 2, t.z);
+    if (t.imHaus) continue;
+    /* Ob fest oder Deko, entscheidet dieselbe Regel wie fuer alle
+       Dachaufbauten (roofPropCollisionClass) - auch fuer die Antenne. */
+    t.fest = dachProp('Dachleben-' + t.art, t.bx, t.by, t.bz, t.x, t.y - t.by / 2, t.z, { instanz: t });
     t.koll = DACH_PROPS[DACH_PROPS.length - 1].koll;
     if (t.koll) t.koll.dachleben = true;
   }
@@ -38288,10 +38481,83 @@ if (window.__WEBHERO_TEST__ === true) {
        wurden aus dem VORIGEN Lauf geerbt, und die beiden Staende hatten
        verschiedene Vorgeschichten. Hiermit beginnt jeder Lauf gleich:
        Neigung wie beim Spielstart, keine Ausweichlage. */
-    kamStart(gier) {
-      camYaw = gier; camPitch = 0.22;
+    /* ---- Alle duennen, senkrechten Teile auf Daechern ----
+       problem-2, Rohre und Antennen einheitlich einstufen. Erfasst
+       werden (1) alle eingetragenen Dachaufbauten mit Querschnitt unter
+       DACH_PROP_DUENN, egal aus welcher Quelle, und (2) alle Deko-Kisten,
+       die duenn und senkrecht auf einer Dachflaeche stehen, aber NICHT
+       eingetragen sind - damit keine Quelle uebersehen wird. */
+    duenneDachteile() {
+      const aus = [];
+      const bekannt = [];
+      for (const p of DACH_PROPS) {
+        if (Math.max(p.w, p.d) >= DACH_PROP_DUENN) continue;
+        bekannt.push(p);
+        aus.push({ quelle: 'dachProp', art: p.art, w: p.w, d: p.d, h: p.h, x: p.x, z: p.z,
+                   y0: p.y0, klasse: p.klasse, hindernis: !!p.koll });
+      }
+      for (const t of DEKO_KOPIE) {
+        if (Math.max(t.w, t.d) >= DACH_PROP_DUENN || t.h < 0.8 || t.h < 2 * Math.max(t.w, t.d)) continue;
+        if (t.rz || t.rx) continue;
+        const fuss = t.y - t.h / 2;
+        if (bekannt.some((p) => Math.abs(p.x - t.x) < 0.02 && Math.abs(p.z - t.z) < 0.02)) continue;
+        let aufDach = false;
+        for (const c of collidersNear(t.x, t.z)) {
+          if (c.klein || c.dachProp || c.innen || c.parkAuto) continue;
+          if (t.x > c.x0 && t.x < c.x1 && t.z > c.z0 && t.z < c.z1 && Math.abs((c.h || 0) - fuss) < 0.15 &&
+              (c.h || 0) > 6) { aufDach = true; break; }
+        }
+        if (!aufDach) continue;
+        let halt = false;
+        for (const c of collidersNear(t.x, t.z)) {
+          const y0 = c.y0 === undefined ? -1e9 : c.y0;
+          if (t.x > c.x0 && t.x < c.x1 && t.z > c.z0 && t.z < c.z1 && t.y > y0 && t.y < (c.h || 0) &&
+              !(Math.abs((c.h || 0) - fuss) < 0.15)) { halt = true; break; }
+        }
+        aus.push({ quelle: 'deko', art: 'Deko ohne Eintrag', w: t.w, d: t.d, h: t.h, x: t.x, z: t.z,
+                   y0: fuss, klasse: null, hindernis: halt });
+      }
+      return aus;
+    },
+    /* Nur fuer Pruefstaende: ein Hindernis setzen und wieder entfernen
+       (duenne-dachteile.js misst damit das Haengenbleiben an genau
+       einem Querschnitt, ohne andere Aufbauten in der Naehe). */
+    testHindernis(x, z, w, y0, h, klein) {
+      const c = { x0: x - w / 2, x1: x + w / 2, z0: z - w / 2, z1: z + w / 2, y0, h: y0 + h, dachProp: true };
+      if (klein) { c.klein = true; c.keinKlettern = true; }
+      addCollider(c);
+      return c.id;
+    },
+    testHindernisWeg(id) {
+      const i = colliders.findIndex((c) => c.id === id);
+      if (i < 0) return false;
+      const c = colliders[i];
+      colliders.splice(i, 1);
+      for (const liste of colliderGrid.values()) {
+        const k = liste.indexOf(c);
+        if (k >= 0) liste.splice(k, 1);
+      }
+      return true;
+    },
+    /* Kamerawinkel lesen und setzen - fuer die Nachstellung eines
+       gemessenen Falls (problem-2, Fade-Pass). */
+    kamWinkel() { return { gier: camYaw, neig: camPitch }; },
+    kamStart(gier, neig) {
+      camYaw = gier; camPitch = neig === undefined ? 0.22 : neig;
       kamAusWahl = 0; kamAusGier = 0; kamAusNeig = 0;
       kamFrei = camDist; vorausGlatt = 0; flugGlatt = gier + Math.PI;
+      kamFadeAlleZurueck();
+    },
+    /* Kamera-Fade: welche Objekte, wie weit, und die Zaehler. */
+    fadeZustand() {
+      const liste = [];
+      for (const [c, f] of KAM_FADE.aktiv)
+        liste.push({ id: c.id, wert: +f.toFixed(3), art: c.sicht.deko ? 'deko' : 'dachleben', ziel: KAM_FADE.ziel.has(c),
+                     x: [+c.x0.toFixed(2), +c.x1.toFixed(2)], z: [+c.z0.toFixed(2), +c.z1.toFixed(2)],
+                     y: [+c.y0.toFixed(2), +c.h.toFixed(2)] });
+      return { aktiv: liste, ausgeloest: KAM_FADE.ausgeloest, wechsel: KAM_FADE.wechsel, min: KAM_FADE_MIN,
+               sichtN: KAM_SICHT.n, lesbar: KAM_SICHT.lesbar,
+               haupt: KAM_SICHT.haupt ? KAM_SICHT.haupt.id : null };
     },
     /* ---- Welche Koerperpunkte sieht die Kamera WIRKLICH? ----
        Je Knochen: liegt er im Bildausschnitt, und trifft der Strahl von
@@ -38328,7 +38594,30 @@ if (window.__WEBHERO_TEST__ === true) {
                   punkt: [+t0.point.x.toFixed(2), +t0.point.y.toFixed(2), +t0.point.z.toFixed(2)],
                   eltern: o.parent ? (o.parent.name || o.parent.type) : null,
                   haus: !!(o.userData && o.userData.hausKiste) ||
-                        !!(o.parent && o.parent.userData && o.parent.userData.hausKiste) };
+                        !!(o.parent && o.parent.userData && o.parent.userData.hausKiste),
+                  instanz: t0.instanceId === undefined ? null : t0.instanceId };
+          /* Eine Kiste im Deko-Mesh? Dann welche, und ihr Hindernis. */
+          const g = o.geometry;
+          if (g && g.index && t0.instanceId === undefined && t0.faceIndex !== undefined && t0.faceIndex !== null) {
+            const v = g.index.getX(t0.faceIndex * 3);
+            for (const q of colliders) {
+              const dt = q.sicht && q.sicht.deko;
+              if (dt && dt.geom === g && v >= dt.vo && v < dt.vo + dt.vn) {
+                wer.dachProp = { koll: q.id, fade: g.attributes.fade ? +g.attributes.fade.array[dt.vo].toFixed(3) : null };
+                break;
+              }
+            }
+          }
+          /* Ein Dachleben-Kasten? Dann welcher, und sein Hindernis. */
+          if (t0.instanceId !== undefined) {
+            for (const t of DACH_TEILE)
+              if (t.mesh === o && t.idx === t0.instanceId) {
+                wer.dachleben = { art: t.art, koll: t.koll ? t.koll.id : null,
+                                  x: +t.x.toFixed(2), z: +t.z.toFixed(2),
+                                  fade: +o.geometry.attributes.instFade.array[t.idx].toFixed(3) };
+                break;
+              }
+          }
         }
         aus[q] = { imBild, frei, wer };
         if (imBild && frei) n++;
@@ -38345,7 +38634,9 @@ if (window.__WEBHERO_TEST__ === true) {
         if (!o.isMesh || !o.material) return;
         if (Array.isArray(o.material)) o.material.forEach((m) => mats.add(m)); else mats.add(o.material);
       });
-      return { calls: i.calls, dreiecke: i.triangles, materialien: mats.size };
+      let objekte = 0;
+      scene.traverse(() => { objekte++; });
+      return { calls: i.calls, dreiecke: i.triangles, materialien: mats.size, objekte };
     },
     /* Das Spielbild als JPEG - fuer Bilder mitten aus einem Messlauf. */
     bildDaten(q) { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/jpeg', q || 0.8); },
@@ -38680,7 +38971,7 @@ if (window.__WEBHERO_TEST__ === true) {
          mit einem, das die Pruefung anhand der Lage suchen muesste. */
       return DACH_PROPS.map((p) => ({
         art: p.art, w: p.w, h: p.h, d: p.d, x: p.x, y0: p.y0, z: p.z,
-        fest: p.fest,
+        fest: p.fest, klasse: p.klasse,
         koll: p.koll ? { x0: p.koll.x0, x1: p.koll.x1, z0: p.koll.z0,
                          z1: p.koll.z1, y0: p.koll.y0, h: p.koll.h } : null,
       }));

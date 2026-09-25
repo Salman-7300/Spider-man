@@ -114,6 +114,9 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.kollQuelle) window.__WEBHERO_KOLL_QUELLE = 1;
     if (ein.kamSichtAlt) window.__WEBHERO_KAM_SICHT_ALT = 1;
     if (ein.dachlebenAlt) window.__WEBHERO_DACHLEBEN_ALT = 1;
+    if (ein.duennKlasse) window.__WEBHERO_DUENN_KLASSE = ein.duennKlasse;
+    if (ein.fadeAlt) window.__WEBHERO_FADE_ALT = 1;
+    if (ein.fadeMin !== null && ein.fadeMin !== undefined) window.__WEBHERO_FADE_MIN = ein.fadeMin;
     /* Nur zum Messen: die Tiefenkarte waehrend des Kletterns
        abschalten (siehe FASS_IM_LAUF_AUS). */
     if (ein.fassLaufAus) window.__WEBHERO_FASS_LAUF_AUS = 1;
@@ -150,6 +153,9 @@ async function starte(breite, hoehe, seed, opt) {
        kollQuelle: !!(opt && opt.kollQuelle),
        kamSichtAlt: !!(opt && opt.kamSichtAlt),
        dachlebenAlt: !!(opt && opt.dachlebenAlt),
+       duennKlasse: (opt && opt.duennKlasse) || null,
+       fadeAlt: !!(opt && opt.fadeAlt),
+       fadeMin: opt && opt.fadeMin !== undefined ? opt.fadeMin : null,
        fassLaufAus: !!(opt && opt.fassLaufAus),
        rumpfAlt: !!(opt && opt.rumpfAlt),
        ohneHaeuser: !!(opt && opt.ohneHaeuser) });

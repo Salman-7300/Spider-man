@@ -16,6 +16,11 @@
    der Mensch Ort 2 beurteilt), Hand- und Fussabstand, Eindringen in
    eine Kiste.
 
+   Gefunden wird das Haus ueber Modell und Lage (x0 -263,6, Ecke bei z 163,59), nicht
+   ueber die laufende Nummer des Hindernisses - die verschiebt sich, wenn
+   irgendwo davor ein Hindernis dazukommt oder wegfaellt (so geschehen mit
+   der einheitlichen Einstufung der Dachaufbauten).
+
    Aufruf:  node tools/pruef/ort1-fase.js [alt] [bilder=ordner]
    ========================================================================= */
 const fs = require('node:fs');
@@ -28,6 +33,10 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
 
 (async () => {
   const { b, page } = await starte(1280, 720, 4711, ALT ? { rumpfAlt: true } : {});
+  await page.evaluate(() => {
+    window.ORT1 = (o, K) => (o.userData.modellName || o.name) === 'Downtown_ModernOffice_1' &&
+                            Math.abs(K.koll.z1 - 163.59) < 0.05 && Math.abs(K.koll.x0 + 263.6) < 0.05;
+  });
   const faelle = [
     { name: 'kriechen', z: 158.4, y: 15.4, taste: 'richtung Fase' },
     { name: 'ankleben', z: 161.26, y: 16.92, taste: 'halten' },
@@ -41,7 +50,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       let obj = null, col = null;
       for (const o of d.hausModelle()) {
         const K = o.userData && o.userData.hausKiste;
-        if (K && K.koll && K.koll.id === 1216) { obj = o; col = K.koll; }
+        if (K && K.koll && ORT1(o, K)) { obj = o; col = K.koll; }
       }
       const RC = new THREE.Raycaster();
       const tiefe = (y, z) => {
@@ -131,7 +140,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       const d = __dbg, P = d.player;
       let col = null;
       for (const o of d.hausModelle()) { const K = o.userData && o.userData.hausKiste;
-        if (K && K.koll && K.koll.id === 1216) col = K.koll; }
+        if (K && K.koll && ORT1(o, K)) col = K.koll; }
       d.setzePos(col.x0 - 0.15, 15.4, 158.4); P.vel.set(0, 0, 0); P.state = 'climb';
       P.wallInfo = P.wall = { nx: -1, nz: 0, col }; P.eckSperre = 0;
       d.setzeKamYaw(Math.atan2(1, 0));

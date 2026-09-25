@@ -28,6 +28,8 @@ const FEST = process.argv.indexOf('start=fest') > 0;
 const SICHT_ALT = process.argv.indexOf('sichtAlt') > 0;
 /* dachlebenAlt: die Dachleben-Kaesten ohne Hindernis (Stand 820f96e). */
 const DL_ALT = process.argv.indexOf('dachlebenAlt') > 0;
+/* fadeAlt: ohne den Kamera-Fade (KAM_FADE in game.js). */
+const FADE_ALT = process.argv.indexOf('fadeAlt') > 0;
 /* ruhe=9:0,9:3,...: die Ruhe an GENAU diesen Orten (Stelle:Richtung)
    messen statt an denen mit schlechten Bildern - fuer Vorher/Nachher am
    selben Ort. */
@@ -40,7 +42,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
 (async () => {
   const { b, page } = await starte(1280, 720, SEED,
     Object.assign({ kollQuelle: true }, ALT ? { kamAusAlt: true } : {},
-      SICHT_ALT ? { kamSichtAlt: true } : {}, DL_ALT ? { dachlebenAlt: true } : {}));
+      SICHT_ALT ? { kamSichtAlt: true } : {}, DL_ALT ? { dachlebenAlt: true } : {},
+      FADE_ALT ? { fadeAlt: true } : {}));
   const aus = await page.evaluate(async (O) => {
     const FEST = O.fest, BILD = O.bild, RUHE = O.ruhe;
     const d = __dbg, P = d.player;
@@ -212,6 +215,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
     /* ---- Teil 2: Ruhe an denselben Orten ---- */
     const ruhe = [];
     const ruheBilder = [];
+    const zustand290 = [];
     const gesehen = new Set();
     const ruheListe = RUHE ? RUHE.map(([si, r]) => {
       const S = stellen[si];
@@ -237,7 +241,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       let vorKam = null, vorBlick = null, vorWahl = null;
       let maxOrt = 0, maxDreh = 0, wechsel = 0, minAb = 99, maxAb = 0, tunnel = 0;
       let sprungInfo = null, vorAb = null, vorBlk = null;
-      let imKoll = 0, sichtMin = 5, sichtSumme = 0, sichtProben = 0, lesbarNicht = 0;
+      let imKoll = 0, sichtMin = 5, sichtSumme = 0, sichtProben = 0, lesbarNicht = 0, lesbarNichtFade = 0;
+      const fadeVor = d.fadeZustand ? d.fadeZustand().ausgeloest : 0;
       for (let i = 0; i < 300; i++) {
         if (laeuft && Math.min(P.pos.x - DK[0], DK[1] - P.pos.x, P.pos.z - DK[2], DK[3] - P.pos.z) < 1.5) {
           d.taste('KeyW', false); laeuft = false;
@@ -265,6 +270,13 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         if (kam.abstand > maxAb) maxAb = kam.abstand;
         if (i % 6 === 0 && raster(kam).anteil > 0.5) tunnel++;
         if (kam.steckt) imKoll++;
+        if (i === 290) {
+          const w = d.kamWinkel(), ks = d.koerperSicht(PUNKTE);
+          zustand290.push({ stelle: F.stelle, richtung: F.richtung,
+            pos: [P.pos.x, P.pos.y, P.pos.z], facing: P.facing, gier: w.gier, neig: w.neig,
+            kam: kam.pos, abstand: kam.abstand, sicht: ks ? ks.n : null,
+            wer: ks ? Object.values(ks.punkte).map((q) => q && q.wer ? (q.wer.dachleben || q.wer.name) : null) : null });
+        }
         if (BILD && (i === 60 || i === 150 || i === 290))
           ruheBilder.push({ name: 'ruhe-st' + F.stelle + '-ri' + F.richtung + '-bild' + String(i).padStart(3, '0'),
                             u: d.bildDaten(0.75) });
@@ -275,6 +287,17 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
             const kf = ks.punkte.head && ks.punkte.head.imBild && ks.punkte.head.frei;
             const bf = ks.punkte.spine2 && ks.punkte.spine2.imBild && ks.punkte.spine2.frei;
             if (!(kf && bf)) lesbarNicht++;
+            /* Durch den Fade: erster Treffer ist ein gerade ausgeduenntes
+               Objekt (siehe tools/pruef/kamera-fade.js). */
+            const fz = d.fadeZustand ? d.fadeZustand() : { aktiv: [], min: 0 };
+            const gefadet = new Map(fz.aktiv.map((a) => [a.id, a.wert]));
+            const durch = (q) => {
+              if (!q || !q.imBild) return false;
+              if (q.frei) return true;
+              const id = q.wer && (q.wer.dachProp ? q.wer.dachProp.koll : q.wer.dachleben ? q.wer.dachleben.koll : null);
+              return id !== null && id !== undefined && gefadet.has(id) && gefadet.get(id) <= fz.min + 0.05;
+            };
+            if (!(durch(ks.punkte.head) && durch(ks.punkte.spine2))) lesbarNichtFade++;
           }
         }
       }
@@ -286,9 +309,11 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                   tunnelProben: tunnel, proben: 50,
                   kameraImKollider: imKoll,
                   sichtMin, sichtMittel: sichtProben ? +(sichtSumme / sichtProben).toFixed(2) : null,
-                  nichtLesbar: lesbarNicht, sprungInfo, stelle: F.stelle });
+                  nichtLesbar: lesbarNicht, nichtLesbarMitFade: lesbarNichtFade,
+                  fadeAusgeloest: (d.fadeZustand ? d.fadeZustand().ausgeloest : 0) - fadeVor,
+                  sprungInfo, stelle: F.stelle });
     }
-    return { faelle, ruhe, ruheBilder, stellen: stellen.length,
+    return { faelle, ruhe, ruheBilder, zustand290, stellen: stellen.length,
              starts: stellen.map((q, i) => i + ' ' + q.modell + ' Start ' + q.x.toFixed(2) + ',' + q.z.toFixed(2) +
                                              ' (' + q.mitteVerschoben + ' m neben der Dachmitte)') };
   }, { fest: FEST, bild: !!BILDER, ruhe: RUHE });
@@ -368,6 +393,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   for (const f of aus.faelle)
     console.log('    ' + JSON.stringify(Object.assign({}, f, { bild64: undefined })));
 
+  console.log('\n== Zustand nach 290 Bildern Ruhe (zum Nachstellen) ==');
+  for (const z of aus.zustand290 || []) console.log('  ' + JSON.stringify(z));
   console.log('\n== Kameraruhe, fuenf Sekunden je Ort ==');
   console.log('  ' + 'Modell'.padEnd(26) + 'Ri  Wechsel/s  maxOrt  maxDreh  minAbst  maxAbst  Tunnelproben  imKoll  Sicht min/mittel  nicht lesbar');
   for (const r of aus.ruhe)
@@ -379,6 +406,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                 String(r.kameraImKollider).padStart(8) +
                 String(r.sichtMin + ' / ' + r.sichtMittel).padStart(18) +
                 String(r.nichtLesbar + '/' + 50).padStart(14) +
+                ('  mit Fade ' + r.nichtLesbarMitFade + '/50, Fades ' + r.fadeAusgeloest) +
                 '   St ' + r.stelle + '  groesster Sprung: ' + JSON.stringify(r.sprungInfo));
   if (BILDER) {
     for (const rb of aus.ruheBilder || [])

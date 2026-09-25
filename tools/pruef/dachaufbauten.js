@@ -231,6 +231,10 @@ async function durchlauf(page) {
     };
 
     let kapsel = 0, becken = 0, brust = 0, begegnet = 0, durch = 0;
+    /* THIN_DECORATIVE (roofPropCollisionClass) ist absichtlich ohne
+       Hindernis - dort ist Hindurchlaufen erlaubt und wird getrennt
+       gezaehlt, nicht als Penetration. */
+    let dekoBegegnet = 0, dekoDurch = 0;
     const jeArtZahl = {};
     const bsp = [], bspFest = [];
     for (const p of proben) {
@@ -275,6 +279,11 @@ async function durchlauf(page) {
       }
       const hatKapsel = tiefe > KAPSEL_TIEFE;
       d.taste('KeyW', false);
+      if (p.klasse === 'THIN_DECORATIVE') {
+        dekoBegegnet++;
+        if (P.pos.x > k.x1 + 0.1 && start < k.x0) dekoDurch++;
+        continue;
+      }
       begegnet++;
       const a = jeArtZahl[p.art] || (jeArtZahl[p.art] = { n: 0, kapsel: 0, durch: 0,
                                                          tiefste: 0 });
@@ -305,7 +314,7 @@ async function durchlauf(page) {
     }
     return { begegnet, playerCapsuleInsideRoofProp: kapsel,
              pelvisInsideRoofProp: becken, torsoInsideRoofProp: brust,
-             durchgelaufen: durch, jeArt: jeArtZahl, bsp, bspFest };
+             durchgelaufen: durch, jeArt: jeArtZahl, bsp, bspFest, dekoBegegnet, dekoDurch };
   });
 }
 
@@ -433,6 +442,8 @@ async function durchlauf(page) {
   console.log('  pelvisInsideRoofProp        ' + dl.pelvisInsideRoofProp);
   console.log('  torsoInsideRoofProp         ' + dl.torsoInsideRoofProp);
   console.log('  ganz hindurchgelaufen       ' + dl.durchgelaufen);
+  console.log('  THIN_DECORATIVE (erlaubt durchlaessig): ' + dl.dekoBegegnet + ' Anlaeufe, ' +
+              dl.dekoDurch + ' hindurch');
   console.log('  Art                 Anlaeufe  Kapsel drin  hindurch  tiefste');
   for (const [art, a] of Object.entries(dl.jeArt))
     console.log('  ' + art.padEnd(20) + String(a.n).padStart(8) +
