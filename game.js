@@ -7129,7 +7129,8 @@ function ladeHaeuser(loader) {
 
    Eine Abhilfe darf NICHT pro Bild durch Dreiecke strahlen. Deshalb wird
    je MODELLTYP einmal eine Tiefenkarte gebaut: fuer jede der vier
-   Schauseiten ein Raster aus 16 x 32 Zellen, in jeder Zelle der Abstand
+   Schauseiten ein Raster aus FASS_NU x FASS_NV (48 x 128) Zellen - seit
+   problem-3 die Kletterhaut selbst -, in jeder Zelle der Abstand
    der aeussersten nach aussen gewandten Flaeche von der Kolliderebene -
    als Anteil der Hausbreite bzw. -tiefe, damit dieselbe Karte fuer jedes
    Haus gilt, auf dem dieses Modell steht. Zur Laufzeit kostet eine
@@ -7246,6 +7247,18 @@ function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
      Laufzeit anzunehmen. */
   return { seiten, hLok: H, vOff: Y0 / (H * anteil) };
 }
+
+/* ---- Glas in offene Fensterloecher: gebaut, gemessen, zurueckgenommen ----
+   problem-3, 1D. Gesucht wurden in der Tiefenkarte je Modelltyp
+   zusammenhaengende Zellen mehr als 0,3 m hinter der Hauptebene der Seite,
+   ringsum von Fassade umschlossen, 0,3 bis 5 m gross - dort sollte eine
+   Scheibe in die Kletterhaut. GEMESSEN (alle 12 Modelltypen, alle Seiten):
+   keine einzige solche Oeffnung. Die Fenster der Modelle sind keine
+   Loecher, sondern Scheiben knapp hinter dem Rahmen (ModernOffice_2
+   Rueckseite: p05 0,50 m, p80 0,59 m - Rahmen und Scheibe fast eine
+   Ebene); was tiefer liegt, beruehrt den Rand der Seite (Arkade,
+   Erdgeschoss, Krone) und bleibt nach 1C offen. Die Kletterhaut legt die
+   Figur ohnehin auf die Scheibe. Ohne Wirkung - zurueckgenommen. */
 
 function setzeHausModelle(szene) {
   const bau = [];
@@ -14455,6 +14468,10 @@ function kamStreckeBlocker(a, b) {
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
     for (const c of colliderGrid.get(i + ',' + j) || []) {
       if (c.innen || c.parkAuto) continue;
+      /* Haengt die Figur in einer Nische der eigenen Wand, ist deren
+         Kiste dort nicht die sichtbare Flaeche (siehe Kletterhaut). */
+      if (player.state === 'climb' && player.hautTiefe > 0.02 && player.wallInfo &&
+          c === player.wallInfo.col) continue;
       if (kameraKastenTreffer(a, b, c, 0) < 1) return c;
     }
   }
@@ -15107,7 +15124,7 @@ const KLETTER_LUFT = 0.60;          // climbGap 0,15 + Koerperradius 0,45
    der Kletterebene liegen darf. Der Koerper reicht mit 0,45 m Radius bei
    0,15 m Kletterabstand rund 0,30 m hinter die Ebene; liegt die Wand
    weiter zurueck, klafft ein sichtbarer Spalt. */
-const FASS_NU = 16, FASS_NV = 32;   // Zellen je Schauseite: quer, hoch
+const FASS_NU = 48, FASS_NV = 128;  // Zellen je Schauseite: quer, hoch (Kletterhaut)
 const FASS_LEER = 1e9;              // Zelle ohne jede sichtbare Flaeche
 const FASS_LUFT = 0.60;
 /* ---- Nach einem Wandwechsel wird nicht losgelassen ----
@@ -15379,7 +15396,115 @@ function wandTraegt(col, nx, nz, y, x, z) {
   if (!col || (nx === 0 && nz === 0) || !col.fassade) return true;
   const t = nx !== 0 ? clamp(z, col.z0 + 0.05, col.z1 - 0.05)
                      : clamp(x, col.x0 + 0.05, col.x1 - 0.05);
+  if (!HAUT_ALT) return hautZiel(col, nx, nz, y - 1.0, t) >= 0;
   return !koerperHalt(col, nx, nz, y - 1.0, t);
+}
+/* ====================== Die Kletterhaut (problem-3, Blocker 1) ======================
+   Bis hierher entschied die Tiefenkarte nur ja oder nein - geklettert
+   wurde weiter an der Kolliderebene. Die Kiste beschreibt aber den
+   Baukoerper, nicht die sichtbare Fassade: vor Fensternischen, Laibungen
+   und Loggien hing die Figur 0,5 bis 5 m vor der Wand in der Luft, und
+   jede weitere Schwelle (Band, Pfeiler, Rumpf, Gnadenfrist) hat nur
+   verschoben, WO das passiert.
+
+   Jetzt ist die Karte die Kletterflaeche selbst. Sie wird je Modelltyp
+   einmal gebaut (baueFassadenGitter, 48 x 128 Zellen je Schauseite, bei
+   den Modellhaeusern 0,2 bis 0,35 m je Zelle) und enthaelt je Zelle die
+   Tiefe der aeussersten nach aussen gewandten Flaeche.
+
+     Lage      die Figur haengt an der Haut: Kolliderebene minus Tiefe
+               plus climbGap. Die Tiefe ist die vorderste Flaeche vor dem
+               Koerper (Koerperbreite +-HAUT_SEIT, vom Oberschenkel bis
+               ueber den Kopf). Gemessen mit halber Breite (+-0,15 m) ging
+               der Rumpf hinter vorspringende Feuerleiter-Podeste (Becken
+               65 Bilder hinter einer Flaeche, Brust 8); mit voller Breite
+               bleibt er vor schmalen Laibungen am Mauerpfeiler und weicht
+               jedem Vorsprung aus (Brust 0, Becken 32).
+     Loch      liegt unter dem ganzen Rumpf nichts naeher als HAUT_MAX,
+               traegt dort nichts. In ein Loch hinein geht es nicht: der
+               Schritt wird zurueckgenommen, die Figur bleibt am letzten
+               Halt (kein Loslassen, kein Flattern). Die 1,2 m sind die
+               Masse der Figur (Koerper 0,30 m + Arm 0,90 m), dieselbe
+               Grenze wie FASS_TIEF.
+     weich     eine andere Tiefe wird angefahren, nicht gesprungen:
+               hinein mit HAUT_TEMPO, hinaus mit HAUT_TEMPO_RAUS, beim
+               Steigen mit Vorausschau nach oben.
+     Glas      die Fensterscheiben der Modelle stehen in der Karte wie
+               jede andere Flaeche - sichtbares Glas ist Kletterflaeche.
+               Offene Loecher, die eine eigene Scheibe braeuchten, gibt es
+               in den Modellen nicht (gemessen, siehe setzeHausModelle).
+   Die Kiste bleibt Gebaeudekollision und Weltblocker. Haeuser ohne
+   Modell (merged, Turm) haben keine Karte - dort sind Kiste und
+   sichtbare Fassade dieselbe Ebene. */
+const HAUT_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_PROXY_ALT;
+const HAUT_MAX = 1.2;
+const HAUT_SEIT = 0.3;
+const HAUT_UNTEN = -0.3, HAUT_OBEN = 0.8;
+const HAUT_TEMPO = 2.5, HAUT_TEMPO_RAUS = 6;
+/* Reichweite an der Seitenkante: Griff (HAUT_MAX) plus halbe
+   Koerperbreite (HAUT_SEIT). */
+const HAUT_RAND = HAUT_MAX + HAUT_SEIT;
+/* Randstreifen, in dem der Koerper ueber die Karte hinausragt: halbe
+   Koerperbreite (HAUT_SEIT) plus das Suchband der Eckenerkennung
+   (0,25 m), aufgerundet. */
+const HAUT_RAND_NAH = 0.6;
+/* Vorderste Hauttiefe (m hinter der Kolliderebene) im Rechteck
+   [ya, yb] x [ta, tb]; FASS_LEER, wenn darin keine Flaeche liegt; 0
+   ausserhalb der Karte und ohne Karte. */
+function hautTiefe(c, nx, nz, ya, yb, ta, tb) {
+  const f = c && c.fassade;
+  if (!f) return 0;
+  const g = f.g.seiten[nx + ',' + nz];
+  if (!g) return 0;
+  const achseX = nx !== 0;
+  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+  if (l1 <= l0) return 0;
+  const hoch = f.h * f.g.hLok;
+  const u0 = (ta - l0) / (l1 - l0), u1 = (tb - l0) / (l1 - l0);
+  const v0 = (ya - SLAB_H) / hoch - f.g.vOff, v1 = (yb - SLAB_H) / hoch - f.g.vOff;
+  if (u1 < 0 || u0 > 1 || v1 < 0 || v0 > 1) return 0;
+  const i0 = clamp(Math.floor(u0 * FASS_NU), 0, FASS_NU - 1);
+  const i1 = clamp(Math.floor(u1 * FASS_NU), 0, FASS_NU - 1);
+  const j0 = clamp(Math.floor(v0 * FASS_NV), 0, FASS_NV - 1);
+  const j1 = clamp(Math.floor(v1 * FASS_NV), 0, FASS_NV - 1);
+  let m = FASS_LEER;
+  for (let j = j0; j <= j1; j++) {
+    const r = j * FASS_NU;
+    for (let i = i0; i <= i1; i++) if (g[r + i] < m) m = g[r + i];
+  }
+  return m >= FASS_LEER ? FASS_LEER : m * (achseX ? f.w : f.d);
+}
+/* Wo haengt die Figur an dieser Stelle (y = player.pos.y, t laengs)?
+   Tiefe in m hinter der Kolliderebene - oder -1: dort traegt nichts. */
+function hautZiel(c, nx, nz, y, t, voraus) {
+  const w = hautTiefe(c, nx, nz, y + HAUT_UNTEN, y + HAUT_OBEN + (voraus || 0),
+                      t - HAUT_SEIT, t + HAUT_SEIT);
+  return w > HAUT_MAX ? -1 : w;
+}
+/* Die Figur an die Haut setzen (Wandnormale), mit der geglaetteten
+   Tiefe player.hautTiefe. */
+function hautHalten(c, w) {
+  const tief = HAUT_ALT || !c.fassade ? 0 : (player.hautTiefe || 0);
+  if (w.nx !== 0) player.pos.x = (w.nx > 0 ? c.x1 : c.x0) + w.nx * (CFG.climbGap - tief);
+  else player.pos.z = (w.nz > 0 ? c.z1 : c.z0) + w.nz * (CFG.climbGap - tief);
+}
+/* Die Ebene der Wand (x bzw. z), an der die Figur haengt: die
+   Kolliderebene minus der Hauttiefe. */
+function wandEbene(c, w) {
+  const f = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0) : (w.nz > 0 ? c.z1 : c.z0);
+  const tief = HAUT_ALT || !c.fassade || player.wallInfo !== w ? 0 : (player.hautTiefe || 0);
+  return f - (w.nx + w.nz) * tief;
+}
+/* Liegt der Punkt p zwar in der Kiste der eigenen Kletterwand, aber vor
+   der Haut, an der die Figur haengt? Dann steckt er nicht im Haus - die
+   Kiste ist dort nicht die sichtbare Flaeche. 0,45 m ist der
+   Koerperradius: so weit reicht der Rumpf an die Haut heran. */
+function vorDerHaut(c, p) {
+  const w = player.state === 'climb' ? player.wallInfo : null;
+  if (!w || w.col !== c || !((player.hautTiefe || 0) > 0.02)) return false;
+  const tief = w.nx !== 0 ? ((w.nx > 0 ? c.x1 : c.x0) - p.x) * w.nx
+                          : ((w.nz > 0 ? c.z1 : c.z0) - p.z) * w.nz;
+  return tief <= player.hautTiefe + 0.45;
 }
 /* Liegt die Stelle t (Laengskoordinate) auf dieser Schauseite im
    Freien? */
@@ -18463,9 +18588,8 @@ function updatePlayer(dt) {
        die seitliche Klammer weiter unten noch auf das alte Haus und die
        Figur bleibt an der Naht stehen. */
     let c = w.col;
-    // an der Wand halten
-    if (w.nx !== 0) player.pos.x = (w.nx > 0 ? c.x1 : c.x0) + w.nx * CFG.climbGap;
-    else player.pos.z = (w.nz > 0 ? c.z1 : c.z0) + w.nz * CFG.climbGap;
+    // an der Wand halten - an der sichtbaren Haut (siehe Kletterhaut)
+    hautHalten(c, w);
     // Bewegung an der Wand: W=hoch, S=runter, A/D=seitlich
     let up = 0, side = 0;
     if (keys['KeyW'] || keys['ArrowUp']) up += 1;
@@ -18733,6 +18857,7 @@ function updatePlayer(dt) {
            statt hinueberzuspringen. */
         player.wallInfo = player.wall = { nx: neuNx, nz: neuNz, col: c };
         player.fassGnade = FASS_GNADE;          // siehe FASS_GNADE
+        player.hautTiefe = 0;                   // neue Flaeche, neue Haut
         /* Der Sicherheitsabstand hinter der Kante MUSS groesser sein als
            das Suchband (rand), sonst steht die Figur auf der neuen Seite
            sofort wieder im Suchband und wechselt im naechsten Bild
@@ -18845,7 +18970,66 @@ function updatePlayer(dt) {
        waere ein Teleport, und genau daran sind vier fruehere Fassungen
        gescheitert. */
     if (player.fassGnade > 0) player.fassGnade -= dt;
-    if (!FASS_ALT && c.fassade && !player.eckBogen && !(player.fassGnade > 0) &&
+    /* ---- Kletterhaut (problem-3, Blocker 1) ----
+       Ersetzt die Kaskade darunter (Band, Pfeiler, Rumpf, Gnade): die
+       Figur haengt an der sichtbaren Flaeche, in ein Loch geht es nicht
+       hinein. Unter dem Dach greift die Hand die Kante - dort wird
+       nicht gesperrt, sonst kaeme man an einer Attika nicht hinauf. */
+    if (!HAUT_ALT && c.fassade && !player.eckBogen) {
+      const tJetzt = w.nx !== 0 ? player.pos.z : player.pos.x;
+      const tVorher = w.nx !== 0 ? tVorZ : tVorX;
+      let ziel = hautZiel(c, w.nx, w.nz, player.pos.y, tJetzt);
+      /* ---- Ein Loch bis an die Seitenkante ist eine offene Seite ----
+         Wo das Modell nicht bis an die Kiste reicht (bis 1 m breit an
+         Brandwand und Hausecke), meldet die Haut dort ein Loch. Wurde
+         der Schritt dann zurueckgenommen, kam die Figur nie an die Naht
+         oder die Ecke: gemessen (zeilenuebergang.js) Naht 221 -> 215,
+         Aussenecke 150 -> 138. Zwei Faelle, beide noetig (jeder allein
+         gemessen 220 und 148, mit je anderen Restfaellen):
+           - im Randstreifen HAUT_RAND_NAH ragt der Koerper ueber die
+             Karte hinaus;
+           - weiter innen, bis HAUT_RAND, reicht ein Loch bis an die
+             Seitenkante (gemessen 0,94 bis 0,98 m breit).
+         Dann geht es auf die Kiste zu - drueben liegt die Flaeche des
+         Nachbarn oder die Querseite (1C-B, kontrollierter Griff zum
+         naechsten Stueck). */
+      if (ziel < 0) {
+        const hl0 = w.nx !== 0 ? c.z0 : c.x0, hl1 = w.nx !== 0 ? c.z1 : c.x1;
+        const links = tJetzt - hl0 < hl1 - tJetzt;
+        const ab = links ? tJetzt - hl0 : hl1 - tJetzt;
+        const tKante = links ? hl0 + HAUT_SEIT : hl1 - HAUT_SEIT;
+        if (ab < HAUT_RAND_NAH ||
+            (ab < HAUT_RAND && hautZiel(c, w.nx, w.nz, player.pos.y, tKante) < 0)) ziel = 0;
+      }
+      if (ziel < 0 && player.pos.y + 1.75 + HAUT_OBEN < c.h &&
+          hautZiel(c, w.nx, w.nz, yVor, tVorher) >= 0) {
+        player.pos.y = yVor;
+        if (w.nx !== 0) player.pos.z = tVorher; else player.pos.x = tVorher;
+        player.vel.set(0, 0, 0);
+        player.wandSchwung = 0;
+        ziel = hautZiel(c, w.nx, w.nz, player.pos.y, tVorher);
+      }
+      /* Beim Steigen schaut die Haut ein Stueck voraus: ein Vorsprung
+         ueber dem Kopf (Sturz, Podest) ist erreicht, bevor der Kopf ihn
+         erreicht. Hinaus geht es schneller als hinein - sonst steckt der
+         Rumpf kurz im Vorsprung. */
+      if (ziel >= 0 && player.vel.y > 0.1) {
+        const vor = hautZiel(c, w.nx, w.nz, player.pos.y, w.nx !== 0 ? player.pos.z : player.pos.x,
+                             player.vel.y * 0.25);
+        if (vor >= 0 && vor < ziel) ziel = vor;
+      }
+      if (ziel >= 0) {
+        const alt = player.hautTiefe || 0;
+        player.hautTiefe = alt + clamp(ziel - alt, -HAUT_TEMPO_RAUS * dt, HAUT_TEMPO * dt);
+      }
+      /* Hat ein Vorsprung oben die Figur weiter nach aussen geschoben,
+         bleibt es dabei - sonst stuende sie in ihm. */
+      const vorN = w.nx !== 0 ? player.pos.x : player.pos.z;
+      hautHalten(c, w);
+      if ((vorN - (w.nx !== 0 ? player.pos.x : player.pos.z)) * (w.nx + w.nz) > 0) {
+        if (w.nx !== 0) player.pos.x = vorN; else player.pos.z = vorN;
+      }
+    } else if (!FASS_ALT && c.fassade && !player.eckBogen && !(player.fassGnade > 0) &&
         !(player.eckSperre > 0)) {
       const tJetzt = w.nx !== 0 ? player.pos.z : player.pos.x;
       const tVorher = w.nx !== 0 ? tVorZ : tVorX;
@@ -19860,6 +20044,7 @@ function updatePlayer(dt) {
         wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z)) {
       player.state = 'climb';
       player.wallInfo = w;
+      player.hautTiefe = 0;
       player.onGround = false;
       /* Der waagerechte Schwung wird in Höhe umgesetzt. */
       player.wandSchwung = clamp(tempoRein * 1.15, 8, 14);
@@ -19895,6 +20080,7 @@ function updatePlayer(dt) {
         wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z)) {
       player.state = 'climb';
       player.wallInfo = w;
+      player.hautTiefe = 0;
       player.vel.set(0, 0, 0);
       player.jumps = 0;
       beendeGleiten();
@@ -21506,8 +21692,9 @@ function wandFreiraum(dt) {
   if (!c) return;
   const r = heroVisual.root;
   r.updateMatrixWorld(true);
-  const flaeche = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0)
-                             : (w.nz > 0 ? c.z1 : c.z0);
+  /* Die Ebene, an der die Figur haengt: die sichtbare Haut, nicht die
+     Kiste (siehe Kletterhaut). */
+  const flaeche = wandEbene(c, w);
   let min = Infinity, huefte = null;
   for (const n of WAND_KNOCHEN) {
     const b = kn[n];
@@ -21735,6 +21922,7 @@ function hausUm(p) {
     const u = c.y0 === undefined ? 0 : c.y0;
     const o = u + (c.h || 0);
     if (p.y < u || p.y > o) continue;
+    if (vorDerHaut(c, p)) continue;       // siehe Kletterhaut
     return c;
   }
   return null;
@@ -37353,8 +37541,8 @@ function poseLogWandAbstand() {
   const w = player.wallInfo;
   if (!w || !w.col || !heroVisual || !heroVisual.knochen) return null;
   const c = w.col;
-  const fx = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0) : 0;
-  const fz = w.nz !== 0 ? (w.nz > 0 ? c.z1 : c.z0) : 0;
+  const fx = w.nx !== 0 ? wandEbene(c, w) : 0;
+  const fz = w.nz !== 0 ? wandEbene(c, w) : 0;
   const aus = {};
   for (const n of ['lefthand', 'righthand', 'leftfoot', 'rightfoot',
                    'lefttoebase', 'righttoebase', 'hips', 'spine2', 'head']) {
@@ -37953,6 +38141,40 @@ if (window.__WEBHERO_TEST__ === true) {
        hoch das Loch ist, und wie weit die naechste tragende Zelle
        seitlich und nach oben entfernt ist - in Metern, nicht in Zellen.
        Nur lesen, keine Wirkung aufs Spiel. */
+    /* Kletterhaut: wo haengt die Figur an dieser Stelle (m hinter der
+       Kolliderebene, -1 = Loch), null ohne Karte. */
+    fassadenProxyTiefe(kollId, nx, nz, y, t) {
+      if (!_kollNachId) {
+        _kollNachId = new Map();
+        for (const q of colliders) _kollNachId.set(q.id, q);
+      }
+      const c = _kollNachId.get(kollId);
+      if (!c || !c.fassade) return null;
+      return hautZiel(c, nx, nz, y, t);
+    },
+    hautTiefeJetzt() { return player.hautTiefe || 0; },
+    /* Die Kletterhaut einer Schauseite als Zeichenraster (oben zuerst):
+       '#' bis 0,2 m, '+' bis 0,6 m, ':' bis 1,2 m, '.' tiefer, ' ' leer. */
+    hautKarte(kollId, nx, nz) {
+      if (!_kollNachId) {
+        _kollNachId = new Map();
+        for (const q of colliders) _kollNachId.set(q.id, q);
+      }
+      const c = _kollNachId.get(kollId);
+      if (!c || !c.fassade) return null;
+      const g = c.fassade.g.seiten[nx + ',' + nz];
+      const mass = nx !== 0 ? c.fassade.w : c.fassade.d;
+      const zeilen = [];
+      for (let j = FASS_NV - 1; j >= 0; j--) {
+        let z = '';
+        for (let i = 0; i < FASS_NU; i++) {
+          const w = g[j * FASS_NU + i];
+          z += w >= FASS_LEER ? ' ' : w * mass <= 0.2 ? '#' : w * mass <= 0.6 ? '+' : w * mass <= 1.2 ? ':' : '.';
+        }
+        zeilen.push(z);
+      }
+      return zeilen;
+    },
     rumpfLage(kollId, nx, nz, y, t) {
       if (!_kollNachId) {
         _kollNachId = new Map();

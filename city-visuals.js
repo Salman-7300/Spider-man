@@ -20,6 +20,14 @@
        Jalousien); der Regressionstest prueft genau das weiter. */
     glass: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 95, specular: 0xb6ceda,
       transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide }),
+    /* Die Scheiben der Hochhaeuser. Bei 0,42 und hellen Scheibenfarben las
+       sich das Glas aus der Naehe als offenes Loch: im Human-Video (problem-3,
+       Blocker 1) hing die Figur scheinbar mitten in einer Fensteroeffnung,
+       obwohl sie 0,15 m vor der Scheibe klettert. Jetzt eigene, getoente
+       Scheiben (Farbe je Turmstil) mit 0,7 Deckkraft und kraeftigem
+       Glanzlicht - der Raum dahinter bleibt sichtbar, aber gedaempft. */
+    fassadenGlas: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 110, specular: 0xd8e6ee,
+      transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }),
     trim: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 32, specular: 0x596370 }),
     windows: new THREE.MeshPhongMaterial({ color: 0x718b99, transparent: true,
       opacity: 0.25, depthWrite: false, shininess: 45 }),
@@ -156,11 +164,11 @@
       const band = [0.58, 1.05, 0.82, 1.12][kind];
       for (let col = 0; col < cols; col++) {
         const x = -width / 2 + 0.25 + (col + 0.5) * step;
-        window(step - column, lobby - 0.18, x, lobby / 2, 0xc1d6d9);
+        window(step - column, lobby - 0.18, x, lobby / 2, style.glass[(col + face) % style.glass.length]);
         for (let floor = 0; floor < floors; floor++) {
           const base = lobby + floor * rise, y = base + rise / 2;
           const seed = floor * 11 + col * 7 + face * 3 + kind * 17;
-          window(step - column, rise - band, x, y, seed % 3 ? 0xc2d8dd : 0xb0cbd4);
+          window(step - column, rise - band, x, y, style.glass[seed % style.glass.length]);
           // Some offices have blinds. Others reveal desks, chairs and
           // monitors; no furniture or luminous panel sits on the glass.
           if (seed % 9 === 0) {
@@ -210,7 +218,7 @@
     const interior = new THREE.LOD(); interior.name = 'OfficeDetails';
     interior.addLevel(rooms.mesh(materials.stone, 'OfficeFurniture'), 0);
     interior.addLevel(new THREE.Group(), 150);
-    const panes = glazing.mesh(materials.glass, 'Glazing'); panes.castShadow = false; panes.renderOrder = 2;
+    const panes = glazing.mesh(materials.fassadenGlas, 'Glazing'); panes.castShadow = false; panes.renderOrder = 2;
     group.add(solid.mesh(materials.stone, 'Structure'), panes, lamps.mesh(materials.light, 'OfficeLights'), interior);
     group.name = 'WEB_HERO_Hochhaus_' + style.name;
     group.userData = { visualKind: 'tower', variant: kind, floors: floors + 1, roofHeight: h,

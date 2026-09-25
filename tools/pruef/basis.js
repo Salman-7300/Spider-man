@@ -118,6 +118,9 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.fadeAlt) window.__WEBHERO_FADE_ALT = 1;
     /* Nur zum Messen: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE). */
     if (ein.kamPoseAlt) window.__WEBHERO_KAM_POSE_ALT = 1;
+    /* Nur zum Messen: Kletterhaut aus (Stand vor
+       problem-3, Blocker 1). */
+    if (ein.proxyAlt) window.__WEBHERO_PROXY_ALT = 1;
     if (ein.fadeMin !== null && ein.fadeMin !== undefined) window.__WEBHERO_FADE_MIN = ein.fadeMin;
     /* Nur zum Messen: die Tiefenkarte waehrend des Kletterns
        abschalten (siehe FASS_IM_LAUF_AUS). */
@@ -158,6 +161,7 @@ async function starte(breite, hoehe, seed, opt) {
        duennKlasse: (opt && opt.duennKlasse) || null,
        fadeAlt: !!(opt && opt.fadeAlt),
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
+       proxyAlt: !!(opt && opt.proxyAlt),
        fadeMin: opt && opt.fadeMin !== undefined ? opt.fadeMin : null,
        fassLaufAus: !!(opt && opt.fassLaufAus),
        rumpfAlt: !!(opt && opt.rumpfAlt),
