@@ -14561,6 +14561,91 @@ function kamFadeAlleZurueck() {
   for (const c of KAM_FADE.aktiv.keys()) kamFadeSetze(c, 1);
   KAM_FADE.aktiv.clear();
 }
+/* ================= Der Blickpunkt folgt der Koerperhaltung =================
+   problem-2, letzter Kamera-Befund vor dem Human-Test: St9 Ri1. Die Figur
+   kauert an der Dachkante (Kopf 0,62 m, Becken 0,30 m ueber den Fuessen),
+   die Kamera steht 1,1 m daneben - und schaute auf player.pos + 1,7 m,
+   die Hoehe einer STEHENDEN Figur. Verdeckt war nichts, der Fade konnte
+   nichts tun: die Figur lag unter dem Bildrand.
+
+   Der Blickpunkt folgt deshalb der ECHTEN Haltung, nach demselben Prinzip
+   wie die Koerperpunkte (kameraPunkte): Hoehe des Rumpfes
+   H = 0,25 Kopf + 0,5 Brust + 0,25 Becken ueber player.pos. Gemessen
+   (tools/pruef/kamera-ziel.js):
+     Stehen 1,24  Gehen 1,22  Rennen 1,04  Sprinten 1,00  Ducken 1,17
+     Duckgang 1,01  Kampf 1,06..1,22  Kauern an der Kante 0,49
+     Landung kurz 0,73  Rolle bis -0,27  Klettern 0,32
+     Wandlauf 0,11..0,16  Ueberziehen 0,4..1,26
+
+   Geaendert wird NUR, wohin die Kamera schaut (camera.lookAt). Drehpunkt
+   und Lage der Kamera, begrenzeKamera, die Ausweichlagen und der Fade
+   rechnen weiter mit player.pos + 1,7 (an der Wand 1,35).
+
+   Wie tief:
+     a = H - Bezug, Bezug 1,24 am Boden (Stehen) und 0,33 an der Wand
+       (Klettern): in der gewohnten Haltung derselbe Blickpunkt wie bisher.
+     Nur nach unten. Das Problem ist eine Figur UNTER der angenommenen
+       Hoehe; beim Ueberziehen liegt der Rumpf ueber dem Wandbezug, ein
+       Anheben gaebe dort einen Buckel bis 0,9 m, bevor der Bodenbezug
+       greift.
+     Knie 0,25..0,5 m (smoothstep): bis 0,25 m bleibt der Blickpunkt, ab
+       0,5 m folgt er voll. 0,25 liegt knapp ueber der groessten
+       Abweichung einer aufrechten Bewegung (Sprinten 0,24, Duckgang 0,23,
+       Wandlauf 0,23) - Rennen, Klettern und Kampf behalten ihren
+       Bildausschnitt.
+     In der Luft 0: Schwung, Sprung, Fall und Gleitflug bleiben, wie sie
+       sind - dort liegt die Figur quer, und das Gleiten wird hier nicht
+       angefasst.
+   Glaettung: gesenkt wird nur, solange der Rumpf RUHT (Aenderung von H
+   unter 0,35 m/s, geglaettet) - eine Rolle (bis -1,5 m) oder eine Landung
+   (-0,5 m fuer wenige Bilder) liesse die Kamera sonst nicken. Angehoben
+   wird immer. Beides weich mit 1 - e^(-3 dt): kein Sprung, kein Zittern
+   aus dem Atmen der Haltung.
+
+   GEMESSEN (kamera-ziel.js, gleiche Kameralage vorher/nachher):
+     St9 Ri1, Figur kauert: Kopf/Brust/Becken im Bild bei y -1,35/-1,69/
+       -2,51 (alle unter dem Rand) -> -0,21/-0,38/-0,68; Blickpunkt
+       1,70 -> 0,97 m ueber den Fuessen
+     Stehen, Rennen, Ducken, Aussenecke, Zeilennaht, Landung: Blickpunkt
+       nie gesenkt, Bildlage der Brust unveraendert
+     Masthocke: Brust -0,27 -> -0,12
+   Bleibt: steht die Figur AUFRECHT und die Kamera 1,1 m daneben, liegt
+   das Becken am unteren Rand (St9 Ri1, solange W gegen die Bruestung
+   gedrueckt wird) - das ist keine Haltungsfrage und hier nicht geaendert. */
+const KAM_POSE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAM_POSE_ALT;
+const KAM_POSE_BEZUG_BODEN = 1.24, KAM_POSE_BEZUG_WAND = 0.33;
+const KAM_POSE_KNIE0 = 0.25, KAM_POSE_KNIE1 = 0.5;
+const KAM_POSE_RUHIG = 0.35;
+const KAM_POSE_TEMPO = 3;
+const KAM_POSE = { tief: 0, roh: 0, H: null, v: 0, ruhig: true, bezug: null, zielY: 0, blickY: 0 };
+const _kamBlick = new THREE.Vector3();
+function kamPoseTiefe(dt, wand) {
+  const P = KAM_POSE;
+  const k = _kamPunkte;
+  const H = _kamPunkteEcht ? 0.25 * k[0].y + 0.5 * k[1].y + 0.25 * k[2].y - player.pos.y : NaN;
+  if (KAM_POSE_ALT || !Number.isFinite(H)) {
+    P.tief = 0; P.roh = 0; P.H = null; P.v = 0; P.ruhig = true; P.bezug = null;
+    return 0;
+  }
+  if (P.H !== null && dt > 0) P.v += (Math.abs(H - P.H) / dt - P.v) * (1 - Math.exp(-dt * 12));
+  P.H = H;
+  P.ruhig = P.v < KAM_POSE_RUHIG;
+  let roh = 0;
+  P.bezug = null;
+  if (wand || player.onGround) {
+    P.bezug = wand ? KAM_POSE_BEZUG_WAND : KAM_POSE_BEZUG_BODEN;
+    const a = Math.min(0, H - P.bezug);
+    const t = clamp((-a - KAM_POSE_KNIE0) / (KAM_POSE_KNIE1 - KAM_POSE_KNIE0), 0, 1);
+    roh = a * t * t * (3 - 2 * t);
+  }
+  P.roh = roh;
+  if (roh > P.tief || P.ruhig) P.tief += (roh - P.tief) * (1 - Math.exp(-dt * KAM_POSE_TEMPO));
+  /* Ohne Grund zum Senken genau auf den alten Blickpunkt zurueck - ein
+     Rest von Zehntelmillimetern kippte sonst im Pruefstand einzelne
+     Grenzstrahlen. */
+  if (roh === 0 && P.tief > -1e-3) P.tief = 0;
+  return P.tief;
+}
 function kamRichtungVersetzt(dir, dGier, dNeig, aus) {
   const c = Math.cos(dGier), s2 = Math.sin(dGier);
   const x = dir.x * c + dir.z * s2, z = -dir.x * s2 + dir.z * c;
@@ -14854,7 +14939,12 @@ function updateCamera(dt) {
   if (!MISSION_INTERIOR.active)
     kamFadePruefe(camera.position, !!KAM_BLOCK.ausweichGesucht,
                   !KAM_BLOCK.ausweichGesucht || _kamSichtLesbar[kamAusWahl] !== false, dt);
-  camera.lookAt(target);
+  /* Wohin geschaut wird: derselbe Punkt, nur um die Haltung gesenkt
+     (siehe KAM_POSE). Lage und Kollision oben bleiben unberuehrt. */
+  _kamBlick.copy(target);
+  _kamBlick.y += kamPoseTiefe(dt, wand);
+  KAM_POSE.zielY = target.y; KAM_POSE.blickY = _kamBlick.y;
+  camera.lookAt(_kamBlick);
 
   /* Kameraneigung: Beim Schwingen legt sich das Bild in die Kurve, beim
      schnellen Fallen kippt es leicht mit. Das ist der Unterschied zwischen
@@ -38547,6 +38637,41 @@ if (window.__WEBHERO_TEST__ === true) {
       kamAusWahl = 0; kamAusGier = 0; kamAusNeig = 0;
       kamFrei = camDist; vorausGlatt = 0; flugGlatt = gier + Math.PI;
       kamFadeAlleZurueck();
+      KAM_POSE.tief = 0; KAM_POSE.roh = 0; KAM_POSE.H = null; KAM_POSE.v = 0;
+    },
+    /* Blickpunkt und Haltung (KAM_POSE): Drehpunkt der Kamera (zielY),
+       wohin sie schaut (blickY), und woraus das folgt. */
+    kamZiel() {
+      return { zielY: KAM_POSE.zielY, blickY: KAM_POSE.blickY, tief: KAM_POSE.tief, roh: KAM_POSE.roh,
+               H: KAM_POSE.H, bezug: KAM_POSE.bezug, v: KAM_POSE.v, ruhig: KAM_POSE.ruhig };
+    },
+    /* ---- playerFramed: liegt die Figur im Bild? ----
+       Kopf, Brust und Becken mit der gezeichneten Kamera projiziert. Nur
+       harte Fehler, keine Bildgestaltung: ein Punkt ausserhalb des Bildes
+       oder hinter der Kamera, oder im aeussersten Zwanzigstel am Rand
+       (|x| oder |y| ueber 0,9 in Bildkoordinaten, -1..1). */
+    figurRahmen() {
+      if (!heroVisual) return null;
+      camera.updateMatrixWorld(true);
+      const namen = ['head', 'spine2', 'hips'];
+      const kn = heroVisual.laborKnochen(namen);
+      const p = new THREE.Vector3();
+      const aus = { gerahmt: true, grund: null, punkte: {} };
+      for (const q of namen) {
+        const k = kn[q];
+        if (!k) { if (aus.gerahmt) { aus.gerahmt = false; aus.grund = q + ' fehlt'; } continue; }
+        p.set(k.x, k.y, k.z).project(camera);
+        const vorn = p.z > -1 && p.z < 1;
+        const imBild = vorn && Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1;
+        const rand = imBild && (Math.abs(p.x) > 0.9 || Math.abs(p.y) > 0.9);
+        aus.punkte[q] = { x: +p.x.toFixed(3), y: +p.y.toFixed(3), vorn, imBild, rand };
+        if (aus.gerahmt && (!imBild || rand)) {
+          aus.gerahmt = false;
+          aus.grund = q + (!vorn ? ' hinter der Kamera' : !imBild ? ' ausserhalb' : ' am Rand') +
+                      (p.y < -0.9 ? ' unten' : p.y > 0.9 ? ' oben' : p.x < -0.9 ? ' links' : p.x > 0.9 ? ' rechts' : '');
+        }
+      }
+      return aus;
     },
     /* Kamera-Fade: welche Objekte, wie weit, und die Zaehler. */
     fadeZustand() {

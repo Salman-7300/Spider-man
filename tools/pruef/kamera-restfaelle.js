@@ -30,6 +30,8 @@ const SICHT_ALT = process.argv.indexOf('sichtAlt') > 0;
 const DL_ALT = process.argv.indexOf('dachlebenAlt') > 0;
 /* fadeAlt: ohne den Kamera-Fade (KAM_FADE in game.js). */
 const FADE_ALT = process.argv.indexOf('fadeAlt') > 0;
+/* poseAlt: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE in game.js). */
+const POSE_ALT = process.argv.indexOf('poseAlt') > 0;
 /* ruhe=9:0,9:3,...: die Ruhe an GENAU diesen Orten (Stelle:Richtung)
    messen statt an denen mit schlechten Bildern - fuer Vorher/Nachher am
    selben Ort. */
@@ -43,7 +45,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   const { b, page } = await starte(1280, 720, SEED,
     Object.assign({ kollQuelle: true }, ALT ? { kamAusAlt: true } : {},
       SICHT_ALT ? { kamSichtAlt: true } : {}, DL_ALT ? { dachlebenAlt: true } : {},
-      FADE_ALT ? { fadeAlt: true } : {}));
+      FADE_ALT ? { fadeAlt: true } : {}, POSE_ALT ? { kamPoseAlt: true } : {}));
   const aus = await page.evaluate(async (O) => {
     const FEST = O.fest, BILD = O.bild, RUHE = O.ruhe;
     const d = __dbg, P = d.player;
@@ -126,6 +128,25 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       }
       return { n, punkte: aus };
     };
+    /* playerReadable wie in Teil 2: Kopf und Brust im Bild und frei -
+       roh, und "durch den Fade" (erster Treffer ist ein gerade
+       ausgeduenntes Objekt, siehe kamera-fade.js). */
+    const lesbar = (ks) => {
+      const fz = d.fadeZustand ? d.fadeZustand() : { aktiv: [], min: 0 };
+      const gefadet = new Map(fz.aktiv.map((a) => [a.id, a.wert]));
+      const durch = (q) => {
+        if (!q || !q.imBild) return false;
+        if (q.frei) return true;
+        const id = q.wer && (q.wer.dachProp ? q.wer.dachProp.koll : q.wer.dachleben ? q.wer.dachleben.koll : null);
+        return id !== null && id !== undefined && gefadet.has(id) && gefadet.get(id) <= fz.min + 0.05;
+      };
+      const roh = (q) => !!(q && q.imBild && q.frei);
+      return { roh: roh(ks.punkte.head) && roh(ks.punkte.spine2),
+               fade: durch(ks.punkte.head) && durch(ks.punkte.spine2) };
+    };
+    /* Je Probe (alle 3 Bilder) im Lauf: playerFramed und playerReadable,
+       dazu der groesste Kamerasprung je Bild. */
+    const lauf1 = { proben: 0, nichtGerahmt: [], nichtLesbar: 0, nichtLesbarFade: 0, maxSprung: 0, sprungInfo: null };
     /* dieselben Dachstellen wie in dachkamera.js */
     const stellen = [];
     for (const o of d.hausModelle()) {
@@ -169,18 +190,39 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         for (let i = 0; i < 30; i++) d.schritt(1 / 60);
         d.taste('KeyW', true);
         let abbruch = false;
+        let vorK = null;
         for (let k = 0; k < 110; k++) {
           d.schritt(1 / 60);
+          {
+            const kk = d.kamera();
+            if (vorK) {
+              const sp = Math.hypot(kk.pos[0] - vorK[0], kk.pos[1] - vorK[1], kk.pos[2] - vorK[2]);
+              if (sp > lauf1.maxSprung) { lauf1.maxSprung = sp; lauf1.sprungInfo = { stelle: si, richtung: r, bild: k, zustand: P.state }; }
+            }
+            vorK = kk.pos;
+          }
           if (k % 3) continue;
           const imDachLauf = !abbruch;
           if (P.pos.y < SLAB_H + S.h - 3) abbruch = true;
           const kam = d.kamera();
+          {
+            const fr = d.figurRahmen();
+            const ks1 = d.koerperSicht(['head', 'spine2']);
+            const le = ks1 ? lesbar(ks1) : { roh: true, fade: true };
+            lauf1.proben++;
+            if (!le.roh) lauf1.nichtLesbar++;
+            if (!le.fade) lauf1.nichtLesbarFade++;
+            if (fr && !fr.gerahmt)
+              lauf1.nichtGerahmt.push({ stelle: si, richtung: r, bild: k, imDachLauf, grund: fr.grund,
+                                        y: +P.pos.y.toFixed(2), zustand: P.state, abstand: kam.abstand });
+          }
           const R = raster(kam);
           if (R.anteil <= 0.5) continue;
           const blk = d.kamBlock();
           const kn = d.animKnochen(['head', 'spine2', 'hips']);
           faelle.push({
             ort: [S.x, S.z], modell: S.modell, richtung: r, bild: k,
+            blickTief: +d.kamZiel().tief.toFixed(4),
             stelle: si, imDachLauf, dachY: +(SLAB_H + S.h).toFixed(2), dachKiste: S.dach,
             pos: [+P.pos.x.toFixed(2), +P.pos.y.toFixed(2), +P.pos.z.toFixed(2)],
             zustand: P.state, gier: +gier.toFixed(2),
@@ -242,6 +284,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       let maxOrt = 0, maxDreh = 0, wechsel = 0, minAb = 99, maxAb = 0, tunnel = 0;
       let sprungInfo = null, vorAb = null, vorBlk = null;
       let imKoll = 0, sichtMin = 5, sichtSumme = 0, sichtProben = 0, lesbarNicht = 0, lesbarNichtFade = 0;
+      let rahmenNicht = 0, tiefMin = 0;
+      const rahmenGruende = {};
       const fadeVor = d.fadeZustand ? d.fadeZustand().ausgeloest : 0;
       for (let i = 0; i < 300; i++) {
         if (laeuft && Math.min(P.pos.x - DK[0], DK[1] - P.pos.x, P.pos.z - DK[2], DK[3] - P.pos.z) < 1.5) {
@@ -281,6 +325,10 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
           ruheBilder.push({ name: 'ruhe-st' + F.stelle + '-ri' + F.richtung + '-bild' + String(i).padStart(3, '0'),
                             u: d.bildDaten(0.75) });
         if (i % 6 === 0) {
+          const fr = d.figurRahmen();
+          if (fr && !fr.gerahmt) { rahmenNicht++; rahmenGruende[fr.grund] = (rahmenGruende[fr.grund] || 0) + 1; }
+          const kz = d.kamZiel();
+          if (kz.tief < tiefMin) tiefMin = kz.tief;
           const ks = d.koerperSicht(PUNKTE);
           if (ks) {
             sichtProben++; sichtSumme += ks.n; if (ks.n < sichtMin) sichtMin = ks.n;
@@ -310,10 +358,11 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                   kameraImKollider: imKoll,
                   sichtMin, sichtMittel: sichtProben ? +(sichtSumme / sichtProben).toFixed(2) : null,
                   nichtLesbar: lesbarNicht, nichtLesbarMitFade: lesbarNichtFade,
+                  nichtGerahmt: rahmenNicht, rahmenGruende, tiefMin: +tiefMin.toFixed(3),
                   fadeAusgeloest: (d.fadeZustand ? d.fadeZustand().ausgeloest : 0) - fadeVor,
                   sprungInfo, stelle: F.stelle });
     }
-    return { faelle, ruhe, ruheBilder, zustand290, stellen: stellen.length,
+    return { faelle, ruhe, ruheBilder, zustand290, stellen: stellen.length, lauf1,
              starts: stellen.map((q, i) => i + ' ' + q.modell + ' Start ' + q.x.toFixed(2) + ',' + q.z.toFixed(2) +
                                              ' (' + q.mitteVerschoben + ' m neben der Dachmitte)') };
   }, { fest: FEST, bild: !!BILDER, ruhe: RUHE });
@@ -343,11 +392,24 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
   console.log('  nach dem Absturz     badFrames ' + fall.length +
               '   uniqueBadCameraEvents ' + ereignisse(fall) +
               '   (Figur mehr als 3 m unter der Dachflaeche)');
+  {
+    const L1 = aus.lauf1;
+    const dachNG = L1.nichtGerahmt.filter((f) => f.imDachLauf);
+    console.log('  playerFramed         nicht gerahmt ' + L1.nichtGerahmt.length + ' von ' + L1.proben + ' Proben' +
+                '   Ereignisse ' + ereignisse(L1.nichtGerahmt) +
+                '   (wie dachkamera.js: ' + dachNG.length + ' / ' + ereignisse(dachNG) + ')');
+    console.log('  playerReadable       nicht lesbar ' + L1.nichtLesbar + ' von ' + L1.proben +
+                '   durch den Fade nicht lesbar ' + L1.nichtLesbarFade);
+    console.log('  maxCameraJump        ' + L1.maxSprung.toFixed(3) + ' m je Bild  ' + JSON.stringify(L1.sprungInfo));
+    for (const f of L1.nichtGerahmt)
+      console.log('    nicht gerahmt: ' + (f.imDachLauf ? 'Dach ' : 'Fall ') + 'Stelle ' + f.stelle + ' Ri ' + f.richtung +
+                  ' Bild ' + String(f.bild).padStart(3) + '  Figur y ' + f.y + '  ' + f.zustand + '  ' + f.grund + '  Abstand ' + f.abstand);
+  }
   for (const f of aus.faelle)
     console.log('    ' + (f.imDachLauf ? 'Dach ' : 'Fall ') + 'Stelle ' + f.stelle +
                 ' Ri ' + f.richtung + ' Bild ' + String(f.bild).padStart(3) +
                 '  Figur y ' + f.pos[1] + ' (Dach ' + f.dachY + ')  ' + f.zustand +
-                '  Anteil ' + f.nahAnteil);
+                '  Anteil ' + f.nahAnteil + '  Blickpunkt gesenkt ' + f.blickTief);
 
   console.log('\n== Geometrie je Fall (2A) ==');
   console.log('  St Ri Bild  Klasse       Koll   Figur->Koll Soll->Koll Ist->Koll  Anteil  Koerperpunkte  Soll / Ist / Figur');
@@ -407,6 +469,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                 String(r.sichtMin + ' / ' + r.sichtMittel).padStart(18) +
                 String(r.nichtLesbar + '/' + 50).padStart(14) +
                 ('  mit Fade ' + r.nichtLesbarMitFade + '/50, Fades ' + r.fadeAusgeloest) +
+                ('  nicht gerahmt ' + r.nichtGerahmt + '/50' + (r.nichtGerahmt ? ' ' + JSON.stringify(r.rahmenGruende) : '') +
+                 '  tief ' + r.tiefMin) +
                 '   St ' + r.stelle + '  groesster Sprung: ' + JSON.stringify(r.sprungInfo));
   if (BILDER) {
     for (const rb of aus.ruheBilder || [])

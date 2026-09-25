@@ -18,8 +18,11 @@
                                  naeher als die Kamera selbst steht
      nearGeometryDominatesView   Anteil ueber der Schwelle
      playerReadable              Kopf UND Brust frei und Anteil klein
+     playerFramed                Kopf, Brust, Becken im Bild und nicht im
+                                 aeussersten Zwanzigstel am Rand
+     maxCameraJump               groesster Kamerasprung je Bild
 
-   Aufruf:  node tools/pruef/dachkamera.js [seed=4711] [bilder=ordner]
+   Aufruf:  node tools/pruef/dachkamera.js [seed=4711] [start=fest] [poseAlt] [bilder=ordner]
    ========================================================================= */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -34,6 +37,8 @@ const FEST = process.argv.indexOf('start=fest') > 0;
 const SICHT_ALT = process.argv.indexOf('sichtAlt') > 0;
 /* dachlebenAlt: die Dachleben-Kaesten ohne Hindernis (Stand 820f96e). */
 const DL_ALT = process.argv.indexOf('dachlebenAlt') > 0;
+/* poseAlt: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE in game.js). */
+const POSE_ALT = process.argv.indexOf('poseAlt') > 0;
 const bArg = process.argv.find((v) => v.indexOf('bilder=') === 0);
 const BILDER = bArg === undefined ? null : bArg.slice(7);
 if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
@@ -41,7 +46,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
 (async () => {
   const { b, page } = await starte(1280, 720, SEED,
     Object.assign({}, ALT ? { kamAusAlt: true } : {},
-      SICHT_ALT ? { kamSichtAlt: true } : {}, DL_ALT ? { dachlebenAlt: true } : {}));
+      SICHT_ALT ? { kamSichtAlt: true } : {}, DL_ALT ? { dachlebenAlt: true } : {},
+      POSE_ALT ? { kamPoseAlt: true } : {}));
   const stellen = await page.evaluate(() => {
     const d = __dbg; d.frier(true); d.setzeRegen(0);
     const SLAB_H = 0.25;
@@ -130,10 +136,19 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         if (S.fest) d.kamStart(gier); else d.setzeKamYaw(gier);
         for (let i = 0; i < 30; i++) d.schritt(1 / 60);
         d.taste('KeyW', true);
+        let vorK = null, sprung = 0;
         for (let k = 0; k < 110; k++) {
           d.schritt(1 / 60);
+          {
+            const kk = d.kamera();
+            if (vorK) sprung = Math.max(sprung, Math.hypot(kk.pos[0] - vorK[0], kk.pos[1] - vorK[1], kk.pos[2] - vorK[2]));
+            vorK = kk.pos;
+          }
           if (k % 3) continue;
           const kam = d.kamera();
+          /* playerFramed (d.figurRahmen): Kopf, Brust, Becken im Bild,
+             nicht am aeussersten Rand. */
+          const fr = d.figurRahmen();
           const kn = d.animKnochen(['head', 'spine2']);
           const R = raster(kam);
           const kopfFrei = !kn.head || frei(kam.pos[0], kam.pos[1], kam.pos[2],
@@ -168,7 +183,8 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                        abst: kam.abstand, steckt: kam.steckt,
                        kamY: +kam.pos[1].toFixed(2),
                        pos: [+P.pos.x.toFixed(2), +P.pos.y.toFixed(2), +P.pos.z.toFixed(2)],
-                       kam: kam.pos, gier: +gier.toFixed(2) });
+                       kam: kam.pos, gier: +gier.toFixed(2),
+                       gerahmt: fr ? fr.gerahmt : null, rahmenGrund: fr ? fr.grund : null, sprung: +sprung.toFixed(3) });
           if (P.pos.y < SLAB_H + S.h - 3) break;      // heruntergefallen
         }
         d.taste('KeyW', false);
@@ -181,7 +197,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
     const schlecht = reihe.filter((r) => r.nahAnteil > 0.5)
       .map((r) => ({ stelle: n, richtung: r.r, bild: r.k, y: r.pos[1], zustand: r.zustand,
                      anteil: r.nahAnteil }));
-    alle.push({ n, ...stellen[n], bilder: reihe.length, tunnel, max, schlecht });
+    alle.push({ n, ...stellen[n], bilder: reihe.length, tunnel, max, schlecht, reihe });
     console.log('  ' + String(n + 1).padStart(2) + '  ' +
                 (stellen[n].modell || '?').padEnd(26) +
                 ' Bilder ' + String(reihe.length).padStart(4) +
@@ -205,6 +221,24 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
     vor = f;
   }
   console.log('  badFrames ' + sl.length + '   uniqueBadCameraEvents ' + ev);
+  /* playerReadable: Kopf UND Brust frei und Anteil klein (siehe oben);
+     playerFramed: Kopf, Brust, Becken im Bild. Ereignisse wie oben. */
+  const alleProben = [].concat(...alle.map((e) => e.reihe.map((r) => Object.assign({ stelle: e.n }, r))));
+  const lesbar = alleProben.filter((r) => r.kopfFrei && r.brustFrei && r.nahAnteil <= 0.5).length;
+  const ng = alleProben.filter((r) => r.gerahmt === false)
+    .map((r) => ({ stelle: r.stelle, richtung: r.r, bild: r.k, grund: r.rahmenGrund, y: r.pos[1], zustand: r.zustand, abst: r.abst }));
+  let evR = 0, vorR = null;
+  for (const f of ng) {
+    if (!vorR || vorR.stelle !== f.stelle || vorR.richtung !== f.richtung || f.bild - vorR.bild > 3) evR++;
+    vorR = f;
+  }
+  const maxSprung = alleProben.reduce((m, r) => Math.max(m, r.sprung || 0), 0);
+  console.log('  playerReadable ' + lesbar + '/' + alleProben.length +
+              '   playerFramed ' + (alleProben.length - ng.length) + '/' + alleProben.length +
+              ' (nicht gerahmt ' + ng.length + ', Ereignisse ' + evR + ')   maxCameraJump ' + maxSprung.toFixed(3) + ' m je Bild');
+  for (const f of ng)
+    console.log('    nicht gerahmt: Stelle ' + f.stelle + ' Ri ' + f.richtung + ' Bild ' + String(f.bild).padStart(3) +
+                '  Figur y ' + f.y + '  ' + f.zustand + '  ' + f.grund + '  Abstand ' + f.abst);
   for (const f of sl)
     console.log('    Stelle ' + f.stelle + ' Ri ' + f.richtung + ' Bild ' + String(f.bild).padStart(3) +
                 '  Figur y ' + f.y + '  ' + f.zustand + '  Anteil ' + f.anteil);
@@ -241,7 +275,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       await page.screenshot({ path: path.join(BILDER,
         String(i + 1).padStart(2, '0') + '-' + (e.modell || 'x') + '.png') });
     }
-    fs.writeFileSync(path.join(BILDER, 'messwerte.json'), JSON.stringify(alle, null, 1));
+    fs.writeFileSync(path.join(BILDER, 'messwerte.json'), JSON.stringify(alle.map((e) => Object.assign({}, e, { reihe: undefined })), null, 1));
   }
   await b.close();
 })();

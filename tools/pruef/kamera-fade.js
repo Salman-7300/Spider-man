@@ -18,14 +18,18 @@
                         ausgeduenntes Objekt)
      occluderSwitches   Fade ein/aus je Sekunde
      maxCameraJump      groesster Kamerasprung je Bild
+     playerFramed       Kopf, Brust und Becken im Bild, nicht am aeussersten
+                        Rand (d.figurRahmen)
    Dazu Zeichenaufrufe, Materialien, Szenenobjekte mit und ohne Fade.
 
-   Aufruf:  node tools/pruef/kamera-fade.js [fadeAlt] [fadeMin=0.35] [bilder=ordner] [video]
+   Aufruf:  node tools/pruef/kamera-fade.js [fadeAlt] [poseAlt] [fadeMin=0.35] [bilder=ordner] [video]
    ========================================================================= */
 const fs = require('node:fs');
 const path = require('node:path');
 const { starte } = require('./basis');
 const ALT = process.argv.indexOf('fadeAlt') > 0;
+/* poseAlt: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE in game.js). */
+const POSE_ALT = process.argv.indexOf('poseAlt') > 0;
 const mArg = process.argv.find((v) => v.indexOf('fadeMin=') === 0);
 const MIN = mArg === undefined ? undefined : +mArg.slice(8);
 const bArg = process.argv.find((v) => v.indexOf('bilder=') === 0);
@@ -50,6 +54,7 @@ const LAGEN = [
 (async () => {
   const opt = {};
   if (ALT) opt.fadeAlt = true;
+  if (POSE_ALT) opt.kamPoseAlt = true;
   if (MIN !== undefined) opt.fadeMin = MIN;
   const { b, page } = await starte(1280, 720, 4711, opt);
   const aus = await page.evaluate(async (O) => {
@@ -106,6 +111,10 @@ const LAGEN = [
       /* Nur was gerade AUSGEDUENNT wird (Ziel), nicht was zurueckblendet. */
       for (const a of fz.aktiv) if (a.ziel && a.wert < 0.95 && !getroffen.has(a.id)) falsch++;
       st.proben++;
+      /* playerFramed (d.figurRahmen): Kopf, Brust, Becken im Bild und
+         nicht im aeussersten Zwanzigstel am Rand. */
+      const fr = d.figurRahmen();
+      if (fr && fr.gerahmt) st.gerahmt++;
       if (rohLesbar) st.rohLesbar++;
       if (fadeLesbar) st.fadeLesbar++;
       if (falsch) st.wrongObjectFaded++;
@@ -115,7 +124,7 @@ const LAGEN = [
     };
     const lauf = (L, art) => {
       los();
-      const st = { name: L.name, art, proben: 0, rohLesbar: 0, fadeLesbar: 0, wrongObjectFaded: 0,
+      const st = { name: L.name, art, proben: 0, rohLesbar: 0, fadeLesbar: 0, wrongObjectFaded: 0, gerahmt: 0,
                    objekte: new Set(), minWert: 1, maxSprung: 0, fadeVorher: 0, wechselVorher: 0,
                    bilder: [] };
       const S = stellen[L.stelle];
@@ -181,14 +190,15 @@ const LAGEN = [
     return { erg, video };
   }, { lagen: LAGEN, bilder: !!BILDER, video: VIDEO, videoLage: VIDEO_LAGE });
   await b.close();
-  const tag = ALT ? 'ohneFade' : 'fade' + (MIN === undefined ? '' : MIN);
+  const tag = (ALT ? 'ohneFade' : 'fade' + (MIN === undefined ? '' : MIN)) + (POSE_ALT ? '-poseAlt' : '');
   console.log('\n== Kamera-Fade (' + tag + ') ==');
-  console.log('  Fall        Art           fadeTriggered  Objekte                    min Fade  wrongObjectFaded  roh lesbar  durch Fade lesbar  Wechsel/s  maxSprung  Aufrufe  Materialien  Objekte');
+  console.log('  Fall        Art           fadeTriggered  Objekte                    min Fade  wrongObjectFaded  roh lesbar  durch Fade lesbar  playerFramed  Wechsel/s  maxSprung  Aufrufe  Materialien  Objekte');
   for (const e of aus.erg) {
     console.log('  ' + e.name.padEnd(11) + ' ' + e.art.padEnd(13) + String(e.fadeTriggered).padStart(14) + '  ' +
                 JSON.stringify(e.objekte).padEnd(26) + String(e.minWert).padStart(9) +
                 String(e.wrongObjectFaded).padStart(18) + String(e.rohLesbar + '/' + e.proben).padStart(12) +
-                String(e.fadeLesbar + '/' + e.proben).padStart(19) + String(e.occluderSwitchesJeSek).padStart(11) +
+                String(e.fadeLesbar + '/' + e.proben).padStart(19) + String(e.gerahmt + '/' + e.proben).padStart(14) +
+                String(e.occluderSwitchesJeSek).padStart(11) +
                 String(e.maxSprung).padStart(11) + String(e.kosten.calls).padStart(9) +
                 String(e.kosten.materialien).padStart(13) + String(e.kosten.objekte).padStart(9));
     if (BILDER && e.bild)
