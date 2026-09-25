@@ -14672,6 +14672,190 @@ function kamRichtungVersetzt(dir, dGier, dNeig, aus) {
   aus.set(x / waag * cn, sn, z / waag * cn);
   return aus;
 }
+/* ====================== CLIMB_TOP_OUT: Kamera beim Ueberziehen ======================
+   problem-3, Blocker 2. Human-Befund (0-6 s): an der Dachkante schaut die
+   Kamera in die Hausstruktur - unter die Dachplatte, in die Krone, auf
+   eine bildfuellende Kante. Bisher war das Ueberziehen kein eigener
+   Kamerazustand: dieselbe Wandkamera wie beim Klettern, dahinter
+   begrenzeKamera, das bei jedem Hindernis auf dem Strahl zur Figur hin
+   heranzieht. Beim Ueberziehen steht die Figur aber gerade HINTER der
+   Kante - der Strahl von ihr zur Kamera schneidet Dach und Krone, und
+   die Kamera faellt in genau diese Geometrie.
+
+   Eigener Zustand, eigene Lage:
+     Beginn  kurz vor der Oberkante (Kopf TOP_VOR unter der Kante, beim
+             Hinaufklettern) oder sobald "kante" laeuft.
+     Bezug   fest beim Eintritt: Wandnormale n, Tangente t, Kantenpunkt E
+             (Fassadenebene des Kolliders, Kantenhoehe, Tangentiallage der
+             Figur), Seite der Kamera. Haengt NICHT an wallInfo, das
+             waehrend "kante" null ist.
+     Lage    E + n*TOP_AUSSEN + oben*TOP_OBEN + t*Seite. Das sind die Masse
+             der Wandkamera (6,4 m, Neigung 0,22, Drehpunkt 1,35 m),
+             hier nur an der Kante festgemacht statt an der Figur.
+     Frei?   Kamera nicht in und nicht dicht an einem Kollider
+             (kameraLuft), Strecke von der Fassade (E + n*TOP_MIN_AUSSEN,
+             1,35 m hoch) bis zur Kamera frei, am Ende auch die Strecke
+             vom Blickpunkt der Dachkamera. Sonst der Reihe nach: weiter
+             HINAUS entlang n, dann HOEHER, dann seitlich entlang t - nie
+             zur Figur hin.
+     Halbraum  dot(Kamera - E, n) >= TOP_MIN_AUSSEN, jedes Bild. Derselbe
+             Abstand wie kameraWandAnker: Kameraradius + 0,05.
+     Blick   echte Knochen: 0,25 Kopf + 0,5 Brust + 0,25 Becken, weich
+             nachgefuehrt - vom Kletterrumpf bis zum Rumpf auf dem Dach
+             ohne feste 1,7.
+     Ende    erst wenn "kante" durch ist, die Figur auf dem Dach steht und
+             die Strecke vom Blickpunkt der Dachkamera frei ist (oder die
+             Figur sich wegbewegt). Die Dachkamera uebernimmt Richtung und
+             Abstand aus der letzten Lage, der Blickpunkt wird TOP_BLEND
+             Sekunden ueberblendet - kein Schnitt.
+   Der Fade bleibt, was er war: die letzte Stufe fuer Dachaufbauten.
+
+   GEMESSEN (tools/pruef/topout.js, 8 Haeuser, je die ersten 6 s, 2880
+   Bilder; vorher = Schalter topAlt):
+     Kamera in einer Kiste     118 -> 0      unter dem Dach   22 -> 0
+     hinter der Fassadenebene   75 -> 0      naeher 0,5 m    140 -> 2
+     Sprung (> 0,6 m / 12 Grad) 16 -> 1
+   Rest: Aufstieg aus dem Hof (hausStellen[3]) - im Uebergang 0,45 s vor
+   der Kante klebt die gewoehnliche Kletterkamera noch an der Krone. */
+const TOP_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_TOPOUT_ALT;
+const TOP_VOR = 1.2;
+const TOP_DREH = 1.35;                              // Drehpunkt der Wandkamera
+const TOP_AUSSEN = 6.4 * Math.cos(0.22);            // Wandkamera: 6,4 m bei Neigung 0,22
+const TOP_OBEN = TOP_DREH + 6.4 * Math.sin(0.22);
+const TOP_MIN_AUSSEN = KAMERA_RADIUS + 0.05;        // wie kameraWandAnker
+const TOP_SEITE = 1.5;
+const TOP_TEMPO = 4, TOP_BLICK_TEMPO = 8, TOP_BLEND = 0.5, TOP_LAND_MAX = 1.5;
+const TOP_VERSATZ = [[0, 0, 0], [2, 0, 0], [4, 0, 0], [0, 2, 0], [0, 4, 0], [2, 3, 0],
+                     [0, 0, 2], [0, 0, -2], [0, 2, 3], [0, 2, -3], [3, 5, 0], [0, 7, 0]];
+const TOP = { aktiv: false, nx: 0, nz: 0, tx: 0, tz: 0, ebene: 0, hoch: 0, col: null, seite: 0,
+              kante: new THREE.Vector3(), pos: new THREE.Vector3(), blick: new THREE.Vector3(),
+              wunsch: new THREE.Vector3(), anker: new THREE.Vector3(),
+              wahl: 0, land: 0, aus: 0, eintritte: 0, grund: null };
+const _topQ = new THREE.Vector3(), _topZ = new THREE.Vector3(), _topB = new THREE.Vector3();
+function topOutWand() {
+  if (player.state === 'kante' && player.kante && player.kante.wand && player.kante.wand.col)
+    return player.kante.wand;
+  const w = player.wallInfo;
+  if (player.state !== 'climb' || !w || !w.col || player.eckBogen) return null;
+  const rest = w.col.h - (player.pos.y + 1.75);
+  if (TOP.aktiv && TOP.col === w.col) return rest < TOP_VOR + 0.6 ? w : null;
+  return player.vel.y > 0.1 && rest < TOP_VOR ? w : null;
+}
+/* Ist q eine zulaessige Lage? (siehe oben: Luft, Strecke von der Fassade,
+   am Ende auch vom Blickpunkt der Dachkamera) */
+function topFrei(q, dachZiel) {
+  if ((q.x - TOP.kante.x) * TOP.nx + (q.z - TOP.kante.z) * TOP.nz < TOP_MIN_AUSSEN) return false;
+  if (kameraLuft(q) < KAMERA_RADIUS) return false;
+  if (kameraFreierAnteil(TOP.anker, q) < 0.999) return false;
+  if (dachZiel) {
+    if (kameraFreierAnteil(dachZiel, q) < 0.999) return false;
+    /* Beim Ueberziehen liegt der Rumpf hinter Bruestung und Krone:
+       Kopf und Brust (echte Knochen) muessen von hier aus frei sein.
+       Gemessen an FlatFacade_1 sonst gut eine halbe Sekunde verdeckt. */
+    if (_kamPunkteEcht && (kamStreckeBlocker(q, _kamPunkte[0]) !== null ||
+                           kamStreckeBlocker(q, _kamPunkte[1]) !== null)) return false;
+  }
+  return true;
+}
+function kamTopOut(dt, target) {
+  if (TOP_ALT) return false;
+  const w = topOutWand();
+  const auf = player.onGround && player.state === 'ground';
+  if (!TOP.aktiv) {
+    if (!w) return false;
+    const c = w.col;
+    TOP.aktiv = true; TOP.eintritte++;
+    TOP.col = c; TOP.nx = w.nx; TOP.nz = w.nz; TOP.tx = -w.nz; TOP.tz = w.nx;
+    TOP.ebene = w.nx > 0 ? c.x1 : w.nx < 0 ? c.x0 : w.nz > 0 ? c.z1 : c.z0;
+    TOP.hoch = player.state === 'kante' ? player.kante.hoch : c.h;
+    TOP.pos.copy(camPos);
+    TOP.blick.copy(_kamBlick);
+    TOP.seite = clamp((camPos.x - player.pos.x) * TOP.tx + (camPos.z - player.pos.z) * TOP.tz, -TOP_SEITE, TOP_SEITE);
+    TOP.wahl = 0; TOP.land = 0; TOP.aus = 0; TOP.grund = null;
+  } else if (w && player.state === 'kante') {
+    TOP.hoch = player.kante.hoch;
+  }
+  /* Kantenpunkt: Fassadenebene, Kantenhoehe, Tangentiallage der Figur */
+  const tLage = player.pos.x * TOP.tx + player.pos.z * TOP.tz;
+  if (TOP.nx !== 0) TOP.kante.set(TOP.ebene, TOP.hoch, tLage * TOP.tz);
+  else TOP.kante.set(tLage * TOP.tx, TOP.hoch, TOP.ebene);
+  TOP.anker.copy(TOP.kante);
+  TOP.anker.x += TOP.nx * TOP_MIN_AUSSEN; TOP.anker.z += TOP.nz * TOP_MIN_AUSSEN;
+  TOP.anker.y += TOP_DREH;
+  /* Steht ein Gesims oder die Krone vor der Fassade, beginnt die
+     Strecke vor ihm: weiter hinaus, hoechstens um die Reichweite der
+     Wandkamera. */
+  for (let k = 0; k < 12 && kameraLuft(TOP.anker) < KAMERA_RADIUS; k++) {
+    TOP.anker.x += TOP.nx * 0.25; TOP.anker.z += TOP.nz * 0.25;
+  }
+  /* Ende? */
+  const _dz = _topZ.copy(player.pos); _dz.y += 1.7;
+  if (!w) {
+    const weg = Math.abs((player.pos.x - TOP.kante.x) * TOP.nx + (player.pos.z - TOP.kante.z) * TOP.nz) > 3.5;
+    TOP.land += dt;
+    let ende = null;
+    if (!auf) ende = 'kein Dach';
+    else if (weg) ende = 'weg von der Kante';
+    else if (TOP.land > 0.15 && kameraFreierAnteil(_dz, TOP.pos) >= 0.999) ende = 'Dachkamera frei';
+    else if (TOP.land > TOP_LAND_MAX) ende = 'Zeit';
+    if (ende) {
+      TOP.aktiv = false; TOP.grund = ende; TOP.aus = TOP_BLEND;
+      /* Die Dachkamera uebernimmt Richtung und Abstand der letzten Lage */
+      const dx = TOP.pos.x - _dz.x, dy = TOP.pos.y - _dz.y, dzz = TOP.pos.z - _dz.z;
+      const l = Math.hypot(dx, dy, dzz) || 1;
+      camYaw = Math.atan2(dx, dzz);
+      camPitch = clamp(Math.asin(dy / l), -1.15, 1.25);
+      /* ... auch den Abstand: sonst faehrt die Kamera von gut 7 m auf die
+         5,6 m der Bodenkamera mit bis zu 0,6 m je Bild heran (gemessen,
+         FlatFacade_1). camDist laeuft danach weich auf seinen Wert. */
+      camDist = l;
+      kamFrei = l;
+      camPos.copy(TOP.pos);
+      return false;
+    }
+  }
+  /* Wunschlage und Ausweichen: hinaus, hoeher, seitlich */
+  const spaet = !w || (player.state === 'kante' && player.kante && player.kante.t > 0.5);
+  let gewaehlt = -1;
+  for (let k = 0; k < TOP_VERSATZ.length && gewaehlt < 0; k++) {
+    const i = k === 0 ? TOP.wahl : (k <= TOP.wahl ? k - 1 : k);
+    const v = TOP_VERSATZ[i];
+    const aus = TOP_AUSSEN + v[0], hoch = TOP_OBEN + v[1], seite = TOP.seite + v[2] * (TOP.seite < 0 ? -1 : 1);
+    _topQ.set(TOP.kante.x + TOP.nx * aus + TOP.tx * seite, TOP.kante.y + hoch,
+              TOP.kante.z + TOP.nz * aus + TOP.tz * seite);
+    if (topFrei(_topQ, spaet ? _dz : null)) { gewaehlt = i; TOP.wunsch.copy(_topQ); }
+  }
+  if (gewaehlt < 0) {
+    /* nichts frei: die Grundlage, begrenzt von der Fassade aus */
+    TOP.wunsch.set(TOP.kante.x + TOP.nx * TOP_AUSSEN + TOP.tx * TOP.seite, TOP.kante.y + TOP_OBEN,
+                   TOP.kante.z + TOP.nz * TOP_AUSSEN + TOP.tz * TOP.seite);
+    begrenzeKamera(TOP.anker, TOP.wunsch);
+  } else TOP.wahl = gewaehlt;
+  TOP.pos.lerp(TOP.wunsch, 1 - Math.exp(-dt * TOP_TEMPO));
+  /* Halbraum vor der Fassade, jedes Bild */
+  const ab = (TOP.pos.x - TOP.kante.x) * TOP.nx + (TOP.pos.z - TOP.kante.z) * TOP.nz;
+  if (ab < TOP_MIN_AUSSEN) { TOP.pos.x += TOP.nx * (TOP_MIN_AUSSEN - ab); TOP.pos.z += TOP.nz * (TOP_MIN_AUSSEN - ab); }
+  begrenzeKamera(TOP.anker, TOP.pos);
+  camPos.copy(TOP.pos);
+  /* Blick: echte Knochen */
+  if (_kamPunkteEcht) {
+    const k = _kamPunkte;
+    _topB.set(0.25 * k[0].x + 0.5 * k[1].x + 0.25 * k[2].x,
+              0.25 * k[0].y + 0.5 * k[1].y + 0.25 * k[2].y,
+              0.25 * k[0].z + 0.5 * k[1].z + 0.25 * k[2].z);
+  } else _topB.copy(target);
+  TOP.blick.lerp(_topB, 1 - Math.exp(-dt * TOP_BLICK_TEMPO));
+  return true;
+}
+/* Blickpunkt waehrend des Zustands und in der Ueberblendung danach */
+function kamTopBlick(blick, aktiv, dt) {
+  if (aktiv) { blick.copy(TOP.blick); return; }
+  if (TOP.aus <= 0) return;
+  TOP.aus = Math.max(0, TOP.aus - dt);
+  const f = 1 - TOP.aus / TOP_BLEND, s = f * f * (3 - 2 * f);
+  _topB.copy(TOP.blick).lerp(blick, s);
+  blick.copy(_topB);
+}
 function begrenzeKamera(von, nach) {
   const anteil = kameraFreierAnteil(von, nach);
   if (anteil < 1) nach.sub(von).multiplyScalar(anteil).add(von);
@@ -14945,12 +15129,14 @@ function updateCamera(dt) {
                 kameraFreierAnteil(target, camPos) < 0.9;
   camPos.lerp(desired, 1 - Math.exp(-dt * (eilig ? 60 : 12)));
   begrenzeKamera(target, camPos);
+  /* Beim Ueberziehen an der Dachkante fuehrt CLIMB_TOP_OUT (siehe TOP). */
+  const topAktiv = !MISSION_INTERIOR.active && kamTopOut(dt, target);
   camera.position.copy(camPos);
   if (camShake > 0) {
     camera.position.x += rand(-1, 1) * camShake;
     camera.position.y += rand(-1, 1) * camShake;
     camShake = Math.max(0, camShake - dt * 1.6);
-    begrenzeKamera(target, camera.position);
+    begrenzeKamera(topAktiv ? TOP.anker : target, camera.position);
   }
   /* Letzte Stufe: Fade (siehe KAM_FADE). */
   if (!MISSION_INTERIOR.active)
@@ -14960,6 +15146,7 @@ function updateCamera(dt) {
      (siehe KAM_POSE). Lage und Kollision oben bleiben unberuehrt. */
   _kamBlick.copy(target);
   _kamBlick.y += kamPoseTiefe(dt, wand);
+  kamTopBlick(_kamBlick, topAktiv, dt);
   KAM_POSE.zielY = target.y; KAM_POSE.blickY = _kamBlick.y;
   camera.lookAt(_kamBlick);
 
@@ -38860,6 +39047,14 @@ if (window.__WEBHERO_TEST__ === true) {
       kamFrei = camDist; vorausGlatt = 0; flugGlatt = gier + Math.PI;
       kamFadeAlleZurueck();
       KAM_POSE.tief = 0; KAM_POSE.roh = 0; KAM_POSE.H = null; KAM_POSE.v = 0;
+      TOP.aktiv = false; TOP.aus = 0;
+    },
+    /* CLIMB_TOP_OUT: laeuft der Zustand, woran haengt er, warum endete er? */
+    topOut() {
+      return { aktiv: TOP.aktiv, aus: +TOP.aus.toFixed(3), wahl: TOP.wahl, eintritte: TOP.eintritte,
+               grund: TOP.grund, n: [TOP.nx, TOP.nz], kante: [TOP.kante.x, TOP.kante.y, TOP.kante.z].map((v) => +v.toFixed(3)),
+               pos: [TOP.pos.x, TOP.pos.y, TOP.pos.z].map((v) => +v.toFixed(3)),
+               blick: [TOP.blick.x, TOP.blick.y, TOP.blick.z].map((v) => +v.toFixed(3)) };
     },
     /* Blickpunkt und Haltung (KAM_POSE): Drehpunkt der Kamera (zielY),
        wohin sie schaut (blickY), und woraus das folgt. */

@@ -121,6 +121,9 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: Kletterhaut aus (Stand vor
        problem-3, Blocker 1). */
     if (ein.proxyAlt) window.__WEBHERO_PROXY_ALT = 1;
+    /* Nur zum Messen: Kamera ohne den Zustand CLIMB_TOP_OUT (Stand vor
+       problem-3, Blocker 2). */
+    if (ein.topAlt) window.__WEBHERO_TOPOUT_ALT = 1;
     if (ein.fadeMin !== null && ein.fadeMin !== undefined) window.__WEBHERO_FADE_MIN = ein.fadeMin;
     /* Nur zum Messen: die Tiefenkarte waehrend des Kletterns
        abschalten (siehe FASS_IM_LAUF_AUS). */
@@ -162,6 +165,7 @@ async function starte(breite, hoehe, seed, opt) {
        fadeAlt: !!(opt && opt.fadeAlt),
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
        proxyAlt: !!(opt && opt.proxyAlt),
+       topAlt: !!(opt && opt.topAlt),
        fadeMin: opt && opt.fadeMin !== undefined ? opt.fadeMin : null,
        fassLaufAus: !!(opt && opt.fassLaufAus),
        rumpfAlt: !!(opt && opt.rumpfAlt),
