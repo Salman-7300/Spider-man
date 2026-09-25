@@ -3220,6 +3220,9 @@ const FLAECHE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_FLAECHE_
    die Begruendung an der Stelle, an der sie benutzt werden. */
 const STURZ_EIN = 0.80, STURZ_AUS = 0.30;
 const STURZ_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_STURZ_ALT;
+/* Nur zum Messen: Gleithaltung wie vor problem-3, Blocker 3 (gebaute
+   Haltung F mit 0,9, im Sturzflug fuehrt die Bewegungsdatei allein). */
+const GLEIT_GELENK_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_GLEIT_GELENK_ALT;
 const DACH_PROP_DUENN = 0.6;
 /* Zum Vergleichen: mit __WEBHERO_DACH_ALT werden die Aufbauten weiter
    eingestuft und gezaehlt, bekommen aber KEIN Hindernis - der Stand vor
@@ -8911,6 +8914,9 @@ function makeGlbVisual(m) {
   /* Gewaehlt ist die gebaute Haltung F. A, B, C und D bleiben als
      Vergleich im Quelltext, E ist die gebaute Sturzhaltung. */
   let GLEIT_HALTUNG = 'F';
+  /* Derselbe Messschalter wie GLEIT_GELENK_ALT, hier gelesen, weil die
+     Figur auch ohne den Rest des Spiels laufen muss (Offline-Tests). */
+  const GELENK_ALT_FIGUR = typeof window !== 'undefined' && !!window.__WEBHERO_GLEIT_GELENK_ALT;
   const GLEIT_SPUR = { left: null, right: null };
 
   const root = new THREE.Group();
@@ -10587,6 +10593,107 @@ function makeGlbVisual(m) {
                   up.clone().negate(), w * 0.8);
       }
     },
+    /* ---- Gleitflug: gespiegelte Gelenkziele (problem-3, Blocker 3) ----
+       Human-Befund bei Gleiten + W: ein Bein sehr hoch, das andere unten,
+       Arm- und Beinketten nicht gespiegelt. Ursache (gleit-gelenke.js):
+       die gebaute Haltung F lag nur mit 0,9 mal gleitMisch ueber der
+       Bewegungsdatei, und sobald der Sturzflug lief, fuehrte die Datei
+       StraightDive ALLEIN - deren Beine stehen nicht gespiegelt. Jede
+       Haltung A bis F war ein anderer Satz Zahlen auf derselben
+       Grundlage; keine besass die Glieder.
+
+       Jetzt besitzt der Loeser waehrend des Gleitflugs Ober- und
+       Unterarm, Hand, Ober- und Unterschenkel und Fuss beider Seiten
+       ganz (Gewicht 1 nach dem Mischer). Die Bewegungsdatei liefert nur
+       noch Becken und Wirbelsaeule, und auch die werden in die
+       Flugrichtung gelegt.
+
+       Ziele im Koerpersystem, als Anteil der Gliedlaenge (Rig-Masse,
+       keine festen Meter). q quer nach aussen, l in Flugrichtung, h hoch;
+       rechts entsteht durch Spiegeln von q:
+         Handgelenk ab Schulter   Gleiten q .78 l -.30 h -.10   Sturz q .30 l -.84 h -.05
+         Ellbogen-Pol             Gleiten q .45 l -.30 h -.60   Sturz q .35 l -.50 h -.55
+         Knoechel ab Huefte       Gleiten q .05 l -.93 h -.22   Sturz q .02 l -.97 h -.10
+         Knie-Pol                 nach unten und hinten (h -1, l -.4)
+       Die Pole zeigen die Ellbogen nach unten/hinten und die Knie nach
+       unten - die Loesung "Knie hoch" gibt es damit nicht. Zwischen
+       Gleiten und Sturz wird nach einem geglaetteten Anteil (gleitSturz)
+       ueberblendet; beide Saetze sind gespiegelt, also auch jede Mischung.
+       Die Physik des Gleitflugs bleibt unberuehrt.
+
+       GEMESSEN (gleit-gelenke.js: Gleiten, W halten, W-Stoesse, A, D,
+       W+A, W+D, Sturzflug, zurueck; 1238 Bilder, Schwellen aus dem Rig):
+       Bilder mit Verstoss 1238 -> 0. Vorher u. a. linkes Knie vor dem
+       Becken und am Kopf (542), Spagat (562), rechtes Handgelenk ueber
+       der Mittellinie (542) - alle im Sturzflug. */
+    poseGleitGelenke(nase, kurve, t, k, sturz) {
+      const w = clamp(k === undefined ? 1 : k, 0, 1);
+      if (w <= 0 || !knochen.hips) return;
+      const s = clamp(sturz || 0, 0, 1);
+      const mix = (a, b) => a + (b - a) * s;
+      root.updateMatrixWorld(true);
+      const right = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 0).normalize();
+      const forward = new THREE.Vector3().setFromMatrixColumn(root.matrixWorld, 2).normalize();
+      const up = new THREE.Vector3().crossVectors(forward, right).normalize();
+      const flight = forward.clone()
+        .addScaledVector(up, 0.1 - clamp(nase || 0, -1, 1) * 0.1).normalize();
+      const atem = Math.sin((t || 0) * 1.8) * 0.01;
+      const bank = clamp(kurve || 0, -1, 1);
+      const _r = new THREE.Vector3(), _z = new THREE.Vector3();
+      const richtung = (a, vz) => _r.copy(right).multiplyScalar(a[0] * vz)
+        .addScaledVector(flight, a[1]).addScaledVector(up, a[2]).normalize();
+      const lege = (bone, kind, a, kk) => {
+        if (!bone || !kind) return;
+        richtung(a, 1);
+        bone.getWorldPosition(_z);
+        zieleKnochen(bone, kind, _z.add(_r), kk);
+      };
+      const HS = GLEIT_BAU.segel, HD = GLEIT_BAU.dive;
+      const rumpf = [0, 1, mix(HS.rumpf[2], HD.rumpf[2])];
+      const kopf = [0, mix(HS.kopf[1], HD.kopf[1]), mix(HS.kopf[2], HD.kopf[2])];
+      lege(knochen.hips, knochen.spine, rumpf, w);
+      for (const [nm, kind] of [['spine', 'spine1'], ['spine1', 'spine2'], ['spine2', 'neck']])
+        lege(knochen[nm], knochen[kind], rumpf, w * 0.85);
+      lege(knochen.neck, knochen.head, kopf, w * 0.85);
+      root.updateMatrixWorld(true);
+      const S = new THREE.Vector3(), E = new THREE.Vector3(), Z = new THREE.Vector3(), Pz = new THREE.Vector3();
+      const punkt = (von, laenge, q, l, h, vz) => Z.copy(von)
+        .addScaledVector(right, q * laenge * vz).addScaledVector(flight, l * laenge)
+        .addScaledVector(up, h * laenge);
+      /* Auf welcher Seite der Querachse liegt das linke Bein? Aus dem Rig
+         gelesen, nicht angenommen. */
+      const links = knochen.leftupleg && knochen.hips &&
+        knochen.leftupleg.getWorldPosition(S).sub(knochen.hips.getWorldPosition(E)).dot(right) < 0 ? -1 : 1;
+      for (const seite of ['left', 'right']) {
+        const vz = seite === 'left' ? links : -links;
+        const arm = knochen[seite + 'arm'], unter = knochen[seite + 'forearm'], hand = knochen[seite + 'hand'];
+        const ober = knochen[seite + 'upleg'], bein = knochen[seite + 'leg'], fuss = knochen[seite + 'foot'];
+        drehZuRuhe(knochen[seite + 'shoulder'], 0, 0, 0, w);
+        root.updateMatrixWorld(true);
+        if (arm && unter && hand) {
+          arm.getWorldPosition(S); unter.getWorldPosition(E); hand.getWorldPosition(Pz);
+          const L = S.distanceTo(E) + E.distanceTo(Pz);
+          /* Kurvenlage: kurveninnerer Arm etwas tiefer, klein und
+             gegengleich; Atem auf beiden Seiten gleich. */
+          const hb = -bank * 0.05 * (seite === 'left' ? 1 : -1) + atem;
+          const ziel = punkt(S, L, mix(0.78, 0.30), mix(-0.30, -0.84), mix(-0.10, -0.05) + hb, vz).clone();
+          const pol = punkt(S, L, mix(0.45, 0.35), mix(-0.30, -0.50), mix(-0.60, -0.55), vz).clone();
+          gliedZiel(arm, unter, hand, ziel, pol, w);
+          root.updateMatrixWorld(true);
+          unter.getWorldPosition(E); hand.getWorldPosition(Pz);
+          setzeHand(seite, Pz.clone().sub(E).normalize(), up.clone().negate(), w);
+        }
+        if (ober && bein && fuss) {
+          ober.getWorldPosition(S); bein.getWorldPosition(E); fuss.getWorldPosition(Pz);
+          const L = S.distanceTo(E) + E.distanceTo(Pz);
+          const ziel = punkt(S, L, mix(0.05, 0.02), mix(-0.93, -0.97), mix(-0.22, -0.10) + atem * 0.5, vz).clone();
+          const pol = punkt(S, L, mix(0.06, 0.03), -0.4, -1, vz).clone();
+          gliedZiel(ober, bein, fuss, ziel, pol, w);
+          root.updateMatrixWorld(true);
+          setzeFuss(seite, richtung([0.03, -0.80, -0.55], vz).clone(), up.clone().negate(), w);
+        }
+      }
+    },
     /* Welche der drei Haltungen gilt? Nur fuer den Vergleich der
        Vorschlaege, im Spiel steht sie auf A. */
     setzeGleitHaltung(v) {
@@ -10612,9 +10719,10 @@ function makeGlbVisual(m) {
          l  laengs (nach hinten, negativ = nach vorn)
          h  hoch
        A ist der heutige Stand. */
-    poseGleiten(nase, kurve, t, k, tempo) {
+    poseGleiten(nase, kurve, t, k, tempo, sturz) {
       const w = clamp(k === undefined ? 0.9 : k, 0, 1);
       if (w <= 0 || !knochen.hips) return;
+      if (!GELENK_ALT_FIGUR) return this.poseGleitGelenke(nase, kurve, t, k, sturz);
       if (GLEIT_HALTUNG === 'D' || GLEIT_HALTUNG === 'E' || GLEIT_HALTUNG === 'F')
         return this.poseGleitBau(nase, kurve, t, k, tempo,
                                  GLEIT_HALTUNG === 'E' ? 'dive'
@@ -21014,7 +21122,7 @@ function mischeHaltungen(dt) {
       heroVisual.poseSchwung(a[0], a[1], a[2], a[3], a[4], a[5], g);
     } else if (n === 'gleiten' && MISCH.gleitArg && heroVisual.poseGleiten) {
       const a = MISCH.gleitArg;
-      heroVisual.poseGleiten(a[0], a[1], a[2], a[3] * g, a[4]);
+      heroVisual.poseGleiten(a[0], a[1], a[2], a[3] * g, a[4], a[5]);
     } else if (n === 'wand' && MISCH.wandArg && heroVisual.poseWandkriechen) {
       const a = MISCH.wandArg;
       heroVisual.poseWandkriechen(a[0], a[1], a[2], a[3] * g);
@@ -21383,7 +21491,16 @@ function updateHeroVisual(dt) {
          dann selbst am Eingabewert haengt und schneller schwankt als
          die Blendung von mischeHaltungen. Der Versuch ist deshalb
          zurueckgenommen. */
-      if (!player.sturzflug) {
+      /* problem-3, Blocker 3: der Loeser besitzt die Glieder im ganzen
+         Gleitflug, auch im Sturz (poseGleitGelenke). Der Anteil Sturz
+         wird nur fuer das Bild geglaettet - die Physik und die Schwellen
+         STURZ_EIN/STURZ_AUS bleiben, wie sie sind. */
+      player.gleitSturz = lerp(player.gleitSturz || 0, player.sturzflug ? 1 : 0, 1 - Math.exp(-dt * 5));
+      if (!GLEIT_GELENK_ALT) {
+        MISCH.wunsch = 'gleiten';
+        MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
+                          clamp(player.gleitMisch || 0, 0, 1), hSpeed, player.gleitSturz];
+      } else if (!player.sturzflug) {
         MISCH.wunsch = 'gleiten';
         MISCH.gleitArg = [player.gleitNase || 0, player.gleitKurve || 0, elapsed,
                           0.9 * clamp(player.gleitMisch || 0, 0, 1), hSpeed];
