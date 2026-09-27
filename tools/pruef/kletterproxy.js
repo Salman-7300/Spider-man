@@ -139,6 +139,11 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
         P.vel.set(0, 0, 0); P.state = 'climb'; P.onGround = false;
         P.wallInfo = P.wall = { nx, nz, col: c };
         P.eckSperre = 0; P.wandUebergaenge = 0; P.hockeT = 0; P.perchMix = 0;
+        /* wie ein echter Ansprung (siehe updatePlayer): neue Wand, neue
+           Haut. Sonst traegt der Lauf Hauttiefe und Eckbogen des vorigen
+           Laufs (anderes Haus) mit - gemessen: 12 Bilder Becken hinter der
+           Flaeche an einer geraden Seite, Haut 0,03, hautTiefe noch 0,86. */
+        P.hautTiefe = 0; P.eckBogen = null; P.eckT = 0;
         d.kamStart(Math.atan2(nx, nz), 0.1);
         const st = { typ: F.typ, koll: c.id, nx, nz, f, bilder: 0, brust: 0, becken: 0, void: 0,
                      roh: 0, losgelassen: 0, maxSprung: 0, tiefeMax: 0, beispiele: [] };
@@ -195,6 +200,60 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
                 if (RC.intersectObjects(meshes, false).length) { traegt = true; break; }
               }
               if (!traegt) leer++;
+            }
+            /* Dasselbe entlang der Flaechennormale, an der die Figur haengt
+               (P.hautN): an einer schraegen Flaeche liegt die Flaeche
+               entlang der Kistennormale um 1/cos weiter weg - an einer
+               60-Grad-Fase genau an der 0,75-m-Grenze. An einer geraden
+               Wand ist beides gleich. */
+            let leerN = 0;
+            {
+              const hn = P.hautN && P.hautTiefe > 0.02 ? P.hautN : { x: wnx, z: wnz };
+              const kn3 = d.animKnochen(['spine2', 'hips']);
+              for (const k of [kn3.spine2, kn3.hips]) {
+                if (!k) continue;
+                let traegt = false;
+                for (const q2 of [0, -0.2, 0.2]) {
+                  RC.set(V(k.x + hn.z * q2, k.y, k.z - hn.x * q2), V(-hn.x, 0, -hn.z)); RC.near = 0; RC.far = LEERE_M;
+                  if (RC.intersectObjects(meshes, false).length) { traegt = true; break; }
+                }
+                if (!traegt) leerN++;
+              }
+            }
+            if (leerN === 2) st.voidN = (st.voidN || 0) + 1;
+            /* ---- Schraege Fassaden (problem-3, finaler struktureller Pass) ----
+               koerperImHaus: Kopf, Schultern oder Hueften hinter einer
+               sichtbaren Flaeche (Strahl von aussen, wie bei Brust/Becken).
+               Dazu am Becken: Normale der sichtbaren Flaeche gegen die
+               Proxy-Normale der Figur (P.hautN), und der Abstand von Becken
+               und Brust zur Flaeche entlang der Normale. */
+            {
+              const kn2 = d.animKnochen(['head', 'leftarm', 'rightarm', 'leftupleg', 'rightupleg', 'hips', 'spine2']);
+              let drin = false;
+              for (const q of ['head', 'leftarm', 'rightarm', 'leftupleg', 'rightupleg']) {
+                const k = kn2[q]; if (!k) continue;
+                RC.set(V(k.x + wnx * 3, k.y, k.z + wnz * 3), V(-wnx, 0, -wnz)); RC.near = 0; RC.far = 3 - 0.02;
+                const vorn = RC.intersectObjects(meshes, false);
+                if (vorn.length && !(vorn[0].distance - 3 <= ANBAU_M)) { drin = true; break; }
+              }
+              if (drin || brustH || beckenH) st.koerper = (st.koerper || 0) + 1;
+              const hn = P.hautN && P.hautTiefe > 0.02 ? P.hautN : { x: wnx, z: wnz };
+              for (const [q, feld] of [['hips', 'abBecken'], ['spine2', 'abBrust']]) {
+                const k = kn2[q]; if (!k) continue;
+                RC.set(V(k.x, k.y, k.z), V(-hn.x, 0, -hn.z)); RC.near = 0; RC.far = 3;
+                const t = RC.intersectObjects(meshes, false);
+                if (!t.length) continue;
+                (st[feld] || (st[feld] = [])).push(t[0].distance);
+                if (q === 'hips' && t[0].face) {
+                  const nm = new THREE.Matrix3().getNormalMatrix(t[0].object.matrixWorld);
+                  const nv = t[0].face.normal.clone().applyMatrix3(nm).normalize();
+                  const l = Math.hypot(nv.x, nv.z);
+                  if (l > 0.3) {
+                    const cw = (nv.x * hn.x + nv.z * hn.z) / l;
+                    (st.winkel || (st.winkel = [])).push(Math.acos(Math.max(-1, Math.min(1, cw))) * 180 / Math.PI);
+                  }
+                }
+              }
             }
             const wx = wnx !== 0;
             const wfront = wx ? (wnx > 0 ? c.x1 : c.x0) : (wnz > 0 ? c.z1 : c.z0);
@@ -273,6 +332,7 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
           }
         }
         frei();
+        st.seitenwechsel = P.hautSeitenwechsel || 0; P.hautSeitenwechsel = 0;
         ergebnis.push(st);
       }
     }
@@ -301,9 +361,15 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
               '  Kistenebene an sichtbarem Element ' + rE);
   for (const e of aus.ergebnis) if (e.beispiele.length)
     console.log('    ' + e.typ + ' koll ' + e.koll + ' f ' + e.f + ' ' + JSON.stringify(e.beispiele));
+  const q = (a, p) => { if (!a || !a.length) return null; const b = a.slice().sort((x, y) => x - y); return +b[Math.min(b.length - 1, Math.floor(p * b.length))].toFixed(2); };
   if (NUR) for (const e of aus.ergebnis)
     console.log('    Lauf ' + e.typ + ' koll ' + e.koll + ' Seite ' + e.nx + ',' + e.nz + ' f ' + e.f + '  Bilder ' + e.bilder +
-                '  Brust ' + e.brust + '  Becken ' + e.becken + '  Loch ' + e.void + '  Kiste ' + e.roh + '  Haut max ' + e.tiefeMax.toFixed(2));
+                '  Brust ' + e.brust + '  Becken ' + e.becken + '  Koerper ' + (e.koerper || 0) + '  Loch ' + e.void + '  Kiste ' + e.roh +
+                '  Haut max ' + e.tiefeMax.toFixed(2) + '  Winkel p50/p95 ' + q(e.winkel, 0.5) + '/' + q(e.winkel, 0.95) +
+                '  Becken-Abst p05/p50 ' + q(e.abBecken, 0.05) + '/' + q(e.abBecken, 0.5) + '  Brust-Abst p05/p50 ' + q(e.abBrust, 0.05) + '/' + q(e.abBrust, 0.5) +
+                '  Seitenwechsel ' + (e.seitenwechsel || 0) + '  Loch(Flaechennormale) ' + (e.voidN || 0));
+  { let k = 0; for (const e of aus.ergebnis) k += e.koerper || 0; console.log('  playerCutsFacade (Kopf/Schultern/Hueften/Brust/Becken hinter sichtbarer Flaeche): ' + k); }
+  { let k = 0; for (const e of aus.ergebnis) k += e.voidN || 0; console.log('  climbingInVisualVoid entlang der Flaechennormale (P.hautN): ' + k); }
   const epi = [];
   for (const e of aus.ergebnis) for (const x of (e.episoden || [])) epi.push(Object.assign({ f: e.f }, x));
   if (epi.length) {

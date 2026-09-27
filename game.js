@@ -39528,6 +39528,13 @@ if (window.__WEBHERO_TEST__ === true) {
         nach: KAM_BLOCK.nach.map((v) => +v.toFixed(3)),
       };
     },
+    /* Bildpunkt (Pixel) eines Weltpunkts in der Spielkamera - fuer den
+       Nahausschnitt in schraeg-video.js */
+    bildPunkt(x, y, z) {
+      const v = new THREE.Vector3(x, y, z).project(camera);
+      const e = renderer.domElement.getBoundingClientRect();
+      return [(v.x + 1) / 2 * e.width, (1 - v.y) / 2 * e.height];
+    },
     kamera() {
       const p = camera.position;
       let steckt = null;
