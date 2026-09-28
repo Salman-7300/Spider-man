@@ -89,6 +89,11 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
       P.state = 'climb';
       P.wallInfo = P.wall = { nx, nz, col };
       P.eckSperre = 0;
+      /* wie ein echter Ansprung: neue Wand, neue Haut. Sonst nimmt die
+         Fahrt Hauttiefe und Eckbogen der vorigen Fahrt (anderes Haus) mit -
+         gemessen: 0,38 m Hauttiefe aus dem vorigen Lauf, danach wich die
+         Fahrt vom selben Stand ohne Uebertrag ab. */
+      P.hautTiefe = 0; P.eckBogen = null; P.eckT = 0;
       d.setzeKamYaw(Math.atan2(-nx, -nz));
       /* ---- Erst einschwingen lassen ----
          Das Setzen der Figur ist selbst ein Sprung: die Kamera steht
