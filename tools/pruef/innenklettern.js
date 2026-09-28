@@ -19,10 +19,14 @@
      interiorClimbSurface               Bilder im Kletterzustand (climb/kante),
                                         waehrend die Figur im Innenraum steht
      playerInsideBuildingWhileClimbing  Bilder im Kletterzustand, in denen
-                                        Becken oder Brust in einem FREMDEN
-                                        Kollider stecken (kletterLage().imHaus,
-                                        ohne die bekletterte Kiste: dort liegt
-                                        die Kletterhaut eines Modellhauses)
+                                        die Figur im Volumen dieses Hauses
+                                        steht (Grundriss mit Waenden, unter
+                                        der Decke) oder Becken bzw. Brust in
+                                        einem FREMDEN Gebaeude stecken
+                                        (kletterLage().insideForeign; die
+                                        eigene grobe Kiste zaehlt nicht -
+                                        dort liegt die Kletterhaut eines
+                                        Modellhauses)
      topOutFromInterior                 Uebergaenge in 'kante', waehrend die
                                         Figur im Innenraum steht
      playerCrossesRoofFromBelow         Laeufe, in denen die Figur ueber dem
@@ -120,10 +124,11 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
               F.klettern++;
               if (art === 'innen' && imRaum(p)) F.imRaum++;
               const lage = d.kletterLage();
-              /* nur FREMDE Kollider: an einem Modellhaus haengt die Figur mit
+              /* nur FREMDE Gebaeude: an einem Modellhaus haengt die Figur mit
                  Absicht an der sichtbaren Haut hinter der eigenen Kiste */
-              const fremd = lage.imHaus && lage.drinWer && P.wallInfo && lage.drinWer.id !== P.wallInfo.col.id;
-              if (fremd) { F.imHaus++; if (!F.drin) F.drin = { i, pos: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), wer: lage.drinWer,
+              const imVolumen = p.x > gx0 && p.x < gx1 && p.z > gz0 && p.z < gz1 && p.y < r.decke;
+              const fremd = lage.insideForeign > 0 || (art === 'innen' && imVolumen);
+              if (fremd) { F.imHaus++; if (!F.drin) F.drin = { i, pos: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), wer: lage.fremdWer || 'Hausvolumen',
                 wand: P.wallInfo ? P.wallInfo.col.id + ':' + P.wallInfo.nx + ',' + P.wallInfo.nz : P.state }; }
             }
             if (P.state === 'kante' && vorZustand !== 'kante' && art === 'innen' && imRaum(p)) F.kanteInnen++;

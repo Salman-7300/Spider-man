@@ -1830,6 +1830,12 @@ function merkeInnenPlatz(x, boden, z, ry, sitz) {
   INNEN_PLAETZE.push({ x, boden, z, ry, sitz });
 }
 function kitHindernis(t, x, z, ry, kasten) {
+  const vorher = _bauJetzt;
+  _bauJetzt = { kit: true, x0: kasten.x0, x1: kasten.x1, z0: kasten.z0, z1: kasten.z1,
+                y0: -1.0, h: SLAB_H + t.h };
+  try { kitHindernisScheiben(t, x, z, ry, kasten); } finally { _bauJetzt = vorher; }
+}
+function kitHindernisScheiben(t, x, z, ry, kasten) {
   const oben = SLAB_H + t.h;
   const W = KIT_WAND;
   const bodenY = SLAB_H + (t.hoch || 0);      // Hoehe des Fussbodens im Haus
@@ -2169,6 +2175,10 @@ const colliders = [];          // {x0,x1,z0,z1,h} – Gebäude & Pylonen
 const colliderGrid = new Map(); // "ci,cj" -> [collider,...]
 
 let _kollNr = 0;
+/* Das Gebaeude, dessen Hindernisse gerade angelegt werden (siehe
+   addCollider). Es hat selbst die Form eines Kastens: x0..x1, z0..z1,
+   y0..h - das Volumen, in dem man "im Haus" steht. */
+let _bauJetzt = null;
 const KOLL_QUELLE = typeof window !== 'undefined' && !!window.__WEBHERO_KOLL_QUELLE;
 function addCollider(c) {
   /* Eine laufende Nummer, damit eine Messung ueber mehrere Bilder sagen
@@ -2176,6 +2186,14 @@ function addCollider(c) {
      sich ein Flattern zwischen zwei Flaechen nicht von einem einmaligen
      Wechsel unterscheiden (problem-2, Punkt A). */
   if (c.id === undefined) c.id = ++_kollNr;
+  /* Zu welchem GEBAEUDE gehoert das Hindernis? (problem-2, Reachable
+     Visual Climb Skin) Ein Haus besteht aus mehreren Kaesten: die
+     Hauskiste mit ihren Kronenbaendern, beim begehbaren Kit-Haus vier
+     Wandscheiben, Sturz und Dachplatte. Das Klettern braucht das, um
+     die EIGENE Huelle (dort darf die sichtbare Haut bis HAUT_MAX hinter
+     der groben Kiste liegen) von einem FREMDEN Haus (harte Sperre) zu
+     trennen. Ohne Gebaeude ist ein Hindernis sein eigenes. */
+  if (c.bau === undefined) c.bau = _bauJetzt || c;
   /* Nur zum Messen: wo im Code wurde dieses Hindernis angelegt? Fuer die
      Frage "Gesims, Krone oder etwas anderes?" (problem-2, 2G). */
   if (KOLL_QUELLE) c.quelle = (new Error().stack || '').split('\n').slice(2, 4).join(' | ');
@@ -5779,6 +5797,9 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
      daran wieder ans Tageslicht. */
   const hausKoll = { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2,
                      h: SLAB_H + h, y0: -1.0 };
+  /* Kiste und Kronenbaender (schmueckeHaus) sind EIN Gebaeude */
+  const bauVorher = _bauJetzt;
+  hausKoll.bau = hausKoll; _bauJetzt = hausKoll;
   addCollider(hausKoll);
   /* Die Kiste und ihr Hindernis kennen einander. setzeHausModelle haengt
      spaeter die Tiefenkarte des gesetzten Modells an das Hindernis - ohne
@@ -5802,6 +5823,7 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
      ueber jedem hohen Haus stand eine unsichtbare Wand. Beides ist damit
      weg; die Silhouette bringt jetzt das Modell selbst mit. */
   schmueckeHaus(w, h, d, x, z, null, schau);
+  _bauJetzt = bauVorher;
   /* Das ganze Dach ist frei - es steht nichts mehr darauf, was Platz
      braeuchte. */
   const dachPlatz = (rand2) => ({
@@ -7153,8 +7175,22 @@ function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
   const W = X1 - X0, D = Z1 - Z0, HB = H * anteil;
   if (!(W > 0) || !(D > 0) || !(HB > 0)) return null;
   const seiten = {};
-  for (const [nx, nz] of FASS_SEITEN)
+  /* ---- Je Zelle auch die NORMALE der vordersten Flaeche ----
+     problem-3, finaler struktureller Pass. Die Tiefe sagt, WO die
+     sichtbare Flaeche liegt, aber nicht, WOHIN sie zeigt: an der
+     schraegen Rueckseite von ModernOffice_1 (bis 2,9 m hinter der Kiste)
+     und an ihrer 42-Grad-Fase lag die Figur parallel zur Kiste und
+     schnitt die Schraege. Gespeichert wird die waagrechte Normale im
+     NORMIERTEN Modellraum (x/W, z/D): dort ist sie fuer jedes Haus
+     dieses Typs gleich. Ins Haus kommt sie zur Laufzeit mit der
+     inversen Transponierten der Hausskalierung (siehe hautFlaeche). */
+  const normalen = {};
+  for (const [nx, nz] of FASS_SEITEN) {
     seiten[nx + ',' + nz] = new Float32Array(FASS_NU * FASS_NV).fill(FASS_LEER);
+    normalen[nx + ',' + nz] = { x: new Float32Array(FASS_NU * FASS_NV).fill(nx),
+                                z: new Float32Array(FASS_NU * FASS_NV).fill(nz) };
+  }
+  let nlx = 0, nlz = 0;
   const yOben = Y0 + HB;
   const m = new THREE.Matrix4();
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
@@ -7181,7 +7217,10 @@ function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
         /* Nur nach AUSSEN gewandte Dreiecke - die Rueckseite einer
            Fassade ist keine sichtbare Flaeche. */
         if ((nn.x * nx + nn.z * nz) <= 0.15 * lang) continue;
-        const g = seiten[nx + ',' + nz];
+        const g = seiten[nx + ',' + nz], gn = normalen[nx + ',' + nz];
+        /* Normale im normierten Raum: x' = x / W  ->  n'x = n.x * W */
+        nlx = nn.x * W; nlz = nn.z * D;
+        { const l = Math.hypot(nlx, nlz) || 1; nlx /= l; nlz /= l; }
         for (let j = 0; j < 3; j++) {
           const q = j === 0 ? a : j === 1 ? b : c;
           uu[j] = nx !== 0 ? (q.z - Z0) / D : (q.x - X0) / W;
@@ -7206,7 +7245,7 @@ function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
           const ci = clamp(Math.floor(uu[j] * FASS_NU), 0, FASS_NU - 1);
           const cj = clamp(Math.floor(vv[j] * FASS_NV), 0, FASS_NV - 1);
           const q = cj * FASS_NU + ci;
-          if (tt[j] < g[q]) g[q] = tt[j];
+          if (tt[j] < g[q]) { g[q] = tt[j]; gn.x[q] = nlx; gn.z[q] = nlz; }
         }
         if (ci1 - ci0 + (cj1 - cj0) === 0) continue;
         const d21u = uu[1] - uu[0], d21v = vv[1] - vv[0];
@@ -7223,7 +7262,7 @@ function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
             if (l1 < -0.001 || l2 < -0.001 || l1 + l2 > 1.001) continue;
             const t = tt[0] + l1 * (tt[1] - tt[0]) + l2 * (tt[2] - tt[0]);
             const q = cj * FASS_NU + ci;
-            if (t < g[q]) g[q] = t;
+            if (t < g[q]) { g[q] = t; gn.x[q] = nlx; gn.z[q] = nlz; }
           }
         }
       }
@@ -7231,24 +7270,27 @@ function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
   });
   /* Einzelne Rasterloecher schliessen. */
   for (const [nx, nz] of FASS_SEITEN) {
-    const g = seiten[nx + ',' + nz], kopie = g.slice();
+    const g = seiten[nx + ',' + nz], kopie = g.slice(), gn = normalen[nx + ',' + nz];
     for (let cj = 0; cj < FASS_NV; cj++) for (let ci = 0; ci < FASS_NU; ci++) {
       const q = cj * FASS_NU + ci;
       if (kopie[q] < FASS_LEER) continue;
-      let wand = 0, summe = 0;
+      let wand = 0, summe = 0, sx = 0, sz = 0;
       for (const [du, dv] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const ni = ci + du, nj = cj + dv;
         if (ni < 0 || ni >= FASS_NU || nj < 0 || nj >= FASS_NV) continue;
         const w = kopie[nj * FASS_NU + ni];
-        if (w < FASS_LEER) { wand++; summe += w; }
+        if (w < FASS_LEER) { wand++; summe += w; sx += gn.x[nj * FASS_NU + ni]; sz += gn.z[nj * FASS_NU + ni]; }
       }
-      if (wand >= 3) g[q] = summe / wand;
+      if (wand >= 3) {
+        g[q] = summe / wand;
+        const l = Math.hypot(sx, sz) || 1; gn.x[q] = sx / l; gn.z[q] = sz / l;
+      }
     }
   }
   /* Die Abbildung Welt-Hoehe -> Rasterzeile haengt daran, wo der
      Modellursprung liegt. Sie wird hier mitgegeben, statt sie zur
      Laufzeit anzunehmen. */
-  return { seiten, hLok: H, vOff: Y0 / (H * anteil) };
+  return { seiten, normalen, hLok: H, vOff: Y0 / (H * anteil) };
 }
 
 /* ---- Glas in offene Fensterloecher: gebaut, gemessen, zurueckgenommen ----
@@ -7470,7 +7512,10 @@ function setzeHausModelle(szene) {
       t.kiste.koll.fassade = { g: t.fassade, w: t.kiste.w, d: t.kiste.d,
                                h: t.kiste.h };
     HAUS_MODELLE.push(t.obj);
-    if (t.kollider) addCollider(t.kollider);
+    if (t.kollider) {
+      if (t.kiste && t.kiste.koll) t.kollider.bau = t.kiste.koll.bau || t.kiste.koll;
+      addCollider(t.kollider);
+    }
     /* Fuer den Wiederholungs-Pruefstand: welches Modell steht hier? */
     if (t.kiste) t.kiste.modell = t.modell;
   }
@@ -9357,6 +9402,17 @@ function makeGlbVisual(m) {
      je Bild, ohne sie 1,3 cm. Das war das Rudern mit den Beinen.
      Richtig ist: erst die Zielhaltung ausrechnen, dann anteilig dorthin
      drehen. Damit ist k ein echtes Gewicht und nichts kann aufsummieren. */
+  /* ---- Die Wandebene der Kontakt-Posen ----
+     Achsenparallel (ganzzahlige Normale): flaeche ist der x- bzw. z-Wert
+     der Ebene, wie bisher. Allgemein (schraege Fassade, problem-3,
+     finaler struktureller Pass): (nx, nz) ist die Einheitsnormale und
+     flaeche die Konstante K = Punkt * Normale. */
+  function ebenenK(nx, nz, flaeche) {
+    return Number.isInteger(nx) && Number.isInteger(nz) ? flaeche * (nx || nz) : flaeche;
+  }
+  function ebenenAbstand(p, nx, nz, flaeche) {
+    return p.x * nx + p.z * nz - ebenenK(nx, nz, flaeche);
+  }
   function drehZuRuhe(bone, ax, ay, az, k) {
     if (!bone) return;
     const ruhe = ruheDrehung.get(bone);
@@ -10118,7 +10174,7 @@ function makeGlbVisual(m) {
         const f = knochen[seite + 'foot'];
         if (!f) continue;
         f.getWorldPosition(_vw3);
-        const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
+        const d = ebenenAbstand(_vw3, nx, nz, flaeche);
         /* Voll bis 16 cm Abstand, dann ausblenden bis 46. Mit der alten
            Grenze (voll nur bei 5 cm) war der Fuss beim Auftritt erst zur
            Haelfte gedreht und die Zehe stand 4,6 cm im Haus. */
@@ -10193,7 +10249,7 @@ function makeGlbVisual(m) {
         const stride = Math.sin((phase || 0) + (sign < 0 ? Math.PI : 0));
         const target = hip.clone().addScaledVector(right, sign * 0.15)
           .addScaledVector(along, -WANDLAUF_REICH + stride * WANDLAUF_HUB);
-        target.addScaledVector(normal, plane * (nx || nz) + 0.075 + Math.max(0, stride) * 0.14 - target.dot(normal));
+        target.addScaledVector(normal, ebenenK(nx, nz, plane) + 0.075 + Math.max(0, stride) * 0.14 - target.dot(normal));
         const pole = hip.clone().addScaledVector(along, 0.15).addScaledVector(right, sign * 0.21).addScaledVector(normal, 0.2);
         gliedZiel(upper, knochen[side + 'leg'], knochen[side + 'foot'], target, pole, w);
         setzeFuss(side, along, normal.clone().negate(), w);
@@ -10968,7 +11024,7 @@ function makeGlbVisual(m) {
       drehUmWeltachse(knochen.hips, vor, -drall);
       drehUmWeltachse(knochen.spine2 || knochen.spine1, vor, 2 * drall);
       root.updateMatrixWorld(true);
-      const hip = knochen.hips.getWorldPosition(new THREE.Vector3()), plane = flaeche * (nx || nz);
+      const hip = knochen.hips.getWorldPosition(new THREE.Vector3()), plane = ebenenK(nx, nz, flaeche);
       /* Die Huefte OHNE Wiegen - Bezugspunkt aller Kontaktpunkte. Fuer die
          Seitenbestimmung (sign) bleibt die echte Huefte massgeblich: die
          Beine stehen nur rund 9 cm auseinander, ein Versatz von 4 cm
@@ -11234,7 +11290,7 @@ function makeGlbVisual(m) {
         if (!a || !b) continue;
         b.getWorldPosition(_vw3);
         /* Abstand zur Fassade, positiv heisst davor. */
-        const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
+        const d = ebenenAbstand(_vw3, nx, nz, flaeche);
         const ziel = WAND_LUFT + rest;
         /* Ab 45 cm Abstand liess der Griff das Glied frueher SCHLAGARTIG
            los - das Schwungbein im Kletterschritt geht durch diese Marke,
@@ -11247,8 +11303,8 @@ function makeGlbVisual(m) {
            IN der Fassade - genau die Fuesse, die im Haus verschwanden. */
         if (Math.abs(d - ziel) < 0.005 || nah <= 0.001) continue;  // sitzt schon oder zu weit weg
         _vw4.copy(_vw3);
-        if (nx !== 0) _vw4.x -= nx * (d - ziel);
-        else _vw4.z -= nz * (d - ziel);
+        /* entlang der Normale - auch schraeg (ganzzahlig: wie bisher) */
+        _vw4.x -= nx * (d - ziel); _vw4.z -= nz * (d - ziel);
         /* Die Kontaktphase daempft NUR das Heranziehen. Ein Glied, das
            gerade umsetzt, soll sich vor der Fassade frei bewegen duerfen -
            es soll aber niemals im Haus bleiben. Deshalb wird nach innen
@@ -11273,7 +11329,7 @@ function makeGlbVisual(m) {
         const bn = knochen[name];
         if (!bn) continue;
         bn.getWorldPosition(_vw3);
-        const d = nx !== 0 ? (_vw3.x - flaeche) * nx : (_vw3.z - flaeche) * nz;
+        const d = ebenenAbstand(_vw3, nx, nz, flaeche);
         /* Engeres Band als beim Heranziehen: gedreht wird nur, was die
            Wand auch wirklich beruehrt. Beim Wandlauf schwingen die Arme
            im Laufschritt 29 cm vor der Fassade - eine Hand dort flach auf
@@ -15103,7 +15159,8 @@ function updateCamera(dt) {
   if (wand && autoStufe >= 1 && mausRuhe > KAM_WAND_RUHE) {
     const lauf = !!player.wandlauf;
     const kraft = clamp((mausRuhe - KAM_WAND_RUHE) * 1.6, 0, 1) * (lauf ? 1 : 0.6);
-    camYaw = dampAngle(camYaw, Math.atan2(wand.nx, wand.nz),
+    const hnK = player.hautN && player.wallInfo === wand ? player.hautN : wand;
+    camYaw = dampAngle(camYaw, Math.atan2(hnK.x !== undefined ? hnK.x : hnK.nx, hnK.z !== undefined ? hnK.z : hnK.nz),
                        Math.min(0.3, dt * KAM_WAND_ZUG * kraft));
     const steig = clamp(player.vel.y / 8, -1, 1);
     const zielPitch = clamp(KAM_WAND_PITCH[0] - steig * KAM_WAND_PITCH[1], -0.45, 0.30);
@@ -15741,10 +15798,79 @@ function rumpfStreifen(c, nx, nz, y, t) {
   return { a, b, zelle: breit, breite: (b - a + 1) * breit,
            rand: a === 0 || b === FASS_NU - 1, leer };
 }
+/* ====================== Reachable Visual Climb Skin ======================
+   problem-2. Eine sichtbare Modellfassade ist Kletterflaeche, wenn
+     1. sie im sichtbaren Modell existiert (Tiefenkarte),
+     2. sie in Reichweite liegt (Tiefe <= HAUT_MAX, absolut),
+     3. das Klettern von AUSSEN begann und auf einem aussen gueltigen Weg
+        bleibt.
+   Keine Klassifikation je Zelle: entschieden wird dort, wo es gebraucht
+   wird - beim Ankleben, beim Kletterschritt und bei der Uebergabe.
+
+   Das Gebaeude eines Hindernisses (c.bau, siehe addCollider) hat selbst
+   die Form eines Kastens. Wer beim Ankleben schon IN diesem Volumen
+   steht - im Laden eines Kit-Hauses, im offenen Erdgeschoss -, klettert
+   nicht an dessen Fassade: das waere die Aussenwand von innen
+   (gemessen an hausStellen[3], Building_Small_1: die Figur stieg im
+   Laden an der Wandscheibe hoch und kam durch die Dachplatte). */
+function bauVon(c) { return c ? (c.bau || c) : null; }
+function imBauVolumen(b, x, y, z) {
+  return !!b && x > b.x0 + 0.02 && x < b.x1 - 0.02 && z > b.z0 + 0.02 && z < b.z1 - 0.02 &&
+         y > (b.y0 === undefined ? -1e9 : b.y0) && y < (b.h || 0);
+}
+/* Darf von hier aus an col angeklebt werden? Nein, wenn Becken oder Fuss
+   schon im Gebaeude dieser Wand stehen. */
+function ankletternVonAussen(col) {
+  const b = bauVon(col);
+  if (!b || KLETTER_V2_ALT) return true;
+  return !imBauVolumen(b, player.pos.x, player.pos.y + 0.05, player.pos.z) &&
+         !imBauVolumen(b, player.pos.x, player.pos.y + 0.9, player.pos.z);
+}
+/* Der Kletterzustand kennt sein Gebaeude: die eigene Huelle darf die
+   Figur umgeben (die Haut liegt bis HAUT_MAX hinter der groben Kiste),
+   jedes andere Gebaeude ist eine harte Sperre. */
+function kletterOwnerSetzen(col) {
+  player.climbOwner = bauVon(col);
+  player.climbStartedFromExterior = true;
+}
+const KLETTER_V2_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KLETTER_V2_ALT;
+/* Gehoert b zur laufenden Klettersequenz? Das eigene Gebaeude, und
+   waehrend des Bogens einer Nahtuebergabe auch das Haus, von dem die
+   Figur gerade herueberfaehrt - sie haengt dort noch an dessen Haut. */
+function kletterEigenerBau(b) {
+  /* beim Hochziehen ueber die Kante ist wallInfo leer - dann gilt die
+     Wand, ueber deren Kante es geht */
+  const w = player.wallInfo || (player.state === 'kante' && player.kante ? player.kante.wand : null);
+  return (!!w && b === bauVon(w.col)) || (!!player.eckBogen && b === player.climbUebergabeVon);
+}
+/* Steckt der Koerper (Becken 0,9 m, Brust 1,4 m ueber dem Fusspunkt) an
+   (x, y, z) in einem FREMDEN Gebaeude? Dieselben Hindernisse wie die
+   Messung (kletterLage): Kleinkram, Innenraum, Parkautos und Dachaufbauten
+   zaehlen nicht. */
+function kletterFremdBau(x, y, z) {
+  for (const hoehe of [0.9, 1.4]) {
+    const py = y + hoehe;
+    for (const n of collidersNear(x, z)) {
+      if (n.klein || n.innen || n.parkAuto || n.dachProp) continue;
+      if (kletterEigenerBau(bauVon(n))) continue;
+      const y0 = n.y0 === undefined ? -1e9 : n.y0;
+      if (x > n.x0 + 0.02 && x < n.x1 - 0.02 && z > n.z0 + 0.02 && z < n.z1 - 0.02 &&
+          py > y0 + 0.02 && py < n.h - 0.02) return n;
+    }
+  }
+  return null;
+}
 function wandTraegt(col, nx, nz, y, x, z) {
   if (!col || (nx === 0 && nz === 0) || !col.fassade) return true;
   const t = nx !== 0 ? clamp(z, col.z0 + 0.05, col.z1 - 0.05)
                      : clamp(x, col.x0 + 0.05, col.x1 - 0.05);
+  /* Dasselbe Mass wie der Kletterschritt (hautFlaeche): die Ebene, an
+     der die Figur saesse, muss in Reichweite HAUT_MAX liegen. Mit dem
+     alten Mass (nur der vorderste Punkt im Fussabdruck) klebte die Figur
+     an einer 60-Grad-Fase von ModernOffice_1 an, der Schritt fand dort
+     aber keine Flaeche in Reichweite - sie hing 50 Bilder an der Kiste,
+     1,7 m vor der sichtbaren Fassade (kletterproxy, koll 219/956/1858). */
+  if (!HAUT_ALT && !KLETTER_V2_ALT && col.fassade.g.normalen) return hautFlaeche(col, nx, nz, y - 1.0, t, 0) >= 0;
   if (!HAUT_ALT) return hautZiel(col, nx, nz, y - 1.0, t) >= 0;
   return !koerperHalt(col, nx, nz, y - 1.0, t);
 }
@@ -15823,6 +15949,108 @@ function hautTiefe(c, nx, nz, ya, yb, ta, tb) {
   }
   return m >= FASS_LEER ? FASS_LEER : m * (achseX ? f.w : f.d);
 }
+/* ---- Flaeche mit Richtung: Tiefe UND Normale (Kletterhaut) ----
+   problem-3, finaler struktureller Pass. Liefert fuer den Fussabdruck
+   des Koerpers (wie hautZiel) die Tiefe der Ebene, an der die Figur
+   liegt, und die Normale dieser Ebene - oder -1, wenn dort nichts traegt.
+
+     Normale   Mittel der gespeicherten Zellnormalen unter dem Rumpf
+               (Mittelband +-HAUT_SEIT/2), nur die vordersten Zellen
+               (hoechstens HAUT_NORM_BAND hinter der vordersten). Ins Haus
+               mit der inversen Transponierten der Skalierung:
+               n_welt ~ (n'x / w, n'z / d), dann normiert.
+     Ebene     durch die vorderste Flaeche des ganzen Fussabdrucks, aber
+               mit DIESER Normale: je Zelle zaehlt ihre Tiefe minus
+               (t_Zelle - t) * nt / no (geschertes Minimum). An einer
+               geraden Wand ist nt = 0 - dann ist das genau das alte
+               Minimum.
+   Ergebnis in HF: tiefe (m hinter der Kiste an der Stelle t), no und nt
+   (Anteile der Normale laengs der Kistennormale bzw. der Laengsachse),
+   wx, wz (Weltnormale). Nur Feldzugriffe, kein Strahl. */
+const HAUT_NORM_BAND = 0.3;
+const HAUT_NO_MIN = 0.15;             // wie der Kartenbau (Dreiecke bis 81 Grad)
+const HF = { tiefe: 0, no: 1, nt: 0, wx: 0, wz: 0 };
+function hautFlaeche(c, nx, nz, y, t, voraus) {
+  HF.no = 1; HF.nt = 0; HF.wx = nx; HF.wz = nz; HF.tiefe = 0;
+  const f = c && c.fassade;
+  if (!f || !f.g.normalen) { HF.tiefe = hautTiefe(c, nx, nz, y + HAUT_UNTEN, y + HAUT_OBEN + (voraus || 0), t - HAUT_SEIT, t + HAUT_SEIT);
+                             return HF.tiefe > HAUT_MAX ? -1 : HF.tiefe; }
+  const key = nx + ',' + nz, g = f.g.seiten[key], gn = f.g.normalen[key];
+  if (!g) return 0;
+  const achseX = nx !== 0;
+  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+  if (l1 <= l0) return 0;
+  const tiefM = achseX ? f.w : f.d, zelle = (l1 - l0) / FASS_NU;
+  const hoch = f.h * f.g.hLok;
+  const ya = y + HAUT_UNTEN, yb = y + HAUT_OBEN + (voraus || 0);
+  const u0 = (t - HAUT_SEIT - l0) / (l1 - l0), u1 = (t + HAUT_SEIT - l0) / (l1 - l0);
+  const v0 = (ya - SLAB_H) / hoch - f.g.vOff, v1 = (yb - SLAB_H) / hoch - f.g.vOff;
+  if (u1 < 0 || u0 > 1 || v1 < 0 || v0 > 1) return 0;
+  const i0 = clamp(Math.floor(u0 * FASS_NU), 0, FASS_NU - 1);
+  const i1 = clamp(Math.floor(u1 * FASS_NU), 0, FASS_NU - 1);
+  const j0 = clamp(Math.floor(v0 * FASS_NV), 0, FASS_NV - 1);
+  const j1 = clamp(Math.floor(v1 * FASS_NV), 0, FASS_NV - 1);
+  /* 1. Normale unter dem Rumpf */
+  let mBand = FASS_LEER;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const ti = l0 + (i + 0.5) * zelle;
+    if (Math.abs(ti - t) > HAUT_SEIT * 0.5) continue;
+    const w = g[j * FASS_NU + i];
+    if (w < mBand) mBand = w;
+  }
+  if (mBand >= FASS_LEER) {
+    /* Unter dem Rumpf nichts: dann wie bisher, mit der Kistennormale */
+    HF.tiefe = hautTiefe(c, nx, nz, ya, yb, t - HAUT_SEIT, t + HAUT_SEIT);
+    return HF.tiefe >= FASS_LEER || HF.tiefe > HAUT_MAX ? -1 : HF.tiefe;
+  }
+  let sx = 0, sz = 0;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const ti = l0 + (i + 0.5) * zelle;
+    if (Math.abs(ti - t) > HAUT_SEIT * 0.5) continue;
+    const q = j * FASS_NU + i;
+    if ((g[q] - mBand) * tiefM > HAUT_NORM_BAND) continue;
+    sx += gn.x[q] / f.w; sz += gn.z[q] / f.d;
+  }
+  let l = Math.hypot(sx, sz);
+  let wx = l > 1e-9 ? sx / l : nx, wz = l > 1e-9 ? sz / l : nz;
+  let no = wx * nx + wz * nz, nt = achseX ? wz : wx;
+  if (no < HAUT_NO_MIN) {
+    no = HAUT_NO_MIN; nt = Math.sign(nt || 1) * Math.sqrt(1 - no * no);
+    if (achseX) { wx = nx * no; wz = nt; } else { wx = nt; wz = nz * no; }
+  }
+  /* 2. geschertes Minimum ueber den ganzen Fussabdruck */
+  const scher = nt / no;
+  let m = FASS_LEER, mRoh = FASS_LEER;
+  for (let j = j0; j <= j1; j++) {
+    const r = j * FASS_NU;
+    for (let i = i0; i <= i1; i++) {
+      const w = g[r + i];
+      if (w >= FASS_LEER) continue;
+      const d = w * tiefM - (l0 + (i + 0.5) * zelle - t) * scher;
+      if (d < m) m = d;
+      if (w * tiefM < mRoh) mRoh = w * tiefM;
+    }
+  }
+  HF.no = no; HF.nt = nt; HF.wx = wx; HF.wz = wz; HF.tiefe = m;
+  /* Loch ist, wo im Fussabdruck KEIN sichtbarer Punkt naeher als
+     HAUT_MAX liegt - ungeschert, wie vor dem Pass (hautTiefe). Die
+     gescherte Ebene liegt an einer steilen Fase an der Stelle t bis
+     0,5 m tiefer als ihr vorderster Punkt; mit ihr als Lochmass wurde
+     die Fase von ModernOffice_1 zum Loch (gemessen: koll 956, Figur an
+     der Kiste statt an der Fase). */
+  /* ---- HAUT_MAX ist eine harte, ABSOLUTE Grenze ----
+     problem-2, Reachable Visual Climb Skin. Hier stand mRoh - bezug:
+     gemessen ab der Tiefe, an der die Figur gerade hing. Damit wanderte
+     sie Schritt fuer Schritt tiefer - an der schraegen Rueckseite von
+     ModernOffice_1 bis 3,49 m hinter die Kiste, im Bild nur noch ein
+     roter Streifen an der Hauskante. 1,2 m sind Koerper plus Arm; weiter
+     reicht niemand in ein Haus. Beides zaehlt: der vorderste Punkt im
+     Fussabdruck (nichts in Reichweite = Loch) UND die Ebene, an der die
+     Figur saesse (m) - sonst saesse sie an einer steilen Fase hinter
+     HAUT_MAX, obwohl vorne am Fussabdruck noch etwas in Reichweite
+     liegt. */
+  return mRoh > HAUT_MAX || m > HAUT_MAX ? -1 : m;
+}
 /* Wo haengt die Figur an dieser Stelle (y = player.pos.y, t laengs)?
    Tiefe in m hinter der Kolliderebene - oder -1: dort traegt nichts. */
 function hautZiel(c, nx, nz, y, t, voraus) {
@@ -15830,12 +16058,63 @@ function hautZiel(c, nx, nz, y, t, voraus) {
                       t - HAUT_SEIT, t + HAUT_SEIT);
   return w > HAUT_MAX ? -1 : w;
 }
-/* Die Figur an die Haut setzen (Wandnormale), mit der geglaetteten
-   Tiefe player.hautTiefe. */
+/* Die Figur an die Haut setzen, mit der geglaetteten Tiefe
+   player.hautTiefe: der Abstand climbGap gilt SENKRECHT zur Flaeche,
+   laengs der Kistennormale ist das climbGap / no (problem-3, finaler
+   struktureller Pass; an einer geraden Wand ist no = 1). */
 function hautHalten(c, w) {
   const tief = HAUT_ALT || !c.fassade ? 0 : (player.hautTiefe || 0);
-  if (w.nx !== 0) player.pos.x = (w.nx > 0 ? c.x1 : c.x0) + w.nx * (CFG.climbGap - tief);
-  else player.pos.z = (w.nz > 0 ? c.z1 : c.z0) + w.nz * (CFG.climbGap - tief);
+  const no = HAUT_ALT || !c.fassade ? 1 : Math.max(HAUT_NO_MIN, player.hautNo || 1);
+  if (w.nx !== 0) player.pos.x = (w.nx > 0 ? c.x1 : c.x0) + w.nx * (CFG.climbGap / no - tief);
+  else player.pos.z = (w.nz > 0 ? c.z1 : c.z0) + w.nz * (CFG.climbGap / no - tief);
+}
+/* ---- Die Normale der Flaeche, an der die Figur haengt ----
+   Weich nachgefuehrt (HAUT_NORM_TEMPO je Sekunde), damit ein Wechsel
+   zwischen Mesh-Dreiecken nicht als Ruck ankommt. player.hautN ist die
+   Weltnormale, hautNo und hautNt ihre Anteile laengs der Kistennormale
+   und der Laengsachse der Wand w. */
+const HAUT_NORM_TEMPO = 8;
+function hautNormaleFuehren(w, wx, wz, dt) {
+  if (!player.hautN) player.hautN = { x: w.nx, z: w.nz };
+  const k = 1 - Math.exp(-dt * HAUT_NORM_TEMPO);
+  let x = player.hautN.x + (wx - player.hautN.x) * k, z = player.hautN.z + (wz - player.hautN.z) * k;
+  const l = Math.hypot(x, z) || 1; x /= l; z /= l;
+  player.hautN.x = x; player.hautN.z = z;
+  player.hautNo = Math.max(HAUT_NO_MIN, x * w.nx + z * w.nz);
+  player.hautNt = w.nx !== 0 ? z : x;
+}
+/* Beim Wechsel der Wand (Ansprung, Ecke, Naht) beginnt die Normale an
+   der Kiste. */
+function hautNormaleRuecksetzen(w) {
+  player.hautN = w ? { x: w.nx, z: w.nz } : null;
+  player.hautNo = 1; player.hautNt = 0;
+  player.hautNWand = w || null;
+}
+/* Die Ebene, an der die Figur haengt, allgemein: Weltnormale (nx, nz)
+   und Konstante K = Punkt * Normale. Ist die Flaeche achsenparallel,
+   bleibt es bei der alten Form (ganzzahlige Normale, x- bzw. z-Wert) -
+   daran haengen die Figur-Funktionen und ihre Tests. */
+const _hE = { nx: 0, nz: 0, fl: 0, allgemein: false };
+function hautEbene(c, w) {
+  const f = w.nx !== 0 ? (w.nx > 0 ? c.x1 : c.x0) : (w.nz > 0 ? c.z1 : c.z0);
+  const eigen = !HAUT_ALT && c.fassade && player.wallInfo === w;
+  const tief = eigen ? (player.hautTiefe || 0) : 0;
+  const n = eigen ? player.hautN : null;
+  if (!n || (player.hautNo || 1) > 0.9999) {
+    _hE.nx = w.nx; _hE.nz = w.nz; _hE.fl = f - (w.nx + w.nz) * tief; _hE.allgemein = false;
+    return _hE;
+  }
+  /* Punkt der Flaeche vor der Figur: Kiste minus Tiefe laengs der
+     Kistennormale, an der Laengsstelle der Figur */
+  const px = w.nx !== 0 ? f - w.nx * tief : player.pos.x;
+  const pz = w.nx !== 0 ? player.pos.z : f - w.nz * tief;
+  _hE.nx = n.x; _hE.nz = n.z; _hE.fl = px * n.x + pz * n.z; _hE.allgemein = true;
+  return _hE;
+}
+/* Abstand eines Punktes vor dieser Ebene (positiv = draussen) */
+function hautAbstand(E, x, z) {
+  return E.allgemein ? x * E.nx + z * E.nz - E.fl
+                     : (E.nx !== 0 ? (x - E.fl) * E.nx : (z - E.fl) * E.nz);
 }
 /* Die Ebene der Wand (x bzw. z), an der die Figur haengt: die
    Kolliderebene minus der Hauttiefe. */
@@ -15851,9 +16130,8 @@ function wandEbene(c, w) {
 function vorDerHaut(c, p) {
   const w = player.state === 'climb' ? player.wallInfo : null;
   if (!w || w.col !== c || !((player.hautTiefe || 0) > 0.02)) return false;
-  const tief = w.nx !== 0 ? ((w.nx > 0 ? c.x1 : c.x0) - p.x) * w.nx
-                          : ((w.nz > 0 ? c.z1 : c.z0) - p.z) * w.nz;
-  return tief <= player.hautTiefe + 0.45;
+  /* gegen die Ebene der Haut, auch wenn sie schraeg steht */
+  return hautAbstand(hautEbene(c, w), p.x, p.z) >= -0.45;
 }
 /* Liegt die Stelle t (Laengskoordinate) auf dieser Schauseite im
    Freien? */
@@ -18932,11 +19210,18 @@ function updatePlayer(dt) {
   /* ---- Klettern ---- */
   if (player.state === 'climb') {
     const w = player.wallInfo;
+    /* Die Flaechennormale gehoert zu genau dieser Wand. Wurde die Wand
+       ausgetauscht, ohne dass die Normale mitkam, beginnt sie an der
+       Kiste - sonst zeigte eine alte Normale einer anderen Seite hierher
+       (gemessen: kletterproxy, Laeufe hintereinander). */
+    if (w && player.hautNWand !== w) hautNormaleRuecksetzen(w);
     /* Veraenderbar, weil der Uebergang auf das Nachbarhaus einer
        Haeuserzeile die Wand im selben Bild weiterreicht - sonst begrenzt
        die seitliche Klammer weiter unten noch auf das alte Haus und die
        Figur bleibt an der Naht stehen. */
     let c = w.col;
+    /* Die Lage VOR diesem Schritt - siehe "Fremdes Gebaeude" am Ende */
+    const fremdVorX = player.pos.x, fremdVorY = player.pos.y, fremdVorZ = player.pos.z;
     // an der Wand halten - an der sichtbaren Haut (siehe Kletterhaut)
     hautHalten(c, w);
     // Bewegung an der Wand: W=hoch, S=runter, A/D=seitlich
@@ -18952,7 +19237,16 @@ function updatePlayer(dt) {
        Richtung (-nx, -nz); rechts davon liegt (-f.z, f.x) = (nz, -nx).
        Vorher stand hier genau das Gegenteil – deshalb liefen A und D
        an der Wand verkehrt herum. */
-    const tx = w.nz, tz = -w.nx;
+    /* ---- Seitwaerts entlang der ECHTEN Flaeche ----
+       problem-2, Reachable Visual Climb Skin: auf einer Modellfassade
+       ist die Tangente cross(Y, N) = (N.z, -N.x) mit der Flaechennormale
+       N (player.hautN) - an gerader Wand, 42-Grad-Fase und schraeger
+       Rueckseite. Ihr Anteil laengs der Kiste ist genau hautNo; den
+       Anteil quer zur Kiste traegt die Haut (hautHalten setzt die Lage
+       senkrecht zur Kiste aus der Hauttiefe). Ohne Karte, im Eckbogen
+       und im alten Modus bleibt es die Kistentangente. */
+    const hautT = !HAUT_ALT && !KLETTER_V2_ALT && c.fassade && player.hautN && !player.eckBogen;
+    const tx = hautT ? player.hautN.z : w.nz, tz = hautT ? -player.hautN.x : -w.nx;
     /* Wandlauf: mit Shift geht es die Fassade richtig hinauf statt zu
        kriechen – dafür gibt es seit mixamo-7 eine eigene Bewegung. */
     /* ---- Wandlauf: rennen, langsamer werden, klettern ----
@@ -19164,6 +19458,11 @@ function updatePlayer(dt) {
                                 dauer: dauer2, rest: dauer2 };
           }
           player.wallInfo = player.wall = { nx: w.nx, nz: w.nz, col: nb };
+          hautNormaleRuecksetzen(player.wallInfo);   // Nachbarhaus: eigene Haut
+          /* Ab der Naht klettert die Figur am Nachbarhaus - es ist jetzt
+             das eigene; die Sequenz begann weiterhin draussen. */
+          player.climbUebergabeVon = bauVon(c);
+          player.climbOwner = bauVon(nb);
           /* Siehe FASS_GNADE: direkt nach einer Uebergabe wird nicht
              losgelassen. */
           player.fassGnade = FASS_GNADE;
@@ -19207,6 +19506,7 @@ function updatePlayer(dt) {
         player.wallInfo = player.wall = { nx: neuNx, nz: neuNz, col: c };
         player.fassGnade = FASS_GNADE;          // siehe FASS_GNADE
         player.hautTiefe = 0;                   // neue Flaeche, neue Haut
+        hautNormaleRuecksetzen(player.wallInfo);
         /* Der Sicherheitsabstand hinter der Kante MUSS groesser sein als
            das Suchband (rand), sonst steht die Figur auf der neuen Seite
            sofort wieder im Suchband und wechselt im naechsten Bild
@@ -19325,9 +19625,19 @@ function updatePlayer(dt) {
        hinein. Unter dem Dach greift die Hand die Kante - dort wird
        nicht gesperrt, sonst kaeme man an einer Attika nicht hinauf. */
     if (!HAUT_ALT && c.fassade && !player.eckBogen) {
-      const tJetzt = w.nx !== 0 ? player.pos.z : player.pos.x;
       const tVorher = w.nx !== 0 ? tVorZ : tVorX;
-      let ziel = hautZiel(c, w.nx, w.nz, player.pos.y, tJetzt);
+      /* Laengs der Kiste ist der Schritt schon um hautNo kuerzer: die
+         Geschwindigkeit laeuft entlang der Flaechentangente (siehe oben).
+         Im alten Modus lief sie entlang der Kistentangente und wurde
+         hier mit dem Normalanteil gekuerzt. */
+      if (KLETTER_V2_ALT && (player.hautNo || 1) < 0.999) {
+        const tRoh = w.nx !== 0 ? player.pos.z : player.pos.x;
+        const tNeu = tVorher + (tRoh - tVorher) * player.hautNo;
+        if (w.nx !== 0) player.pos.z = tNeu; else player.pos.x = tNeu;
+      }
+      const tJetzt = w.nx !== 0 ? player.pos.z : player.pos.x;
+      let ziel = hautFlaeche(c, w.nx, w.nz, player.pos.y, tJetzt, 0);
+      let nWx = HF.wx, nWz = HF.wz;
       /* ---- Ein Loch bis an die Seitenkante ist eine offene Seite ----
          Wo das Modell nicht bis an die Kiste reicht (bis 1 m breit an
          Brandwand und Hausecke), meldet die Haut dort ein Loch. Wurde
@@ -19348,28 +19658,34 @@ function updatePlayer(dt) {
         const ab = links ? tJetzt - hl0 : hl1 - tJetzt;
         const tKante = links ? hl0 + HAUT_SEIT : hl1 - HAUT_SEIT;
         if (ab < HAUT_RAND_NAH ||
-            (ab < HAUT_RAND && hautZiel(c, w.nx, w.nz, player.pos.y, tKante) < 0)) ziel = 0;
+            (ab < HAUT_RAND && hautFlaeche(c, w.nx, w.nz, player.pos.y, tKante, 0) < 0)) {
+          ziel = 0; nWx = w.nx; nWz = w.nz;
+        }
       }
       if (ziel < 0 && player.pos.y + 1.75 + HAUT_OBEN < c.h &&
-          hautZiel(c, w.nx, w.nz, yVor, tVorher) >= 0) {
+          hautFlaeche(c, w.nx, w.nz, yVor, tVorher, 0) >= 0) {
         player.pos.y = yVor;
         if (w.nx !== 0) player.pos.z = tVorher; else player.pos.x = tVorher;
         player.vel.set(0, 0, 0);
         player.wandSchwung = 0;
-        ziel = hautZiel(c, w.nx, w.nz, player.pos.y, tVorher);
+        ziel = hautFlaeche(c, w.nx, w.nz, player.pos.y, tVorher, 0);
+        nWx = HF.wx; nWz = HF.wz;
       }
       /* Beim Steigen schaut die Haut ein Stueck voraus: ein Vorsprung
          ueber dem Kopf (Sturz, Podest) ist erreicht, bevor der Kopf ihn
          erreicht. Hinaus geht es schneller als hinein - sonst steckt der
-         Rumpf kurz im Vorsprung. */
+         Rumpf kurz im Vorsprung. Die Normale bleibt die der Stelle. */
       if (ziel >= 0 && player.vel.y > 0.1) {
-        const vor = hautZiel(c, w.nx, w.nz, player.pos.y, w.nx !== 0 ? player.pos.z : player.pos.x,
-                             player.vel.y * 0.25);
+        const nx0 = nWx, nz0 = nWz;
+        const vor = hautFlaeche(c, w.nx, w.nz, player.pos.y, w.nx !== 0 ? player.pos.z : player.pos.x,
+                                player.vel.y * 0.25);
         if (vor >= 0 && vor < ziel) ziel = vor;
+        nWx = nx0; nWz = nz0;
       }
       if (ziel >= 0) {
         const alt = player.hautTiefe || 0;
         player.hautTiefe = alt + clamp(ziel - alt, -HAUT_TEMPO_RAUS * dt, HAUT_TEMPO * dt);
+        hautNormaleFuehren(w, nWx, nWz, dt);
       }
       /* Hat ein Vorsprung oben die Figur weiter nach aussen geschoben,
          bleibt es dabei - sonst stuende sie in ihm. */
@@ -19468,6 +19784,22 @@ function updatePlayer(dt) {
       player.pos.z = ig * ig * B.vz + 2 * ig * g * B.sz + g * g * B.zz;
       if (B.rest <= 0) player.eckBogen = null;
     }
+    /* ---- Fremdes Gebaeude = harte Sperre ----
+       problem-2, Reachable Visual Climb Skin. Die neue Lage steht jetzt
+       fest (Haut, Naht, Ecke, Klemmung, Bogen). Steckt der Koerper dort
+       in einem FREMDEN Gebaeude, gilt die Lage nicht: die Figur bleibt,
+       wo sie vor dem Schritt hing. Die eigene grobe Kiste ist kein
+       Hindernis - die sichtbare Haut liegt bis HAUT_MAX dahinter.
+       Steckte sie schon vorher darin, wird nichts versetzt: ein
+       Rueckversatz waere ein Teleport. */
+    if (!KLETTER_V2_ALT && kletterFremdBau(player.pos.x, player.pos.y, player.pos.z) &&
+        !kletterFremdBau(fremdVorX, fremdVorY, fremdVorZ)) {
+      player.pos.set(fremdVorX, fremdVorY, fremdVorZ);
+      player.vel.set(0, 0, 0);
+      player.wandSchwung = 0;
+      player.eckBogen = null;
+      player.fremdGesperrt = (player.fremdGesperrt || 0) + 1;
+    }
     /* Der Takt lief mit 1 rad/s WEITER, auch wenn man bewegungslos an der
        Wand hing. Die Wandpose setzt Arme und Beine nach sin(Takt) - die
        Glieder pendelten also dauernd hin und her, obwohl die Figur stand.
@@ -19551,7 +19883,10 @@ function updatePlayer(dt) {
       player.state = 'air';
       player.wallInfo = null; player.eckBogen = null;
     }
-    player.facing = dampAngle(player.facing, Math.atan2(-w.nx, -w.nz), dt * 14);
+    /* Der Koerper schaut zur Flaeche, an der er haengt - an einer Fase
+       zur Fase, nicht zur Kiste (siehe hautNormaleFuehren). */
+    const hn = player.hautN && player.wallInfo === w ? player.hautN : null;
+    player.facing = dampAngle(player.facing, hn ? Math.atan2(-hn.x, -hn.z) : Math.atan2(-w.nx, -w.nz), dt * 14);
     /* Seitliches Hangeln hat seit mixamo-5 eine eigene Bewegung; senkrecht
        geht es mit dem freien Klettern nach oben. Die Wandpose legt sich in
        beiden Fällen darüber. */
@@ -20390,10 +20725,12 @@ function updatePlayer(dt) {
       WL_LOG.kopf++;
     }
     if (rein && hochGenug && tempoRein > 3.8 &&
-        wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z)) {
+        wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z) &&
+        ankletternVonAussen(w.col)) {
       player.state = 'climb';
       player.wallInfo = w;
-      player.hautTiefe = 0;
+      kletterOwnerSetzen(w.col);
+      player.hautTiefe = 0; hautNormaleRuecksetzen(null);
       player.onGround = false;
       /* Der waagerechte Schwung wird in Höhe umgesetzt. */
       player.wandSchwung = clamp(tempoRein * 1.15, 8, 14);
@@ -20426,10 +20763,12 @@ function updatePlayer(dt) {
     const noetig = player.gleiten ? 0.12 : 0;
     onWallTimer = (movingIn || kleben) && !gesperrt ? onWallTimer + dt : 0;
     if ((movingIn || kleben) && !gesperrt && onWallTimer >= noetig &&
-        wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z)) {
+        wandTraegt(w.col, w.nx, w.nz, player.pos.y + 1.0, player.pos.x, player.pos.z) &&
+        ankletternVonAussen(w.col)) {
       player.state = 'climb';
       player.wallInfo = w;
-      player.hautTiefe = 0;
+      kletterOwnerSetzen(w.col);
+      player.hautTiefe = 0; hautNormaleRuecksetzen(null);
       player.vel.set(0, 0, 0);
       player.jumps = 0;
       beendeGleiten();
@@ -22052,13 +22391,14 @@ function wandFreiraum(dt) {
   r.updateMatrixWorld(true);
   /* Die Ebene, an der die Figur haengt: die sichtbare Haut, nicht die
      Kiste (siehe Kletterhaut). */
-  const flaeche = wandEbene(c, w);
+  /* Ebene der Haut - an einer Fase schraeg (siehe hautEbene) */
+  const E = hautEbene(c, w), EX = E.allgemein ? E.nx : w.nx, EZ = E.allgemein ? E.nz : w.nz;
   let min = Infinity, huefte = null;
   for (const n of WAND_KNOCHEN) {
     const b = kn[n];
     if (!b) continue;
     b.getWorldPosition(_wk);
-    const d = w.nx !== 0 ? (_wk.x - flaeche) * w.nx : (_wk.z - flaeche) * w.nz;
+    const d = hautAbstand(E, _wk.x, _wk.z);
     if (d < min) min = d;
     if (n === 'hips') huefte = d;
   }
@@ -22123,7 +22463,7 @@ function wandFreiraum(dt) {
        Ort dafuer. */
   }
   if (!player.wandLuft) player.wandLuft = new THREE.Vector3();
-  _wl.set(w.nx * ziel, 0, w.nz * ziel);
+  _wl.set(EX * ziel, 0, EZ * ziel);
   /* ---- Wie schnell die Korrektur nachgezogen wird ----
      Sie lief mit dt*14, also rund zehn Bilder bis zum vollen Wert. Die
      Kletterhaltung selbst zieht den Koerper aber in ein bis zwei Bildern
@@ -22196,8 +22536,8 @@ function wandFreiraum(dt) {
       const dx = (_wg.x - alt.x) - (r.position.x - alt.rx);
       const dy = (_wg.y - alt.y) - (r.position.y - alt.ry);
       const dz = (_wg.z - alt.z) - (r.position.z - alt.rz);
-      const nn = w.nx * dx + w.nz * dz;
-      tempo = Math.hypot(dx - w.nx * nn, dy, dz - w.nz * nn) / dtWand;
+      const nn = EX * dx + EZ * dz;
+      tempo = Math.hypot(dx - EX * nn, dy, dz - EZ * nn) / dtWand;
     }
     player.gliedAlt[n] = { x: _wg.x, y: _wg.y, z: _wg.z,
                            rx: r.position.x, ry: r.position.y, rz: r.position.z };
@@ -22210,7 +22550,7 @@ function wandFreiraum(dt) {
     player.gliedKraft[n] = vor === undefined ? ziel
       : lerp(vor, ziel, Math.min(1, dtWand * 12));
   }
-  const neueFl = { nx: w.nx, nz: w.nz, fl: flaeche };
+  const neueFl = { nx: E.nx, nz: E.nz, fl: E.fl };
   if (!player.griffFlaeche) player.griffFlaeche = neueFl;
   const eckHalb = (player.eckT || 0) > WAND_ECK_ZEIT * 0.5;
   if (!eckHalb) player.griffFlaeche = neueFl;
@@ -38511,6 +38851,36 @@ if (window.__WEBHERO_TEST__ === true) {
       return hautZiel(c, nx, nz, y, t);
     },
     hautTiefeJetzt() { return player.hautTiefe || 0; },
+    /* Wuerde das Spiel hier ankleben? Dieselbe Pruefung wie beim Ansprung
+       (wandTraegt: sichtbare Flaeche in Reichweite HAUT_MAX). Nur lesen. */
+    wandTraegtDbg(kollId, nx, nz, y, x, z) {
+      const c = colliders.find((q) => q.id === kollId);
+      return c ? wandTraegt(c, nx, nz, y, x, z) : null;
+    },
+    /* Normalverteilung einer Schauseite: Winkel (Grad) zwischen der
+       Weltnormale jeder gueltigen Zelle und der Kistennormale, in
+       5-Grad-Klassen (problem-3, finaler struktureller Pass). */
+    hautNormalVerteilung(kollId, nx, nz) {
+      const c = colliders.find((q) => q.id === kollId);
+      const f = c && c.fassade;
+      if (!f || !f.g.normalen) return null;
+      const key = nx + ',' + nz, g = f.g.seiten[key], gn = f.g.normalen[key];
+      const bins = new Array(19).fill(0);
+      let n = 0;
+      for (let q = 0; q < g.length; q++) {
+        if (g[q] >= FASS_LEER) continue;
+        let wx = gn.x[q] / f.w, wz = gn.z[q] / f.d; const l = Math.hypot(wx, wz) || 1; wx /= l; wz /= l;
+        const a = Math.acos(clamp(wx * nx + wz * nz, -1, 1)) * 180 / Math.PI;
+        bins[Math.min(18, Math.floor(a / 5))]++; n++;
+      }
+      return { n, bins };
+    },
+    /* Die Kletterflaeche an einer Stelle: Tiefe und Normale */
+    hautFlaecheAn(kollId, nx, nz, y, t) {
+      const c = colliders.find((q) => q.id === kollId);
+      const r = hautFlaeche(c, nx, nz, y, t, 0);
+      return { r: +r.toFixed(3), tiefe: +HF.tiefe.toFixed(3), no: +HF.no.toFixed(3), nt: +HF.nt.toFixed(3), wx: +HF.wx.toFixed(3), wz: +HF.wz.toFixed(3) };
+    },
     /* Die Kletterhaut einer Schauseite als Zeichenraster (oben zuerst):
        '#' bis 0,2 m, '+' bis 0,6 m, ':' bis 1,2 m, '.' tiefer, ' ' leer. */
     hautKarte(kollId, nx, nz) {
@@ -39620,7 +39990,8 @@ if (window.__WEBHERO_TEST__ === true) {
     /* Alles, was eine Kletterbewegung von Bild zu Bild beschreibt -
        fuer die Messung der zeitlichen Stetigkeit (problem-2, Punkt A). */
     kletterLage() {
-      const w = player.wallInfo || player.wall;
+      const w = player.wallInfo || player.wall ||
+                (player.state === 'kante' && player.kante ? player.kante.wand : null);
       const c = w && w.col;
       let abst = null;
       if (c && w) {
@@ -39632,6 +40003,34 @@ if (window.__WEBHERO_TEST__ === true) {
       /* Steckt die Figur in einem Gebaeude? Geprueft werden Becken und
          Brust, nicht nur der Fusspunkt (problem-2, Punkt A.10). */
       let drin = 0, drinWer = null;
+      /* problem-2, Reachable Visual Climb Skin: getrennt nach GEBAEUDE.
+         insideOwnerAABB  in der groben Kiste des eigenen Gebaeudes - an
+                          einer Modellfassade gewollt, die Haut liegt bis
+                          HAUT_MAX dahinter; kein Fehler.
+         insideForeign    in einem Kasten eines ANDEREN Gebaeudes. */
+      let eigen = 0, fremd = 0, fremdWer = null;
+      const ownerBau = c ? bauVon(c) : null;
+      for (const hoehe of [0.9, 1.4]) {
+        const py = player.pos.y + hoehe;
+        let eigenH = false, fremdH = null;
+        for (const n of collidersNear(player.pos.x, player.pos.z)) {
+          if (n.klein || n.innen || n.parkAuto || n.dachProp) continue;
+          const y0 = n.y0 === undefined ? -1e9 : n.y0;
+          if (player.pos.x > n.x0 + 0.02 && player.pos.x < n.x1 - 0.02 &&
+              player.pos.z > n.z0 + 0.02 && player.pos.z < n.z1 - 0.02 &&
+              py > y0 + 0.02 && py < n.h - 0.02) {
+            if (ownerBau && kletterEigenerBau(bauVon(n))) eigenH = true;
+            else if (!fremdH) fremdH = n;
+          }
+        }
+        if (eigenH) eigen++;
+        if (fremdH) {
+          fremd++;
+          if (!fremdWer) fremdWer = { id: fremdH.id, hoehe, krone: !!fremdH.krone, kit: !!(bauVon(fremdH).kit),
+            x: [+fremdH.x0.toFixed(2), +fremdH.x1.toFixed(2)], z: [+fremdH.z0.toFixed(2), +fremdH.z1.toFixed(2)],
+            y: [+(fremdH.y0 === undefined ? -1e9 : fremdH.y0).toFixed(2), +(fremdH.h || 0).toFixed(2)] };
+        }
+      }
       for (const hoehe of [0.9, 1.4]) {
         const py = player.pos.y + hoehe;
         for (const n of collidersNear(player.pos.x, player.pos.z)) {
@@ -39659,6 +40058,10 @@ if (window.__WEBHERO_TEST__ === true) {
       }
       return {
         zustand: player.state, anim: player.anim, imHaus: drin, drinWer,
+        insideOwnerAABB: eigen, insideForeign: fremd, fremdWer,
+        climbOwner: player.climbOwner ? (player.climbOwner.kit ? 'kit' : player.climbOwner.id) : null,
+        fremdGesperrt: player.fremdGesperrt || 0,
+        vonAussen: !!player.climbStartedFromExterior,
         imBogen: !!player.eckBogen,
         koll: c ? c.id : null,
         nx: w ? w.nx : null, nz: w ? w.nz : null,

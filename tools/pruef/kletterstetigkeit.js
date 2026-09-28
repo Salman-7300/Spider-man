@@ -109,6 +109,15 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
       for (let i = 0; i < bilder; i++) {
         d.schritt(1 / 60);
         const k = d.kletterLage();
+        /* problem-2, Reachable Visual Climb Skin: FREMDES Gebaeude (nach
+           c.bau getrennt, die eigene grobe Kiste zaehlt nicht). */
+        if (k.insideForeign > 0) {
+          drinGes.fremdBau++;
+          if (k.imBogen) drinGes.fremdBauBogen++;
+          if (drinGes.fremdBsp.length < 4)
+            drinGes.fremdBsp.push({ pos: k.pos, aufKoll: k.koll, nx: k.nx, nz: k.nz, imBogen: !!k.imBogen,
+                                    wer: k.fremdWer, owner: k.climbOwner });
+        }
         if (k.imHaus && k.drinWer) {
           drinGes.gesamt++;
           if (k.imBogen) drinGes.imBogen++;
@@ -148,7 +157,7 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
       let flattern = 0, normalen = 0, wechsel = 0, imHaus = 0, kamDrin = 0;
       /* Getrennt nach Ursache: die eigene Dachkrone ragt aus der
          bekletterten Fassade heraus, das Nachbarhaus steht davor. */
-      let imEigenen = 0, imFremden = 0;
+      let imEigenen = 0, imFremden = 0, fremdBau = 0;
       /* Der Human-Befund ist "die Kamera klebt an der Figur". Das ist
          genau der Fall, in dem der freie Anteil auf null faellt. Er
          wird nach der Ursache getrennt gezaehlt:
@@ -204,6 +213,7 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
         if (c.imHaus && c.drinWer) {
           if (c.drinWer.krone || c.drinWer.eigene) imEigenen++; else imFremden++;
         }
+        if (c.insideForeign > 0) fremdBau++;
         if (c.imHaus) { imHaus++; if (!drinBsp) drinBsp = { pos: c.pos, koll: c.koll,
                                                            wer: c.drinWer }; }
       }
@@ -214,14 +224,14 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
                flaechenWechsel: wechsel, surfaceOscillation: flattern,
                normalenWechsel: normalen, playerInsideBuilding: imHaus,
                kameraImHindernis: kamDrin,
-               imEigenen, imFremden,
+               imEigenen, imFremden, fremdBau,
                kameraZuFrei: zuFrei, kameraZuImHaus: zuImHaus,
                kameraZuBoden: zuBoden, zuFreiBsp,
                schlimmste, schlimmsteKam };
     }
 
     const drinRoh = [];
-    const drinGes = { gesamt: 0, imBogen: 0 };
+    const drinGes = { gesamt: 0, imBogen: 0, fremdBau: 0, fremdBauBogen: 0, fremdBsp: [] };
     const drinArt = {}, drinBsp = {};
     const clamp = (v, a, b2) => Math.max(a, Math.min(b2, v));
     const kisten = d.hausKisten().filter((k) => k.h > 16);
@@ -298,6 +308,7 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
                playerInsideBuilding: sum('playerInsideBuilding'),
                kameraImHindernis: sum('kameraImHindernis'),
                imEigenen: sum('imEigenen'), imFremden: sum('imFremden'),
+               fremdBau: sum('fremdBau'),
                kameraZuFrei: sum('kameraZuFrei'),
                kameraZuImHaus: sum('kameraZuImHaus'),
                kameraZuBoden: sum('kameraZuBoden'),
@@ -323,6 +334,7 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
     console.log('  playerInsideBuilding       ' + w.playerInsideBuilding);
     console.log('    davon eigene Dachkrone   ' + w.imEigenen);
     console.log('    davon Nachbargebaeude    ' + w.imFremden);
+    console.log('  playerInsideForeignBuildingWhileClimbing ' + (w.fremdBau === undefined ? '-' : w.fremdBau));
     console.log('  Kamera in einem Hindernis  ' + w.kameraImHindernis);
     console.log('  Kamera klebt, Punkt frei   ' + w.kameraZuFrei);
     console.log('  Kamera klebt, Punkt im Haus' + w.kameraZuImHaus);
@@ -344,6 +356,11 @@ const FASS_ALT = process.argv.indexOf('fassAlt') > 0;
   };
   if (aus.drinGes) console.log('\n  im Haus gesamt ' + aus.drinGes.gesamt +
       ', davon waehrend des Eckbogens ' + aus.drinGes.imBogen);
+  if (aus.drinGes) {
+    console.log('  playerInsideForeignBuildingWhileClimbing gesamt ' + aus.drinGes.fremdBau +
+                ', davon waehrend des Eckbogens ' + aus.drinGes.fremdBauBogen);
+    for (const b of aus.drinGes.fremdBsp) console.log('    ' + JSON.stringify(b));
+  }
   if (aus.drinArt) {
     console.log('  nach Ursache:');
     for (const [art, n] of Object.entries(aus.drinArt).sort((a, b2) => b2[1] - a[1])) {

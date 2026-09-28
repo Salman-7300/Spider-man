@@ -134,6 +134,18 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
       /* Start: an drei Laengsstellen, je ein eigener Lauf */
       for (const f of [0.3, 0.5, 0.7]) {
         const t = l0 + (l1 - l0) * f, y = 0.25 + K.h * 0.25;
+        /* ---- Nur dort starten, wo das Spiel ankleben wuerde ----
+           problem-2, Reachable Visual Climb Skin. Liegt die sichtbare
+           Flaeche tiefer als HAUT_MAX (ModernOffice_1: Ruecksprung 2,9 bis
+           3,5 m), klebt die Figur dort nicht an. Frueher wurde sie trotzdem
+           hingesetzt; gemessen wurde dann ein Zustand, den es im Spiel
+           nicht gibt. Solche Startstellen werden gezaehlt, nicht
+           gefahren. */
+        const sx = achseX ? front + nx * 0.15 : t, sz = achseX ? t : front + nz * 0.15;
+        if (d.wandTraegtDbg && d.wandTraegtDbg(c.id, nx, nz, y + 1.0, sx, sz) === false) {
+          ergebnis.push({ typ: F.typ, koll: c.id, nx, nz, f, nichtAnklebbar: true });
+          continue;
+        }
         frei();
         d.setzePos(achseX ? front + nx * 0.15 : t, y, achseX ? t : front + nz * 0.15);
         P.vel.set(0, 0, 0); P.state = 'climb'; P.onGround = false;
@@ -338,6 +350,12 @@ if (BILDER) fs.mkdirSync(BILDER, { recursive: true });
     }
     return { ergebnis, bilder };
   }, { je: JE, bilder: !!BILDER, video: VIDEO, alle: ALLE, nur: NUR });
+  /* Startstellen, an denen das Spiel nicht ankleben wuerde (Tiefe >
+     HAUT_MAX): getrennt ausgewiesen, nicht gefahren. */
+  const nichtAn = aus.ergebnis.filter((e) => e.nichtAnklebbar);
+  aus.ergebnis = aus.ergebnis.filter((e) => !e.nichtAnklebbar);
+  console.log('Startstellen ohne Ankleben (sichtbare Flaeche > HAUT_MAX): ' + nichtAn.length +
+              (nichtAn.length ? '  ' + nichtAn.map((e) => e.koll + ':' + e.nx + ',' + e.nz + ' f' + e.f).join('  ') : ''));
   const sum = {};
   for (const e of aus.ergebnis) {
     const s = sum[e.typ] || (sum[e.typ] = { laeufe: 0, bilder: 0, brust: 0, becken: 0, void: 0, roh: 0, los: 0, sprung: 0, tiefe: 0 });
