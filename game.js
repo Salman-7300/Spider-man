@@ -7171,6 +7171,101 @@ function ladeHaeuser(loader) {
 const FASS_SEITEN = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const FASS_GITTER = new Map();      // Quellmodell -> Tiefenkarte
 
+/* ====================== Die Krone als Teile, nicht als Quader ======================
+   problem-2, FlatFacade Top-out Push. Was ueber dem Dach eines
+   Modellhauses steht - Bruestung, Schornsteine, Wasserturm, Mast -
+   bekam EIN Hindernis: den Begrenzungsquader aller dieser Teile. Bei
+   Brownstone_FlatFacade_1 (Haus 169) ist das ein Kasten von 8,35 x 4,13
+   x 1,93 m ueber einer 0,25 m hohen Bruestung vorn und drei Schornsteinen
+   hinten - und 2,25 m sichtbar FREIEM Dach dazwischen. Das Ueberziehen
+   endete mitten in diesem Kasten, und collideBody drueckte die Figur im
+   ersten Bodenbild 1,518 m zur Dachkante (kuerzester Ausweg).
+   Stadtweit lagen 108 von 226 Top-out-Zielen in einer Krone nur in
+   Quaderluft.
+
+   Jetzt wird je Modelltyp einmal (wie die Fassadenkarte) der Grundriss
+   dessen gerastert, was ueber dem Dach steht: KRONE_N x KRONE_N Zellen,
+   je Zelle die hoechste Oberkante in Haushoehen. Je Haus werden daraus
+   Rechtecke gleicher Hoehenstufe (KRONE_STUFE) - jedes ein Hindernis wie
+   bisher die ganze Krone: klein, Unterkante 0,2 m unter dem Dach,
+   Gebaeude = das Haus. Was sichtbar steht, bleibt massiv; die Luft
+   zwischen den Teilen wird begehbar. Modelle, Lage und Hoehen bleiben,
+   wie sie sind.
+
+   keinHalt: an einem Kronenteil zieht sich die Figur nicht hoch - das
+   Ueberziehen bleibt das an der Dachkante, wie es an Haus 169 schon
+   war; vor einem Teil wird sie beim Klettern wie bisher davorgeschoben. */
+const KRONE_N = 64;
+const KRONE_STUFE = 0.25;           // m
+const KRONEN_RASTER = new Map();    // Quellmodell -> Float32Array (Haushoehen, -1 = frei)
+const KRONE_TEILE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KRONE_TEILE_ALT;
+function baueKronenRaster(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
+  const N = KRONE_N, W = X1 - X0, D = Z1 - Z0;
+  if (!(W > 0) || !(D > 0) || !(H > 0)) return null;
+  const yK = Y0 + H * anteil, schwelle = yK + H * 0.005;     // wie der Kronen-Quader
+  const g = new Float32Array(N * N).fill(-1);
+  const m = new THREE.Matrix4();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  o.traverse((k) => {
+    if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+    m.multiplyMatrices(di, k.matrixWorld);
+    const p = k.geometry.attributes.position, idx = k.geometry.index;
+    const n = idx ? idx.count : p.count;
+    for (let i = 0; i + 2 < n; i += 3) {
+      a.fromBufferAttribute(p, idx ? idx.getX(i) : i).applyMatrix4(m);
+      b.fromBufferAttribute(p, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(m);
+      c.fromBufferAttribute(p, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(m);
+      if (Math.max(a.y, b.y, c.y) < schwelle) continue;
+      /* so dicht abtasten, dass keine Zelle zwischen zwei Punkten liegt */
+      const lang = Math.max(Math.hypot((b.x - a.x) / W, (b.z - a.z) / D),
+                            Math.hypot((c.x - a.x) / W, (c.z - a.z) / D),
+                            Math.hypot((c.x - b.x) / W, (c.z - b.z) / D));
+      const st = clamp(Math.ceil(lang * N * 2), 1, 400);
+      for (let s = 0; s <= st; s++) for (let t = 0; t <= st - s; t++) {
+        const u = s / st, v = t / st;
+        const y = a.y + u * (b.y - a.y) + v * (c.y - a.y);
+        if (y < schwelle) continue;
+        const x = a.x + u * (b.x - a.x) + v * (c.x - a.x), z = a.z + u * (b.z - a.z) + v * (c.z - a.z);
+        const q = clamp(Math.floor((z - Z0) / D * N), 0, N - 1) * N + clamp(Math.floor((x - X0) / W * N), 0, N - 1);
+        const hoch = (y - yK) / (H * anteil);
+        if (hoch > g[q]) g[q] = hoch;
+      }
+    }
+  });
+  return g;
+}
+/* Die Kronenteile EINES Hauses (e: Hauskiste) in Weltmassen. */
+function kronenTeile(e, g) {
+  const N = KRONE_N, cw = e.w / N, cd = e.d / N;
+  const x0 = e.x - e.w / 2, z0 = e.z - e.d / 2, dach = SLAB_H + e.h;
+  const stufe = new Int16Array(N * N).fill(-1), hoehe = new Float32Array(N * N);
+  for (let q = 0; q < N * N; q++) if (g[q] > 0) { hoehe[q] = g[q] * e.h; stufe[q] = Math.ceil(hoehe[q] / KRONE_STUFE); }
+  const fertig = new Uint8Array(N * N), teile = [];
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const q = j * N + i;
+    if (stufe[q] < 0 || fertig[q]) continue;
+    const s = stufe[q];
+    let i1 = i;
+    while (i1 + 1 < N && stufe[j * N + i1 + 1] === s && !fertig[j * N + i1 + 1]) i1++;
+    let j1 = j;
+    weiter: while (j1 + 1 < N) {
+      for (let ii = i; ii <= i1; ii++) {
+        const qq = (j1 + 1) * N + ii;
+        if (stufe[qq] !== s || fertig[qq]) break weiter;
+      }
+      j1++;
+    }
+    let hMax = 0;
+    for (let jj = j; jj <= j1; jj++) for (let ii = i; ii <= i1; ii++) {
+      fertig[jj * N + ii] = 1;
+      if (hoehe[jj * N + ii] > hMax) hMax = hoehe[jj * N + ii];
+    }
+    teile.push({ x0: x0 + i * cw, x1: x0 + (i1 + 1) * cw, z0: z0 + j * cd, z1: z0 + (j1 + 1) * cd,
+                 y0: dach - 0.2, h: dach + hMax, klein: true, keinHalt: true, kronenTeil: true });
+  }
+  return teile;
+}
+
 function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
   const W = X1 - X0, D = Z1 - Z0, HB = H * anteil;
   if (!(W > 0) || !(D > 0) || !(HB > 0)) return null;
@@ -7423,6 +7518,8 @@ function setzeHausModelle(szene) {
        userData durch JSON, und dabei wuerde aus jedem Float32Array ein
        Objekt mit 512 Schluesseln - je Haus. */
     FASS_GITTER.set(o, baueFassadenGitter(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
+    /* Das Kronenraster ebenso einmal je Modelltyp (siehe kronenTeile). */
+    if (anteil < 0.995) KRONEN_RASTER.set(o, baueKronenRaster(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
     o.userData.krone = (anteil < 0.995 && kx1 > kx0) ? {
       x0: (kx0 - X0) / W - 0.5, x1: (kx1 - X0) / W - 0.5,
       z0: (kz0 - Z0) / D - 0.5, z1: (kz1 - Z0) / D - 0.5,
@@ -7440,7 +7537,7 @@ function setzeHausModelle(szene) {
      verschwindet der Rueckfall. Sonst wird das Vorbereitete verworfen
      und die prozeduralen Haeuser bleiben stehen. */
   const warten = HAUS_KISTEN.filter((e) => e.visual === 'model');
-  const fertig = [];          // { obj } und optional { kollider }
+  const fertig = [];          // { obj } und optional { kronenTeile }
   const zuletzt = {};         // Zeile -> zuletzt gewaehltes Modell
   /* Nur fuer den Pruefstand: nach so vielen vorbereiteten Platzierungen
      abbrechen, als waere eine davon ungueltig. Damit laesst sich pruefen,
@@ -7483,11 +7580,16 @@ function setzeHausModelle(szene) {
     const eintrag = { obj: kopie, kiste: e, modell: liste[i].name || ('Modell_' + i),
                       fassade: FASS_GITTER.get(liste[i]) || null };
     if (mass.krone) {
-      const k = mass.krone;
-      eintrag.kollider = { x0: e.x + k.x0 * e.w, x1: e.x + k.x1 * e.w,
-                           z0: e.z + k.z0 * e.d, z1: e.z + k.z1 * e.d,
-                           h: SLAB_H + e.h + k.hoch * e.h, y0: SLAB_H + e.h - 0.2,
-                           klein: true };
+      const raster = KRONE_TEILE_ALT ? null : KRONEN_RASTER.get(liste[i]);
+      if (raster) eintrag.kronenTeile = kronenTeile(e, raster);
+      else {
+        /* alter Stand: ein Quader um alles, was ueber dem Dach steht */
+        const k = mass.krone;
+        eintrag.kronenTeile = [{ x0: e.x + k.x0 * e.w, x1: e.x + k.x1 * e.w,
+                                 z0: e.z + k.z0 * e.d, z1: e.z + k.z1 * e.d,
+                                 h: SLAB_H + e.h + k.hoch * e.h, y0: SLAB_H + e.h - 0.2,
+                                 klein: true }];
+      }
     }
     fertig.push(eintrag);
   }
@@ -7512,9 +7614,9 @@ function setzeHausModelle(szene) {
       t.kiste.koll.fassade = { g: t.fassade, w: t.kiste.w, d: t.kiste.d,
                                h: t.kiste.h };
     HAUS_MODELLE.push(t.obj);
-    if (t.kollider) {
-      if (t.kiste && t.kiste.koll) t.kollider.bau = t.kiste.koll.bau || t.kiste.koll;
-      addCollider(t.kollider);
+    for (const k of t.kronenTeile || []) {
+      if (t.kiste && t.kiste.koll) k.bau = t.kiste.koll.bau || t.kiste.koll;
+      addCollider(k);
     }
     /* Fuer den Wiederholungs-Pruefstand: welches Modell steht hier? */
     if (t.kiste) t.kiste.modell = t.modell;
@@ -13557,6 +13659,9 @@ function wandVoraus(vx, vz) {
 
 /* Mitschrift der Wandlauf-Eintrittspruefung (nur Tests, kostet sonst nichts). */
 const WL_LOG = { an: false, ring: [], kopf: 0 };
+/* Mitschrift der Lagekorrekturen der FIGUR in collideBody (nur Tests,
+   kostet sonst nichts): welcher Kasten, wie tief, wohin gedrueckt. */
+const KOLL_LOG = { an: false, liste: [] };
 
 const player = {
   pos: V3(25, 0.05, 25),
@@ -15493,6 +15598,79 @@ function kanteZielFrei(ziel, nx, nz) {
   return ziel;
 }
 
+/* ---- Ein FREIER Standpunkt fuer das Ende des Hochziehens ----
+   problem-2, FlatFacade Top-out Push. kanteZielFrei fragt nur
+   Dachaufbauten (dachProp) und Haeuser. collideBody, das ab dem ersten
+   Bodenbild wieder laeuft, drueckt aber aus JEDEM Kasten heraus - auch
+   aus der Modellkrone (klein). Gemessen an Brownstone_FlatFacade_1
+   (Kollider 169, Seite +z): Ziel 1,05 m in der Krone 8196, im ersten
+   Bodenbild 1,518 m Richtung Dachkante gedrueckt (kuerzester Ausweg,
+   weil die Figur schon drin stand).
+
+   Frei heisst hier dasselbe wie in collideBody: kein Kasten, dessen
+   Grundriss den Koerperkreis (player.radius) schneidet, dessen
+   Unterkante unter dem Kopf (Fuss + 1,75 m) liegt und dessen Oberkante
+   mehr als 5 cm ueber dem Fuss liegt - darauf landet man sonst nur.
+   Getragen: unter dem MITTELPUNKT liegt eine Flaeche auf Fusshoehe -
+   oder hoechstens KANTE_ABSATZ hoeher; auf so etwas steigt die Figur
+   auf, wie kanteZielFrei es bei niedrigen Dachaufbauten tut.
+
+   Weg frei: auf dem Weg von der Wand zum neuen Standpunkt (ab einem
+   Koerperradius vor der Wand) steht nichts, das hoeher als KANTE_ABSATZ
+   ueber den Fuessen aufragt. Ueber Niedrigeres - Bruestung, Kronenband -
+   zieht sich die Figur hinweg, wie die Bewegung es ohnehin tut; eine
+   Pruefung auch gegen diese verwarf gemessen 3383 von 12420 Stellen.
+
+   Gesucht wird NUR, wenn am geplanten Punkt geschoben wuerde - sonst
+   bleibt alles, wie es ist (10812 von 12420 Stellen). Findet sich
+   nichts (dichte Gruppen hoher Aufbauten an der Kante), bleibt es beim
+   geplanten Punkt und damit beim Verhalten von vorher. */
+const KANTE_LANDUNG_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KANTE_LANDUNG_ALT;
+const KANTE_INNEN = [0, 0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.1];
+const KANTE_SEITE = [0, -0.3, 0.3, -0.6, 0.6, -0.9, 0.9];
+function kanteStandBlockiert(x, y, z) {
+  const r = player.radius;
+  for (const c of collidersNear(x, z)) {
+    if (c.y0 !== undefined && y + 1.75 < c.y0) continue;
+    if (x <= c.x0 - r || x >= c.x1 + r || z <= c.z0 - r || z >= c.z1 + r) continue;
+    if (y >= c.h - 0.05) continue;
+    return c;
+  }
+  return null;
+}
+function kanteStandHoehe(x, y, z) {
+  let oben = null;
+  for (const c of collidersNear(x, z)) {
+    const top = c.h || 0;
+    if (top < y - 0.06 || top > y + KANTE_ABSATZ) continue;
+    if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
+    if (oben === null || top > oben) oben = top;
+  }
+  return oben;
+}
+function kanteWegFrei(von, x, y, z) {
+  const dx = x - von.x, dz = z - von.z, l = Math.hypot(dx, dz);
+  for (let d = player.radius; d < l; d += 0.15) {
+    const c = kanteStandBlockiert(von.x + dx * d / l, y, von.z + dz * d / l);
+    if (c && c.h > y + KANTE_ABSATZ) return false;
+  }
+  return true;
+}
+/* Der geplante Punkt, wenn dort nichts schiebt. Sonst der erste freie,
+   getragene Standpunkt mit freiem Weg: weiter nach innen, dann leicht
+   seitlich - nie Richtung Kante. null, wenn es keinen gibt. */
+function kanteLandung(von, ziel, nx, nz) {
+  if (KANTE_LANDUNG_ALT || !kanteStandBlockiert(ziel.x, ziel.y, ziel.z)) return ziel;
+  for (const s of KANTE_SEITE) for (const d of KANTE_INNEN) {
+    const x = ziel.x - nx * d + nz * s, z = ziel.z - nz * d - nx * s;
+    const y = kanteStandHoehe(x, ziel.y, z);
+    if (y === null || kanteStandBlockiert(x, y, z)) continue;
+    if (!kanteWegFrei(von, x, ziel.y, z)) continue;
+    return V3(x, y, z);
+  }
+  return null;
+}
+
 /* ---- Welcher ABSCHNITT einer Schauseite zeigt wirklich nach aussen? ----
    problem-2, Punkt A.2. Bis hierher galt eine Kolliderseite ueber ihre
    ganze Laenge als kletterbar. Das ist geometrisch falsch: eine 20 m
@@ -16237,6 +16415,8 @@ function collideBody(body, prevY, radiusExtra) {
     if (p.x > c.x0 - r && p.x < c.x1 + r && p.z > c.z0 - r && p.z < c.z1 + r && p.y < c.h - 0.001) {
       // Auf dem Dach landen?
       if (prevY !== undefined && prevY >= c.h - 0.05 && body.vel.y <= 0.01) {
+        if (KOLL_LOG.an && body === player && KOLL_LOG.liste.length < 4000)
+          KOLL_LOG.liste.push({ art: 'oben', id: c.id, dy: +(c.h - p.y).toFixed(4) });
         p.y = c.h; body.vel.y = 0; body.onGround = true; body.groundTop = c.h;
         /* Merken, ob der Halt eine schmale Spitze ist - Laternenkopf,
            Ampel, Poller. Darauf steht man nicht, man hockt. */
@@ -16283,10 +16463,19 @@ function collideBody(body, prevY, radiusExtra) {
       let wahl = seiten[0];
       for (const k of seiten) if (weiten[k] < weiten[wahl]) wahl = k;
       let nx = 0, nz = 0;
+      const logX = p.x, logZ = p.z;
       if (wahl === 0) { p.x = c.x0 - r; nx = -1; }
       else if (wahl === 1) { p.x = c.x1 + r; nx = 1; }
       else if (wahl === 2) { p.z = c.z0 - r; nz = -1; }
       else { p.z = c.z1 + r; nz = 1; }
+      if (KOLL_LOG.an && body === player && KOLL_LOG.liste.length < 4000)
+        KOLL_LOG.liste.push({ art: 'seitlich', id: c.id, dachProp: !!c.dachProp, krone: !!c.krone,
+          klein: !!c.klein, bau: c.bau ? (c.bau.kit ? 'kit' : c.bau.id) : null,
+          kasten: [c.x0, c.x1, c.z0, c.z1, c.y0 === undefined ? null : c.y0, c.h].map((v) => v === null ? null : +v.toFixed(3)),
+          r: +r.toFixed(3), weiten: weiten.map((v) => +v.toFixed(3)), seiten: seiten.slice(), wahl,
+          vorDrin: !!vor && seiten.length === 4,
+          von: [+logX.toFixed(3), +p.y.toFixed(3), +logZ.toFixed(3)],
+          korrektur: [+(p.x - logX).toFixed(3), +(p.z - logZ).toFixed(3)] });
       const into = body.vel.x * -nx + body.vel.z * -nz;
       if (into > 0) { body.vel.x += nx * into; body.vel.z += nz * into; }
       /* An manchen Wänden gibt es nichts zu klettern – etwa an den
@@ -19348,11 +19537,14 @@ function updatePlayer(dt) {
       if (player.pos.z < lc.z0 - player.radius || player.pos.z > lc.z1 + player.radius) continue;
       if (up > 0 && lc.h - player.pos.y < 2.6 && !lc.keinHalt) {
         const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
-        const ziel = kanteZielFrei(V3(
+        let ziel = kanteZielFrei(V3(
           player.pos.x - w.nx * (player.radius + 0.75),
           lc.h,
           player.pos.z - w.nz * (player.radius + 0.75),
         ), w.nx, w.nz);
+        /* nicht in einen Kasten ziehen, aus dem collideBody gleich wieder
+           herausdrueckt (siehe kanteLandung) */
+        ziel = kanteLandung(player.pos, ziel, w.nx, w.nz) || ziel;
         if (dauer > 0.2) {
           player.state = 'kante';
           player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: lc.h,
@@ -19859,11 +20051,17 @@ function updatePlayer(dt) {
        auf die Dachfläche. */
     if (player.pos.y + 1.75 > c.h && up > 0) {
       const dauer = heroVisual.kanteOneShot ? heroVisual.kanteOneShot(0.95) : 0;
-      const ziel = kanteZielFrei(V3(
+      let ziel = kanteZielFrei(V3(
         player.pos.x - w.nx * (player.radius + 0.75),
         c.h,
         player.pos.z - w.nz * (player.radius + 0.75),
       ), w.nx, w.nz);
+      /* ---- Freier Standpunkt VOR dem Ende des Hochziehens ----
+         Liegt das Ziel in einem Kasten, aus dem collideBody im ersten
+         Bodenbild herausdrueckt, fuehrt die Bewegung gleich an einen
+         freien Platz (nach innen, dann seitlich, nie zur Kante) - kein
+         Hineinsetzen und Herausschieben (siehe kanteLandung). */
+      ziel = kanteLandung(player.pos, ziel, w.nx, w.nz) || ziel;
       if (dauer > 0.2) {
         player.state = 'kante';
         player.kante = { t: 0, dauer, von: player.pos.clone(), nach: ziel, hoch: c.h,
@@ -39979,6 +40177,22 @@ if (window.__WEBHERO_TEST__ === true) {
     regenAn() { REGEN.an = true; REGEN.staerke = 1; REGEN.naechsterWechsel = 999; },
     tippeSprung() { tryJump(); },
     wlLogAn(an) { WL_LOG.an = !!an; WL_LOG.ring.length = 0; WL_LOG.kopf = 0; },
+    /* Lagekorrekturen der Figur in collideBody: einschalten, abholen
+       (holt und leert). Nur lesen, keine Wirkung aufs Spiel. */
+    kollLogAn(an) { KOLL_LOG.an = !!an; KOLL_LOG.liste.length = 0; },
+    /* Top-out-Landung: was kanteZielFrei liefert, ob dort collideBody
+       schieben wuerde, und was kanteLandung waehlt. Nur lesen. */
+    kanteLandungDbg(von, roh, nx, nz) {
+      const alt = kanteZielFrei(V3(roh[0], roh[1], roh[2]), nx, nz);
+      const blockiert = kanteStandBlockiert(alt.x, alt.y, alt.z);
+      const neu = kanteLandung(V3(von[0], von[1], von[2]), alt.clone(), nx, nz);
+      const k = (c) => c && { id: c.id, klein: !!c.klein, dachProp: !!c.dachProp, krone: !!c.krone,
+        modellKrone: !!(c.klein && !c.dachProp && !c.krone && c.bau && c.bau !== c), kronenTeil: !!c.kronenTeil };
+      return { alt: [alt.x, alt.y, alt.z], blockiert: k(blockiert),
+               getragen: kanteStandHoehe(alt.x, alt.y, alt.z) !== null,
+               neu: neu ? [neu.x, neu.y, neu.z] : null };
+    },
+    kollLogHol() { const l = KOLL_LOG.liste.slice(); KOLL_LOG.liste.length = 0; return l; },
     wlLog() { return WL_LOG.ring.filter(Boolean); },
     kitKopien() { return KIT_KOPIEN; },
     /* Alle Dachaufbauten mit ihrer Einstufung - fest oder Deko. */

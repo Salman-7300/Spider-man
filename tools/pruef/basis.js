@@ -116,6 +116,10 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.dachlebenAlt) window.__WEBHERO_DACHLEBEN_ALT = 1;
     if (ein.duennKlasse) window.__WEBHERO_DUENN_KLASSE = ein.duennKlasse;
     if (ein.fadeAlt) window.__WEBHERO_FADE_ALT = 1;
+    /* Nur zum Messen: die Modellkrone als EIN Quader (vor dem
+       FlatFacade-Top-out-Pass) bzw. das Ueberziehen ohne Landepruefung. */
+    if (ein.kroneTeileAlt) window.__WEBHERO_KRONE_TEILE_ALT = 1;
+    if (ein.kanteLandungAlt) window.__WEBHERO_KANTE_LANDUNG_ALT = 1;
     /* Nur zum Messen: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE). */
     if (ein.kamPoseAlt) window.__WEBHERO_KAM_POSE_ALT = 1;
     /* Nur zum Messen: Kletterhaut aus (Stand vor
@@ -169,6 +173,8 @@ async function starte(breite, hoehe, seed, opt) {
        dachlebenAlt: !!(opt && opt.dachlebenAlt),
        duennKlasse: (opt && opt.duennKlasse) || null,
        fadeAlt: !!(opt && opt.fadeAlt),
+       kroneTeileAlt: !!(opt && opt.kroneTeileAlt),
+       kanteLandungAlt: !!(opt && opt.kanteLandungAlt),
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
        proxyAlt: !!(opt && opt.proxyAlt),
        topAlt: !!(opt && opt.topAlt),
