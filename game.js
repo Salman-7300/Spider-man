@@ -7266,6 +7266,244 @@ function kronenTeile(e, g) {
   return teile;
 }
 
+/* ====================== Erdgeschoss-Profil: die Arkade von ModernOffice_1 ======================
+   problem-2, MO1-Arkade. Die Hauskiste reicht bis zur aeussersten
+   Fassadenebene. Bei Downtown_ModernOffice_1 springt das Erdgeschoss aber
+   zurueck - gemessen an Haus 1166 (11,11 x 9,39 m, tools/pruef/
+   arcade-collision.js): die Schaufensterfront liegt an der -z-Seite
+   0,50 m und an der -x-Seite 0,52-0,54 m hinter der Kiste, auf 8,5 bzw.
+   3,5 m Laenge zwischen buendigen Eckpfeilern; die Obergeschosse stehen
+   buendig (0,04-0,05 m) und bilden 3,22 m ueber dem Boden die Decke. Die
+   Figur blieb an der Kistenebene stehen, 0,5 m vor dem Glas, unter einer
+   Arkade, in der sichtbar nichts steht.
+
+   Je Modelltyp (nur BODEN_PROFIL_MODELLE) wird beim Laden EINMAL gemessen:
+     - je Seite, Laengsspalte und Hoehenzeile die vorderste sichtbare
+       Flaeche (BODEN_SPALTEN x BODEN_ZEILEN bis 0,3 Haushoehen),
+     - der Bezug Obergeschoss (Zeilen BODEN_BEZUG),
+     - Ruecksprung, wo das Erdgeschoss vom Boden an um mindestens
+       BODEN_RUECK_MIN tiefer liegt als der Bezug UND der Bezug buendig
+       mit der Kiste ist - sonst liegt davor freier Himmel, keine Arkade
+       (die schraege Rueckseite und die Fase von MO1 bleiben deshalb wie
+       sie sind),
+     - die Arkadendecke: die tiefste nach unten gewandte Flaeche ueber
+       dem Ruecksprung.
+   Daraus wird der massive Erdgeschoss-Grundriss (Kiste minus Ruecksprung)
+   als wenige Rechtecke. Glas und Rueckwand gehoeren dazu: was sichtbar
+   geschlossen ist, bleibt massiv.
+
+   Die Hauskiste bleibt das Hindernis des Hauses - fuer Klettern, Dach,
+   Kamera und Netz. Nur UNTER der Arkadendecke gelten die Rechtecke
+   (collideBody, kameraKastenTreffer, kastenLuft); darueber bleibt das Haus
+   massiv. Ruecksprung-Tiefen sind Anteile der Hausbreite bzw. -tiefe,
+   die Decke ein Anteil der Haushoehe: dasselbe Profil gilt fuer jedes
+   Haus dieses Modells. */
+const BODEN_PROFIL_MODELLE = /^Downtown_ModernOffice_1$/;
+const BODEN_PROFIL = new Map();     // Quellmodell -> Profil (normiert) | null
+const BODEN_PROFIL_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_BODEN_PROFIL_ALT;
+const BODEN_SPALTEN = 256, BODEN_ZEILE = 0.005, BODEN_ZEILEN = 60;
+const BODEN_BEZUG = [50, 60];       // Obergeschoss: 0,25-0,3 Haushoehen
+const BODEN_RUECK_MIN = 0.03;       // Anteil der Hausbreite/-tiefe (10 m Haus: 0,3 m)
+const BODEN_BUENDIG = 0.01;         // Obergeschoss buendig mit der Kiste
+const BODEN_ZEILEN_MIN = 10;        // Ruecksprung mindestens 0,05 Haushoehen hoch
+const BODEN_STUFEN_BREIT = 0.03;    // schmale Stufen bis zusammen 3 % der Seite ...
+const BODEN_STUFE_TIEF = 0.005;     // ... und 0,5 % Tiefenunterschied: ein Rechteck
+const BODEN_LEER = 9;
+function baueBodenProfil(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
+  const W = X1 - X0, D = Z1 - Z0, HB = H * anteil, NS = BODEN_SPALTEN, NZ = BODEN_ZEILEN;
+  if (!(W > 0) || !(D > 0) || !(HB > 0)) return null;
+  const hMax = NZ * BODEN_ZEILE;
+  const tiefe = {};
+  for (const [nx, nz] of FASS_SEITEN) tiefe[nx + ',' + nz] = new Float32Array(NS * NZ).fill(BODEN_LEER);
+  /* tiefste nach unten gewandte Flaeche je Grundrisszelle (NS x NS) */
+  const unten = new Float32Array(NS * NS).fill(BODEN_LEER);
+  const m = new THREE.Matrix4();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const P = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const gXp = tiefe['1,0'], gXm = tiefe['-1,0'], gZp = tiefe['0,1'], gZm = tiefe['0,-1'];
+  o.traverse((k) => {
+    if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+    m.multiplyMatrices(di, k.matrixWorld);
+    const p = k.geometry.attributes.position, idx = k.geometry.index;
+    const n = idx ? idx.count : p.count;
+    for (let i = 0; i + 2 < n; i += 3) {
+      a.fromBufferAttribute(p, idx ? idx.getX(i) : i).applyMatrix4(m);
+      b.fromBufferAttribute(p, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(m);
+      c.fromBufferAttribute(p, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(m);
+      let q = 0;
+      for (const v of [a, b, c]) { P[q++] = (v.x - X0) / W; P[q++] = (v.z - Z0) / D; P[q++] = (v.y - Y0) / HB; }
+      if (Math.min(P[2], P[5], P[8]) >= hMax) continue;
+      /* nach unten gewandt: y der Normalen im normierten Raum */
+      const e1u = P[3] - P[0], e1w = P[4] - P[1], e1h = P[5] - P[2];
+      const e2u = P[6] - P[0], e2w = P[7] - P[1], e2h = P[8] - P[2];
+      const ny = e1w * e2u - e1u * e2w;
+      const nl = Math.hypot(e1w * e2h - e1h * e2w, ny, e1h * e2u - e1u * e2h);
+      const abwaerts = nl > 1e-12 && ny < -0.5 * nl;
+      /* so dicht abtasten, dass keine Spalte und keine Zeile zwischen zwei Punkten liegt */
+      const lang = Math.max(Math.abs(e1u), Math.abs(e2u), Math.abs(P[6] - P[3]),
+                            Math.abs(e1w), Math.abs(e2w), Math.abs(P[7] - P[4])) * NS * 2;
+      const st = clamp(Math.ceil(Math.max(lang, Math.max(Math.abs(e1h), Math.abs(e2h), Math.abs(P[8] - P[5])) / BODEN_ZEILE * 2)), 1, 600);
+      /* Nur der Teil des Dreiecks im Erdgeschossband: je Abtastzeile s
+         liegen die gueltigen t (0 <= hh < hMax) an einem Stueck, und nur
+         die werden durchlaufen - mit je einem Punkt Reserve an den
+         Grenzen, geprueft wird jeder Punkt wie zuvor. Dieselben Punkte in
+         derselben Reihenfolge, die vier Seiten ausgeschrieben: gemessen
+         (beide Fassungen im geladenen Spiel am MO1-Modell) sind alle
+         126 976 Rasterwerte bitgleich, die Rechenzeit faellt von
+         660-1065 ms auf 62-243 ms. Vorher liefen auch die Punkte ueber
+         dem Band durch - hohe Fassadendreiecke liegen zum groessten Teil
+         dort. */
+      for (let s = 0; s <= st; s++) {
+        const fu = s / st, basis = P[2] + fu * e1h;
+        let t0 = 0, t1 = st - s;
+        if (e2h > 0) { t0 = Math.max(t0, Math.floor(-basis / e2h * st) - 1); t1 = Math.min(t1, Math.ceil((hMax - basis) / e2h * st) + 1); }
+        else if (e2h < 0) { t0 = Math.max(t0, Math.floor((hMax - basis) / e2h * st) - 1); t1 = Math.min(t1, Math.ceil(-basis / e2h * st) + 1); }
+        else if (basis < 0 || basis >= hMax) continue;
+        for (let t = t0; t <= t1; t++) {
+          const fw = t / st;
+          const hh = basis + fw * e2h;
+          if (hh < 0 || hh >= hMax) continue;
+          const u = P[0] + fu * e1u + fw * e2u, w = P[1] + fu * e1w + fw * e2w;
+          if (u < -1e-6 || u > 1 + 1e-6 || w < -1e-6 || w > 1 + 1e-6) continue;
+          const zeile = Math.min(NZ - 1, Math.floor(hh / BODEN_ZEILE)) * NS;
+          let cu = Math.floor(u * NS), cw = Math.floor(w * NS);
+          if (cu < 0) cu = 0; else if (cu > NS - 1) cu = NS - 1;
+          if (cw < 0) cw = 0; else if (cw > NS - 1) cw = NS - 1;
+          /* die vier Seiten (FASS_SEITEN): +x und -x laengs w, +z und -z laengs u */
+          if (1 - u < gXp[zeile + cw]) gXp[zeile + cw] = 1 - u;
+          if (u < gXm[zeile + cw]) gXm[zeile + cw] = u;
+          if (1 - w < gZp[zeile + cu]) gZp[zeile + cu] = 1 - w;
+          if (w < gZm[zeile + cu]) gZm[zeile + cu] = w;
+          if (abwaerts && hh > 0.02) {
+            const qq = cw * NS + cu;
+            if (hh < unten[qq]) unten[qq] = hh;
+          }
+        }
+      }
+    }
+  });
+  /* Je Seite: Ruecksprung-Spalten, ihre Tiefe und die Decke darueber */
+  const ruecksprung = [];
+  let decke = BODEN_LEER;
+  for (const [nx, nz] of FASS_SEITEN) {
+    const g = tiefe[nx + ',' + nz];
+    /* Liegt Spalte s vom Boden an um mindestens rueck hinter dem
+       buendigen Obergeschoss? Dann: Tiefe der Erdgeschossfront und Decke.
+       (Eine zweite, flachere Schwelle fuer die Fase zum Pfeiler und
+       feinere Fasenstufen sind gemessen worden: 16 bzw. 19 statt 10
+       Rechtecke je Haus, an allen 40 Arkadenseiten dieselben
+       Anschlaege - zurueckgenommen.) */
+    const spalte = (s, rueck) => {
+      let bezug = BODEN_LEER;
+      for (let z = BODEN_BEZUG[0]; z < BODEN_BEZUG[1]; z++) bezug = Math.min(bezug, g[z * NS + s]);
+      if (bezug > BODEN_BUENDIG) return null;
+      let k = 0;
+      while (k < NZ && g[k * NS + s] < BODEN_LEER && g[k * NS + s] - bezug >= rueck) k++;
+      if (k < BODEN_ZEILEN_MIN || k >= BODEN_BEZUG[0]) return null;
+      let d = BODEN_LEER;
+      for (let z = 0; z < k; z++) d = Math.min(d, g[z * NS + s]);
+      /* Decke: tiefste nach unten gewandte Flaeche im freien Streifen
+         vor dem Erdgeschoss. Sie liegt in der ersten buendigen Zeile k;
+         ohne eine solche Flaeche gilt deren Unterkante. */
+      let dk = BODEN_LEER;
+      for (let j = 0; j < Math.floor(d * NS); j++) {
+        const uu = nx > 0 ? NS - 1 - j : nx < 0 ? j : s, ww = nz > 0 ? NS - 1 - j : nz < 0 ? j : s;
+        dk = Math.min(dk, unten[ww * NS + uu]);
+      }
+      return { d, dk: dk < BODEN_LEER ? Math.min(dk, (k + 1) * BODEN_ZEILE) : k * BODEN_ZEILE };
+    };
+    const dSp = new Float32Array(NS).fill(-1);
+    for (let s = 0; s < NS; s++) {
+      const w = spalte(s, BODEN_RUECK_MIN);
+      if (!w) continue;
+      dSp[s] = w.d;
+      if (w.dk < decke) decke = w.dk;
+    }
+    /* Zusammenhaengende Spalten gleicher Tiefe -> ein Rechteck. Schmale
+       Stufen nebeneinander (die Fase zum Eckpfeiler, gemessen 4 cm je
+       Spalte) werden zusammengefasst, solange ihre Tiefe hoechstens
+       BODEN_STUFE_TIEF auseinanderliegt - mit der kleinsten Tiefe. Alle
+       Stufen einer Fase in EIN Rechteck kostete gemessen 0,39 m
+       unsichtbaren Anschlag am Ende der Arkade (Haus 219). */
+    const laeufe = [];
+    for (let s = 0; s < NS; s++) {
+      if (dSp[s] < 0) continue;
+      let s1 = s, d = dSp[s];
+      while (s1 + 1 < NS && dSp[s1 + 1] >= 0 && Math.abs(dSp[s1 + 1] - dSp[s]) <= 0.002) { s1++; d = Math.min(d, dSp[s1]); }
+      const vor = laeufe[laeufe.length - 1];
+      if (vor && vor.s1 === s - 1 && s1 - vor.s0 + 1 < BODEN_STUFEN_BREIT * NS &&
+          Math.abs(vor.dErst - dSp[s]) <= BODEN_STUFE_TIEF) {
+        vor.s1 = s1; vor.d = Math.min(vor.d, d);
+      } else laeufe.push({ s0: s, s1, d, dErst: dSp[s] });
+      s = s1;
+    }
+    for (const l of laeufe) ruecksprung.push({ seite: [nx, nz], t0: l.s0 / NS, t1: (l.s1 + 1) / NS, tiefe: l.d });
+  }
+  if (!ruecksprung.length) return null;
+  /* Massiver Grundriss = Einheitsquadrat minus Ruecksprung, auf einem
+     Raster aus genau den Kanten der Ruecksprung-Rechtecke */
+  const frei = ruecksprung.map((r) => {
+    const [nx, nz] = r.seite;
+    return nx < 0 ? { u0: 0, u1: r.tiefe, w0: r.t0, w1: r.t1 }
+         : nx > 0 ? { u0: 1 - r.tiefe, u1: 1, w0: r.t0, w1: r.t1 }
+         : nz < 0 ? { u0: r.t0, u1: r.t1, w0: 0, w1: r.tiefe }
+         : { u0: r.t0, u1: r.t1, w0: 1 - r.tiefe, w1: 1 };
+  });
+  const us = [...new Set([0, 1].concat(...frei.map((f) => [f.u0, f.u1])))].sort((p, q) => p - q);
+  const ws = [...new Set([0, 1].concat(...frei.map((f) => [f.w0, f.w1])))].sort((p, q) => p - q);
+  const NU = us.length - 1, NW = ws.length - 1;
+  const fest = new Uint8Array(NU * NW);
+  for (let j = 0; j < NW; j++) for (let i = 0; i < NU; i++) {
+    const um = (us[i] + us[i + 1]) / 2, wm = (ws[j] + ws[j + 1]) / 2;
+    fest[j * NU + i] = frei.some((f) => um > f.u0 && um < f.u1 && wm > f.w0 && wm < f.w1) ? 0 : 1;
+  }
+  const istFest = (i, j) => i >= 0 && i < NU && j >= 0 && j < NW && fest[j * NU + i] === 1;
+  /* die tiefste Ruecksprung-Ebene je Seite: bis dorthin ist eine Seite
+     eines Rechtecks noch Fassade dieser Hausseite */
+  const tiefMax = { '-1,0': 0, '1,0': 0, '0,-1': 0, '0,1': 0 };
+  for (const r of ruecksprung) tiefMax[r.seite.join(',')] = Math.max(tiefMax[r.seite.join(',')], r.tiefe);
+  const teile = [], fertig = new Uint8Array(NU * NW);
+  for (let j = 0; j < NW; j++) for (let i = 0; i < NU; i++) {
+    if (!istFest(i, j) || fertig[j * NU + i]) continue;
+    let i1 = i;
+    while (istFest(i1 + 1, j) && !fertig[j * NU + i1 + 1]) i1++;
+    let j1 = j;
+    weiter: while (j1 + 1 < NW) {
+      for (let ii = i; ii <= i1; ii++) if (!istFest(ii, j1 + 1) || fertig[(j1 + 1) * NU + ii]) break weiter;
+      j1++;
+    }
+    for (let jj = j; jj <= j1; jj++) for (let ii = i; ii <= i1; ii++) fertig[jj * NU + ii] = 1;
+    /* offen: an mindestens einer Stelle grenzt die Seite an Luft (Rand
+       oder Ruecksprung). Steht eine Figur schon IM Rechteck, wird nur
+       ueber offene Seiten herausgedrueckt (siehe bodenSeitlich).
+       fass: die Seite gehoert zur Fassade dieser Hausseite (hoechstens so
+       tief wie deren tiefster Ruecksprung) - nur dort Wandkontakt. */
+    const offen = [false, false, false, false];
+    for (let jj = j; jj <= j1; jj++) { if (!istFest(i - 1, jj)) offen[0] = true; if (!istFest(i1 + 1, jj)) offen[1] = true; }
+    for (let ii = i; ii <= i1; ii++) { if (!istFest(ii, j - 1)) offen[2] = true; if (!istFest(ii, j1 + 1)) offen[3] = true; }
+    const u0 = us[i], u1 = us[i1 + 1], w0 = ws[j], w1 = ws[j1 + 1];
+    const fass = [offen[0] && u0 <= tiefMax['-1,0'] + 1e-6, offen[1] && 1 - u1 <= tiefMax['1,0'] + 1e-6,
+                  offen[2] && w0 <= tiefMax['0,-1'] + 1e-6, offen[3] && 1 - w1 <= tiefMax['0,1'] + 1e-6];
+    teile.push({ u0, u1, w0, w1, offen, fass });
+  }
+  return { ruecksprung, decke, teile };
+}
+/* Das Profil an das Hindernis EINES Hauses (c: Hauskiste, e: HAUS_KISTEN-
+   Eintrag). Ohne Stehhoehe unter der Decke bleibt es bei der Kiste. */
+function bodenProfilSetzen(c, e, bp) {
+  const yDecke = SLAB_H + bp.decke * e.h;
+  if (yDecke - SLAB_H < 1.75 + 0.15) return;
+  const x = (u) => c.x0 + u * (c.x1 - c.x0), z = (w) => c.z0 + w * (c.z1 - c.z0);
+  const y0 = c.y0 === undefined ? -1 : c.y0;
+  c.boden = {
+    yDecke,
+    oben: { x0: c.x0, x1: c.x1, z0: c.z0, z1: c.z1, y0: yDecke, h: c.h },
+    teile: bp.teile.map((t) => ({ x0: x(t.u0), x1: x(t.u1), z0: z(t.w0), z1: z(t.w1), y0, h: yDecke,
+                                   offen: t.offen, fass: t.fass })),
+    ruecksprung: bp.ruecksprung,
+  };
+}
+
 function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
   const W = X1 - X0, D = Z1 - Z0, HB = H * anteil;
   if (!(W > 0) || !(D > 0) || !(HB > 0)) return null;
@@ -7520,6 +7758,9 @@ function setzeHausModelle(szene) {
     FASS_GITTER.set(o, baueFassadenGitter(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
     /* Das Kronenraster ebenso einmal je Modelltyp (siehe kronenTeile). */
     if (anteil < 0.995) KRONEN_RASTER.set(o, baueKronenRaster(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
+    /* Das Erdgeschoss-Profil nur fuer die Modelle mit Arkade (siehe BODEN_PROFIL). */
+    if (!BODEN_PROFIL_ALT && BODEN_PROFIL_MODELLE.test(o.name || ''))
+      BODEN_PROFIL.set(o, baueBodenProfil(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
     o.userData.krone = (anteil < 0.995 && kx1 > kx0) ? {
       x0: (kx0 - X0) / W - 0.5, x1: (kx1 - X0) / W - 0.5,
       z0: (kz0 - Z0) / D - 0.5, z1: (kz1 - Z0) / D - 0.5,
@@ -7578,7 +7819,8 @@ function setzeHausModelle(szene) {
     kopie.scale.set(e.w, e.h / mass.dachAnteil, e.d);
     kopie.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     const eintrag = { obj: kopie, kiste: e, modell: liste[i].name || ('Modell_' + i),
-                      fassade: FASS_GITTER.get(liste[i]) || null };
+                      fassade: FASS_GITTER.get(liste[i]) || null,
+                      bodenProfil: BODEN_PROFIL.get(liste[i]) || null };
     if (mass.krone) {
       const raster = KRONE_TEILE_ALT ? null : KRONEN_RASTER.get(liste[i]);
       if (raster) eintrag.kronenTeile = kronenTeile(e, raster);
@@ -7613,6 +7855,8 @@ function setzeHausModelle(szene) {
     if (t.kiste && t.kiste.koll && t.fassade)
       t.kiste.koll.fassade = { g: t.fassade, w: t.kiste.w, d: t.kiste.d,
                                h: t.kiste.h };
+    /* Erdgeschoss-Profil (Arkade): unter der Decke die Rechtecke statt der Kiste */
+    if (t.kiste && t.kiste.koll && t.bodenProfil) bodenProfilSetzen(t.kiste.koll, t.kiste, t.bodenProfil);
     HAUS_MODELLE.push(t.obj);
     for (const k of t.kronenTeile || []) {
       if (t.kiste && t.kiste.koll) k.bau = t.kiste.koll.bau || t.kiste.koll;
@@ -14463,6 +14707,7 @@ function kameraWandRichtung(target, dir, distanz, wand) {
    Kasten. Auch ein duennes Gesims zwischen zwei Abtastpunkten wird erfasst.
    1 = frei, 0 = Startpunkt liegt bereits im Hindernis. */
 function kameraKastenTreffer(von, nach, c, radius) {
+  if (c.boden) return bodenKastenTreffer(von, nach, c, radius);
   let ein = 0, aus = 1;
   const bereiche = [[von.x, nach.x - von.x, c.x0 - radius, c.x1 + radius],
                     [von.y, nach.y - von.y, c.y0 === undefined ? -Infinity : c.y0 - radius, c.h + radius],
@@ -14478,6 +14723,17 @@ function kameraKastenTreffer(von, nach, c, radius) {
     }
   }
   return aus < 0 || ein > 1 ? 1 : Math.max(0, ein);
+}
+/* Haus mit Erdgeschoss-Profil (Arkade, siehe BODEN_PROFIL): die Kiste
+   ueber der Arkadendecke und die massiven Rechtecke darunter - steht die
+   Figur in der Arkade, liegt ihr Blickpunkt nicht im Haus. */
+function bodenKastenTreffer(von, nach, c, radius) {
+  let t = kameraKastenTreffer(von, nach, c.boden.oben, radius);
+  for (const k of c.boden.teile) {
+    if (t <= 0) break;
+    t = Math.min(t, kameraKastenTreffer(von, nach, k, radius));
+  }
+  return t;
 }
 
 /* Alle beruehrten Rasterzellen statt einzelner Punkte abfragen. Die
@@ -14554,6 +14810,11 @@ function innenKamAusweichen(target, dir, dist, dt) {
    0,20 m in z ergeben 0,25 m Luftlinie, der Punkt liegt bei einem
    Radius von 0,23 m aber trotzdem noch in der Huelle. */
 function kastenLuft(x, y, z, c) {
+  if (c.boden) {
+    let l = kastenLuft(x, y, z, c.boden.oben);
+    for (const k of c.boden.teile) l = Math.min(l, kastenLuft(x, y, z, k));
+    return l;
+  }
   const y0 = c.y0 === undefined ? -1e9 : c.y0;
   return Math.max(Math.max(c.x0 - x, 0, x - c.x1),
                   Math.max(y0 - y, 0, y - (c.h || 0)),
@@ -16402,12 +16663,116 @@ function merkeVorPos(body) {
   body.vorPos.copy(body.pos);
 }
 
+/* ---- Haus mit Erdgeschoss-Profil (Arkade, siehe BODEN_PROFIL) ----
+   Unter der Arkadendecke gelten die Rechtecke des massiven Erdgeschosses,
+   darueber die Hauskiste wie bisher. true: der Kasten ist erledigt;
+   false: die gewohnte Kistenregel laeuft (Dach, Fassade oberhalb). */
+function bodenKollision(body, c, prevY, r) {
+  const p = body.pos, bp = c.boden;
+  if (p.y >= bp.yDecke) return false;
+  if (c.y0 !== undefined && p.y + 1.75 < c.y0) return true;      // ganz darunter (U-Bahn)
+  /* Steckte die Figur schon VOR dem Schritt im massiven Erdgeschoss,
+     gibt es keine Seite, von der sie kam. Dann der kuerzeste Weg aus
+     ALLEN Rechtecken zusammen: einzeln gerechnet fuehrte der kuerzeste
+     offene Ausweg eines Kernrechtecks laengs durchs Haus. Gemessen beim
+     Herunterklettern an der Arkade (arcade-collision.js, Schritt S): die
+     Kletterhaut setzt die Figur 0,15 m vor die zurueckgesetzte Glasfront,
+     sie steckt 0,30 m im Erdgeschoss, und das Kernrechteck schob sie
+     2,7 m (Haus 956) bzw. 2,8 m (Haus 1123) die Fassade entlang. */
+  const vor = body.vorPos;
+  if (bodenDrin(bp.teile, p.x, p.z, r) && (!vor || bodenDrin(bp.teile, vor.x, vor.z, r))) bodenHinaus(body, c, r);
+  for (const t of bp.teile) bodenSeitlich(body, c, t, r);
+  if (p.y + 1.75 > bp.yDecke && p.x > c.x0 - r && p.x < c.x1 + r && p.z > c.z0 - r && p.z < c.z1 + r) {
+    /* Kopf an der Arkadendecke - nur von unten kommend (Sprung in der
+       Arkade). Wer von der Seite oder von oben an die Fassade kommt,
+       wird wie bisher von der Hauskiste weggedrueckt. */
+    const vonUnten = prevY !== undefined ? prevY + 1.75 <= bp.yDecke + 0.02 : p.y + 0.25 < bp.yDecke;
+    if (!vonUnten) return false;
+    if (KOLL_LOG.an && body === player && KOLL_LOG.liste.length < 4000)
+      KOLL_LOG.liste.push({ art: 'decke', id: c.id, dy: +(bp.yDecke - 1.75 - p.y).toFixed(4) });
+    if (body.vel.y > 0) body.vel.y = 0;
+    p.y = bp.yDecke - 1.75;
+  }
+  return true;
+}
+function bodenDrin(teile, x, z, r) {
+  for (const t of teile) if (x > t.x0 - r && x < t.x1 + r && z > t.z0 - r && z < t.z1 + r) return true;
+  return false;
+}
+/* Kuerzester achsparalleler Weg aus allen Rechtecken zusammen: je
+   Richtung so lange weiter, bis kein Rechteck mehr ueberlappt. */
+function bodenHinaus(body, c, r) {
+  const p = body.pos, teile = c.boden.teile;
+  let best = null;
+  for (let k = 0; k < 4; k++) {
+    let x = p.x, z = p.z, zuletzt = null;
+    for (let n = 0; n <= teile.length; n++) {
+      let t = null;
+      for (const q of teile) if (x > q.x0 - r && x < q.x1 + r && z > q.z0 - r && z < q.z1 + r) { t = q; break; }
+      if (!t) break;
+      if (k === 0) x = t.x0 - r; else if (k === 1) x = t.x1 + r; else if (k === 2) z = t.z0 - r; else z = t.z1 + r;
+      zuletzt = t;
+    }
+    if (bodenDrin(teile, x, z, r)) continue;
+    const weg = Math.abs(x - p.x) + Math.abs(z - p.z);
+    if (!best || weg < best.weg) best = { weg, x, z, k, t: zuletzt };
+  }
+  if (!best) return;
+  const nx = best.k === 0 ? -1 : best.k === 1 ? 1 : 0, nz = best.k === 2 ? -1 : best.k === 3 ? 1 : 0;
+  if (KOLL_LOG.an && body === player && KOLL_LOG.liste.length < 4000)
+    KOLL_LOG.liste.push({ art: 'seitlich', id: c.id, boden: 'alle', wahl: best.k,
+      korrektur: [+(best.x - p.x).toFixed(3), +(best.z - p.z).toFixed(3)] });
+  p.x = best.x; p.z = best.z;
+  const into = body.vel.x * -nx + body.vel.z * -nz;
+  if (into > 0) { body.vel.x += nx * into; body.vel.z += nz * into; }
+  if (best.t && best.t.fass[best.k] && !c.keinKlettern) body.wall = { col: c, nx, nz };
+}
+/* Seitlich aus einem Rechteck des Erdgeschoss-Profils herausdruecken -
+   dieselbe Regel wie fuer jedes Hindernis: die Seite, von der die Figur
+   kam. Auch wenn diese Seite an ein Nachbarrechteck grenzt - dann
+   beruehrt die Figur dieses Rechteck nur durch das duenne Nachbarteil
+   hindurch, und das Nachbarteil drueckt sie anschliessend an seine
+   Aussenseite. (Gemessen an Haus 1166: mit "nur offene Seiten" schob der
+   Kern hinter einem 9 cm breiten Streifen die Figur 3,3 m laengs der
+   Fassade.) Stand sie schon vorher drin, hat bodenHinaus sie bereits
+   herausgesetzt; bleibt trotzdem keine Seite, dann der kuerzeste Weg
+   ueber OFFENE Seiten. Wandkontakt (und damit Klettern) nur an einer
+   Fassadenseite der Hauskiste - die Innenseite eines Arkadenpfeilers ist
+   keine. */
+function bodenSeitlich(body, c, t, r) {
+  const p = body.pos;
+  if (!(p.x > t.x0 - r && p.x < t.x1 + r && p.z > t.z0 - r && p.z < t.z1 + r)) return;
+  const weiten = [p.x - (t.x0 - r), (t.x1 + r) - p.x, p.z - (t.z0 - r), (t.z1 + r) - p.z];
+  const vor = body.vorPos;
+  let wahl = -1;
+  if (vor) {
+    const kam = [vor.x <= t.x0 - r, vor.x >= t.x1 + r, vor.z <= t.z0 - r, vor.z >= t.z1 + r];
+    for (let k = 0; k < 4; k++) if (kam[k] && (wahl < 0 || weiten[k] < weiten[wahl])) wahl = k;
+  }
+  if (wahl < 0) for (let k = 0; k < 4; k++) if (t.offen[k] && (wahl < 0 || weiten[k] < weiten[wahl])) wahl = k;
+  if (wahl < 0) for (let k = 0; k < 4; k++) if (wahl < 0 || weiten[k] < weiten[wahl]) wahl = k;
+  let nx = 0, nz = 0;
+  const vx = p.x, vz = p.z;
+  if (wahl === 0) { p.x = t.x0 - r; nx = -1; }
+  else if (wahl === 1) { p.x = t.x1 + r; nx = 1; }
+  else if (wahl === 2) { p.z = t.z0 - r; nz = -1; }
+  else { p.z = t.z1 + r; nz = 1; }
+  if (KOLL_LOG.an && body === player && KOLL_LOG.liste.length < 4000)
+    KOLL_LOG.liste.push({ art: 'seitlich', id: c.id, boden: c.boden.teile.indexOf(t), fassade: !!t.fass[wahl],
+      kasten: [t.x0, t.x1, t.z0, t.z1, t.y0, t.h].map((v) => +v.toFixed(3)), r: +r.toFixed(3), wahl,
+      von: [+vx.toFixed(3), +p.y.toFixed(3), +vz.toFixed(3)],
+      korrektur: [+(p.x - vx).toFixed(3), +(p.z - vz).toFixed(3)] });
+  const into = body.vel.x * -nx + body.vel.z * -nz;
+  if (into > 0) { body.vel.x += nx * into; body.vel.z += nz * into; }
+  if (t.fass[wahl] && !c.keinKlettern) body.wall = { col: c, nx, nz };
+}
 function collideBody(body, prevY, radiusExtra) {
   // body: {pos, vel, radius, onGround, wall, platform}
   const p = body.pos, r = body.radius + (radiusExtra || 0);
   body.wall = null;
   const cols = collidersNear(p.x, p.z);
   for (const c of cols) {
+    if (c.boden && bodenKollision(body, c, prevY, r)) continue;
     /* Vorsprünge wie Feuerleiter-Podeste haben eine Unterkante (y0). Sie
        sind nur in ihrer eigenen Höhe im Weg – sonst würde man schon unten
        auf der Straße gegen eine unsichtbare Wand laufen. */
@@ -40180,6 +40545,16 @@ if (window.__WEBHERO_TEST__ === true) {
     /* Lagekorrekturen der Figur in collideBody: einschalten, abholen
        (holt und leert). Nur lesen, keine Wirkung aufs Spiel. */
     kollLogAn(an) { KOLL_LOG.an = !!an; KOLL_LOG.liste.length = 0; },
+    /* Erdgeschoss-Profil (MO1-Arkade) eines Hauses - nur lesen. */
+    bodenProfil(id) {
+      const c = colliders.find((q) => q.id === id);
+      if (!c || !c.boden) return null;
+      const b = c.boden;
+      return { yDecke: b.yDecke,
+               teile: b.teile.map((t) => ({ x0: t.x0, x1: t.x1, z0: t.z0, z1: t.z1, y0: t.y0, h: t.h,
+                                             offen: t.offen.slice(), fass: t.fass.slice() })),
+               ruecksprung: b.ruecksprung.map((r) => ({ seite: r.seite.slice(), t0: r.t0, t1: r.t1, tiefe: r.tiefe })) };
+    },
     /* Top-out-Landung: was kanteZielFrei liefert, ob dort collideBody
        schieben wuerde, und was kanteLandung waehlt. Nur lesen. */
     kanteLandungDbg(von, roh, nx, nz) {
