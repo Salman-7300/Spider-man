@@ -16257,13 +16257,33 @@ function imBauVolumen(b, x, y, z) {
   return !!b && x > b.x0 + 0.02 && x < b.x1 - 0.02 && z > b.z0 + 0.02 && z < b.z1 - 0.02 &&
          y > (b.y0 === undefined ? -1e9 : b.y0) && y < (b.h || 0);
 }
+/* Steht (x, y, z) in MASSIVER Geometrie des Gebaeudes b? Das fragen
+   Ankleben und Climb-Owner (ankletternVonAussen). Bei einem Haus mit
+   Erdgeschoss-Profil (MO1-Arkade, siehe BODEN_PROFIL) gilt unter der
+   Arkadendecke dieselbe Geometrie wie in collideBody: die freie Arkade
+   ist draussen, Pfeiler, Glasfront und Kern sind drinnen. Ueber der Decke
+   und an jedem Haus ohne Profil die grobe Kiste wie bisher. Gemessen:
+   0,45 m vor der zurueckgesetzten Glasfront steht der Mittelpunkt bis
+   0,31 m in der Kiste - die alte Frage hielt die Figur dort fuer "im
+   Haus", 22 von 40 Arkaden liessen sich aus dem Stand nicht bekleben und
+   9 nicht anrennen (arcade-collision.js). */
+function bauBelegt(b, x, y, z) {
+  if (!imBauVolumen(b, x, y, z)) return false;
+  const bp = b.boden;
+  if (!bp || y >= bp.yDecke) return true;
+  for (const t of bp.teile)
+    if (x > t.x0 + 0.02 && x < t.x1 - 0.02 && z > t.z0 + 0.02 && z < t.z1 - 0.02) return true;
+  return false;
+}
+const BODEN_OWNER_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_BODEN_OWNER_ALT;
 /* Darf von hier aus an col angeklebt werden? Nein, wenn Becken oder Fuss
    schon im Gebaeude dieser Wand stehen. */
 function ankletternVonAussen(col) {
   const b = bauVon(col);
   if (!b || KLETTER_V2_ALT) return true;
-  return !imBauVolumen(b, player.pos.x, player.pos.y + 0.05, player.pos.z) &&
-         !imBauVolumen(b, player.pos.x, player.pos.y + 0.9, player.pos.z);
+  const drin = BODEN_OWNER_ALT ? imBauVolumen : bauBelegt;
+  return !drin(b, player.pos.x, player.pos.y + 0.05, player.pos.z) &&
+         !drin(b, player.pos.x, player.pos.y + 0.9, player.pos.z);
 }
 /* Der Kletterzustand kennt sein Gebaeude: die eigene Huelle darf die
    Figur umgeben (die Haut liegt bis HAUT_MAX hinter der groben Kiste),
@@ -40554,6 +40574,17 @@ if (window.__WEBHERO_TEST__ === true) {
                teile: b.teile.map((t) => ({ x0: t.x0, x1: t.x1, z0: t.z0, z1: t.z1, y0: t.y0, h: t.h,
                                              offen: t.offen.slice(), fass: t.fass.slice() })),
                ruecksprung: b.ruecksprung.map((r) => ({ seite: r.seite.slice(), t0: r.t0, t1: r.t1, tiefe: r.tiefe })) };
+    },
+    /* Ankleb-Entscheidung an der aktuellen Wand (oder an Kollider id):
+       grobe Kiste gegen massive Geometrie (bauBelegt). Nur lesen. */
+    anklebPruef(id) {
+      const col = id !== undefined ? colliders.find((q) => q.id === id) : (player.wall && player.wall.col);
+      if (!col) return null;
+      const b = bauVon(col), P = player.pos, w = player.wall;
+      return { koll: col.id, vonAussen: ankletternVonAussen(col),
+               kiste: imBauVolumen(b, P.x, P.y + 0.05, P.z) || imBauVolumen(b, P.x, P.y + 0.9, P.z),
+               massiv: bauBelegt(b, P.x, P.y + 0.05, P.z) || bauBelegt(b, P.x, P.y + 0.9, P.z),
+               traegt: w && w.col === col ? wandTraegt(col, w.nx, w.nz, P.y + 1.0, P.x, P.z) : null };
     },
     /* Top-out-Landung: was kanteZielFrei liefert, ob dort collideBody
        schieben wuerde, und was kanteLandung waehlt. Nur lesen. */

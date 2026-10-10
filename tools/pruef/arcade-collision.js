@@ -24,6 +24,7 @@
      E  springen und rollen in der Arkade
      F  aus der Arkade hochklettern wollen (Z halten, W, Sprung), dann W
         bis oben
+     A3 schraeg in die Arkade rennen (W, etwa 20 Grad zur Normalen)
      P  den Eckpfeiler neben der Arkade von aussen anrennen (Wandlauf)
      S  an der Fassade ueber der Arkade bis zum Boden herunterklettern
 
@@ -49,6 +50,20 @@
    dazu: Kopf in der Arkadendecke, Ortssprung > 0,35 m in einem Bild am
    Boden/in der Luft, Kameraabstand in der Arkade, Wandlauf ja/nein.
 
+   Ankleben aus der Arkade (Climb-Owner, Aufgabe "Arkade und Climb-Owner
+   konsistent"): je Fall eine Kategorie aus der SICHTBAREN Geometrie am
+   Glas (Spalte des Mittelpunkts, 0,5-2 m ueber dem Boden):
+     A  sichtbare Flaeche in Reichweite (Tiefe <= HAUT_MAX)
+     B  sichtbare Flaeche, aber tiefer als HAUT_MAX
+     C  keine sichtbare Flaeche in der Spalte
+     D  der Weg dorthin wird von anderer echter Geometrie (anderes
+        Hindernis als das Haus) gestoppt
+   und je Bild in A2, A3 und F die Ankleb-Entscheidung des Spiels
+   (anklebPruef): blockedOnlyByCoarseOwnerBox zaehlt die Schritte, in
+   denen alles fuer das Ankleben sprach (Wand traegt, beim Anrennen auch
+   Tempo/Richtung/Hoehe), es aber abgelehnt wurde, weil die Figur in der
+   GROBEN Kiste stand, nicht in massiver Geometrie.
+
    Kontrollen: andere Seiten von ModernOffice_1, ModernOffice_2,
    PublicBuilding_1, FlatFacade, ein MERGED-Haus - gehen, rennen, seitlich,
    springen. Mit modus=beide laeuft alles zweimal (mit und ohne Profil,
@@ -57,6 +72,9 @@
 
    Aufruf:  node tools/pruef/arcade-collision.js [modus=beide|neu|alt]
             [nur=arkade|kontrolle] [max=12] [json=datei] [vergleich=datei]
+            [alt=bodenProfilAlt|bodenOwnerAlt]
+   alt=: welcher Stand "vorher" ist - ohne Erdgeschoss-Profil (Vorgabe)
+   oder mit Profil, aber Ankleben ueber die grobe Kiste (Stand ba014f6).
    vergleich=: die json-Datei eines frueheren Laufs im anderen Modus -
    damit lassen sich vorher und nachher in zwei Aufrufen fahren (jeder
    unter der Zeitgrenze) und trotzdem Bild fuer Bild vergleichen.
@@ -73,9 +91,10 @@ const VERGLEICH = arg('vergleich', null);
    Schritt (A, A2, B, ...) in die json-Datei */
 const NUR_KOLL = arg('nurKoll', null);
 const SPUR = arg('spur', '0') === '1';
+const ALT_OPT = arg('alt', 'bodenProfilAlt');
 
 async function fahre(alt) {
-  const { b, page } = await starte(320, 180, 4711, alt ? { bodenProfilAlt: true } : {});
+  const { b, page } = await starte(320, 180, 4711, alt ? { [ALT_OPT]: true } : {});
   const r = await page.evaluate(async (a) => {
     const d = __dbg, P = d.player, T = window.THREE;
     d.frier(true); d.setzeRegen(0);
@@ -86,6 +105,7 @@ async function fahre(alt) {
        und steht danach 0,45 m davor - 0,30 m in einem Bild, ueberall in
        der Stadt (gemessen an buendigen Seiten: 0,301-0,302 m). */
     const SPRUNG_MAX = 0.35;
+    const HAUT_MAX = 1.2;                 // wie im Spiel (Reachable Visual Climb Skin V2)
     const TASTEN = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space', 'AltLeft', 'KeyZ'];
     const frei = () => { for (const t of TASTEN) d.taste(t, false); };
     const typ = new Map(), modellVon = new Map();
@@ -293,13 +313,31 @@ async function fahre(alt) {
       const laengs = () => ax ? P.pos.z : P.pos.x;
       const M = { name: F.name, gruppe: F.gruppe, koll: F.koll, nx, nz, t: +F.t.toFixed(3), invisible: 0, durchPfeiler: 0, durchGlas: 0,
                   imHaus: 0, innenKlettern: 0, topOutInnen: 0, kopfInDecke: 0, ortsSprung: 0, maxSprung: 0,
+                  grobBlock: { A2: 0, A3: 0, F: 0 }, abgelehnt: { A2: null, A3: null, F: null }, fremdKontakt: null,
                   bahn: [], schritte: {} };
       if (ak) Object.assign(M, { arkadeTiefe: +ak.tiefe.toFixed(3), arkadeDecke: +ak.decke.toFixed(3),
                                  arkadeVon: +ak.t0.toFixed(2), arkadeBis: +ak.t1.toFixed(2) });
       let vor = null;
       /* ein Bild: Schritt, dann alles messen */
+      let wlZahl = 0;
       const bild = (phase) => {
         d.schritt(1 / 60);
+        if (arkadeFall && (phase === 'A2' || phase === 'A3' || phase === 'F') && P.state !== 'climb' && P.state !== 'kante') {
+          /* Anrennen: nur Bilder, in denen Tempo, Richtung und Hoehe den
+             Wandlauf schon erlaubten (WL_LOG ok); Ankleben im Sprung (F):
+             jedes Bild in der Luft mit Wandkontakt (Z gehalten) */
+          let bereit = false;
+          if (phase === 'F') bereit = !!P.wall && !P.onGround;
+          else { const L = d.wlLog(); for (let i = wlZahl; i < L.length; i++) if (L[i].ok) bereit = true; wlZahl = L.length; }
+          const k = bereit ? d.anklebPruef() : null;
+          if (k && k.koll === c.id) {
+            if (k.traegt && !k.vonAussen && k.kiste && !k.massiv) M.grobBlock[phase]++;
+            if (!M.abgelehnt[phase] && !(k.traegt && k.vonAussen))
+              M.abgelehnt[phase] = { traegt: k.traegt, vonAussen: k.vonAussen, kiste: k.kiste, massiv: k.massiv, tiefe: +tiefeVon().toFixed(3) };
+          }
+          /* Kontakt mit einem anderen Hindernis als dem Haus auf dem Weg? */
+          if (P.wall && P.wall.col && P.wall.col.id !== c.id && !M.fremdKontakt) M.fremdKontakt = { id: P.wall.col.id, phase };
+        }
         const p = P.pos, tf = tiefeVon(), tl = laengs();
         M.bahn.push(a.SPUR ? [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3), P.state, phase, +tf.toFixed(3), +tl.toFixed(3), P.hp, !!P.dead,
                               d.enemies.filter((g) => !g.dead && Math.hypot(g.pos.x - p.x, g.pos.z - p.z) < 12).length,
@@ -366,14 +404,48 @@ async function fahre(alt) {
         if (luft > TOL_LUFT) M.invisible++;
       }
       M.schritte.A = A;
+      if (arkadeFall) {
+        /* Kategorie der Kletterflaeche am Glas: vorderste sichtbare Flaeche
+           in der Spalte des Mittelpunkts, 0,5-2 m ueber dem Boden (Median) */
+        const sd = e.seiten[nx + ',' + nz], il = Math.floor((laengs() - sd.l0) / 0.05);
+        const t = [];
+        if (il >= 0 && il < sd.NL) for (let ih = 2; ih < 8; ih++) { const v = sd.hoch[ih * sd.NL + il]; if (v < 8) t.push(v); }
+        t.sort((p2, q) => p2 - q);
+        const dv = t.length ? t[Math.floor(t.length / 2)] : null;
+        M.flaeche = { tiefe: dv === null ? null : +dv.toFixed(3), zeilen: t.length };
+        M.kategorie = dv === null ? 'C' : dv <= HAUT_MAX ? 'A' : 'B';
+      }
       /* A2: rennen */
       start(4, F.t);
       let an = null;
+      d.wlLogAn(true); wlZahl = 0;
       { frei(); d.taste('KeyW', true);
         for (let i = 0; i < 150; i++) { bild('A2'); if (P.state === 'climb' && !an) an = { tiefe: +tiefeVon().toFixed(3), y: +P.pos.y.toFixed(2), wand: P.wallInfo ? [P.wallInfo.col.id, P.wallInfo.nx, P.wallInfo.nz] : null }; }
         frei(); }
+      d.wlLogAn(false);
       M.schritte.A2 = { wandlauf: !!an, an, tiefe: +tiefeVon().toFixed(3), y: +P.pos.y.toFixed(2) };
       if (an && arkadeFall && (an.wand[0] !== c.id || an.wand[1] !== nx || an.wand[2] !== nz)) M.innenKlettern++;
+      /* A3: schraeg hineinrennen - 1,5 m seitlich versetzt auf die Mitte
+         des Abschnitts zu (gut 20 Grad zur Normalen), nur W */
+      if (arkadeFall) {
+        start(4, F.t);
+        const qx = ax ? 0 : 1, qz = ax ? 1 : 0;                     // laengs der Seite
+        const sx = (ax ? front + nx * 4 : F.t + 1.5), sz = (ax ? F.t + 1.5 : front + nz * 4);
+        const zx = ax ? front : F.t, zz = ax ? F.t : front;
+        d.setzePos(sx, SLAB, sz);
+        P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0); P.wallInfo = null; P.wall = null;
+        const rx = zx - sx, rz = zz - sz, rl = Math.hypot(rx, rz);
+        P.facing = Math.atan2(rx / rl, rz / rl); d.kamStart(Math.atan2(-rx / rl, -rz / rl), 0.22);
+        for (let i = 0; i < 30; i++) d.schritt(1 / 60);
+        vor = null;
+        let an3 = null;
+        d.wlLogAn(true); wlZahl = 0;
+        frei(); d.taste('KeyW', true);
+        for (let i = 0; i < 150; i++) { bild('A3'); if (P.state === 'climb' && !an3) an3 = { tiefe: +tiefeVon().toFixed(3), y: +P.pos.y.toFixed(2), laengs: +(laengs() - F.t).toFixed(2), wand: P.wallInfo ? [P.wallInfo.col.id, P.wallInfo.nx, P.wallInfo.nz] : null }; }
+        frei(); d.wlLogAn(false);
+        M.schritte.A3 = { wandlauf: !!an3, an: an3, tiefe: +tiefeVon().toFixed(3), y: +P.pos.y.toFixed(2), qx, qz };
+        if (an3 && (an3.wand[0] !== c.id || an3.wand[1] !== nx || an3.wand[2] !== nz)) M.innenKlettern++;
+      }
 
       /* B/C: an der Glasfront (bzw. an der Wand) seitlich bis zum Anschlag */
       for (const [seite, code] of [['links', 'KeyA'], ['rechts', 'KeyD']]) {
@@ -452,7 +524,8 @@ async function fahre(alt) {
       frei(); d.taste('KeyZ', true); d.taste('KeyW', true);
       taste('Space', true); taste('Space', false);
       let fan = null, kante = null, maxHinter = 0;
-      for (let i = 0; i < 700; i++) {
+      /* bis 1100 Bilder: die hoechsten MO1 (38 m) brauchen gut 14 s bis zur Kante */
+      for (let i = 0; i < 1100; i++) {
         bild('F');
         if (P.state === 'climb' && !fan) {
           fan = { tiefe: +tiefeVon().toFixed(3), y: +P.pos.y.toFixed(2), wand: P.wallInfo ? [P.wallInfo.col.id, P.wallInfo.nx, P.wallInfo.nz] : null };
@@ -534,6 +607,8 @@ async function fahre(alt) {
                          zustand: P.state, maxSprung: +sMax.toFixed(3) };
         if (sMax > SPRUNG_MAX) M.ortsSprung++;
       }
+      /* D: auf dem Weg zum Glas stoppte ein anderes Hindernis als das Haus */
+      if (arkadeFall && M.fremdKontakt) M.kategorie = 'D';
       if (!arkadeFall) M.bahnHash = M.bahn.map((q) => q.slice(0, 4).join(',')).join(';');
       M.bilder = M.bahn.length;
       if (!a.SPUR) delete M.bahn;
@@ -561,7 +636,7 @@ async function fahre(alt) {
                   imHaus: 'playerInsideBuildingFromArcade', innenKlettern: 'interiorClimbFromArcade', topOutInnen: 'topOutFromArcadeInterior',
                   kopfInDecke: 'Kopf in der Arkadendecke', ortsSprung: 'Ortssprung > 0,35 m' };
   for (const [modus, r] of Object.entries(laeufe)) {
-    console.log('\n=== ' + (modus === 'alt' ? 'VORHER (ohne Erdgeschoss-Profil)' : 'NACHHER (mit Erdgeschoss-Profil)') +
+    console.log('\n=== ' + (modus === 'alt' ? 'VORHER (' + (ALT_OPT === 'bodenOwnerAlt' ? 'Profil, Ankleben ueber die grobe Kiste' : 'ohne Erdgeschoss-Profil') + ')' : 'NACHHER (aktueller Stand)') +
                 '  Kollider ' + r.kollider + ', Haeuser mit Profil ' + r.profile + ', Profil-Rechtecke ' + r.profilTeile);
     for (const M of r.aus) {
       if (M.fehlt) { console.log('  ' + M.name); continue; }
@@ -579,11 +654,33 @@ async function fahre(alt) {
                   '   F ' + (s.F.an ? 'Klettern ab Tiefe ' + s.F.an.tiefe.toFixed(3) + ' an ' + JSON.stringify(s.F.an.wand) : 'kein Klettern') +
                   (s.F.kante ? ', Ueberziehen bei ' + s.F.kante.hoch + ' m' : '') + ', hinter Fassade max ' + s.F.maxHinter.toFixed(2) +
                   '   max. Ortssprung ' + M.maxSprung.toFixed(3));
+      if (M.kategorie) {
+        const ja = (v) => v ? 'ja' : 'nein';
+        const g = M.grobBlock, ab = M.abgelehnt;
+        console.log('     Ankleben: Kategorie ' + M.kategorie + (M.flaeche && M.flaeche.tiefe !== null ? ' (Flaeche ' + M.flaeche.tiefe.toFixed(2) + ' m)' : '') +
+                    '   F aus dem Stand ' + ja(s.F.an) + '   A2 Wandlauf ' + ja(s.A2.wandlauf) + '   A3 schraeg ' + ja(s.A3 && s.A3.wandlauf) +
+                    (s.A3 && s.A3.an ? ' (bei Tiefe ' + s.A3.an.tiefe.toFixed(3) + ')' : '') +
+                    '   nur grobe Kiste: A2 ' + g.A2 + ' A3 ' + g.A3 + ' F ' + g.F +
+                    (M.fremdKontakt ? '   anderes Hindernis ' + M.fremdKontakt.id + ' in ' + M.fremdKontakt.phase : ''));
+        const abl = ['A2', 'A3', 'F'].filter((q) => ab[q] && !(q === 'F' ? s.F.an : s[q] && s[q].wandlauf));
+        if (abl.length) console.log('       abgelehnt: ' + abl.map((q) => q + ' ' + JSON.stringify(ab[q])).join('  '));
+      }
       const k = KZ.filter((q) => M[q] > 0).map((q) => NAMEN[q] + ' ' + M[q]);
       if (k.length) console.log('     !! ' + k.join(', '));
     }
     const ark = r.aus.filter((M) => M.gruppe === 'arkade' && !M.fehlt);
     console.log('  Summe Arkade (' + ark.length + ' Faelle): ' + KZ.map((q) => NAMEN[q] + ' = ' + ark.reduce((s, M) => s + M[q], 0)).join(', '));
+    const kat = {};
+    for (const M of ark) kat[M.kategorie] = (kat[M.kategorie] || 0) + 1;
+    const katA = ark.filter((M) => M.kategorie === 'A');
+    const nGrob = ark.filter((M) => M.grobBlock.A2 + M.grobBlock.A3 + M.grobBlock.F > 0).length;
+    console.log('  Ankleben aus der Arkade: Kategorien ' + JSON.stringify(kat) +
+                '   in A: aus dem Stand ' + katA.filter((M) => M.schritte.F.an).length + '/' + katA.length +
+                ', Wandlauf frontal ' + katA.filter((M) => M.schritte.A2.wandlauf).length + '/' + katA.length +
+                ', schraeg ' + katA.filter((M) => M.schritte.A3 && M.schritte.A3.wandlauf).length + '/' + katA.length +
+                ', ueberzogen ' + katA.filter((M) => M.schritte.F.kante).length + '/' + katA.length +
+                '   blockedOnlyByCoarseOwnerBox = ' + nGrob + ' Faelle (' +
+                ark.reduce((s2, M) => s2 + M.grobBlock.A2 + M.grobBlock.A3 + M.grobBlock.F, 0) + ' Bilder)');
   }
   if (laeufe.alt && laeufe.neu) {
     console.log('\n=== Arkade vorher -> nachher');
@@ -591,10 +688,12 @@ async function fahre(alt) {
       const A = laeufe.alt.aus.find((q) => q.name === M.name);
       if (!A) continue;
       const wl = (q) => q.schritte.A2.wandlauf ? 'ja' : 'nein', kl = (q) => q.schritte.F.an ? 'ja' : 'nein';
+      const w3 = (q) => q.schritte.A3 ? (q.schritte.A3.wandlauf ? 'ja' : 'nein') : '-';
       const pf = (q) => !q.schritte.P || q.schritte.P.t === null ? '-' : q.schritte.P.wandlauf ? 'ja' : 'nein';
       console.log('  ' + M.name.padEnd(16) + ' Glas ' + M.arkadeTiefe.toFixed(2) + ' m   gehen: Tiefe ' + A.schritte.A.tiefe.toFixed(3) + ' -> ' + M.schritte.A.tiefe.toFixed(3) +
                   ' (frei davor ' + A.schritte.A.luft.toFixed(2) + ' -> ' + M.schritte.A.luft.toFixed(2) + ')   Wandlauf ' + wl(A) + ' -> ' + wl(M) +
-                  '   Klettern aus F ' + kl(A) + ' -> ' + kl(M) + '   Pfeiler ' + pf(A) + ' -> ' + pf(M));
+                  '   schraeg ' + w3(A) + ' -> ' + w3(M) +
+                  '   Klettern aus F ' + kl(A) + ' -> ' + kl(M) + '   Pfeiler ' + pf(A) + ' -> ' + pf(M) + '   Kat ' + (M.kategorie || '-'));
     }
     console.log('\n=== Kontrollen alt/neu Bild fuer Bild');
     let gleich = 0, n = 0;

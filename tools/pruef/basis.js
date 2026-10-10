@@ -123,6 +123,9 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: ModernOffice_1 ohne Erdgeschoss-Profil (die ganze
        Hauskiste auch unter der Arkade, Stand vor der Arkaden-Aufgabe). */
     if (ein.bodenProfilAlt) window.__WEBHERO_BODEN_PROFIL_ALT = 1;
+    /* Nur zum Messen: Ankleben/Climb-Owner fragen wieder die grobe
+       Hauskiste statt der massiven Erdgeschoss-Geometrie (Stand ba014f6). */
+    if (ein.bodenOwnerAlt) window.__WEBHERO_BODEN_OWNER_ALT = 1;
     /* Nur zum Messen: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE). */
     if (ein.kamPoseAlt) window.__WEBHERO_KAM_POSE_ALT = 1;
     /* Nur zum Messen: Kletterhaut aus (Stand vor
@@ -179,6 +182,7 @@ async function starte(breite, hoehe, seed, opt) {
        kroneTeileAlt: !!(opt && opt.kroneTeileAlt),
        kanteLandungAlt: !!(opt && opt.kanteLandungAlt),
        bodenProfilAlt: !!(opt && opt.bodenProfilAlt),
+       bodenOwnerAlt: !!(opt && opt.bodenOwnerAlt),
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
        proxyAlt: !!(opt && opt.proxyAlt),
        topAlt: !!(opt && opt.topAlt),
