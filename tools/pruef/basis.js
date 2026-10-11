@@ -126,6 +126,9 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: Ankleben/Climb-Owner fragen wieder die grobe
        Hauskiste statt der massiven Erdgeschoss-Geometrie (Stand ba014f6). */
     if (ein.bodenOwnerAlt) window.__WEBHERO_BODEN_OWNER_ALT = 1;
+    /* Nur zum Messen: Downtown_Brutal_1 ohne Grundriss-Raster (die ganze
+       Hauskiste auch in der offenen Erdgeschosshalle, Stand 97849d6). */
+    if (ein.bodenRasterAlt) window.__WEBHERO_BODEN_RASTER_ALT = 1;
     /* Nur zum Messen: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE). */
     if (ein.kamPoseAlt) window.__WEBHERO_KAM_POSE_ALT = 1;
     /* Nur zum Messen: Kletterhaut aus (Stand vor
@@ -183,6 +186,7 @@ async function starte(breite, hoehe, seed, opt) {
        kanteLandungAlt: !!(opt && opt.kanteLandungAlt),
        bodenProfilAlt: !!(opt && opt.bodenProfilAlt),
        bodenOwnerAlt: !!(opt && opt.bodenOwnerAlt),
+       bodenRasterAlt: !!(opt && opt.bodenRasterAlt),
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
        proxyAlt: !!(opt && opt.proxyAlt),
        topAlt: !!(opt && opt.topAlt),

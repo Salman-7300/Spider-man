@@ -7489,19 +7489,430 @@ function baueBodenProfil(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
   return { ruecksprung, decke, teile };
 }
 /* Das Profil an das Hindernis EINES Hauses (c: Hauskiste, e: HAUS_KISTEN-
-   Eintrag). Ohne Stehhoehe unter der Decke bleibt es bei der Kiste. */
+   Eintrag). Ohne Stehhoehe unter der Decke bleibt es bei der Kiste.
+   Ein Grundriss-Raster (baueBodenRaster) bringt je Quader seine Hoehe mit
+   (h0, h1 in Haushoehen; h0 = 0: vom Boden an, h1 = decke: bis unter die
+   Hallendecke) und je Seite Tiefe und "vorderste Flaeche zur Hausseite"
+   (vorn). Der Wandkontakt (fass) folgt daraus erst hier, weil die
+   Reichweite der Kletterhaut (HAUT_MAX) in Metern gilt: nur eine offene,
+   vorderste Seite in dieser Reichweite ist Fassade. Das Arkadenprofil
+   (baueBodenProfil) hat diese Felder nicht - dort bleibt alles wie
+   bisher: jedes Rechteck vom Boden bis zur Decke, fass wie gemessen. */
 function bodenProfilSetzen(c, e, bp) {
   const yDecke = SLAB_H + bp.decke * e.h;
   if (yDecke - SLAB_H < 1.75 + 0.15) return;
   const x = (u) => c.x0 + u * (c.x1 - c.x0), z = (w) => c.z0 + w * (c.z1 - c.z0);
   const y0 = c.y0 === undefined ? -1 : c.y0;
+  const breit = [c.x1 - c.x0, c.x1 - c.x0, c.z1 - c.z0, c.z1 - c.z0];
   c.boden = {
     yDecke,
     oben: { x0: c.x0, x1: c.x1, z0: c.z0, z1: c.z1, y0: yDecke, h: c.h },
-    teile: bp.teile.map((t) => ({ x0: x(t.u0), x1: x(t.u1), z0: z(t.w0), z1: z(t.w1), y0, h: yDecke,
-                                   offen: t.offen, fass: t.fass })),
+    teile: bp.teile.map((t) => ({ x0: x(t.u0), x1: x(t.u1), z0: z(t.w0), z1: z(t.w1),
+                                   y0: t.h0 > 0 ? SLAB_H + t.h0 * e.h : y0,
+                                   h: t.h1 < bp.decke ? SLAB_H + t.h1 * e.h : yDecke,
+                                   offen: t.offen,
+                                   fass: t.fass || t.vorn.map((v, k) => v && t.offen[k] && t.tiefe[k] * breit[k] <= HAUT_MAX) })),
     ruecksprung: bp.ruecksprung,
   };
+  if (bp.raster) c.boden.raster = bp.raster;
+}
+
+/* ---- Erdgeschosshalle: Grundriss-Raster (Ground Occupancy Grid) ----
+   problem-2, Brutal_1. Downtown_Brutal_1 (59 Haeuser) steht auf einer
+   offenen Saeulenhalle: Decke 9,17 m (Haus 2780), zwoelf freistehende
+   Saeulen, ein Kern mit einer 0,34 m tiefen Nische (deren Rueckwand eine
+   flache Tuertextur ist, kein Durchgang). Die Hauskiste hielt die Figur
+   an der Kistenebene an, vor bis ueber 29 m sichtbar freiem Raum
+   (tools/pruef/brutal-stopp.js: 28 von 30 Anlaeufen). Das Arkadenprofil
+   oben beschreibt "Kiste minus Ruecksprung von den Seiten" und kann
+   freistehende Saeulen nicht abbilden - hinter jeder stuende eine
+   unsichtbare Wand quer durch die Halle.
+
+   Hier wird je Modelltyp beim Laden EINMAL der Grundriss gerastert, im
+   normierten Modellraum (gilt damit fuer jedes Haus dieses Modells):
+     - Hallendecke: die tiefste nach unten gewandte Flaeche, die ein
+       Viertel der in Koerperhoehe freien Zellen ueberdeckt (bei Brutal_1
+       die Unterzuege der Kassettendecke, nicht die Kassetten).
+     - Waagrechte Schnitte alle BODEN_RASTER_DH Haushoehen vom Boden bis
+       zur Decke. Belegt ist eine Zelle, deren Mitte in einem
+       geschlossenen Umriss liegt (gerade/ungerade Kreuzungen je Zeile)
+       oder die eine Schnittlinie beruehrt. Boden, Decke und Vordaecher
+       sind waagrecht, sie schneiden keine Ebene und werden nie Wand;
+       senkrechte Flaechen (Saeulen, Kernwaende, Tuerflaeche) schon.
+     - Zusammenhaengende belegte Flaechen (jede Saeule, der Kern) werden
+       getrennt behandelt. Je Teil Hoehenbaender, in denen ein Quader
+       hoechstens BODEN_RASTER_TOL Zellen ueber jeden Schnitt hinausragt:
+       Fuss und Schaft einer Saeule, Kern, ausladendes Kapitell, Schaft.
+       Darin die umschliessende Kiste, wenn sie diese Grenze einhaelt,
+       sonst Rechtecke aus genau den belegten Zellen (Nische und Laibung
+       bleiben). Nie ueber freie Zellen hinweg zu einem anderen Teil.
+   Messung Haus 2780 (W 10,21, D 9,27 m, tools/pruef/brutal-raster.js):
+   duennste Saeule 0,325 m (Schaft), Fuss 0,45 x 0,40 m bis 0,5 m,
+   engste Passage 1,20 m zwischen zwei Saeulen, schmalste Wand die
+   Laibung der Nische mit 0,13 m. Bei 512 Zellen ist eine Zelle 0,02 m,
+   im groessten Haus (16,9 m) 0,033 m; die engste Passage bleibt auch im
+   kleinsten Haus (D 7,3 m: 0,95 m) breiter als der Koerper (0,9 m).
+   Ausgabe im Format des Arkadenprofils (teile, decke), dazu je Quader
+   h0/h1 und je Seite tiefe/vorn (siehe bodenProfilSetzen). */
+const BODEN_RASTER_MODELLE = /^Downtown_Brutal_1$/;
+const BODEN_RASTER_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_BODEN_RASTER_ALT;
+const BODEN_RASTER_N = 512;             // Zellen je Achse
+const BODEN_RASTER_DH = 0.0025;         // Abstand der Schnitte, Haushoehen (Haus 2780: 0,073 m)
+const BODEN_RASTER_TOL = 3;             // Zellen, die ein Quader ueber einen Schnitt hinausragen darf
+const BODEN_RASTER_HMAX = 0.5;          // Decke hoechstens auf halber Haushoehe
+const BODEN_RASTER_DECKE_MIN = 0.06;    // ... und mindestens so hoch (Haus 2780: 1,75 m)
+const BODEN_RASTER_DECKE_ANTEIL = 0.25; // Anteil der freien Zellen unter der Hallendecke
+const BODEN_RASTER_FREI_MIN = 0.3;      // so viel Grundriss muss in Koerperhoehe frei sein
+const BODEN_RASTER_FASS_TIEF = 0.2;     // tiefer liegt in keinem Haus Fassade (HAUT_MAX)
+const BODEN_RASTER_KANTEN = [0, 3, 3, 6, 6, 0];
+/* Ein waagrechter Schnitt bei hh durch die normierten Dreiecke (tri: je
+   10 Werte, u w hh dreimal, dann ny). Setzt belegte Zellen in bytes
+   (Uint8Array N*N) und/oder bits (Uint32Array, ein Bit je Zelle), loescht
+   nichts. Liefert die Zahl der Zeilen mit ungerader Kreuzungszahl
+   (offener Umriss - im Pruefstand berichtet). */
+function bodenRasterSchnitt(tri, hh, N, zeilen, bytes, bits) {
+  for (let j = 0; j < N; j++) zeilen[j].length = 0;
+  const seg = [];
+  for (let i = 0; i < tri.length; i += 10) {
+    const a = tri[i + 2] < hh, b = tri[i + 5] < hh, c = tri[i + 8] < hh;
+    if (a === b && b === c) continue;
+    let ua = 0, wa = 0, ub = 0, wb = 0, k = 0;
+    for (let e = 0; e < 6; e += 2) {
+      const p = i + BODEN_RASTER_KANTEN[e], q = i + BODEN_RASTER_KANTEN[e + 1];
+      const hp = tri[p + 2], hq = tri[q + 2];
+      if ((hp < hh) === (hq < hh)) continue;
+      const f = (hh - hp) / (hq - hp), u = tri[p] + f * (tri[q] - tri[p]), w = tri[p + 1] + f * (tri[q + 1] - tri[p + 1]);
+      if (k++ === 0) { ua = u; wa = w; } else { ub = u; wb = w; }
+    }
+    if (k === 2) seg.push(ua, wa, ub, wb);
+  }
+  /* Kreuzungen je Zeilenmitte, halboffen [wa, wb): ein gemeinsamer
+     Eckpunkt zweier Linien zaehlt einmal */
+  for (let s = 0; s < seg.length; s += 4) {
+    const u0 = seg[s], w0 = seg[s + 1], u1 = seg[s + 2], w1 = seg[s + 3];
+    if (w0 === w1) continue;
+    let ja = Math.ceil(Math.min(w0, w1) * N - 0.5), jb = Math.ceil(Math.max(w0, w1) * N - 0.5) - 1;
+    if (ja < 0) ja = 0;
+    if (jb > N - 1) jb = N - 1;
+    for (let j = ja; j <= jb; j++) zeilen[j].push(u0 + ((j + 0.5) / N - w0) / (w1 - w0) * (u1 - u0));
+  }
+  let ungerade = 0;
+  for (let j = 0; j < N; j++) {
+    const z = zeilen[j];
+    if (!z.length) continue;
+    z.sort((p, q) => p - q);
+    if (z.length & 1) ungerade++;
+    for (let k = 0; k + 1 < z.length; k += 2) {
+      let ia = Math.ceil(z[k] * N - 0.5), ib = Math.ceil(z[k + 1] * N - 0.5) - 1;
+      if (ia < 0) ia = 0;
+      if (ib > N - 1) ib = N - 1;
+      for (let q = j * N + ia; q <= j * N + ib; q++) { if (bytes) bytes[q] = 1; if (bits) bits[q >> 5] |= 1 << (q & 31); }
+    }
+  }
+  /* die Schnittlinien selbst: jede Zelle, durch die eine Linie laeuft
+     (exakte Zellendurchquerung). Eine Flaeche ergibt damit in jeder Hoehe
+     dieselben Zellen, gleich wie ihre Dreiecke die Linie zerteilen - mit
+     einer Abtastung in festen Schritten wanderten die Randzellen von
+     Schnitt zu Schnitt, und jeder Schnitt war eine neue Maske. */
+  const setze = (i, j) => {
+    if (i < 0) i = 0; else if (i > N - 1) i = N - 1;
+    if (j < 0) j = 0; else if (j > N - 1) j = N - 1;
+    const z = j * N + i;
+    if (bytes) bytes[z] = 1;
+    if (bits) bits[z >> 5] |= 1 << (z & 31);
+  };
+  for (let s = 0; s < seg.length; s += 4) {
+    const x0 = seg[s] * N, y0 = seg[s + 1] * N, x1 = seg[s + 2] * N, y1 = seg[s + 3] * N;
+    let i = Math.floor(x0), j = Math.floor(y0);
+    const dx = x1 - x0, dy = y1 - y0, si = dx > 0 ? 1 : dx < 0 ? -1 : 0, sj = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+    let tx = si ? ((si > 0 ? i + 1 : i) - x0) / dx : Infinity, ty = sj ? ((sj > 0 ? j + 1 : j) - y0) / dy : Infinity;
+    const ddx = si ? Math.abs(1 / dx) : Infinity, ddy = sj ? Math.abs(1 / dy) : Infinity;
+    let n = Math.abs(Math.floor(x1) - i) + Math.abs(Math.floor(y1) - j);
+    setze(i, j);
+    while (n > 0) {
+      if (tx < ty) { i += si; tx += ddx; n--; }
+      else if (ty < tx) { j += sj; ty += ddy; n--; }
+      else { setze(i + si, j); setze(i, j + sj); i += si; j += sj; tx += ddx; ty += ddy; n -= 2; }
+      setze(i, j);
+    }
+  }
+  return ungerade;
+}
+/* m um T Zellen erweitert (Quadrat, also achsweise wie die Kollision) */
+function bodenRasterWeiten(m, RW, RH, T) {
+  const h = new Uint8Array(RW * RH), g = new Uint8Array(RW * RH);
+  for (let j = 0; j < RH; j++) {
+    const r = j * RW;
+    let n = 0;
+    for (let i = 0; i < Math.min(T, RW); i++) n += m[r + i];
+    for (let i = 0; i < RW; i++) {
+      if (i + T < RW) n += m[r + i + T];
+      if (i - T - 1 >= 0) n -= m[r + i - T - 1];
+      h[r + i] = n > 0 ? 1 : 0;
+    }
+  }
+  for (let i = 0; i < RW; i++) {
+    let n = 0;
+    for (let j = 0; j < Math.min(T, RH); j++) n += h[j * RW + i];
+    for (let j = 0; j < RH; j++) {
+      if (j + T < RH) n += h[(j + T) * RW + i];
+      if (j - T - 1 >= 0) n -= h[(j - T - 1) * RW + i];
+      g[j * RW + i] = n > 0 ? 1 : 0;
+    }
+  }
+  return g;
+}
+function bodenRasterPasst(rechtecke, g, RW) {
+  for (const [i0, i1, j0, j1] of rechtecke)
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (!g[j * RW + i]) return false;
+  return true;
+}
+/* Rechtecke aus genau den belegten Zellen von U (zeilenweise, je so breit
+   und dann so hoch wie moeglich) */
+function bodenRasterRechtecke(U, RW, RH) {
+  const fertig = new Uint8Array(RW * RH), aus = [];
+  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+    const q = j * RW + i;
+    if (!U[q] || fertig[q]) continue;
+    let i1 = i;
+    while (i1 + 1 < RW && U[j * RW + i1 + 1] && !fertig[j * RW + i1 + 1]) i1++;
+    let j1 = j;
+    weiter: while (j1 + 1 < RH) {
+      for (let ii = i; ii <= i1; ii++) { const r = (j1 + 1) * RW + ii; if (!U[r] || fertig[r]) break weiter; }
+      j1++;
+    }
+    for (let jj = j; jj <= j1; jj++) for (let ii = i; ii <= i1; ii++) fertig[jj * RW + ii] = 1;
+    aus.push([i, i1, j, j1]);
+  }
+  return aus;
+}
+/* Darstellung der vereinigten Zellen U eines Hoehenbands [b, e]: die
+   umschliessende Kiste, wenn sie in jedem Schnitt hoechstens TOL ueber
+   die belegten Zellen hinausragt (G: Schnitte um TOL erweitert), sonst
+   genau die Zellen - wenn wenigstens die die Grenze einhalten. */
+function bodenRasterDarstellung(U, G, b, e, RW, RH) {
+  let i0 = RW, i1 = -1, j0 = RH, j1 = -1;
+  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+    if (!U[j * RW + i]) continue;
+    if (i < i0) i0 = i; if (i > i1) i1 = i; if (j < j0) j0 = j; if (j > j1) j1 = j;
+  }
+  const kiste = [[i0, i1, j0, j1]];
+  let ok = true;
+  for (let t = b; t <= e && ok; t++) ok = bodenRasterPasst(kiste, G[t], RW);
+  if (ok) return kiste;
+  for (let t = b; t <= e; t++) {
+    const g = G[t];
+    for (let q = 0; q < U.length; q++) if (U[q] && !g[q]) return null;
+  }
+  return bodenRasterRechtecke(U, RW, RH);
+}
+function baueBodenRaster(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
+  const W = X1 - X0, D = Z1 - Z0, HB = H * anteil, N = BODEN_RASTER_N, DH = BODEN_RASTER_DH, T = BODEN_RASTER_TOL;
+  if (!(W > 0) || !(D > 0) || !(HB > 0)) return null;
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  /* Dreiecke normiert bis BODEN_RASTER_HMAX; ny aus der Normalen im Modellraum */
+  const tri = [], waagrecht = [];
+  const m = new THREE.Matrix4(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  o.traverse((k) => {
+    if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+    m.multiplyMatrices(di, k.matrixWorld);
+    const p = k.geometry.attributes.position, idx = k.geometry.index, n = idx ? idx.count : p.count;
+    for (let i = 0; i + 2 < n; i += 3) {
+      a.fromBufferAttribute(p, idx ? idx.getX(i) : i).applyMatrix4(m);
+      b.fromBufferAttribute(p, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(m);
+      c.fromBufferAttribute(p, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(m);
+      const ha = (a.y - Y0) / HB, hb = (b.y - Y0) / HB, hc = (c.y - Y0) / HB;
+      if (Math.min(ha, hb, hc) >= BODEN_RASTER_HMAX) continue;
+      const e1x = b.x - a.x, e1y = b.y - a.y, e1z = b.z - a.z, e2x = c.x - a.x, e2y = c.y - a.y, e2z = c.z - a.z;
+      const nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+      const nl = Math.hypot(nx, ny, nz);
+      if (nl < 1e-12) continue;
+      const ua = (a.x - X0) / W, wa = (a.z - Z0) / D, ub = (b.x - X0) / W, wb = (b.z - Z0) / D, uc = (c.x - X0) / W, wc = (c.z - Z0) / D;
+      tri.push(ua, wa, ha, ub, wb, hb, uc, wc, hc, ny / nl);
+      if (Math.abs(ny / nl) > 0.99)
+        waagrecht.push({ hh: (ha + hb + hc) / 3, u0: Math.min(ua, ub, uc), u1: Math.max(ua, ub, uc), w0: Math.min(wa, wb, wc), w1: Math.max(wa, wb, wc) });
+    }
+  });
+  /* ---- Hallendecke ----
+     Je Zelle eines groben Rasters die tiefste nach unten gewandte Flaeche
+     ueber BODEN_RASTER_DECKE_MIN, gezaehlt ueber die Zellen, die in halber
+     Mindesthoehe frei sind. Die Decke ist die Hoehe, unter der ein Viertel
+     dieser Zellen ueberdeckt ist: bei Brutal_1 liegen die Unterzuege auf
+     9,17 m (37,6 m2), die Kassetten auf 10,48 m (36,2 m2), die Nische hat
+     ihren Sturz auf 3,40 m (0,9 m2) - gemessen, tools/pruef/brutal-raster.js. */
+  const NC = 128, grob = new Uint8Array(NC * NC), zeilen = [];
+  for (let j = 0; j < N; j++) zeilen.push([]);
+  bodenRasterSchnitt(tri, BODEN_RASTER_DECKE_MIN / 2, NC, zeilen, grob, null);
+  const unten = new Float32Array(NC * NC).fill(9);
+  for (let i = 0; i < tri.length; i += 10) {
+    if (tri[i + 9] > -0.5) continue;
+    const ha = tri[i + 2], hb = tri[i + 5], hc = tri[i + 8];
+    if (Math.min(ha, hb, hc) <= BODEN_RASTER_DECKE_MIN) continue;
+    const ua = tri[i], wa = tri[i + 1], ub = tri[i + 3], wb = tri[i + 4], uc = tri[i + 6], wc = tri[i + 7];
+    const det = (ub - ua) * (wc - wa) - (uc - ua) * (wb - wa);
+    if (Math.abs(det) < 1e-12) continue;
+    const i0 = Math.max(0, Math.floor(Math.min(ua, ub, uc) * NC)), i1 = Math.min(NC - 1, Math.floor(Math.max(ua, ub, uc) * NC));
+    const j0 = Math.max(0, Math.floor(Math.min(wa, wb, wc) * NC)), j1 = Math.min(NC - 1, Math.floor(Math.max(wa, wb, wc) * NC));
+    for (let j = j0; j <= j1; j++) for (let ii = i0; ii <= i1; ii++) {
+      const cu = (ii + 0.5) / NC, cw = (j + 0.5) / NC;
+      const l1 = ((cu - ua) * (wc - wa) - (uc - ua) * (cw - wa)) / det;
+      const l2 = ((ub - ua) * (cw - wa) - (cu - ua) * (wb - wa)) / det;
+      if (l1 < -1e-9 || l2 < -1e-9 || l1 + l2 > 1 + 1e-9) continue;
+      const h = ha + l1 * (hb - ha) + l2 * (hc - ha);
+      if (h < unten[j * NC + ii]) unten[j * NC + ii] = h;
+    }
+  }
+  const decken = [];
+  let freiZ = 0;
+  for (let q = 0; q < NC * NC; q++) if (!grob[q]) { freiZ++; if (unten[q] < 9) decken.push(unten[q]); }
+  if (freiZ < BODEN_RASTER_FREI_MIN * NC * NC) return null;
+  const nDecke = Math.ceil(BODEN_RASTER_DECKE_ANTEIL * freiZ);
+  if (decken.length < nDecke) return null;
+  decken.sort((p, q) => p - q);
+  const decke = decken[nDecke - 1];
+  /* ---- Schnitte vom Boden bis unter die Decke ---- */
+  const S = Math.ceil(decke / DH - 0.5);
+  if (S < 2) return null;
+  const NN = N * N, bits = [], vereint = new Uint8Array(NN);
+  let ungerade = 0;
+  for (let s = 0; s < S; s++) {
+    const bb = new Uint32Array(NN >> 5);
+    ungerade += bodenRasterSchnitt(tri, (s + 0.5) * DH, N, zeilen, vereint, bb);
+    bits.push(bb);
+  }
+  const bit = (s, q) => (bits[s][q >> 5] >>> (q & 31)) & 1;
+  /* ---- zusammenhaengende Teile (4er-Nachbarschaft) ---- */
+  const marke = new Int32Array(NN).fill(-1), stapel = new Int32Array(NN), komp = [];
+  let belegt = 0;
+  for (let q0 = 0; q0 < NN; q0++) {
+    if (!vereint[q0]) continue;
+    belegt++;
+    if (marke[q0] >= 0) continue;
+    const id = komp.length;
+    let sp = 0, i0 = N, i1 = -1, j0 = N, j1 = -1;
+    stapel[sp++] = q0; marke[q0] = id;
+    while (sp) {
+      const q = stapel[--sp], i = q % N, j = (q - i) / N;
+      if (i < i0) i0 = i; if (i > i1) i1 = i; if (j < j0) j0 = j; if (j > j1) j1 = j;
+      if (i > 0 && vereint[q - 1] && marke[q - 1] < 0) { marke[q - 1] = id; stapel[sp++] = q - 1; }
+      if (i < N - 1 && vereint[q + 1] && marke[q + 1] < 0) { marke[q + 1] = id; stapel[sp++] = q + 1; }
+      if (j > 0 && vereint[q - N] && marke[q - N] < 0) { marke[q - N] = id; stapel[sp++] = q - N; }
+      if (j < N - 1 && vereint[q + N] && marke[q + N] < 0) { marke[q + N] = id; stapel[sp++] = q + N; }
+    }
+    komp.push({ id, i0, i1, j0, j1 });
+  }
+  /* Grenze zwischen zwei Hoehenbaendern bei Schnitt s: eine waagrechte
+     Flaeche dazwischen (Kapitell, Nischensturz) gibt die genaue Hoehe */
+  const grenze = (s, K) => {
+    let best = s * DH, bd = DH;
+    const u0 = K.i0 / N, u1 = (K.i1 + 1) / N, w0 = K.j0 / N, w1 = (K.j1 + 1) / N;
+    for (const f of waagrecht) {
+      const d = Math.abs(f.hh - s * DH);
+      if (d < bd && f.hh > (s - 0.5) * DH && f.hh < (s + 0.5) * DH && f.u1 > u0 && f.u0 < u1 && f.w1 > w0 && f.w0 < w1) { bd = d; best = f.hh; }
+    }
+    return best;
+  };
+  const kisten = [];
+  for (const K of komp) {
+    const ri0 = Math.max(0, K.i0 - T - 1), ri1 = Math.min(N - 1, K.i1 + T + 1);
+    const rj0 = Math.max(0, K.j0 - T - 1), rj1 = Math.min(N - 1, K.j1 + T + 1);
+    const RW = ri1 - ri0 + 1, RH = rj1 - rj0 + 1, RN = RW * RH;
+    /* je Schnitt die Zellen dieses Teils (M) und ihr Umkreis TOL (G);
+       ein Schnitt wie der vorige ist DIESELBE Maske (Saeulenschaft, Kern
+       bis zum Kapitell) - die Baender unten springen dann darueber */
+    const M = [], G = [], neu = new Uint8Array(RN);
+    const wa = K.i0 >> 5, wb = K.i1 >> 5, NW = N >> 5;
+    for (let s = 0; s < S; s++) {
+      const bb = bits[s];
+      if (s > 0) {
+        /* im Bereich dieses Teils Bit fuer Bit wie der vorige Schnitt? */
+        const bv = bits[s - 1];
+        let gleich = true;
+        for (let j = K.j0; gleich && j <= K.j1; j++) for (let w = j * NW + wa; w <= j * NW + wb; w++) if (bb[w] !== bv[w]) { gleich = false; break; }
+        if (gleich) { M.push(M[s - 1]); G.push(G[s - 1]); continue; }
+      }
+      let leer = true;
+      neu.fill(0);
+      for (let j = K.j0; j <= K.j1; j++) for (let i = K.i0; i <= K.i1; i++) {
+        const q = j * N + i;
+        if (marke[q] !== K.id || !((bb[q >> 5] >>> (q & 31)) & 1)) continue;
+        neu[(j - rj0) * RW + (i - ri0)] = 1; leer = false;
+      }
+      const vor = s > 0 ? M[s - 1] : null;
+      let gleich = !leer && !!vor;
+      for (let q = 0; gleich && q < RN; q++) if (neu[q] !== vor[q]) gleich = false;
+      if (leer) { M.push(null); G.push(null); }
+      else if (gleich) { M.push(vor); G.push(G[s - 1]); }
+      else { const mm = neu.slice(); M.push(mm); G.push(bodenRasterWeiten(mm, RW, RH, T)); }
+    }
+    /* Hoehenbaender von unten nach oben */
+    const baender = [];
+    for (let s = 0; s < S;) {
+      if (!M[s]) { s++; continue; }
+      const bnd = s;
+      let U = M[s].slice(), e = s, R = bodenRasterDarstellung(U, G, bnd, e, RW, RH);
+      while (e + 1 < S && M[e + 1]) {
+        const tt = e + 1, mt = M[tt];
+        if (mt === M[e]) { e = tt; continue; }
+        let neu = false;
+        for (let q = 0; q < RN && !neu; q++) if (mt[q] && !U[q]) neu = true;
+        if (!neu) {
+          if (!bodenRasterPasst(R, G[tt], RW)) break;
+          e = tt;
+          continue;
+        }
+        const U2 = U.slice();
+        for (let q = 0; q < RN; q++) if (mt[q]) U2[q] = 1;
+        const R2 = bodenRasterDarstellung(U2, G, bnd, tt, RW, RH);
+        if (!R2) break;
+        U = U2; R = R2; e = tt;
+      }
+      baender.push({ b: bnd, e, R });
+      s = e + 1;
+    }
+    /* Quader; dasselbe Rechteck im naechsten Band waechst nach oben weiter */
+    let laufend = [];
+    for (const B of baender) {
+      const h0 = B.b === 0 ? 0 : grenze(B.b, K), h1 = B.e === S - 1 ? decke : grenze(B.e + 1, K);
+      const naechste = [];
+      for (const [i0, i1, j0, j1] of B.R) {
+        const g0 = i0 + ri0, g1 = i1 + ri0, k0 = j0 + rj0, k1 = j1 + rj0;
+        const alt = laufend.find((q) => q.se === B.b - 1 && q.i0 === g0 && q.i1 === g1 && q.j0 === k0 && q.j1 === k1);
+        if (alt) { alt.se = B.e; alt.h1 = h1; naechste.push(alt); continue; }
+        const q = { i0: g0, i1: g1, j0: k0, j1: k1, sb: B.b, se: B.e, h0, h1, komp: K.id };
+        kisten.push(q); naechste.push(q);
+      }
+      laufend = naechste;
+    }
+  }
+  /* ---- Seiten: offen, Tiefe, vorderste Flaeche zur Hausseite ---- */
+  const deckt = (q, i, j) => kisten.some((k) => k !== q && k.komp === q.komp && k.sb <= q.se && k.se >= q.sb &&
+                                              i >= k.i0 && i <= k.i1 && j >= k.j0 && j <= k.j1);
+  const frei = (q, i, j) => { const z = j * N + i; for (let s = q.sb; s <= q.se; s++) if (bit(s, z)) return false; return true; };
+  const teile = kisten.map((q) => {
+    const u0 = q.i0 / N, u1 = (q.i1 + 1) / N, w0 = q.j0 / N, w1 = (q.j1 + 1) / N;
+    const tiefe = [u0, 1 - u1, w0, 1 - w1];
+    const offen = [false, false, false, false], vorn = [false, false, false, false];
+    for (let k = 0; k < 4; k++) {
+      const quer = k < 2 ? [q.j0, q.j1] : [q.i0, q.i1];
+      const rand = k === 0 ? q.i0 - 1 : k === 1 ? q.i1 + 1 : k === 2 ? q.j0 - 1 : q.j1 + 1;
+      let klar = 0;
+      for (let l = quer[0]; l <= quer[1]; l++) {
+        const [ii, jj] = k < 2 ? [rand, l] : [l, rand];
+        if (rand < 0 || rand > N - 1 || !deckt(q, ii, jj)) offen[k] = true;
+        if (tiefe[k] > BODEN_RASTER_FASS_TIEF) continue;
+        let z = true;
+        for (let d = rand; z && d >= 0 && d <= N - 1; d += (k === 0 || k === 2) ? -1 : 1)
+          z = k < 2 ? frei(q, d, l) : frei(q, l, d);
+        if (z) klar++;
+      }
+      vorn[k] = klar * 2 >= quer[1] - quer[0] + 1;
+    }
+    return { u0, u1, w0, w1, h0: q.h0, h1: q.h1, offen, vorn, tiefe };
+  });
+  const ms = typeof performance !== 'undefined' ? performance.now() - t0 : 0;
+  return { ruecksprung: [], decke, teile,
+           raster: { n: N, scheiben: S, belegt, komponenten: komp.length, quader: teile.length, ungerade, ms: +ms.toFixed(1) } };
 }
 
 function baueFassadenGitter(o, di, X0, X1, Z0, Z1, Y0, H, anteil) {
@@ -7761,6 +8172,10 @@ function setzeHausModelle(szene) {
     /* Das Erdgeschoss-Profil nur fuer die Modelle mit Arkade (siehe BODEN_PROFIL). */
     if (!BODEN_PROFIL_ALT && BODEN_PROFIL_MODELLE.test(o.name || ''))
       BODEN_PROFIL.set(o, baueBodenProfil(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
+    /* Offene Erdgeschosshalle: das Grundriss-Raster (siehe baueBodenRaster),
+       dieselbe Schnittstelle wie das Arkadenprofil. */
+    else if (!BODEN_RASTER_ALT && BODEN_RASTER_MODELLE.test(o.name || ''))
+      BODEN_PROFIL.set(o, baueBodenRaster(o, _di, X0, X1, Z0, Z1, Y0, H, anteil));
     o.userData.krone = (anteil < 0.995 && kx1 > kx0) ? {
       x0: (kx0 - X0) / W - 0.5, x1: (kx1 - X0) / W - 0.5,
       z0: (kz0 - Z0) / D - 0.5, z1: (kz1 - Z0) / D - 0.5,
@@ -16266,13 +16681,16 @@ function imBauVolumen(b, x, y, z) {
    0,45 m vor der zurueckgesetzten Glasfront steht der Mittelpunkt bis
    0,31 m in der Kiste - die alte Frage hielt die Figur dort fuer "im
    Haus", 22 von 40 Arkaden liessen sich aus dem Stand nicht bekleben und
-   9 nicht anrennen (arcade-collision.js). */
+   9 nicht anrennen (arcade-collision.js). Ein Quader des Grundriss-
+   Rasters (Brutal_1-Halle) zaehlt nur in seiner eigenen Hoehe; die
+   Rechtecke der Arkade reichen vom Boden bis zur Decke, fuer sie aendert
+   die Hoehenfrage nichts. */
 function bauBelegt(b, x, y, z) {
   if (!imBauVolumen(b, x, y, z)) return false;
   const bp = b.boden;
   if (!bp || y >= bp.yDecke) return true;
   for (const t of bp.teile)
-    if (x > t.x0 + 0.02 && x < t.x1 - 0.02 && z > t.z0 + 0.02 && z < t.z1 - 0.02) return true;
+    if (x > t.x0 + 0.02 && x < t.x1 - 0.02 && z > t.z0 + 0.02 && z < t.z1 - 0.02 && y >= t.y0 && y < t.h) return true;
   return false;
 }
 const BODEN_OWNER_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_BODEN_OWNER_ALT;
@@ -16283,7 +16701,29 @@ function ankletternVonAussen(col) {
   if (!b || KLETTER_V2_ALT) return true;
   const drin = BODEN_OWNER_ALT ? imBauVolumen : bauBelegt;
   return !drin(b, player.pos.x, player.pos.y + 0.05, player.pos.z) &&
-         !drin(b, player.pos.x, player.pos.y + 0.9, player.pos.z);
+         !drin(b, player.pos.x, player.pos.y + 0.9, player.pos.z) &&
+         !inFremderHalle(b);
+}
+/* ---- In der offenen Halle eines ANDEREN Hauses ----
+   Steht die Figur in der Erdgeschosshalle eines Hauses mit Grundriss-
+   Raster (Brutal_1) und laeuft die Wand des Nachbarhauses an, das die
+   Halle an dieser Seite abschliesst, fuehrte die Kletterbahn in die
+   massiven Obergeschosse ueber der Halle und hinter den Saeulen durch,
+   die 0,30 m vor der gemeinsamen Wand stehen. Gemessen
+   (tools/pruef/brutal-halle.js teil=fremd): in 11 von 13 Anlaeufen
+   kletterte die Figur dort hoch, 3020 Bilder steckte der Koerper in den
+   Obergeschossen, 113 in Saeulen. Die Fremdsperre (kletterFremdBau)
+   sieht das nicht: sie sperrt das BETRETEN eines fremden Hauses, und in
+   dessen Kiste stand die Figur schon. Darum wird dort an keiner fremden
+   Wand angeklebt. Die eigenen Flaechen des Hallenhauses entscheidet
+   weiter bauBelegt, jedes Haus ohne Raster bleibt wie es war. */
+function inFremderHalle(b) {
+  const P = player.pos;
+  for (const n of collidersNear(P.x, P.z)) {
+    if (!n.boden || !n.boden.raster || n === b || bauVon(n) !== n) continue;
+    if (imBauVolumen(n, P.x, P.y + 0.9, P.z)) return true;
+  }
+  return false;
 }
 /* Der Kletterzustand kennt sein Gebaeude: die eigene Huelle darf die
    Figur umgeben (die Haut liegt bis HAUT_MAX hinter der groben Kiste),
@@ -16700,8 +17140,14 @@ function bodenKollision(body, c, prevY, r) {
      sie steckt 0,30 m im Erdgeschoss, und das Kernrechteck schob sie
      2,7 m (Haus 956) bzw. 2,8 m (Haus 1123) die Fassade entlang. */
   const vor = body.vorPos;
-  if (bodenDrin(bp.teile, p.x, p.z, r) && (!vor || bodenDrin(bp.teile, vor.x, vor.z, r))) bodenHinaus(body, c, r);
-  for (const t of bp.teile) bodenSeitlich(body, c, t, r);
+  /* Quader mit eigener Hoehe (Grundriss-Raster): ob die Figur vorher
+     drinsteckte, entscheidet auch die Hoehe VOR dem Schritt - wer von
+     oben auf ein Kapitell faellt, steckte nicht darin, er landet. Die
+     Rechtecke des Arkadenprofils reichen vom Boden bis zur Decke, dort
+     bleibt es bei der Frage wie bisher. */
+  const yVor = bp.raster && prevY !== undefined ? prevY : p.y;
+  if (bodenDrin(bp.teile, p.x, p.z, r, p.y) && (!vor || bodenDrin(bp.teile, vor.x, vor.z, r, yVor))) bodenHinaus(body, c, r);
+  for (const t of bp.teile) bodenSeitlich(body, c, t, r, prevY);
   if (p.y + 1.75 > bp.yDecke && p.x > c.x0 - r && p.x < c.x1 + r && p.z > c.z0 - r && p.z < c.z1 + r) {
     /* Kopf an der Arkadendecke - nur von unten kommend (Sprung in der
        Arkade). Wer von der Seite oder von oben an die Fassade kommt,
@@ -16715,8 +17161,13 @@ function bodenKollision(body, c, prevY, r) {
   }
   return true;
 }
-function bodenDrin(teile, x, z, r) {
-  for (const t of teile) if (x > t.x0 - r && x < t.x1 + r && z > t.z0 - r && z < t.z1 + r) return true;
+/* Steht der Koerper (Fuss y bis Kopf y + 1,75) in der Hoehe des Teils t?
+   Die Rechtecke des Arkadenprofils reichen vom Boden (Kisten-Unterkante)
+   bis zur Decke - fuer sie ist das unter der Decke immer wahr. Die Quader
+   eines Grundriss-Rasters haben eigene Hoehen (Saeulenfuss, Kapitell). */
+function bodenHoehe(t, y) { return y < t.h && y + 1.75 >= t.y0; }
+function bodenDrin(teile, x, z, r, y) {
+  for (const t of teile) if (bodenHoehe(t, y) && x > t.x0 - r && x < t.x1 + r && z > t.z0 - r && z < t.z1 + r) return true;
   return false;
 }
 /* Kuerzester achsparalleler Weg aus allen Rechtecken zusammen: je
@@ -16728,12 +17179,12 @@ function bodenHinaus(body, c, r) {
     let x = p.x, z = p.z, zuletzt = null;
     for (let n = 0; n <= teile.length; n++) {
       let t = null;
-      for (const q of teile) if (x > q.x0 - r && x < q.x1 + r && z > q.z0 - r && z < q.z1 + r) { t = q; break; }
+      for (const q of teile) if (bodenHoehe(q, p.y) && x > q.x0 - r && x < q.x1 + r && z > q.z0 - r && z < q.z1 + r) { t = q; break; }
       if (!t) break;
       if (k === 0) x = t.x0 - r; else if (k === 1) x = t.x1 + r; else if (k === 2) z = t.z0 - r; else z = t.z1 + r;
       zuletzt = t;
     }
-    if (bodenDrin(teile, x, z, r)) continue;
+    if (bodenDrin(teile, x, z, r, p.y)) continue;
     const weg = Math.abs(x - p.x) + Math.abs(z - p.z);
     if (!best || weg < best.weg) best = { weg, x, z, k, t: zuletzt };
   }
@@ -16759,9 +17210,28 @@ function bodenHinaus(body, c, r) {
    ueber OFFENE Seiten. Wandkontakt (und damit Klettern) nur an einer
    Fassadenseite der Hauskiste - die Innenseite eines Arkadenpfeilers ist
    keine. */
-function bodenSeitlich(body, c, t, r) {
+function bodenSeitlich(body, c, t, r, prevY) {
   const p = body.pos;
   if (!(p.x > t.x0 - r && p.x < t.x1 + r && p.z > t.z0 - r && p.z < t.z1 + r)) return;
+  if (!bodenHoehe(t, p.y)) return;
+  /* Ein Quader mitten in der Halle (Grundriss-Raster: Kapitell, Saeulen-
+     fuss) hat eine Oberseite unter der Hallendecke und eine Unterkante
+     ueber dem Boden: oben landen und von unten mit dem Kopf anstossen
+     wie an jedem Hindernis mit Unterkante (collideBody). Ein Rechteck vom
+     Boden bis zur Decke - jedes der Arkade - hat beides nicht. */
+  if (t.h < c.boden.yDecke && prevY !== undefined && prevY >= t.h - 0.05 && body.vel.y <= 0.01) {
+    if (KOLL_LOG.an && body === player && KOLL_LOG.liste.length < 4000)
+      KOLL_LOG.liste.push({ art: 'oben', id: c.id, boden: c.boden.teile.indexOf(t), dy: +(t.h - p.y).toFixed(4) });
+    p.y = t.h; body.vel.y = 0; body.onGround = true; body.groundTop = t.h; body.aufKlein = false;
+    return;
+  }
+  if (t.y0 > (c.y0 === undefined ? -1 : c.y0) && p.y + 0.25 < t.y0) {
+    if (KOLL_LOG.an && body === player && KOLL_LOG.liste.length < 4000)
+      KOLL_LOG.liste.push({ art: 'decke', id: c.id, boden: c.boden.teile.indexOf(t), dy: +(t.y0 - 1.75 - p.y).toFixed(4) });
+    if (body.vel.y > 0) body.vel.y = 0;
+    p.y = Math.min(p.y, t.y0 - 1.75);
+    return;
+  }
   const weiten = [p.x - (t.x0 - r), (t.x1 + r) - p.x, p.z - (t.z0 - r), (t.z1 + r) - p.z];
   const vor = body.vorPos;
   let wahl = -1;
@@ -40565,12 +41035,13 @@ if (window.__WEBHERO_TEST__ === true) {
     /* Lagekorrekturen der Figur in collideBody: einschalten, abholen
        (holt und leert). Nur lesen, keine Wirkung aufs Spiel. */
     kollLogAn(an) { KOLL_LOG.an = !!an; KOLL_LOG.liste.length = 0; },
-    /* Erdgeschoss-Profil (MO1-Arkade) eines Hauses - nur lesen. */
+    /* Erdgeschoss-Profil (MO1-Arkade) bzw. Grundriss-Raster (Brutal_1)
+       eines Hauses - nur lesen. */
     bodenProfil(id) {
       const c = colliders.find((q) => q.id === id);
       if (!c || !c.boden) return null;
       const b = c.boden;
-      return { yDecke: b.yDecke,
+      return { yDecke: b.yDecke, raster: b.raster ? Object.assign({}, b.raster) : null,
                teile: b.teile.map((t) => ({ x0: t.x0, x1: t.x1, z0: t.z0, z1: t.z1, y0: t.y0, h: t.h,
                                              offen: t.offen.slice(), fass: t.fass.slice() })),
                ruecksprung: b.ruecksprung.map((r) => ({ seite: r.seite.slice(), t0: r.t0, t1: r.t1, tiefe: r.tiefe })) };
