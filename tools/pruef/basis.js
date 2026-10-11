@@ -129,6 +129,11 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: Downtown_Brutal_1 ohne Grundriss-Raster (die ganze
        Hauskiste auch in der offenen Erdgeschosshalle, Stand 97849d6). */
     if (ein.bodenRasterAlt) window.__WEBHERO_BODEN_RASTER_ALT = 1;
+    /* Nur zum Messen: Leuchtreklame wie vor der MO1-West-Aufgabe (0,16 m
+       tiefe Kiste 0,06 m vor der Kolliderebene, mit Halter). */
+    if (ein.neonAlt) window.__WEBHERO_NEON_ALT = 1;
+    /* Nur zum Messen: Tiefenversatz der Tafel in Stufen (0 = aus). */
+    if (ein.neonVersatz !== null) window.__WEBHERO_NEON_VERSATZ = ein.neonVersatz;
     /* Nur zum Messen: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE). */
     if (ein.kamPoseAlt) window.__WEBHERO_KAM_POSE_ALT = 1;
     /* Nur zum Messen: Kletterhaut aus (Stand vor
@@ -187,6 +192,8 @@ async function starte(breite, hoehe, seed, opt) {
        bodenProfilAlt: !!(opt && opt.bodenProfilAlt),
        bodenOwnerAlt: !!(opt && opt.bodenOwnerAlt),
        bodenRasterAlt: !!(opt && opt.bodenRasterAlt),
+       neonAlt: !!(opt && opt.neonAlt),
+       neonVersatz: opt && typeof opt.neonVersatz === 'number' ? opt.neonVersatz : null,
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
        proxyAlt: !!(opt && opt.proxyAlt),
        topAlt: !!(opt && opt.topAlt),

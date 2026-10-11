@@ -5513,10 +5513,59 @@ function streu(a, b, c) {
   return t - Math.floor(t);
 }
 
+/* ---- Das Schild liegt flach AUF der sichtbaren Fassade ----
+   problem-2, MO1-Westseite "Figur wirkt halbtransparent". Das Schild war
+   eine 0,16 m tiefe Kiste, 0,06 m vor der Kolliderebene, mit Halter -
+   also 0,06 bis 0,22 m davor. Genau dort haengt die kletternde Figur:
+   gemessen (956 West) reicht ihr Koerper von der Fassade bis 0,61 m
+   davor, Median 0,20 m. Beim Klettern ueber ein Schild steckte der Rumpf
+   im Schild; das deckende, unbeleuchtete Schild ueberdeckte ihn, nur
+   Kopf, Ellbogen, Knie und Fuesse ragten durch die Schildfront - an der
+   weissen Reklame von Haus 956 (4,20-8,05 m, direkt ueber der Arkade)
+   zwischen 12 und 87 Prozent der Figur. Material, Kamera-Fade und
+   Sortierung waren unschuldig: ohne Schild 0 verdeckte Hero-Pixel.
+
+   Dazu hing das Schild an der KISTE, nicht an der Fassade: an den
+   Modellhaeusern liegt die sichtbare Fassade hinter den Schildern im
+   Median 0,07 m, in jedem vierten Fall ueber 0,28 m hinter der Kiste -
+   die Schilder schwebten bis 0,7 m vor dem Haus.
+
+   Jetzt ist das Schild eine 3 cm flache Tafel, deren Rueckseite auf der
+   vordersten sichtbaren Flaeche im Schildrechteck liegt: zuerst auf der
+   Kiste (prozedurale Fassaden sind die Kiste), nach dem Laden der Modelle
+   auf der vordersten Modellflaeche (neonAnFassade). Ein Halter ist nicht
+   mehr noetig - nichts schwebt. Lage, Groesse und Farbe bleiben. Die
+   Figur liegt damit vor dem Schild; nur ihre Kontaktpunkte (Haende,
+   Fuesse) beruehren die Tafel, wie die Fassade selbst. Ausnahme: klettert
+   sie in einer Nische (Arkade, Fensterlaibung), die tiefer liegt als die
+   Pfeiler oder Rahmen unter dem Schild, steckt sie dort weiter teilweise
+   in der Tafel (Figur auf 490 Schildmitten: ueber 10 Prozent verdeckt
+   bei 11, vorher 170). */
+const NEON_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_NEON_ALT;
+const NEON_TIEF = 0.03;
+/* Tiefenversatz der Tafel: 3 cm vor einer ebenen Fassade sind im
+   24-Bit-Tiefenpuffer (near 0,1, far 900) aus 130 m noch drei Stufen,
+   aus 200 m nur noch 1,3, aus 330 m 0,5. Gemessen an 12 Schildern
+   (Tele-Ansicht, je drei Bilder mit 2 cm Kameraversatz), zwischen den
+   Bildern kippende Schildpixel bei 130/160/200/260/330 m: alte Kiste
+   0/14/1/0/1, flache Tafel 0/446/8484/13188/9848 - ganze Tafeln
+   sprangen zwischen Schild und Fassade, bei 260-330 m war im Mittel die
+   Haelfte der Schildflaeche Fassade. polygonOffset schiebt die Tafel im
+   Tiefenpuffer um NEON_VERSATZ Stufen nach vorn: mit 4 Stufen
+   0/3/0/1/0 (mit 2 Stufen bei 330 m noch 32). In jeder Entfernung gleich
+   viele Stufen, aus der Naehe also unter 0,1 mm - Figur auf 100
+   Schildmitten mit und ohne Versatz: 99 Bilder pixelgleich, eines um
+   1 Pixel. Nur die Konstante (Faktor 0): Tafel und Fassade sind
+   parallel, ihr Tiefenabstand waechst mit der Neigung nicht. Nur dieses
+   Material; kein Zeichenaufruf, keine Reihenfolge. Pruefschalter
+   __WEBHERO_NEON_VERSATZ setzt die Stufen (0 = aus). */
+const NEON_VERSATZ = typeof window !== 'undefined' && window.__WEBHERO_NEON_VERSATZ !== undefined
+  ? +window.__WEBHERO_NEON_VERSATZ : 4;
+
 /* Schilder an die Fassaden, die zur Strasse zeigen. Die Strasse liegt
    immer laengs einer Rasterlinie; die Aussenseite eines Hauses ist die,
    die zur naechsten Linie zeigt. */
-function neonAnHaus(w, h, d, x, z) {
+function neonAnHaus(w, h, d, x, z, haus) {
   const naheLinie = (v, a) => {
     const u = ((v - rasterO(a)) % PITCH + PITCH) % PITCH;
     return u < PITCH / 2 ? -u : PITCH - u;      // Vorzeichen = Richtung zur Linie
@@ -5542,17 +5591,21 @@ function neonAnHaus(w, h, d, x, z) {
       const hochKant = stehend ? lang : 0.7 + streu(x, z, k + 200) * 0.45;
       const breit = stehend ? 0.55 + streu(x, z, k + 240) * 0.4
                             : 2.6 + streu(x, z, k + 240) * 2.6;
-      const tief = 0.16;
-      const ax = x + s2.nx * (w / 2 + tief / 2 + 0.06);
-      const az = z + s2.nz * (d / 2 + tief / 2 + 0.06);
+      const tief = NEON_ALT ? 0.16 : NEON_TIEF;
+      const abstand = NEON_ALT ? 0.06 : 0;
+      const ax = x + s2.nx * (w / 2 + tief / 2 + abstand);
+      const az = z + s2.nz * (d / 2 + tief / 2 + abstand);
       const laengsX = s2.nz !== 0;                // Schild quer zur Normalen
       NEON_KISTEN.push({ w: laengsX ? breit : tief, h: hochKant,
                          d: laengsX ? tief : breit,
-                         x: ax, y: hoch + hochKant / 2, z: az, farbe, ry: 0, rz: 0 });
-      /* Ein dunkler Halter, damit das Schild nicht frei schwebt. */
-      NEON_KISTEN.push({ w: laengsX ? 0.1 : 0.14, h: 0.1, d: laengsX ? 0.14 : 0.1,
-                         x: x + s2.nx * (w / 2 + 0.03), y: hoch + hochKant - 0.25,
-                         z: z + s2.nz * (d / 2 + 0.03), farbe: 0x14161a, ry: 0, rz: 0 });
+                         x: ax, y: hoch + hochKant / 2, z: az, farbe, ry: 0, rz: 0,
+                         haus, nx: s2.nx, nz: s2.nz, x0: ax, z0: az, xb: ax, zb: az });
+      /* Ein dunkler Halter, damit das Schild nicht frei schwebt (nur noch
+         im Altzustand - die flache Tafel schwebt nicht). */
+      if (NEON_ALT)
+        NEON_KISTEN.push({ w: laengsX ? 0.1 : 0.14, h: 0.1, d: laengsX ? 0.14 : 0.1,
+                           x: x + s2.nx * (w / 2 + 0.03), y: hoch + hochKant - 0.25,
+                           z: z + s2.nz * (d / 2 + 0.03), farbe: 0x14161a, ry: 0, rz: 0 });
     }
   }
 }
@@ -5659,12 +5712,147 @@ function baueKulisse() {
 
 /* Alle Schilder in EIN Mesh. Wird nach dem Stadtbau einmal gerufen. */
 function baueNeon() {
-  for (const b of HAUS_KISTEN) neonAnHaus(b.w, b.h, b.d, b.x, b.z);
+  for (const b of HAUS_KISTEN) neonAnHaus(b.w, b.h, b.d, b.x, b.z, b);
   if (!NEON_KISTEN.length) return;
   neonMesh = new THREE.Mesh(verschmelzeBoxen(NEON_KISTEN),
                             new THREE.MeshBasicMaterial({ vertexColors: true }));
+  if (!NEON_ALT && NEON_VERSATZ > 0) {
+    neonMesh.material.polygonOffset = true;
+    neonMesh.material.polygonOffsetFactor = 0;
+    neonMesh.material.polygonOffsetUnits = -NEON_VERSATZ;
+  }
   neonMesh.frustumCulled = false;
   cityGroup.add(neonMesh);
+}
+
+/* ---- Nach dem Laden der Modelle: die Tafel auf die Modellfassade ----
+   Steht ueber einer Kiste ein Modell, rueckt jedes ihrer Schilder bis an
+   den vordersten Punkt der Modellgeometrie in seinem Rechteck.
+   Gerechnet wird an den Dreiecken selbst, nicht an der Tiefenkarte der
+   Kletterhaut: die tastet je Zelle (0,2-0,3 m) nur die Zellmitte ab, und
+   ein schmaler Fassadenstab dazwischen fehlt in ihr. Mit der Karte als
+   Mass stand ein solcher Stab vorn durch die Tafel (gemessen an
+   Residential_3 und ModernOffice_2). Jedes Dreieck wird auf das
+   Schildrechteck zugeschnitten (laengs x hoch); die Tiefe ist im Dreieck
+   linear, ihr Kleinstes liegt also an einer Ecke des Zuschnitts.
+   Liegt dort nichts in Reichweite der Figur (nichts gefunden, oder
+   tiefer als HAUT_MAX), bleibt das Schild auf der Kiste - an solchen
+   Stellen klettert niemand. Dieselben Kisten im selben Puffer: kein
+   zusaetzlicher Zeichenaufruf.
+
+   Kein Abstand zur Fassade: mit 1 cm Luft zeigten im Pruefstand 78 statt
+   84 von 159 Problemansichten feine 1-px-Linien in der Tafel - kaum
+   weniger, und jeder Zentimeter Luft steckt wieder Haende und Fuesse der
+   Figur ins Schild. Die Linien sind kein Geometriefehler: ein Strahl
+   durch das Linienpixel trifft zuerst die Tafel, und mit einem Renderer
+   ohne Antialiasing verschwinden sie ganz. Im Software-Renderer des
+   Pruefstands nimmt bei 4x MSAA ein einzelnes Sample einer fast
+   kantenparallel gesehenen Seitenflaeche (Pfosten, Pilaster direkt hinter
+   der Tafel) eine falsche Tiefe an. */
+const NEON_STAND = { geruckt: 0, ms: 0 };
+function neonZuschnittMin(pl, py, pd, l0, l1, y0, y1) {
+  /* Sutherland-Hodgman gegen vier Kanten; pl/py/pd: Ecken (laengs, hoch, Tiefe) */
+  let L = pl, Y = py, D = pd;
+  const kante = (wert, achse, groesser) => {
+    const nl = [], ny = [], nd = [];
+    const n = L.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const ai = achse ? Y[i] : L[i], aj = achse ? Y[j] : L[j];
+      const iin = groesser ? ai >= wert : ai <= wert, jin = groesser ? aj >= wert : aj <= wert;
+      if (iin) { nl.push(L[i]); ny.push(Y[i]); nd.push(D[i]); }
+      if (iin !== jin) {
+        const t = (wert - ai) / (aj - ai);
+        nl.push(L[i] + (L[j] - L[i]) * t); ny.push(Y[i] + (Y[j] - Y[i]) * t); nd.push(D[i] + (D[j] - D[i]) * t);
+      }
+    }
+    L = nl; Y = ny; D = nd;
+  };
+  kante(l0, false, true); if (!L.length) return Infinity;
+  kante(l1, false, false); if (!L.length) return Infinity;
+  kante(y0, true, true); if (!L.length) return Infinity;
+  kante(y1, true, false); if (!L.length) return Infinity;
+  let m = Infinity;
+  for (const d of D) if (d < m) m = d;
+  return m;
+}
+function neonAnFassade(fertig) {
+  if (NEON_ALT || !neonMesh) return;
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const proKiste = new Map();
+  for (const s of NEON_KISTEN) {
+    if (!s.haus) continue;
+    s.x = s.x0; s.z = s.z0;
+    if (!proKiste.has(s.haus)) proKiste.set(s.haus, []);
+    proKiste.get(s.haus).push(s);
+  }
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
+  const pl = [0, 0, 0], py = [0, 0, 0], pd = [0, 0, 0];
+  let geruckt = 0;
+  for (const t of fertig) {
+    const liste = t.kiste && proKiste.get(t.kiste);
+    if (!liste) continue;
+    const c = t.kiste.koll;
+    if (!c) continue;
+    /* je Schild: Rechteck laengs x hoch, Ebene, bisher vorderste Tiefe */
+    const ziele = liste.map((s) => {
+      const quer = s.nx !== 0, breit = quer ? s.d : s.w, mitte = quer ? s.z0 : s.x0;
+      return { s, quer, l0: mitte - breit / 2, l1: mitte + breit / 2, y0: s.y - s.h / 2, y1: s.y + s.h / 2,
+               ebene: s.nx > 0 ? c.x1 : s.nx < 0 ? c.x0 : s.nz > 0 ? c.z1 : c.z0, min: Infinity };
+    });
+    t.obj.updateMatrixWorld(true);
+    t.obj.traverse((k) => {
+      if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+      const p = k.geometry.attributes.position, idx = k.geometry.index, n = idx ? idx.count : p.count;
+      for (let i = 0; i + 2 < n; i += 3) {
+        A.fromBufferAttribute(p, idx ? idx.getX(i) : i).applyMatrix4(k.matrixWorld);
+        B.fromBufferAttribute(p, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(k.matrixWorld);
+        C.fromBufferAttribute(p, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(k.matrixWorld);
+        for (const z of ziele) {
+          const { s } = z;
+          /* JEDES Dreieck, nicht nur die nach aussen gewandten: eine
+             Lamelle, die als einzelne Flaeche quer zur Fassade steht, hat
+             keine Vorderseite - ihre Vorderkante stand sonst durch die
+             Tafel (Residential_3). Was hinter der Aussenhaut liegt, ist
+             ohnehin tiefer und aendert das Kleinste nicht. */
+          const v = [A, B, C];
+          let lmin = Infinity, lmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+          for (let j = 0; j < 3; j++) {
+            pl[j] = z.quer ? v[j].z : v[j].x; py[j] = v[j].y;
+            pd[j] = z.quer ? (z.ebene - v[j].x) * s.nx : (z.ebene - v[j].z) * s.nz;
+            if (pl[j] < lmin) lmin = pl[j]; if (pl[j] > lmax) lmax = pl[j];
+            if (py[j] < ymin) ymin = py[j]; if (py[j] > ymax) ymax = py[j];
+          }
+          if (lmax < z.l0 || lmin > z.l1 || ymax < z.y0 || ymin > z.y1) continue;
+          const m = neonZuschnittMin(pl, py, pd, z.l0, z.l1, z.y0, z.y1);
+          if (m < z.min) z.min = m;
+        }
+      }
+    });
+    for (const z of ziele) {
+      if (!(z.min > 0) || z.min > HAUT_MAX) continue;
+      z.s.x = z.s.x0 - z.s.nx * z.min; z.s.z = z.s.z0 - z.s.nz * z.min;
+      geruckt++;
+    }
+  }
+  /* Derselbe Puffer, nur die Ecken der gerueckten Kisten verschoben
+     (xb/zb: wo die Kiste im Puffer steht). Eine neue Geometrie zoege ueber
+     ihre uuid (THREE generateUUID) Zahlen aus dem Zufallsstrom - danach
+     liefen Gegner, Ereignisse und Passanten im Pruefstand anders als
+     vorher (gemessen: innenklettern, Aussenkontrolle 20 statt 90 von 92
+     angeklebt, die Figur wurde unterwegs niedergeschlagen). */
+  const pos = neonMesh.geometry.attributes.position;
+  for (const s of NEON_KISTEN) {
+    if (s.vo === undefined || s.xb === undefined) continue;
+    const dx = s.x - s.xb, dz = s.z - s.zb;
+    if (!dx && !dz) continue;
+    for (let i = s.vo; i < s.vo + s.vn; i++) { pos.setX(i, pos.getX(i) + dx); pos.setZ(i, pos.getZ(i) + dz); }
+    s.xb = s.x; s.zb = s.z;
+  }
+  pos.needsUpdate = true;
+  neonMesh.geometry.computeBoundingSphere();
+  NEON_STAND.geruckt = geruckt;
+  NEON_STAND.ms = typeof performance !== 'undefined' ? +(performance.now() - t0).toFixed(1) : 0;
 }
 
 /* ======================= Hybride Darstellung =======================
@@ -8283,6 +8471,8 @@ function setzeHausModelle(szene) {
   /* NUR der Rueckfall verschwindet. Die Haeuser mit visualMode 'merged'
      bleiben prozedural sichtbar - ueber ihnen steht kein Modell. */
   if (fertig.length) for (const m of HAUS_FASSADEN_FALL) m.visible = false;
+  /* Die Leuchtreklame von der Kiste auf die sichtbare Modellfassade */
+  if (fertig.length) neonAnFassade(fertig);
 }
 
 function ladeStadtteile(loader) {
@@ -41289,6 +41479,9 @@ if (window.__WEBHERO_TEST__ === true) {
     /* CITY V2 Stufe 5: die gesetzten Gebaeudemodelle selbst - nur zum
        Messen, wieviel ein einzelnes Haus an Objekten und Dreiecken kostet. */
     hausModelle() { return HAUS_MODELLE; },
+    /* Leuchtreklame: Kisten, auf die Modellfassade gerueckt, Montage */
+    neonStand() { return { kisten: NEON_KISTEN.length, geruckt: NEON_STAND.geruckt, ms: NEON_STAND.ms, alt: NEON_ALT, tief: NEON_ALT ? 0.16 : NEON_TIEF,
+                          versatz: neonMesh && neonMesh.material.polygonOffset ? -neonMesh.material.polygonOffsetUnits : 0 }; },
     /* Die verschmolzenen Fassaden der 'merged'-Haeuser - Vergleichsgruppe
        zu den Modellhaeusern. */
     hausFassaden() { return HAUS_FASSADEN_PROD; },
