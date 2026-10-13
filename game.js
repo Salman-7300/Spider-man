@@ -5829,11 +5829,14 @@ function neonAnFassade(fertig) {
         }
       }
     });
+    const tief = [];
     for (const z of ziele) {
-      if (!(z.min > 0) || z.min > HAUT_MAX) continue;
+      if (!(z.min > 0)) continue;
+      if (z.min > HAUT_MAX) { if (!NEON_EBENE_ALT) tief.push(z); continue; }
       z.s.x = z.s.x0 - z.s.nx * z.min; z.s.z = z.s.z0 - z.s.nz * z.min;
       geruckt++;
     }
+    if (tief.length) geruckt += neonAufEbeneDahinter(t.obj, tief);
   }
   /* Derselbe Puffer, nur die Ecken der gerueckten Kisten verschoben
      (xb/zb: wo die Kiste im Puffer steht). Eine neue Geometrie zoege ueber
@@ -5852,7 +5855,221 @@ function neonAnFassade(fertig) {
   pos.needsUpdate = true;
   neonMesh.geometry.computeBoundingSphere();
   NEON_STAND.geruckt = geruckt;
+  neonUeberBauen();
   NEON_STAND.ms = typeof performance !== 'undefined' ? +(performance.now() - t0).toFixed(1) : 0;
+}
+
+/* ---- Tafel vor einem Ruecksprung jenseits von HAUT_MAX ----
+   problem-2, letzter Schild-/Nischen-Pass, Haus 3445 Ost (32,4 m). Die
+   Montage fand dort die richtige Flaeche: die Fassade des
+   zurueckgesetzten obersten Geschosses (Downtown_PublicBuilding_1,
+   Material Downtown_Facade_FLR_2), eine senkrechte Ebene 2,307 m hinter
+   der Kolliderebene, die das ganze Schildrechteck deckt. Die Kiste
+   umschliesst das ganze Haus samt der weiter vorn liegenden unteren
+   Geschosse (Front 0,14 m bis 15,5 m Hoehe, 0,54 m bis 31,4 m) - in
+   32 m Hoehe steht sie 2,3 m vor dem Obergeschoss. Weil 2,307 m mehr ist
+   als HAUT_MAX, blieb das Schild auf der Kiste und schwebte 2,3 m vor
+   der Fassade, gut 1 m ueber dem Dach des Geschosses darunter.
+
+   Die Reichweitengrenze bleibt (dort klettert niemand). Nur wenn die
+   vorderste Geometrie im Schildrechteck EINE ebene, zur Tafel parallele
+   Flaeche ist, die das ganze Rechteck deckt, kommt die Tafel dorthin:
+   vorderste Tiefe je Zelle (NEON_EBENE_NU x NEON_EBENE_NV), keine Zelle
+   leer, Spanne hoechstens NEON_EBENE_TOL. Gemessen an allen 19 Schildern
+   jenseits HAUT_MAX trifft das nur 3445 Ost (Spanne 0,000 m); die 18
+   anderen liegen vor der schraegen Rueckseite von ModernOffice_1 (Spanne
+   0,24 bis 1,74 m) oder vor der offenen Halle von Brutal_1 (1,4 bis
+   2,5 m) - dort gibt es keine Flaeche, auf der eine flache Tafel liegen
+   koennte, sie bleiben, wo sie waren. Pruefschalter
+   __WEBHERO_NEON_EBENE_ALT: alle bleiben auf der Kiste. */
+const NEON_EBENE_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_NEON_EBENE_ALT;
+const NEON_EBENE_NU = 6, NEON_EBENE_NV = 3, NEON_EBENE_TOL = 0.02;
+function neonAufEbeneDahinter(obj, ziele) {
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
+  const pl = [0, 0, 0], py = [0, 0, 0], pd = [0, 0, 0];
+  for (const z of ziele) z.zellen = new Array(NEON_EBENE_NU * NEON_EBENE_NV).fill(Infinity);
+  obj.traverse((k) => {
+    if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+    const p = k.geometry.attributes.position, idx = k.geometry.index, n = idx ? idx.count : p.count;
+    for (let i = 0; i + 2 < n; i += 3) {
+      A.fromBufferAttribute(p, idx ? idx.getX(i) : i).applyMatrix4(k.matrixWorld);
+      B.fromBufferAttribute(p, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(k.matrixWorld);
+      C.fromBufferAttribute(p, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(k.matrixWorld);
+      for (const z of ziele) {
+        const { s } = z, v = [A, B, C];
+        let lmin = Infinity, lmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+        for (let j = 0; j < 3; j++) {
+          pl[j] = z.quer ? v[j].z : v[j].x; py[j] = v[j].y;
+          pd[j] = z.quer ? (z.ebene - v[j].x) * s.nx : (z.ebene - v[j].z) * s.nz;
+          if (pl[j] < lmin) lmin = pl[j]; if (pl[j] > lmax) lmax = pl[j];
+          if (py[j] < ymin) ymin = py[j]; if (py[j] > ymax) ymax = py[j];
+        }
+        if (lmax < z.l0 || lmin > z.l1 || ymax < z.y0 || ymin > z.y1) continue;
+        const dl = (z.l1 - z.l0) / NEON_EBENE_NU, dy = (z.y1 - z.y0) / NEON_EBENE_NV;
+        for (let jv = 0; jv < NEON_EBENE_NV; jv++) {
+          const b0 = z.y0 + jv * dy, b1 = b0 + dy;
+          if (ymax < b0 || ymin > b1) continue;
+          for (let ju = 0; ju < NEON_EBENE_NU; ju++) {
+            const a0 = z.l0 + ju * dl, a1 = a0 + dl;
+            if (lmax < a0 || lmin > a1) continue;
+            const m = neonZuschnittMin(pl, py, pd, a0, a1, b0, b1);
+            const q = jv * NEON_EBENE_NU + ju;
+            if (m < z.zellen[q]) z.zellen[q] = m;
+          }
+        }
+      }
+    }
+  });
+  let n = 0;
+  for (const z of ziele) {
+    let lo = Infinity, hi = -Infinity;
+    for (const m of z.zellen) { if (m < lo) lo = m; if (m > hi) hi = m; }
+    if (!(hi < Infinity) || hi - lo > NEON_EBENE_TOL) continue;
+    z.s.x = z.s.x0 - z.s.nx * z.min; z.s.z = z.s.z0 - z.s.nz * z.min;
+    n++;
+  }
+  return n;
+}
+
+/* ====== Die Tafel als Kletterflaeche (Neon Climb Overlay) ======
+   problem-2, letzter Schild-/Nischen-Pass. Die 3-cm-Tafel liegt auf der
+   vordersten Geometrie in ihrem Rechteck. Spannt sie sich vor eine
+   tiefere Nische (Arkade, Loggia, Fensterlaibung, Pfeiler mit Wand
+   dahinter), waehlte die Kletterhaut die Rueckwand der Nische: die
+   Tafel war sichtbar und massiv, aber nicht Teil der Kletterhaut. Die
+   Figur hing hinter ihr in der Nische - der Koerper schnitt durch die
+   Tafel, oder sie verschwand fast ganz dahinter (gemessen an 490
+   Schildmitten: Kletterflaeche mehr als 0,2 m hinter der Tafel bei 17,
+   davon 11 ueber 10 Prozent verdeckt, bis 100 Prozent).
+
+   Jetzt kennt die Kletterhaut die Tafeln ihrer Kiste (je Tafel Seite,
+   Rechteck laengs x hoch, Tiefe von Front und Rueckseite hinter der
+   Kolliderebene) und behandelt die Tafelfront als sichtbare Flaeche:
+
+     buendig   liegt die Haut an der Stelle der Figur hoechstens
+               NEON_BUENDIG hinter der Tafelrueckseite (die Tafel sitzt
+               dort auf ihr), aendert sich nichts - so bei 440 von 490
+               Schildmitten. Entschieden wird an jeder Stelle einzeln,
+               nicht je Tafel: ein Band, das buendig auf einem Gesims
+               sitzt, steht vor der tieferen Fensterzone darueber, und
+               haengt die Figur dort, liegen ihre Beine im Rechteck des
+               Bandes (gemessen: so blieben mit einer Entscheidung je
+               Tafel 13 von 243 Bahnen an 81 Nischenschildern mit
+               Schnitt).
+     im Rechteck  ueberlappt der Koerper (der Rahmen der sichtbaren
+               Figur, siehe NEON_KOERPER_RAND) das Schildrechteck, ist die
+               Tafelfront die Kletterflaeche: die Figur haengt climbGap
+               vor der Front, kein Teil des Koerpers kommt hinter die
+               Tafel.
+     Uebergang ausserhalb des Rechtecks steigt die erlaubte Tiefe mit
+               dem Abstand des Koerpers zum Rechteck (NEON_RAMPE m je m)
+               bis zur Haut dahinter - eine Fase um die Tafel statt einer
+               Stufe. Die Figur wird so auf die Front gefuehrt, bevor ein
+               Koerperteil das Rechteck erreicht (kletternd 2,6 m/s, mit
+               der Fase also 5,2 m/s hinaus - die Haut faehrt 6 m/s), und
+               wieder in die Nische, wenn sie die Tafel verlassen hat.
+               Kein Sprung, keine Stufe. An 956 West (Arkade 0,75 m
+               hinter der Tafel, die mit ihrem unteren Meter vor der
+               Oeffnung haengt) verlaesst die Figur die Arkade 0,9 m
+               unter dem Schild - die erhobene Hand erreicht es zuerst.
+               Ohne Overlay kam sie erst 0,3 m darunter heraus, mit der
+               Hand schon hinter der Tafel.
+     Loch      traegt dort sonst nichts (Haut -1), traegt die Tafel nur,
+               wo der Fussabdruck der Haut (HAUT_SEIT, HAUT_UNTEN,
+               HAUT_OBEN) sie ueberdeckt - die Fase gilt nur vor einer
+               Flaeche, die selbst traegt. Kein unsichtbarer Grund.
+     Reichweite  eine Tafelfront tiefer als HAUT_MAX zaehlt nicht.
+
+   Die Tafel bleibt, wie und wo sie ist (Material, Tiefe, Versatz); das
+   Overlay sind nur Zahlen je Kiste - kein Mesh, kein Zeichenaufruf,
+   kein Hindernis. Prozedurale Haeuser (keine Karte) haengen ohnehin an
+   der Kiste, auf der ihre Tafeln sitzen. Pruefschalter
+   __WEBHERO_NEON_UEBER_ALT: ohne Overlay. */
+const NEON_UEBER_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_NEON_UEBER_ALT;
+const NEON_UEBER = new Map();             // Kollider -> [{ nx, nz, l0, l1, y0, y1, hinten, vorn }]
+const NEON_BUENDIG = 0.02;
+/* Der Koerper, relativ zu player.pos. Haengt die Figur aufrecht
+   (gemessen beim Hochklettern, alle Ecken des gehaeuteten Meshes): Fuesse
+   -0,91, Haende bis +1,12 ueber pos.y, seitlich +-0,52. Beim Runter- und
+   Seitwaertsklettern rollt wandKriechen die Figur um die Wandnormale
+   (Drehpunkt rund 1 m ueber pos.y): kopfueber reicht sie von +0,84 bis
+   +2,87, quer bis 1,89 m seitlich. Deshalb gilt im Klettern der Rahmen
+   der sichtbaren Figur aus ihren Knochen (koerperRahmen, je Bild nach
+   der Haltung gemerkt) plus NEON_KOERPER_RAND fuer Fleisch, Finger und
+   Zehen (gemessen ueber Ruhe, hoch, runter, links, rechts: die Ecken
+   des Meshes ragen hoechstens 0,19 m ueber die Knochen hinaus, am
+   Scheitel); die feste Box nur, solange es keinen frischen Rahmen gibt
+   (Ankleben). */
+const NEON_KOERPER_SEIT = 0.5, NEON_KOERPER_UNTEN = -0.95, NEON_KOERPER_OBEN = 1.1;
+const NEON_KOERPER_RAND = 0.2;
+const NEON_RAMPE = 2.0;
+const NEON_KOERPER_JETZT = { l0: 0, l1: 0, y0: 0, y1: 0, nx: 0, nz: 0, t: -1 };
+function neonKoerperMerken() {
+  const w = player.wallInfo, K = NEON_KOERPER_JETZT;
+  K.t = -1;
+  if (!NEON_UEBER.size || player.state !== 'climb' || !w || !heroVisual || !heroVisual.koerperRahmen) return;
+  if (!heroVisual.koerperRahmen(w.nx, player.pos.x, player.pos.y, player.pos.z, K)) return;
+  K.nx = w.nx; K.nz = w.nz; K.t = elapsed;
+}
+function neonUeberBauen() {
+  NEON_UEBER.clear();
+  if (NEON_ALT || NEON_UEBER_ALT) return;
+  for (const s of NEON_KISTEN) {
+    const c = s.haus && s.haus.koll;
+    if (!c || !c.fassade) continue;
+    const quer = s.nx !== 0;
+    const ebene = s.nx > 0 ? c.x1 : s.nx < 0 ? c.x0 : s.nz > 0 ? c.z1 : c.z0;
+    /* Tiefe hinter der Kolliderebene: Tafelmitte plus halbe Dicke */
+    const hinten = (ebene - (quer ? s.x : s.z)) * (s.nx + s.nz) + NEON_TIEF / 2;
+    const lm = quer ? s.z : s.x, breit = quer ? s.d : s.w;
+    if (!NEON_UEBER.has(c)) NEON_UEBER.set(c, []);
+    /* Die Haut liegt nie vor der Kiste (Tiefe >= 0; negativ heisst
+       Loch). Sitzt die Tafel auf der Kolliderebene, haengt die Figur
+       deshalb climbGap vor der Kiste - wie an jedem prozeduralen Haus,
+       dessen Tafeln dort sitzen. */
+    NEON_UEBER.get(c).push({ nx: s.nx, nz: s.nz, l0: lm - breit / 2, l1: lm + breit / 2,
+                             y0: s.y - s.h / 2, y1: s.y + s.h / 2, hinten,
+                             vorn: Math.max(0, hinten - NEON_TIEF) });
+  }
+}
+/* r: was die Kletterhaut an dieser Stelle liefert (Tiefe oder -1), HF
+   gesetzt. Liefert die Tiefe mit Tafeln; gewinnt eine Tafel, liegt die
+   Flaeche parallel zur Kiste (HF.no = 1). */
+function neonUeberlagern(tafeln, nx, nz, y, t, voraus, r) {
+  let ziel = r, gewonnen = false;
+  const K = NEON_KOERPER_JETZT;
+  const frisch = K.t >= 0 && K.nx === nx && K.nz === nz && elapsed - K.t < 0.1;
+  const kl0 = frisch ? K.l0 - NEON_KOERPER_RAND : -NEON_KOERPER_SEIT;
+  const kl1 = frisch ? K.l1 + NEON_KOERPER_RAND : NEON_KOERPER_SEIT;
+  const ky0 = frisch ? K.y0 - NEON_KOERPER_RAND : NEON_KOERPER_UNTEN;
+  /* Die Vorausschau der Haut (Steigen: vel.y * 0,25) zaehlt nur, soweit
+     sie ueber das normale Klettern hinausgeht: dafuer reicht die Fase
+     (2 x 2,6 m/s hinaus, die Haut faehrt 6 m/s). Mit der ganzen
+     Vorausschau verliess die Figur die Arkade an 956 West schon 1,6 m
+     unter dem Schild und schwebte so lange vor der Oeffnung. Beim
+     Wandlauf (8 bis 14 m/s) bleibt der Vorlauf, den die Fase allein
+     nicht schafft. */
+  const vor = Math.max(0, (voraus || 0) - CFG.climbSpeed * 0.25);
+  const ky1 = (frisch ? K.y1 + NEON_KOERPER_RAND : NEON_KOERPER_OBEN) + vor;
+  for (const s of tafeln) {
+    if (s.nx !== nx || s.nz !== nz || s.vorn > HAUT_MAX) continue;
+    if (r >= 0 && r <= s.hinten + NEON_BUENDIG) continue;      // hier sitzt die Tafel auf der Haut
+    let tiefe;
+    if (r < 0) {
+      /* ueber einem Loch: nur, wo der Fussabdruck der Haut die Tafel deckt */
+      if (t + HAUT_SEIT <= s.l0 || t - HAUT_SEIT >= s.l1 ||
+          y + HAUT_OBEN + (voraus || 0) <= s.y0 || y + HAUT_UNTEN >= s.y1) continue;
+      tiefe = s.vorn;
+    } else {
+      const dl = Math.max(0, s.l0 - (t + kl1), (t + kl0) - s.l1);
+      const dy = Math.max(0, s.y0 - (y + ky1), (y + ky0) - s.y1);
+      tiefe = s.vorn + NEON_RAMPE * Math.hypot(dl, dy);
+      if (tiefe >= r) continue;
+    }
+    if (!gewonnen || tiefe < ziel) { ziel = tiefe; gewonnen = true; }
+  }
+  if (gewonnen) { HF.tiefe = ziel; HF.no = 1; HF.nt = 0; HF.wx = nx; HF.wz = nz; }
+  return ziel;
 }
 
 /* ======================= Hybride Darstellung =======================
@@ -9110,6 +9327,11 @@ const LABOR_KNOCHEN = [
   'leftupleg', 'leftleg', 'leftfoot', 'lefttoebase',
   'rightupleg', 'rightleg', 'rightfoot', 'righttoebase',
 ];
+/* Knochen, deren Lage den Rahmen der sichtbaren Figur bestimmt
+   (koerperRahmen, Kletter-Overlay der Leuchttafeln) */
+const RAHMEN_KNOCHEN = ['head', 'spine2', 'hips', 'leftforearm', 'lefthand', 'rightforearm', 'righthand',
+                        'leftleg', 'leftfoot', 'lefttoebase', 'rightleg', 'rightfoot', 'righttoebase'];
+const _rahmenV = new THREE.Vector3();
 
 function findClip(clips, key) {
   for (const re of GLB_CLIP_PATTERNS[key] || []) {
@@ -11308,6 +11530,27 @@ function makeGlbVisual(m) {
         aus[n] = { x: +p.x.toFixed(4), y: +p.y.toFixed(4), z: +p.z.toFixed(4) };
       }
       return aus;
+    },
+    /* Rahmen der sichtbaren Figur in der Wandebene: laengs (z an einer
+       x-Wand, sonst x) und hoch, relativ zum Punkt (px, py, pz), aus den
+       Knochen RAHMEN_KNOCHEN (ohne Fleisch - das legt der Aufrufer zu).
+       Fuer das Kletter-Overlay der Leuchttafeln: beim Runterklettern
+       haengt die Figur kopfueber, seitwaerts quer (wandKriechen rollt sie
+       um die Wandnormale, Drehpunkt rund 1 m ueber player.pos). */
+    koerperRahmen(nx, px, py, pz, out) {
+      root.updateMatrixWorld(true);
+      let l0 = Infinity, l1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const n of RAHMEN_KNOCHEN) {
+        const b = knochen[n];
+        if (!b) continue;
+        b.getWorldPosition(_rahmenV);
+        const l = nx !== 0 ? _rahmenV.z - pz : _rahmenV.x - px, y = _rahmenV.y - py;
+        if (l < l0) l0 = l; if (l > l1) l1 = l;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      if (!(l1 >= l0)) return false;
+      out.l0 = l0; out.l1 = l1; out.y0 = y0; out.y1 = y1;
+      return true;
     },
     /* Die fuenf Koerperpunkte der Kamera (KAM_SICHT) in Weltkoordinaten:
        Kopf, Brust, Becken, linke und rechte Schulter - aus den ECHTEN
@@ -17059,7 +17302,13 @@ function hautTiefe(c, nx, nz, ya, yb, ta, tb) {
 const HAUT_NORM_BAND = 0.3;
 const HAUT_NO_MIN = 0.15;             // wie der Kartenbau (Dreiecke bis 81 Grad)
 const HF = { tiefe: 0, no: 1, nt: 0, wx: 0, wz: 0 };
+/* Mit den Leuchttafeln der Kiste (neonUeberlagern, Neon Climb Overlay) */
 function hautFlaeche(c, nx, nz, y, t, voraus) {
+  const r = hautFlaecheModell(c, nx, nz, y, t, voraus);
+  const tafeln = NEON_UEBER.size ? NEON_UEBER.get(c) : undefined;
+  return tafeln ? neonUeberlagern(tafeln, nx, nz, y, t, voraus, r) : r;
+}
+function hautFlaecheModell(c, nx, nz, y, t, voraus) {
   HF.no = 1; HF.nt = 0; HF.wx = nx; HF.wz = nz; HF.tiefe = 0;
   const f = c && c.fassade;
   if (!f || !f.g.normalen) { HF.tiefe = hautTiefe(c, nx, nz, y + HAUT_UNTEN, y + HAUT_OBEN + (voraus || 0), t - HAUT_SEIT, t + HAUT_SEIT);
@@ -23462,7 +23711,9 @@ function updateHeroVisual(dt) {
 
   /* Ganz zum Schluss: nachmessen, ob etwas in der Fassade steckt. */
   wandFreiraum(dt);
-
+  /* Wo liegt die sichtbare Figur? Fuer das Kletter-Overlay der
+     Leuchttafeln im naechsten Schritt (neonUeberlagern). */
+  neonKoerperMerken();
 }
 
 /* ---- Nichts darf in der Wand stecken ----
@@ -40118,10 +40369,11 @@ if (window.__WEBHERO_TEST__ === true) {
       }
       return { n, bins };
     },
-    /* Die Kletterflaeche an einer Stelle: Tiefe und Normale */
-    hautFlaecheAn(kollId, nx, nz, y, t) {
-      const c = colliders.find((q) => q.id === kollId);
-      const r = hautFlaeche(c, nx, nz, y, t, 0);
+    /* Die Kletterflaeche an einer Stelle: Tiefe und Normale (ohneTafeln:
+       nur die Modellhaut, ohne Neon Climb Overlay) */
+    hautFlaecheAn(kollId, nx, nz, y, t, ohneTafeln, voraus) {
+      const c = typeof kollId === 'object' ? kollId : colliders.find((q) => q.id === kollId);
+      const r = ohneTafeln ? hautFlaecheModell(c, nx, nz, y, t, voraus || 0) : hautFlaeche(c, nx, nz, y, t, voraus || 0);
       return { r: +r.toFixed(3), tiefe: +HF.tiefe.toFixed(3), no: +HF.no.toFixed(3), nt: +HF.nt.toFixed(3), wx: +HF.wx.toFixed(3), wz: +HF.wz.toFixed(3) };
     },
     /* Die Kletterhaut einer Schauseite als Zeichenraster (oben zuerst):
@@ -41480,8 +41732,17 @@ if (window.__WEBHERO_TEST__ === true) {
        Messen, wieviel ein einzelnes Haus an Objekten und Dreiecken kostet. */
     hausModelle() { return HAUS_MODELLE; },
     /* Leuchtreklame: Kisten, auf die Modellfassade gerueckt, Montage */
-    neonStand() { return { kisten: NEON_KISTEN.length, geruckt: NEON_STAND.geruckt, ms: NEON_STAND.ms, alt: NEON_ALT, tief: NEON_ALT ? 0.16 : NEON_TIEF,
-                          versatz: neonMesh && neonMesh.material.polygonOffset ? -neonMesh.material.polygonOffsetUnits : 0 }; },
+    neonStand() { let tafeln = 0; for (const l of NEON_UEBER.values()) tafeln += l.length;
+                  return { kisten: NEON_KISTEN.length, geruckt: NEON_STAND.geruckt, ms: NEON_STAND.ms, alt: NEON_ALT, tief: NEON_ALT ? 0.16 : NEON_TIEF,
+                          versatz: neonMesh && neonMesh.material.polygonOffset ? -neonMesh.material.polygonOffsetUnits : 0,
+                          ueberAlt: NEON_UEBER_ALT, ueberKisten: NEON_UEBER.size, ueberTafeln: tafeln, ebeneAlt: NEON_EBENE_ALT }; },
+    /* Die Tafeln des Kletter-Overlays (Neon Climb Overlay): einer Kiste,
+       ohne Kennung alle */
+    neonUeber(kollId) {
+      const aus = [];
+      for (const [c, l] of NEON_UEBER) if (kollId === undefined || c.id === kollId) for (const q of l) aus.push({ koll: c.id, ...q });
+      return aus;
+    },
     /* Die verschmolzenen Fassaden der 'merged'-Haeuser - Vergleichsgruppe
        zu den Modellhaeusern. */
     hausFassaden() { return HAUS_FASSADEN_PROD; },

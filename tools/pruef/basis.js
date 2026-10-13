@@ -134,6 +134,11 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.neonAlt) window.__WEBHERO_NEON_ALT = 1;
     /* Nur zum Messen: Tiefenversatz der Tafel in Stufen (0 = aus). */
     if (ein.neonVersatz !== null) window.__WEBHERO_NEON_VERSATZ = ein.neonVersatz;
+    /* Nur zum Messen: Kletterhaut ohne die Leuchttafeln (Stand vor dem
+       Neon Climb Overlay) bzw. Tafeln jenseits HAUT_MAX immer auf der
+       Kiste (Stand vor 3445 Ost). */
+    if (ein.neonUeberAlt) window.__WEBHERO_NEON_UEBER_ALT = 1;
+    if (ein.neonEbeneAlt) window.__WEBHERO_NEON_EBENE_ALT = 1;
     /* Nur zum Messen: Blickpunkt auf fester Hoehe (Stand vor KAM_POSE). */
     if (ein.kamPoseAlt) window.__WEBHERO_KAM_POSE_ALT = 1;
     /* Nur zum Messen: Kletterhaut aus (Stand vor
@@ -194,6 +199,8 @@ async function starte(breite, hoehe, seed, opt) {
        bodenRasterAlt: !!(opt && opt.bodenRasterAlt),
        neonAlt: !!(opt && opt.neonAlt),
        neonVersatz: opt && typeof opt.neonVersatz === 'number' ? opt.neonVersatz : null,
+       neonUeberAlt: !!(opt && opt.neonUeberAlt),
+       neonEbeneAlt: !!(opt && opt.neonEbeneAlt),
        kamPoseAlt: !!(opt && opt.kamPoseAlt),
        proxyAlt: !!(opt && opt.proxyAlt),
        topAlt: !!(opt && opt.topAlt),
