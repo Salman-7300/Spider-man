@@ -42,6 +42,13 @@ const fs = require('fs');
         dinge.push({ art: name, x: t.x, z: t.z, y: t.y || 0, r: 0.5 });
       }
     }
+    /* ---- CITY V2 Stufe 6A: die neuen Strassendetails ----
+       Mit ihrem echten Grundriss (kasten) statt eines Kreises. Flache
+       (Baum- und Pflanzscheibe) zaehlen fuer die Flaechen, aber nicht als
+       Hindernis auf dem Weg - man geht darueber. */
+    const neuDetails = d.strassenDetails ? d.strassenDetails() : null;
+    for (const e of neuDetails || [])
+      dinge.push({ art: e.art, x: e.x, z: e.z, y: 0, r: e.r, kasten: e.kasten, neu: true, flach: !!e.flach });
     /* ---- Wer steht ueberhaupt auf der Strasse? ----
        Der erste Durchlauf meldete 41 Gegenstaende "auf der Fahrbahn", von
        denen die meisten Klimageraete in 19 bis 30 m Hoehe auf DAECHERN
@@ -131,10 +138,24 @@ const fs = require('fs');
       const abstand = Math.hypot(dx, dz);
       return abstand < r ? +(r - abstand).toFixed(2) : null;
     }
+    /* Ding gegen Flaeche: mit Grundriss (6A) als Rechteck, sonst als
+       Kreis wie bisher. */
+    function beruehrt(g, q) {
+      if (!g.kasten) return inRechteck(g.x, g.z, g.r || 0.5, q);
+      const k = g.kasten;
+      const ox = Math.min(k.x1, q.x1) - Math.max(k.x0, q.x0);
+      const oz = Math.min(k.z1, q.z1) - Math.max(k.z0, q.z0);
+      return ox > 0 && oz > 0 ? +Math.min(ox, oz).toFixed(2) : null;
+    }
+    function abstandZu(g, x, z) {
+      if (!g.kasten) return Math.hypot(g.x - x, g.z - z) - (g.r || 0.5);
+      const k = g.kasten;
+      return Math.hypot(Math.max(k.x0 - x, 0, x - k.x1), Math.max(k.z0 - z, 0, z - k.z1));
+    }
 
     const befunde = [];
     function melde(art, ding, wo, tief, zusatz) {
-      befunde.push({ flaeche: art, ding: ding.art,
+      befunde.push({ flaeche: art, ding: ding.art, neu: !!ding.neu,
                      ort: [Math.round(ding.x), Math.round(ding.z)],
                      ueberlappung: tief, wo: wo, zusatz: zusatz || null });
     }
@@ -142,11 +163,14 @@ const fs = require('fs');
     for (const g of amBoden) {
       const r = g.r || 0.5;
 
-      const f = aufFahrbahn(g.x, g.z, r);
+      const f = g.kasten
+        ? [[g.kasten.x0, g.kasten.z0], [g.kasten.x1, g.kasten.z0], [g.kasten.x0, g.kasten.z1],
+           [g.kasten.x1, g.kasten.z1]].map(([px, pz]) => aufFahrbahn(px, pz, 0)).find(Boolean)
+        : aufFahrbahn(g.x, g.z, r);
       if (f) melde('Fahrbahn', g, f.wo, f.tief);
 
       for (const zb of zebras) {
-        const t = inRechteck(g.x, g.z, r, zb);
+        const t = beruehrt(g, zb);
         if (t) melde('Zebrastreifen', g, [zb.x0, zb.z0].join('/'), t);
       }
 
@@ -162,7 +186,7 @@ const fs = require('fs');
           const q = { x0: st.x + Math.min(sch.xFuss, sch.xKopf),
                       x1: st.x + Math.max(sch.xFuss, sch.xKopf),
                       z0: (st.dz || 0) + sch.z0, z1: (st.dz || 0) + sch.z1 };
-          const t = inRechteck(g.x, g.z, r, q);
+          const t = beruehrt(g, q);
           if (t) melde('U-Bahn-Abgang', g,
                        'Station x=' + st.x + ' dz=' + (st.dz || 0) + ' ' + sch.steig, t);
         }
@@ -170,7 +194,7 @@ const fs = require('fs');
 
       for (const a of aufz) {
         const q = { x0: a.x - 1.6, x1: a.x + 1.6, z0: a.z - 1.6, z1: a.z + 1.6 };
-        const t = inRechteck(g.x, g.z, r, q);
+        const t = beruehrt(g, q);
         if (t) melde('Aufzug', g, a.x + '/' + a.z, t);
       }
 
@@ -179,15 +203,15 @@ const fs = require('fs');
       for (const [xa, xb] of [[BR_X0 - BR_RAMPE - 1, BR_X0 + 1],
                               [BR_X1 - 1, BR_X1 + BR_RAMPE + 1]]) {
         const q = { x0: xa, x1: xb, z0: BRIDGE_Z - BRIDGE_HW, z1: BRIDGE_Z + BRIDGE_HW };
-        const t = inRechteck(g.x, g.z, r, q);
+        const t = beruehrt(g, q);
         if (t) melde('Brueckenuebergang', g, xa + '..' + xb, t);
       }
 
       for (const tu of tueren) {
-        const t1 = inRechteck(g.x, g.z, r, tu.durchgang);
+        const t1 = beruehrt(g, tu.durchgang);
         if (t1) melde('Haustuer (Durchgang)', g, tu.haus + ' @' + tu.x + '/' + tu.z, t1);
         else {
-          const t2 = inRechteck(g.x, g.z, r, tu.vorfeld);
+          const t2 = beruehrt(g, tu.vorfeld);
           if (t2) melde('Haustuer (Vorfeld)', g, tu.haus + ' @' + tu.x + '/' + tu.z, t2);
         }
       }
@@ -196,10 +220,47 @@ const fs = require('fs');
         /* Auch in der HOEHE vergleichen: ein Dach-POI auf 39 m und eine
            Laterne auf der Strasse sind sich nicht im Weg. */
         if (Math.abs((p.y || 0) - (g.y || 0)) > 3) continue;
-        const ab = Math.hypot(p.x - g.x, p.z - g.z);
-        if (ab < r + 1.2) melde('POI-Anker', g, p.art + ' ' + p.id,
-                                +(r + 1.2 - ab).toFixed(2));
+        const ab = abstandZu(g, p.x, p.z);
+        if (ab < 1.2) melde('POI-Anker', g, p.art + ' ' + p.id, +(1.2 - ab).toFixed(2));
       }
+
+      /* ---- Arkaden und offene Erdgeschosshallen (6A) ----
+         Haeuser mit Erdgeschoss-Profil (MO1-Arkade, Brutal-Halle): vor
+         jeder Seite der Hauskiste ein Streifen von 1,5 m, in dem nichts
+         stehen darf - sonst ist der Zugang verstellt. */
+      for (const c of d.colliderNah(g.x, g.z)) {
+        if (!c.boden) continue;
+        const B = 1.5;
+        for (const q of [{ x0: c.x0 - B, x1: c.x0, z0: c.z0, z1: c.z1 }, { x0: c.x1, x1: c.x1 + B, z0: c.z0, z1: c.z1 },
+                         { x0: c.x0, x1: c.x1, z0: c.z0 - B, z1: c.z0 }, { x0: c.x0, x1: c.x1, z0: c.z1, z1: c.z1 + B }]) {
+          const t = beruehrt(g, q);
+          if (t) { melde('Arkade (Zugang)', g, 'Haus ' + c.id, t); break; }
+        }
+      }
+    }
+
+    /* ---- Promenade (6A): an jedem neuen Ding auf der Promenade bleibt
+       quer ueber den Streifen ein Durchgang von mindestens 1,8 m ---- */
+    const promBefunde = [];
+    let promGeprueft = 0;
+    for (const g of amBoden) {
+      if (!g.neu || g.flach || g.x < 181 || g.x > 192) continue;
+      promGeprueft++;
+      let beste = 0, lauf = 0;
+      for (let x = 181.2; x <= 191.8 + 1e-9; x += 0.1) {
+        let frei = true;
+        for (const c of d.colliderNah(x, g.z)) {
+          if ((c.h || 0) < 0.65 || (c.y0 !== undefined && c.y0 > 2.0)) continue;
+          if (x > c.x0 && x < c.x1 && g.z > c.z0 && g.z < c.z1) { frei = false; break; }
+        }
+        if (frei) for (const o of amBoden) {
+          if (o.flach) continue;
+          if (abstandZu(o, x, g.z) < 0) { frei = false; break; }
+        }
+        lauf = frei ? lauf + 0.1 : 0;
+        if (lauf > beste) beste = lauf;
+      }
+      if (beste < 1.8 - 1e-6) promBefunde.push({ ding: g.art, ort: [+g.x.toFixed(1), +g.z.toFixed(1)], durchgang: +beste.toFixed(2) });
     }
 
     /* ---- Bewegungspfade: Kanten des Gehnetzes ---- */
@@ -223,15 +284,22 @@ const fs = require('fs');
         if (!(n.x < m.x || (n.x === m.x && n.z < m.z))) continue;
         kantenGeprueft++;
         for (const g of amBoden) {
+          if (g.flach) continue;                     // Baumscheibe: man geht darueber
           const r = g.r || 0.5;
           /* Abstand Punkt zu Strecke */
           const vx = m.x - n.x, vz = m.z - n.z;
           const len2 = vx * vx + vz * vz;
           const t = len2 > 0 ? Math.max(0, Math.min(1, ((g.x - n.x) * vx + (g.z - n.z) * vz) / len2)) : 0;
           const px = n.x + vx * t, pz = n.z + vz * t;
-          const ab = Math.hypot(g.x - px, g.z - pz);
+          /* Mit Grundriss (6A): Abstand Kante - Rechteck, an 0,1-m-Stuetzstellen. */
+          let ab = Math.hypot(g.x - px, g.z - pz) - r;
+          if (g.kasten) {
+            const L = Math.sqrt(len2), schritte = Math.max(2, Math.ceil(L / 0.1));
+            ab = Infinity;
+            for (let s2 = 0; s2 <= schritte; s2++) ab = Math.min(ab, abstandZu(g, n.x + vx * s2 / schritte, n.z + vz * s2 / schritte));
+          }
           /* 0,45 m ist der halbe Kollisionszylinder eines Passanten. */
-          if (ab < r + 0.45) {
+          if (ab < 0.45) {
             /* Eine Beruehrung der IDEALLINIE ist noch keine Sperre: der
                Gehweg ist mehrere Meter breit, und Passanten weichen aus.
                Entscheidend ist, ob daneben eine freie Spur bleibt.
@@ -273,7 +341,8 @@ const fs = require('fs');
                     (c.h || 0) > hKante + 0.4) return false;
               }
               if (!ohneMoebel) for (const o of amBoden) {
-                if (Math.hypot(o.x - sx, o.z - sz) < (o.r || 0.5)) return false;
+                if (o.flach) continue;
+                if (abstandZu(o, sx, sz) < 0) return false;
               }
               return true;
             };
@@ -307,8 +376,8 @@ const fs = require('fs');
             }
             /* 0,9 m ist die Breite des Passanten-Kollisionszylinders. */
             const freieSpur = beste >= 0.9 - 1e-6 ? +beste.toFixed(2) : null;   // Rundung der 0,1-Schritte
-            pfadBefunde.push({ ding: g.art, ort: [Math.round(g.x), Math.round(g.z)],
-                               ueberlappung: +(r + 0.45 - ab).toFixed(2),
+            pfadBefunde.push({ ding: g.art, ort: [Math.round(g.x), Math.round(g.z)], neu: !!g.neu,
+                               ueberlappung: +(0.45 - ab).toFixed(2),
                                freieSpur: freieSpur,
                                luecke: +beste.toFixed(2),
                                kante: [Math.round(n.x), Math.round(n.z), Math.round(m.x), Math.round(m.z)] });
@@ -319,6 +388,8 @@ const fs = require('fs');
 
     return {
       dinge: dinge.length,
+      neuDetails: neuDetails ? neuDetails.length : null,
+      promBefunde, promGeprueft,
       amBoden: amBoden.length,
       moebelBlockiert,
       obenDrauf: obenDrauf.length,
@@ -363,13 +434,19 @@ const fs = require('fs');
   for (const b2 of aus.befunde) (nach[b2.flaeche] = nach[b2.flaeche] || []).push(b2);
   const reihen = ['Fahrbahn', 'Zebrastreifen', 'U-Bahn-Abgang', 'Aufzug',
                   'Brueckenuebergang', 'Haustuer (Durchgang)', 'Haustuer (Vorfeld)',
-                  'POI-Anker'];
+                  'POI-Anker', 'Arkade (Zugang)'];
   console.log('Flaeche'.padEnd(24), 'Befunde');
   console.log('-'.repeat(74));
   for (const k of reihen) {
     const l = nach[k] || [];
-    console.log(k.padEnd(24), l.length === 0 ? 'frei' : l.length + '  !!');
+    const neuN = l.filter((b2) => b2.neu).length;
+    console.log(k.padEnd(24), l.length === 0 ? 'frei' : l.length + '  !!' + (neuN ? '  (davon neue Strassendetails ' + neuN + ')' : ''));
   }
+  console.log('Promenade (Durchgang)'.padEnd(24),
+              aus.neuDetails === null ? '- (keine Strassendetails)'
+                : aus.promBefunde.length === 0 ? 'frei (' + aus.promGeprueft + ' neue Dinge, ueberall >= 1,8 m Durchgang)'
+                : aus.promBefunde.length + '  !!  ' + JSON.stringify(aus.promBefunde.slice(0, 4)));
+  console.log('Neue Strassendetails (6A):', aus.neuDetails === null ? 'nicht vorhanden' : aus.neuDetails + ' mit Grundriss geprueft');
   const gesperrt = aus.pfadBefunde.filter((e) => e.freieSpur === null);
   console.log('Bewegungspfade'.padEnd(24),
               gesperrt.length === 0
@@ -412,6 +489,8 @@ const fs = require('fs');
     for (const e of aus.pfadBefunde) proArt[e.ding] = (proArt[e.ding] || 0) + 1;
     console.log('  Ideallinie gestreift: ' + aus.pfadBefunde.length + ' ' +
                 JSON.stringify(proArt));
+    console.log('  davon neue Strassendetails: ' + aus.pfadBefunde.filter((e) => e.neu).length +
+                ', wirklich gesperrt ' + gesperrt.filter((e) => e.neu).length);
     const tief = aus.pfadBefunde.map((e) => e.ueberlappung).sort((a, b) => b - a);
     console.log('  groesste Ueberlappung ' + tief[0] + ' m, Mittelwert ' +
                 (tief.reduce((a, v) => a + v, 0) / tief.length).toFixed(3) + ' m');

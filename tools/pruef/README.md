@@ -50,6 +50,8 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `strassen.js` | CITY V2: die Straßenhierarchie und ob jeder Wagen auf einer Spur seiner Straße fährt |
 | `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor |
 | `stadt-bilder.js` | CITY V2: vierzehn feste Aufnahmen zum Vergleich zweier Ausbaustufen |
+| `street-details.js` | CITY V2 Stufe 6A: Bäume und Stadtmöbel je Stadtteil und Straßenklasse, leere Gehwegstrecken, Wiederholung; für die neuen Details die harten Platzierungsfehler (Soll überall 0) |
+| `street-bilder.js` | CITY V2 Stufe 6A: zehn feste Straßenbilder auf Augenhöhe und drei Luftbilder, gleiche Stelle vorher und nachher |
 
 Aufruf jeweils aus diesem Ordner, z. B.
 

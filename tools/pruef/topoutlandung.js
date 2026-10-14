@@ -133,6 +133,21 @@ async function fahre(F) {
     const { nx, nz } = a, ax = nx !== 0, l0 = ax ? c.z0 : c.x0, l1 = ax ? c.z1 : c.x1;
     const front = ax ? (nx > 0 ? c.x1 : c.x0) : (nz > 0 ? c.z1 : c.z0);
     const t = l0 + (l1 - l0) * a.f;
+    /* CITY V2 Stufe 6A: fuenf Meter vor der Fassade ist die
+       Moeblierungszone am Bordstein, dort stehen jetzt Strassenbaeume
+       und Baenke. Bei FlatFacade 169 +z f 0,8 stand ein Stamm auf der
+       Anlaufbahn; bei MO1 Haus 1 -z liegt der Startpunkt in einem
+       Parkauto, das schiebt die Figur 1,2 m zur Seite, und dort steht
+       die Bank am Baum. Die Figur kam nicht an die Wand (12/12 statt
+       13/13, Kontrolle 6/6 statt 8/8; mit ohneSD derselbe Code 13/13
+       und 8/8). Gemessen wird das Ueberziehen, nicht der Anlauf: wie
+       Autos, Passanten und Gegner kommen Strassendetails auf der
+       Anlaufbahn (3 m breit) fuer diesen Lauf aus der Kollision. */
+    const bahnX = ax ? [Math.min(front, front + nx * 5), Math.max(front, front + nx * 5)] : [t - 1.5, t + 1.5];
+    const bahnZ = ax ? [t - 1.5, t + 1.5] : [Math.min(front, front + nz * 5), Math.max(front, front + nz * 5)];
+    for (const q of d.colliders) {
+      if (q.strassenDetail && q.x1 > bahnX[0] && q.x0 < bahnX[1] && q.z1 > bahnZ[0] && q.z0 < bahnZ[1]) { q.x0 += 1e5; q.x1 += 1e5; }
+    }
     d.setzePos(ax ? front + nx * 5 : t, 0.3, ax ? t : front + nz * 5);
     P.state = 'ground'; P.onGround = true; P.vel.set(0, 0, 0);
     P.wallInfo = null; P.wall = null;

@@ -2012,6 +2012,151 @@ sprung-gleiten alle vier Boeden ok und die Flugphysik unveraendert
 
 ---
 
+## 6m. Strassenbaeume und Strassenmoebel (Stufe 6A)
+
+**Vorher (339184b, Keim 4711, `tools/pruef/street-details.js`):** ausserhalb
+von Park und Promenade kein einziger Baum. Mobiliar fast nur an den
+Ecken: an 128 Kanten dasselbe Muster "Poller@12|Poller@14|Poller@15",
+413 Kanten teilten ihr Muster mit einer anderen. Die groesste leere
+Gehwegstrecke einer Blockkante lag im Mittel bei 29 bis 31 m, im Zentrum
+hatten 78 von 96 Kanten eine Luecke von 20 m und mehr.
+
+**Was hinzukommt:** `baueStrassenDetails()` plant einmal, in
+`initActors` direkt nach dem Gehnetz und vor dem ersten Passanten, fuer
+jede Blockkante Strassenbaeume (createTree, die vier vorhandenen
+Varianten, mit Baumscheibe) und Moebelgruppen - nur Modelle, die es schon
+gibt: Bank, Pflanzkuebel (`stadtmoebel.glb`), Muelleimer, Kiosk, Uhr
+(`bahnhofmoebel.glb`), Poller (`stadtteile.glb`). Alles steht in der
+Moeblierungszone am Bordstein (Stamm 0,8 m vom Rand), genutzt wird
+|laengs| <= 11,5 m - die Ecken mit Ampel, Eckpollern und Ueberweg
+bleiben frei. Nie vor den Fassaden: dort liegen Eingaenge, Arkaden und
+Schaufenster. Dazu die Promenade (zweite Baumreihe, Muelleimer an jeder
+zweiten Bank, drei Kioske am Wasser) und Baumgruppen im Inneren der
+beiden Parks.
+
+Die Dichten stehen an EINER Stelle (`SD_BAUM`, `SD_GRUPPEN`,
+`SD_NUTZUNG`, `SD_SICHT`):
+
+| Stadtteil | Baumabstand | an | Gruppen |
+| --- | --- | --- | --- |
+| WOHN | 10 m | allen Strassen | Bank am Baum, Muelleimer |
+| MISCHUNG | 13 m | allen | Bank am Baum (mit Muelleimer), Muelleimer, Kuebel |
+| UFER | 11 m | allen, dazu Promenade | Bank/Baum/Muelleimer, Bank+Muelleimer, Kiosk |
+| PARK | 7,5 m, innen Gruppen | Parkrand | Bank am Baum, Muelleimer |
+| GESCHAEFT | 14 m | Avenue, Boulevard | Muelleimer, Bank+Muelleimer, Kuebel, Poller |
+| ZENTRUM | 15 m | Avenue, Boulevard | Kuebel-Bank-Kuebel, Bank+Muelleimer, Kuebelpaar, Poller, Uhr |
+
+Die Zahl der Gruppen je Kante kommt aus der Summe der Raten (abgerundet,
+der Rest per Hash), die Art jeder Gruppe nach ihrem Anteil; eine freie
+Gruppe geht in die groesste Luecke der Kante. Baumabstand und
+Gruppenabstaende streuen (+-1 m, +-10 Prozent, Poller 1,3 bis 2,1 m) - die
+neuen Dinge bilden keine einzige gleichmaessige Dreierreihe, und
+benachbarte Baeume haben nie dieselbe Variante.
+
+**Freiraum vor Deko - geprueft an jeder Stelle, bevor etwas gesetzt
+wird:** Boden auf Gehweghoehe an Ecken und Mitte (keine Fahrbahn, kein
+Schacht, keine Hauseingangsstufe), Zebrastreifen (+0,5 m), Haustuer mit
+Vorfeld (+0,3), U-Bahn-Abgang (+1,5), Aufzug (3 m), POI-Anker (3 m),
+Bestand (Laterne, Ampel, Beet, Poller, lose Gegenstaende +0,4; jedes
+Hindernis +0,3; Parkautos duerfen nur nicht geschnitten werden), Gehnetz
+(Knoten und Kanten 0,8 m vom Hindernis - Passanten gehen bis 0,42 m
+neben der Kante -, Ueberwege 0,5 m), freier Gehweg nach innen 1,8 m.
+Baum: 5,5 m zum naechsten Baum (in Parkgruppen 4 m), 4,2 m zur Laterne,
+4,5 m zum Ampelmast; die Krone (Kiste je Variante und Drehung, aus der
+Geometrie gerechnet) nicht in einer Hauskiste, einem Leuchtenkopf oder
+Ampelausleger, unter 2,65 m ueber dem Gehweg nicht ueber der Busspur von
+Avenue und Boulevard (Bus 2,70 m hoch, Kronen ab 2,85 m). Was eine Regel
+verletzt, rueckt laengs der Kante oder faellt weg.
+
+**Zufall:** kein Aufruf des Stadtzufalls. Jede Entscheidung kommt aus
+`sdHash` (Weltkeim, Block, Kante, Art, Platz); das Anlegen der
+THREE-Objekte (uuid) laeuft in einem eigenen Strom, danach wird
+`ZUFALL_SEED` zurueckgesetzt - wie `lotsBlock`. Neue Hindernisse haben
+eigene Nummern ab 9 000 000, `_kollNr` bleibt unberuehrt. Gemessen
+(Fingerabdruck nach dem Laden): Haeuser 617, Lots, 300 Parkautos,
+45 Wagen, 12 Gegner und 41 POIs bitgleich mit 339184b.
+
+**Zeichnen und Kollision:** zwoelf Instanzfelder ueber
+`setzeMoebelFeld` (vier Baumvarianten mit Aesten und Laub in einer
+Geometrie, Baum- und Pflanzscheibe, fuenf Moebelarten, Poller), mit
+einer Sichtweite je Art (`SD_SICHT`: Baum 185 m, Muelleimer 110 m - das
+Modell hat 3480 Dreiecke, mehr als ein Baum). Kein neues LOD, keine neue
+Textur. Hindernisse nur fuer Baumstamm (die Stammkiste +-0,34 wie bei
+jedem Baum der Stadt), Bank, Muelleimer, Kuebel, Kiosk und Uhrenmast -
+innerhalb des Sichtbaren und erst, wenn das Sichtbare steht; Poller und
+Scheiben ohne (wie die Eckpoller).
+
+**Ergebnis (Keim 4711):**
+
+| Stadtteil | Baeume vorher -> nachher | je 100 m | Mobiliar je 100 m | Kanten mit Luecke >= 20 m | mittlere groesste Luecke |
+| --- | --- | --- | --- | --- | --- |
+| ZENTRUM | 0 -> 45 | 1,23 | 6,1 -> 13,8 | 78 -> 18 von 96 | 29,3 -> 16,0 m |
+| GESCHAEFT | 0 -> 42 | 2,30 | 5,8 -> 12,3 | 42 -> 10 von 48 | 30,5 -> 15,4 m |
+| MISCHUNG | 0 -> 273 | 4,85 | 6,1 -> 8,9 | 133 -> 11 von 148 | 30,6 -> 14,2 m |
+| UFER | 49 -> 153 | 6,79 | 5,6 -> 8,8 | 37 -> 1 von 44 | 29,8 -> 14,0 m |
+| WOHN | 0 -> 227 | 6,22 | 6,1 -> 7,3 | 82 -> 5 von 96 | 29,9 -> 12,6 m |
+| PARK | 24 -> 62 | 20,4 | 9,2 -> 11,5 | 0 -> 0 von 8 | 14,5 -> 8,6 m |
+
+Neu: 729 Baeume, 670 Baumscheiben, 38 Pflanzscheiben, 183 Baenke,
+272 Muelleimer, 120 Pflanzkuebel, 86 Poller, 13 Uhren, 3 Kioske;
+1320 neue Hindernisse. Kanten mit gleichem Muster 413 -> 60.
+
+Harte Fehler (street-details.js, Soll 0): Fahrbahn/Loch, Haus, Haustuer,
+Zebrastreifen, Bestand, untereinander, Baum in Parkauto, an Laterne,
+Ampel oder Baum, Gehweg unter 1,8 m, Gehnetzknoten eingeengt, Kante
+gesperrt, Knoten abgeschnitten, Hindernis ohne Sichtbares, Massives ohne
+Hindernis, Hindernis groesser als das Sichtbare - alle 0. Freigang
+(`freigang.js`, jetzt mit Grundriss, Arkaden und Promenade): alle
+Flaechen frei, keine neue Bewegungspfad-Beruehrung; der eine
+Arkaden-Befund (Laterne bei -18/150) steht so schon in 339184b.
+
+Leistung (`stadt-leistung.js`, 300 Aufnahmen, gegen 339184b):
+Zeichenaufrufe Median 826 -> 837 (+1,3 Prozent, Tor 899), Dreiecke
+Median 3,15 -> 3,86 Mio. (+22,6 Prozent, Tor +35); Szene +12 Objekte
+(die Felder), +1 Material.
+
+**Pruefstand Top-out angepasst:** `topoutlandung.js` beginnt den Anlauf
+fuenf Meter vor der Fassade - das ist die Moeblierungszone. Bei
+FlatFacade 169 +z f 0,8 stand ein neuer Stamm auf der Anlaufbahn; bei
+MO1 Haus 1 -z liegt der Startpunkt in einem Parkauto (Bestand), das die
+Figur 1,2 m zur Seite schiebt - genau vor die neue Bank am Baum. Die
+Figur kam nicht an die Wand (Ueberziehen 12/12, Kontrolle 6/6).
+Derselbe Code mit `ohneSD` (Stadt ohne 6A): 13/13 und 8/8. Der
+Pruefstand nimmt jetzt, wie schon Autos, Passanten und Gegner, die
+Strassendetails auf der 3 m breiten Anlaufbahn fuer den Lauf aus der
+Kollision; gemessen wird weiter nur das Ueberziehen.
+
+**Regression (Keim 4711, Vergleich 339184b im selben Durchgang):**
+`node --test` 170/170. Stadtraster unveraendert (Hindernisse 9697 ->
+11017, genau die 1320 neuen). Parkautos 300, ohne Befund, gleich.
+Kernsysteme: Story 8/8, Seitenfehler 0, npc- und
+enemyStaticPenetration 0, Stadtmoebel 7 -> 19 Felder, 781 -> 2895
+Stueck. npc-wege A 0, B 0, C 0, D 82 und E 84 von 100 - 339184b im
+selben Durchgang A 1, D 79, E 79 (die bekannte Streuung, siehe
+PHASE13). Naht 221/221/221, Aussenecke 150/150. Innenklettern
+0/0/0/0; Kontrolle aussen 89/92 statt 90/92 - Raum 10 Nord startet
+0,26 m neben einer neuen Bank (mit `ohneSD` 90/92). MO1-Kletterproxy
+Brust/Becken/Loch/Kiste 0. Top-out 13/13 und 8/8,
+postTopOutUnexpectedDisplacement 0,000. Brutal-Halle gehen und rennen
+30/30, invisibleCollision 0. Neon-Pflichtbahnen 27: Brust, Becken, Knie,
+Schnitt 0. Kletterstetigkeit: playerInsideForeignBuildingWhileClimbing 0.
+
+**Ladezeit** (Pruefstand `starte()` bis die Szene ruht, SwiftShader,
+ruhige Maschine, abwechselnd je drei Laeufe): 339184b 33,4 / 35,4 /
+38,4 s, mit 6A 41,0 / 41,6 / 42,2 s - im Median +6 s; derselbe Code mit
+`ohneSD` 34,8 / 36,0 s. Eigener 6A-Code: 0,54 s Planung (im Profil
+gemessen; das Anlegen der Felder unter 0,17 s) und ein zusaetzliches
+Shaderprogramm (Lambert,
+instanziert, Vertexfarben und Textur: die Baumfelder). Die Stadt ist
+mit und ohne 6A gleich schnell fertig - die Objektzahl der Szene steht
+nach 25,2 bzw. 26,0 s. Die Mehrzeit liegt danach, in der Ruhe-Wartezeit
+des Pruefstands: dort uebersetzt SwiftShader die letzten
+Standard-Shader (je 2 bis 3,6 s am Stueck), das CPU-Profil verbucht den
+Unterschied auf Programmbau (+3,3 s) und Warten auf den GPU-Prozess
+(+3,8 s). Auf echter Grafikhardware ist das hier nicht messbar; offen.
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,

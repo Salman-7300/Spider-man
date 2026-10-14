@@ -8790,6 +8790,8 @@ function setzeStadtteile(szene) {
   /* Das Beetmodell kann frueher fertig sein als der Bausatz - dann muss
      der Ersatz gleich hier verschwinden. */
   if (beetModellDa) versteckeTeil(BEET_ERSATZ);
+  /* Stufe 6A: die neuen Poller nehmen dieselbe Geometrie. */
+  setzeStrassenDetailPoller();
 }
 
 /* Alle Instanzen eines Bausatzteils ausblenden. */
@@ -25812,8 +25814,12 @@ function ladeStadtmoebel(loader) {
     setzeLaterneModelle();
     setzeBeetModelle();
     setzeBahnhofmoebel();          // die Bank der Zwischenebene steckt hier drin
+    setzeStrassenDetailModelle();  // Stufe 6A: Bank, Pflanzkuebel
   });
-  ladeMoebelDatei(loader, 'assets/bahnhofmoebel.glb', setzeBahnhofmoebel);
+  ladeMoebelDatei(loader, 'assets/bahnhofmoebel.glb', () => {
+    setzeBahnhofmoebel();
+    setzeStrassenDetailModelle();  // Stufe 6A: Muelleimer, Kiosk, Uhr
+  });
 }
 
 /* Die Geometrie eines Stadtmoebels so herrichten, dass sie sich an eine
@@ -25878,7 +25884,10 @@ function moebelAufHoehe(geo, hoch) {
 const MOEBEL_FELDER = [];
 let moebelTakt = 0;
 
-function setzeMoebelFeld(geo, werkstoff, plaetze, wohin) {
+/* anteil: Sichtweite dieses Feldes als Anteil von MOEBEL_SICHT (fehlt er,
+   gilt die volle). Die Strassendetails aus Stufe 6A nutzen ihn - kleine
+   Dinge wie ein Muelleimer verschwinden frueher als eine Ampel. */
+function setzeMoebelFeld(geo, werkstoff, plaetze, wohin, anteil) {
   if (!plaetze.length) return null;
   const netz = new THREE.InstancedMesh(geo, werkstoff, plaetze.length);
   netz.castShadow = true; netz.receiveShadow = true;
@@ -25897,7 +25906,7 @@ function setzeMoebelFeld(geo, werkstoff, plaetze, wohin) {
   netz.count = plaetze.length;
   netz.instanceMatrix.needsUpdate = true;
   (wohin || cityGroup).add(netz);
-  MOEBEL_FELDER.push({ netz, alle,
+  MOEBEL_FELDER.push({ netz, alle, anteil: anteil || 1,
                        orte: plaetze.map(([x, y, z]) => ({ x, y, z })) });
   return netz;
 }
@@ -25939,8 +25948,8 @@ function updateMoebelSicht(dt) {
   if (moebelTakt > 0) return;
   moebelTakt = 0.25;
   const px = player.pos.x, py = player.pos.y, pz = player.pos.z;
-  const w = MOEBEL_SICHT * MOEBEL_SICHT;
   for (const f of MOEBEL_FELDER) {
+    const w = MOEBEL_SICHT * MOEBEL_SICHT * f.anteil * f.anteil;
     let n = 0;
     for (let i = 0; i < f.orte.length; i++) {
       const o = f.orte[i];
@@ -26000,6 +26009,958 @@ function setzeAmpelModelle() {
     for (const dreh of [drehX, drehZ]) plaetze.push([px, SLAB_H, pz, dreh]);
   setzeMoebelFeld(moebelAufHoehe(geo, AMPEL_HOCH), modell.material, plaetze);
   if (ampelRoh) ampelRoh.visible = false;
+}
+
+/* ======================= CITY V2, Stufe 6A: Strassenbaeume und Strassenmoebel =======================
+   Bis hierher stand auf den Gehwegen fast nur, was an die Ecken gehoert:
+   Ampelmast, drei Poller oder ein Beet - an jeder Kreuzung dasselbe Bild.
+   Gemessen (tools/pruef/street-details.js, Keim 4711, Stand 339184b):
+   ausserhalb von Park und Promenade kein einziger Baum, Mobiliar fast
+   nur Eckpoller (6 Stueck je 100 m, an 128 Kanten dasselbe Muster), die
+   laengste ganz leere Gehwegstrecke einer Blockkante 34 bis 38 m in jedem
+   Stadtteil.
+
+   Hier wird EINMAL, nach dem Gehnetz, fuer jede Blockkante geplant:
+   Strassenbaeume und ein paar Gruppen Stadtmoebel, abhaengig von
+   Stadtteil, Strassenklasse und Kantennutzung. Alles steht in der
+   Moeblierungszone am Bordstein (0,6 bis 1,0 m vom Rand), nie vor den
+   Fassaden - dort liegen Eingaenge, Arkaden und Schaufenster. Die Ecken
+   (Ampel, Poller, Ueberweg) bleiben frei: genutzt wird nur |laengs| <=
+   11,5 m der 38 m langen Kante. Dazu die Promenade (Baeume zwischen den
+   vorhandenen, Muelleimer an den Baenken, Kioske am Wasser) und das
+   Innere der beiden Parks (Baumgruppen).
+
+   GEPRUEFT an jeder Stelle, bevor etwas gesetzt wird:
+     - Boden auf Gehweghoehe (groundY) an Ecken und Mitte - nie auf
+       Fahrbahn, Schacht, Treppe, Bruecke, Hauseingangsstufe
+     - nicht in Zebrastreifen (+0,5), Haustuer mit Vorfeld (+0,3),
+       U-Bahn-Abgang (+1,5), Aufzug (3 m), POI-Anker (3 m)
+     - Abstand zu allem, was schon steht: Laterne, Ampel, Beet, Poller,
+       Bank, loser Gegenstand (+0,4), Hindernisse und Parkautos (+0,3)
+     - das Gehnetz bleibt, wie es ist: Knoten und Kanten 0,8 m frei
+       (GEH_FREI 0,75; Passanten gehen bis 0,42 m neben der Kante plus
+       halber Koerper), Ueberwege 0,5 m
+     - nach innen bleiben mindestens 1,8 m Gehweg frei
+     - Baum: 5,5 m zum naechsten Baum (in Parkgruppen 4,0), 4,2 m zur
+       Laterne, 4,5 m zum Ampelmast; Krone nicht in einer Hauskiste,
+       einem Leuchtenkopf oder Ampelausleger (+0,3), unter 2,65 m ueber
+       dem Gehweg nicht ueber der Busspur (Avenue, Boulevard)
+   Was eine Regel verletzt, rueckt laengs der Kante oder faellt weg -
+   gequetscht wird nichts.
+
+   ZUFALL: kein einziger Aufruf des Stadtzufalls. Jede Entscheidung kommt
+   aus sdHash (Weltkeim, Block, Kante, Art, Platz). Auch das Anlegen von
+   THREE-Objekten zieht Zufall (jede uuid vier Zahlen) - deshalb laeuft
+   alles in einem eigenen Strom, und der Stadtstrom wird danach
+   zurueckgesetzt (wie lotsBlock). Neue Hindernisse bekommen eigene
+   Nummern ab SD_KOLL_ID, _kollNr bleibt unberuehrt. Haeuser, Wagen,
+   Passanten, Gegner und Ereignisse bleiben bei gleichem Keim gleich.
+
+   ZEICHNEN: Baeume als Instanzfelder je Variante (Aeste und Laub in
+   einer Geometrie, das vorhandene Material), Baumscheiben und
+   Pflanzscheiben je ein Feld, jede Moebelart ein Feld - alles ueber
+   setzeMoebelFeld, mit einer Sichtweite je Art (SD_SICHT). Kein neues
+   LOD, keine neue Textur, keine neuen Modelle.
+
+   KOLLISION nur fuer Baumstamm (die bewaehrte Stammkiste +-0,34 wie
+   jeder Baum der Stadt), Bank, Muelleimer, Pflanzkuebel, Kiosk und
+   Uhrenmast - jeweils innerhalb des Sichtbaren und erst, wenn das
+   Sichtbare steht. Poller und Scheiben haben keine (wie die Eckpoller). */
+const SD_AUS = typeof window !== 'undefined' && !!window.__WEBHERO_OHNE_SD;
+
+/* ---- Die Stellschrauben: Dichte je Stadtteil ----
+   abstand: Baumabstand laengs der Kante in m (0 = keine Strassenbaeume).
+   klassen: nur an diesen Strassenklassen (null = an allen). Im Zentrum und
+   im Geschaeftsviertel stehen Baeume nur an den Hauptachsen. */
+const SD_BAUM = {
+  WOHN:      { abstand: 10.0, klassen: null },
+  MISCHUNG:  { abstand: 13.0, klassen: null },
+  UFER:      { abstand: 11.0, klassen: null },
+  PARK:      { abstand: 7.5,  klassen: null },
+  GESCHAEFT: { abstand: 14.0, klassen: ['AVENUE', 'BOULEVARD'] },
+  ZENTRUM:   { abstand: 15.0, klassen: ['AVENUE', 'BOULEVARD'] },
+};
+/* Baeume je Viertel im Inneren eines Parks (als Gruppe). */
+const SD_PARK_INNEN = 3;
+/* Moebelgruppen je 100 m Bordstein. 'baum...' sitzt an einem eben
+   gesetzten Strassenbaum (Bank 2,2 m daneben). */
+const SD_GRUPPEN = {
+  ZENTRUM:   { kuebelBank: 0.9, bankMuell: 0.8, muell: 1.0, poller: 0.6, kuebelPaar: 0.6, uhr: 0.3 },
+  GESCHAEFT: { muell: 1.5, bankMuell: 0.9, baumBank: 0.5, kuebel: 0.9, poller: 0.6 },
+  MISCHUNG:  { baumBank: 0.8, baumBankMuell: 0.4, muell: 0.7, kuebel: 0.5 },
+  WOHN:      { baumBank: 0.5, muell: 0.5 },
+  UFER:      { baumBankMuell: 0.8, bankMuell: 0.4, muell: 0.8 },
+  PARK:      { baumBank: 1.5, muell: 0.8 },
+};
+/* Die Nutzung der Kante (kantenNutzung) verschiebt die Mischung: an
+   Ladenstrassen mehr Muelleimer und Poller, vor Bueros Kuebel und Uhren. */
+const SD_NUTZUNG = {
+  LADEN:    { muell: 1.5, bankMuell: 1.2, poller: 1.3 },
+  BUERO:    { kuebelBank: 1.2, kuebelPaar: 1.2, uhr: 1.3 },
+  WOHNEN:   { muell: 0.8, baumBank: 1.2 },
+  GEMISCHT: {},
+  KEIN:     {},
+};
+/* Glieder einer Gruppe: Art und Laengsversatz zum Anker in m. */
+const SD_GLIEDER = {
+  bankMuell:     [['Bank', 0], ['Muelleimer', 1.3]],
+  kuebelBank:    [['Pflanzkuebel', -1.6], ['Bank', 0], ['Pflanzkuebel', 1.6]],
+  kuebelPaar:    [['Pflanzkuebel', -0.95], ['Pflanzkuebel', 0.95]],
+  kuebel:        [['Pflanzkuebel', 0]],
+  muell:         [['Muelleimer', 0]],
+  poller:        [['Poller', -1.6], ['Poller', 0], ['Poller', 1.6]],   // Zahl und Abstaende streut sdKante
+  uhr:           [['Uhr', 0]],
+  baumBank:      [['Bank', 0]],
+  baumBankMuell: [['Bank', 0], ['Muelleimer', 1.3]],
+};
+/* Die Modelle, an ihren Eckpunkten gemessen (Hoehenbaender, Fuss auf
+   y = 0, Ursprung wie moebelGeometrie). Vorn ist +z: Sitzflaeche,
+   Glasfront, Zifferblatt.
+     sicht  Grundriss alles Sichtbaren [x0, x1, z0, z1]
+     koll   das Hindernis - nie groesser als das Sichtbare:
+            Bank        ganze Bank, Sitzhoehe (wie baueBank)
+            Kuebel      der Betontrog ohne ueberhaengende Blaetter
+            Muelleimer  im Rumpf (+-0,29 gegen +-0,31..0,38)
+            Kiosk       der Korpus ohne das Vordach
+            Uhr         nur der Mast
+     tief   Abstand von der Blockmitte (Bordstein bei 19 m) */
+const SD_MODELL = {
+  Bank:         { datei: 'plaza_bench_01',   hoch: 0.952, tief: 18.15,
+                  sicht: [-0.75, 0.75, -0.26, 0.215],   koll: [-0.75, 0.75, -0.26, 0.215], kollH: 0.47 },
+  Pflanzkuebel: { datei: 'plaza_planter_01', hoch: 0.728, tief: 18.2,
+                  sicht: [-0.65, 0.723, -0.26, 0.337],  koll: [-0.65, 0.65, -0.26, 0.26],  kollH: 0.42 },
+  Muelleimer:   { datei: 'trash_bin_01',     hoch: 0.899, tief: 18.3,
+                  sicht: [-0.367, 0.475, -0.392, 0.346], koll: [-0.29, 0.29, -0.29, 0.29], kollH: 0.9 },
+  Kiosk:        { datei: 'info_kiosk_01',    hoch: 2.46,  tief: 0,
+                  sicht: [-1.0, 1.0, -0.7, 0.7],         koll: [-0.8, 0.8, -0.6, 0.6],    kollH: 2.46 },
+  Uhr:          { datei: 'station_clock',    hoch: 2.61,  tief: 18.3,
+                  sicht: [-0.312, 0.312, -0.25, 0.25],   koll: [-0.12, 0.12, -0.12, 0.12], kollH: 2.61 },
+  Poller:       { datei: 'Prop_Bollard',     hoch: 0.892, tief: 18.3,
+                  sicht: [-0.108, 0.108, -0.114, 0.114], koll: null },
+};
+const SD_BORD = PITCH / 2 - ROAD_HALF;      // 19 m: Bordstein, von der Blockmitte
+const SD_LAENGS = 11.5;                     // genutzt wird |laengs| <= 11,5 m
+const SD_BAUM_TIEF = 18.2;                  // Stammmitte 0,8 m vom Bordstein
+const SD_STAMM = 0.34;                      // Stammkiste wie bei jedem Baum der Stadt
+const SD_SCHEIBE = 0.65;                    // halbe Seite der Baumscheibe
+/* Pflanzscheibe im Park - runde Erde wie unter den Parkbaeumen von
+   createPark (0,94 m), etwas kleiner: am Parkrand steht der Stamm 0,8 m
+   vom Bordstein, die Scheibe muss davor enden. */
+const SD_BEET_R = 0.75;
+const SD_NETZ_LUFT = 0.8, SD_UEBERWEG_LUFT = 0.5, SD_SICHT_LUFT = 0.45;
+const SD_GEHWEG = 1.8;                      // freier Gehweg nach innen
+const SD_LUECKE = 1.0;                      // zwischen zwei Gruppen
+const SD_BAUM_ABST = 5.5, SD_BAUM_GRUPPE = 4.0;
+const SD_BAUM_LATERNE = 4.2, SD_BAUM_AMPEL = 4.5;
+/* Unter dieser Hoehe ueber dem Gehweg darf eine Krone nicht ueber die
+   Busspur: Bus 2,70 m ueber der Fahrbahn = 2,45 m ueber dem Gehweg, dazu
+   0,2 m Luft. */
+const SD_FAHRZEUG_H = 2.65;
+const SD_KOLL_ID = 9000000;
+const PROM_X1_SD = RIVER_X0;                // Kaimauer: Ende der Promenade
+/* ---- Sichtweite je Art (m, um die Figur) ----
+   Gemessen (tools/pruef/stadt-leistung.js, 300 Aufnahmen): mit der vollen
+   MOEBEL_SICHT von 235 m fuer alles stieg der Median der Dreiecke um
+   56 Prozent - zwei Drittel davon kamen vom Muelleimer (3480 Dreiecke
+   je Stueck, mehr als ein Baum) und von den Baeumen (3024). Kleine Dinge
+   verschwinden deshalb frueher: ein Muelleimer ist auf 110 m noch sechs
+   Bildpunkte hoch. Dasselbe Verfahren wie bei den Kit-Haeusern (170 m),
+   kein neues LOD - nur der Radius des vorhandenen Feldes. */
+const SD_SICHT = { Baum: 185, Scheibe: 110, Bank: 150, Pflanzkuebel: 150, Muelleimer: 110,
+                   Poller: 150, Uhr: 185, Kiosk: 185 };
+function sdAnteil(art) { return (SD_SICHT[art] || MOEBEL_SICHT) / 235; }
+const SD_H = { PHASE: 1, LAGE: 2, VARIANTE: 3, DREHUNG: 4, ZAHL: 5, REIHE: 6, ANKER: 7,
+               SEITE: 8, SPIEGEL: 9, PARK: 10, PROM: 11, ART: 12 };
+
+const SD = {
+  liste: [],             // alle neuen Details
+  raster: new Map(),     // 10-m-Zellen -> Details (Abstaende)
+  baumRaster: new Map(), // 10-m-Zellen -> Baeume (neu und vorhanden)
+  profil: [],            // je Baumvariante: Geometrie, Kronen je Drehung
+  felder: {},            // Art -> Feld steht
+  sicht: {},             // nr -> gezeichnet
+  bestand: null,
+  verworfen: {},         // Grund -> Zahl verworfener Kandidaten
+  orte: (typeof window !== 'undefined' && window.__WEBHERO_TEST__) ? {} : null,  // Pruefstand: Beispiele je Grund
+  letzte: null,
+  gruppen: 0, ms: 0, fehler: null, fertig: false,
+  plan: {},              // Stadtteil:Gruppe -> { soll, ist }
+};
+
+/* Ein eigener, fester Hash - der Stadtzufall bleibt unberuehrt. */
+function sdHash(a, b, c, d) {
+  let h = (WELT_KEIM ^ 0x6a09e667) >>> 0;
+  const teile = [a, b, c, d];
+  for (let i = 0; i < 4; i++) {
+    h = Math.imul(h ^ ((teile[i] | 0) >>> 0), 0x9e3779b1) >>> 0;
+    h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b) >>> 0;
+    h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35) >>> 0;
+    h ^= h >>> 16;
+  }
+  return (h >>> 0) / 4294967296;
+}
+function sdZelle(x, z) { return Math.floor(x / 10) + ',' + Math.floor(z / 10); }
+function sdNahe(raster, k, weit) {
+  const aus = [];
+  const i0 = Math.floor((k.x0 - weit) / 10), i1 = Math.floor((k.x1 + weit) / 10);
+  const j0 = Math.floor((k.z0 - weit) / 10), j1 = Math.floor((k.z1 + weit) / 10);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const l = raster.get(i + ',' + j);
+    if (l) for (const e of l) aus.push(e);
+  }
+  return aus;
+}
+function sdEintragen(raster, x, z, e) {
+  const k = sdZelle(x, z);
+  if (!raster.has(k)) raster.set(k, []);
+  raster.get(k).push(e);
+}
+/* Kiste um (x, z), um dreh gedreht wie THREE (rotation.y), achsparallel. */
+function sdDrehKasten(r, x, z, dreh) {
+  const c = Math.cos(dreh), s = Math.sin(dreh);
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [px, pz] of [[r[0], r[2]], [r[1], r[2]], [r[0], r[3]], [r[1], r[3]]]) {
+    const wx = x + px * c + pz * s, wz = z - px * s + pz * c;
+    if (wx < x0) x0 = wx;
+    if (wx > x1) x1 = wx;
+    if (wz < z0) z0 = wz;
+    if (wz > z1) z1 = wz;
+  }
+  return { x0, x1, z0, z1 };
+}
+function sdUeber(a, q, luft) {
+  return a.x1 + luft > q.x0 && a.x0 - luft < q.x1 && a.z1 + luft > q.z0 && a.z0 - luft < q.z1;
+}
+function sdKastenPunkt(k, x, z) {
+  return Math.hypot(Math.max(k.x0 - x, 0, x - k.x1), Math.max(k.z0 - z, 0, z - k.z1));
+}
+function sdPunktStrecke(px, pz, ax, az, bx, bz) {
+  const vx = bx - ax, vz = bz - az, l2 = vx * vx + vz * vz;
+  const t = l2 > 0 ? clamp(((px - ax) * vx + (pz - az) * vz) / l2, 0, 1) : 0;
+  return Math.hypot(px - ax - vx * t, pz - az - vz * t);
+}
+/* Abstand Strecke - Kiste (0, wenn sie sie schneidet). */
+function sdStreckeKasten(ax, az, bx, bz, k) {
+  let t0 = 0, t1 = 1;
+  const dx = bx - ax, dz = bz - az;
+  const schnitt = [[-dx, ax - k.x0], [dx, k.x1 - ax], [-dz, az - k.z0], [dz, k.z1 - az]].every(([p, q]) => {
+    if (Math.abs(p) < 1e-12) return q >= 0;
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+    else { if (r < t0) return false; if (r < t1) t1 = r; }
+    return true;
+  });
+  if (schnitt && t0 <= t1) return 0;
+  let m = Math.min(sdKastenPunkt(k, ax, az), sdKastenPunkt(k, bx, bz));
+  for (const [px, pz] of [[k.x0, k.z0], [k.x1, k.z0], [k.x0, k.z1], [k.x1, k.z1]])
+    m = Math.min(m, sdPunktStrecke(px, pz, ax, az, bx, bz));
+  return m;
+}
+function sdKollNahe(k) {
+  const aus = new Set();
+  for (const x of [k.x0, k.x1]) for (const z of [k.z0, k.z1])
+    for (const c of collidersNear(x, z)) aus.add(c);
+  return aus;
+}
+
+/* ---- Was schon steht ----
+   Alles ohne eigenes Hindernis (Laterne, Ampel, Beet, Poller, lose
+   Gegenstaende) als Kreis, dazu die vorhandenen Baeume und die Flaechen,
+   die frei bleiben muessen. Einmal gesammelt, bevor geplant wird. */
+function sdBestandSammeln() {
+  const B = { punkte: new Map(), loecher: [], laternen: [], ampeln: [], tueren: hausTueren(),
+              pois: POI.liste.filter((p) => Math.abs((p.y || 0) - SLAB_H) < 3) };
+  const punkt = (x, z, r, art) => sdEintragen(B.punkte, x, z, { x, z, r, art });
+  for (const [x, z] of LATERNE_STELLEN) { punkt(x, z, MOEBEL_RADIUS.Laterne, 'Laterne'); B.laternen.push([x, z]); }
+  for (const [x, z] of AMPEL_STELLEN) { punkt(x, z, MOEBEL_RADIUS.Ampel, 'Ampel'); B.ampeln.push([x, z]); }
+  for (const [x, z] of BEET_STELLEN) punkt(x, z, MOEBEL_RADIUS.Beet, 'Beet');
+  for (const t of TEIL_STELLEN.Prop_Bollard || []) punkt(t.x, t.z, MOEBEL_RADIUS.Poller, 'Poller');
+  /* Baenke (baueBank) fehlen hier mit Absicht: jede hat ein Hindernis in
+     ihrem echten Grundriss, das prueft sdPruefe genauer als ein Kreis. */
+  for (const o of ZIEH) punkt(o.heim.x, o.heim.z, 0.45, 'Zieh');
+  /* Die vorhandenen Baeume (Promenade, Parks, Ufer drueben). */
+  cityGroup.updateMatrixWorld(true);
+  const p = new THREE.Vector3();
+  cityGroup.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.name !== 'TreeFoliage') return;
+    o.getWorldPosition(p);
+    sdEintragen(SD.baumRaster, p.x, p.z, { x: p.x, z: p.z, gruppe: true, bestand: true });
+  });
+  for (let bi = 0; bi < BLOCKS_X; bi++) for (let bj = 0; bj < BLOCKS_Z; bj++) {
+    const cx = RASTER_X0 + bi * PITCH + PITCH / 2, cz = RASTER_Z0 + bj * PITCH + PITCH / 2;
+    for (const l of ubahnLoecherFuerBlock(cx, cz)) B.loecher.push(l);
+  }
+  return B;
+}
+
+/* ---- Die Baumvarianten: Geometrie und Krone je Drehung ----
+   Aeste und Laub haben dasselbe Material - eine Geometrie, ein
+   Zeichenaufruf je Variante. Fuer jede der 16 Drehungen die Kiste der
+   Krone (ab 2 m) und die Kiste unter SD_FAHRZEUG_H. */
+function sdBaumProfile() {
+  if (!(CITY_LOOK && CITY_LOOK.createTree)) return;
+  for (let v = 0; v < 4; v++) {
+    const t = CITY_LOOK.createTree(v);
+    const teile = t.children.filter((m) => m.isMesh).map((m) => m.geometry);
+    const geo = new THREE.BufferGeometry();
+    for (const a of ['position', 'normal', 'color', 'uv']) {
+      const q = teile.map((g) => g.attributes[a]);
+      if (q.some((x) => !x)) continue;
+      const arr = new Float32Array(q.reduce((s, x) => s + x.array.length, 0));
+      let o = 0;
+      for (const x of q) { arr.set(x.array, o); o += x.array.length; }
+      geo.setAttribute(a, new THREE.BufferAttribute(arr, q[0].itemSize));
+    }
+    geo.computeBoundingSphere();
+    const pos = geo.attributes.position;
+    let oben = 0;
+    for (let i = 0; i < pos.count; i++) oben = Math.max(oben, pos.getY(i));
+    const krone = [], tief = [];
+    for (let r = 0; r < 16; r++) {
+      const th = r * Math.PI / 8, c = Math.cos(th), s = Math.sin(th);
+      const K = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+      const T = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+      for (let i = 0; i < pos.count; i++) {
+        const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
+        const wx = px * c + pz * s, wz = -px * s + pz * c;
+        const Z = py >= 2.0 ? K : null, U = py < SD_FAHRZEUG_H ? T : null;
+        for (const q of [Z, U]) {
+          if (!q) continue;
+          if (wx < q.x0) q.x0 = wx;
+          if (wx > q.x1) q.x1 = wx;
+          if (wz < q.z0) q.z0 = wz;
+          if (wz > q.z1) q.z1 = wz;
+        }
+      }
+      krone.push(K); tief.push(T);
+    }
+    SD.profil.push({ geo, material: t.children[0].material, krone, tief, oben,
+                     stammH: t.userData.trunk.height, plaetze: [] });
+  }
+}
+
+/* ---- Das Gehnetz in der Naehe: kleinster Abstand zu Knoten, Kante,
+   Ueberweg ---- */
+function sdNetz(k) {
+  const aus = { knoten: Infinity, kante: Infinity, ueberweg: Infinity };
+  const Z = GEH.zellen;
+  const mx = (k.x0 + k.x1) / 2, mz = (k.z0 + k.z1) / 2;
+  const i0 = Math.floor(mx / Z), j0 = Math.floor(mz / Z);
+  for (let i = i0 - 2; i <= i0 + 2; i++) for (let j = j0 - 2; j <= j0 + 2; j++) {
+    const l = GEH.raster.get(i + ',' + j);
+    if (!l) continue;
+    for (const ni of l) {
+      const n = GEH.knoten[ni];
+      const dk = sdKastenPunkt(k, n.x, n.z);
+      if (dk < aus.knoten) aus.knoten = dk;
+      for (const e of n.kanten) {
+        const m = GEH.knoten[e.zu];
+        if (!m) continue;
+        const d = sdStreckeKasten(n.x, n.z, m.x, m.z, k);
+        if (e.ueberweg) { if (d < aus.ueberweg) aus.ueberweg = d; }
+        else if (d < aus.kante) {
+          aus.kante = d;
+          if (SD.orte) aus.wo = [+n.x.toFixed(2), +n.z.toFixed(2), +m.x.toFixed(2), +m.z.toFixed(2), +d.toFixed(2)];
+        }
+      }
+    }
+  }
+  return aus;
+}
+
+/* Bleibt nach innen genug Gehweg? Von der Innenkante des Grundrisses
+   1,8 m weit: kein Hindernis auf Koerperhoehe, Boden auf Gehweghoehe. */
+function sdGehwegFrei(k, nx, nz) {
+  const innen = nx > 0 ? k.x0 : nx < 0 ? k.x1 : nz > 0 ? k.z0 : k.z1;
+  const quer = nx !== 0 ? [k.z0 + 0.05, (k.z0 + k.z1) / 2, k.z1 - 0.05]
+                        : [k.x0 + 0.05, (k.x0 + k.x1) / 2, k.x1 - 0.05];
+  /* Die Hindernisse im abgetasteten Streifen einmal heraussuchen. */
+  const W = SD_GEHWEG + 0.05;
+  const streifen = nx !== 0
+    ? { x0: Math.min(innen, innen - nx * W), x1: Math.max(innen, innen - nx * W), z0: k.z0, z1: k.z1 }
+    : { x0: k.x0, x1: k.x1, z0: Math.min(innen, innen - nz * W), z1: Math.max(innen, innen - nz * W) };
+  const im = [];
+  for (const c of sdKollNahe(streifen)) {
+    if (c.parkAuto || (c.h || 0) < 0.5 || (c.y0 !== undefined && c.y0 > 2.0)) continue;
+    if (sdUeber(streifen, c, 0.01)) im.push(c);
+  }
+  for (const q of quer) {
+    for (let w = 0.05; w <= W + 1e-6; w += 0.05) {
+      const px = nx !== 0 ? innen - nx * w : q, pz = nz !== 0 ? innen - nz * w : q;
+      if (Math.abs(groundY(px, pz, 2) - SLAB_H) > 0.06) return false;
+      for (const c of im) if (px > c.x0 && px < c.x1 && pz > c.z0 && pz < c.z1) return false;
+    }
+  }
+  return true;
+}
+
+/* ---- Darf hier etwas stehen? ----
+   k: sichtbarer Grundriss (Boden, Flaechen, Bestand, Hindernisse, neue
+   Details, freier Gehweg); kn: das Hindernis, an dem man haengen bleibt
+   (Gehnetz). Beim Baum ist beides der Stamm - die Scheibe ist flach und
+   wird vorher mit opt.flach geprueft (nur Boden und Flaechen). Gibt null
+   oder den Grund zurueck. */
+function sdPruefe(k, kn, richtung, opt) {
+  const B = SD.bestand;
+  SD.letzte = SD.orte ? { x: +((k.x0 + k.x1) / 2).toFixed(2), z: +((k.z0 + k.z1) / 2).toFixed(2) } : null;
+  for (const [px, pz] of [[k.x0, k.z0], [k.x1, k.z0], [k.x0, k.z1], [k.x1, k.z1],
+                          [(k.x0 + k.x1) / 2, (k.z0 + k.z1) / 2]]) {
+    if (inWater(px, pz) || onBridge(px, pz)) return 'boden';
+    if (Math.abs(groundY(px, pz, 2) - SLAB_H) > 0.03) {
+      if (SD.letzte) SD.letzte.y = +groundY(px, pz, 2).toFixed(3);
+      return 'boden';
+    }
+  }
+  if (aufZebra(k.x0 - 0.5, k.x1 + 0.5, k.z0 - 0.5, k.z1 + 0.5)) return 'zebra';
+  for (const t of B.tueren) if (sdUeber(k, t.durchgang, 0.3) || sdUeber(k, t.vorfeld, 0.3)) return 'tuer';
+  for (const l of B.loecher) if (sdUeber(k, l, 1.5)) return 'ubahn';
+  for (const a of AUFZUEGE) if (sdKastenPunkt(k, a.x, a.z) < 3.0) return 'aufzug';
+  for (const p of B.pois) if (sdKastenPunkt(k, p.x, p.z) < 3.0) return 'poi';
+  /* Neue Details: eigene Gruppe darf dicht dran, alles andere 1 m Luft.
+     Die Scheibe des eigenen Baums gehoert zur Gruppe. */
+  for (const e of sdNahe(SD.raster, k, 3)) {
+    const eigen = opt.gruppe !== undefined && e.gruppeNr === opt.gruppe;
+    if (opt.flach && !eigen) { if (sdUeber(k, e.sicht, 0.3)) return 'neu'; continue; }
+    if (opt.flach) continue;
+    if (sdUeber(k, e.sicht, eigen ? 0.05 : SD_LUECKE)) return 'neu';
+  }
+  if (opt.flach) return null;
+  for (const b of sdNahe(B.punkte, k, 3)) if (sdKastenPunkt(k, b.x, b.z) < b.r + 0.4) return b.art;
+  for (const c of sdKollNahe(k)) {
+    if (c.strassenDetail || (c.h || 0) < SLAB_H + 0.1) continue;
+    if (c.y0 !== undefined && c.y0 > SLAB_H + 2.0) continue;     // Vordach, Leuchtenkopf: Krone prueft eigens
+    /* Ein Parkauto steht auf der Fahrbahn, der Grundriss auf dem
+       Gehweg: sie duerfen sich nur nicht schneiden. */
+    if (sdUeber(k, c, c.parkAuto ? 0.1 : 0.3)) {
+      if (SD.letzte) SD.letzte.c = [c.id, +c.x0.toFixed(2), +c.x1.toFixed(2), +c.z0.toFixed(2), +c.z1.toFixed(2),
+                                    c.y0 === undefined ? null : +c.y0.toFixed(2), +(c.h || 0).toFixed(2)];
+      return c.parkAuto ? 'parkauto' : c.klein ? 'hindernis' : 'haus';
+    }
+  }
+  /* Das Gehnetz gegen den Teil, an dem man haengen bleibt (Hindernis,
+     sonst das Sichtbare): 0,8 m. Was nur sichtbar ist (Blaetter des
+     Kuebels, Papier am Muelleimer), darf bis 0,45 m an die Kante. */
+  const netz = sdNetz(kn);
+  if (SD.letzte && netz.wo) SD.letzte.netz = netz.wo;
+  if (netz.knoten < SD_NETZ_LUFT) return 'netzKnoten';
+  if (netz.kante < SD_NETZ_LUFT) return 'netzKante';
+  if (netz.ueberweg < SD_UEBERWEG_LUFT) return 'ueberweg';
+  if (kn !== k) {
+    const sicht = sdNetz(k);
+    if (Math.min(sicht.knoten, sicht.kante, sicht.ueberweg) < SD_SICHT_LUFT) return 'netzSicht';
+  }
+  /* Der freie Gehweg zaehlt ab dem Sichtbaren (Blaetter, Papier, Lehne) -
+     beim Baum ab dem Stamm, ueber die Scheibe geht man hinweg. */
+  if (richtung && !sdGehwegFrei(k, richtung[0], richtung[1])) return 'gehweg';
+  return null;
+}
+function sdVerwirf(grund) {
+  SD.verworfen[grund] = (SD.verworfen[grund] || 0) + 1;
+  if (SD.orte && SD.letzte) {
+    const l = SD.orte[grund] || (SD.orte[grund] = []);
+    if (l.length < 400) l.push(SD.letzte);
+  }
+  return null;
+}
+
+/* ---- Die Krone ----
+   Nicht in einer Hauskiste (die reicht bis zur aeussersten Fassade),
+   nicht in einem Leuchtenkopf oder Ampelausleger (hohe kleine
+   Hindernisse), unter SD_FAHRZEUG_H nicht ueber die Busspur. */
+function sdKroneFrei(x, z, P, r, ort) {
+  const kr = P.krone[r];
+  const box = { x0: x + kr.x0, x1: x + kr.x1, z0: z + kr.z0, z1: z + kr.z1 };
+  const yU = SLAB_H + 2.0, yO = SLAB_H + P.oben;
+  for (const c of sdKollNahe(box)) {
+    if (c.strassenDetail || c.parkAuto) continue;
+    const hoch = !c.klein || (c.y0 !== undefined && c.y0 > 1.5) || (c.h || 0) > SLAB_H + 3.0;
+    if (!hoch || (c.h || 0) < yU || (c.y0 !== undefined && c.y0 > yO)) continue;
+    if (sdUeber(box, c, 0.3)) return false;
+  }
+  const K = ort.kante;
+  if (K && K.block && (K.klasse === 'AVENUE' || K.klasse === 'BOULEVARD')) {
+    const t = P.tief[r];
+    const aussen = K.nx > 0 ? x + t.x1 : K.nx < 0 ? -(x + t.x0) : K.nz > 0 ? z + t.z1 : -(z + t.z0);
+    const bord = (K.nx !== 0 ? K.nx * K.cx : K.nz * K.cz) + SD_BORD;
+    if (aussen > bord + 0.15) return false;
+  }
+  return true;
+}
+
+/* Einen Eintrag festhalten. */
+function sdNimm(e) {
+  e.nr = SD.liste.length;
+  SD.liste.push(e);
+  sdEintragen(SD.raster, e.x, e.z, e);
+  return e;
+}
+
+/* ---- Ein Baum an (x, z)? ----
+   ort: { x, z, kante, a, gruppe, park, scheibe: 'eckig' | 'rund' | null,
+          vorher (Variante des Nachbarn), h (Hashteile) } */
+function sdBaumVersuch(ort) {
+  if (!SD.profil.length) return null;
+  const { x, z } = ort;
+  const S = ort.scheibe === 'rund' ? SD_BEET_R : SD_SCHEIBE;
+  const scheibe = { x0: x - S, x1: x + S, z0: z - S, z1: z + S };
+  const stamm = { x0: x - SD_STAMM, x1: x + SD_STAMM, z0: z - SD_STAMM, z1: z + SD_STAMM };
+  const gNr = SD.gruppen + 1;
+  if (ort.scheibe) {
+    const g = sdPruefe(scheibe, scheibe, null, { flach: true, gruppe: gNr });
+    if (g) return sdVerwirf('baum:' + g);
+  }
+  const richtung = ort.kante ? [ort.kante.nx, ort.kante.nz] : null;
+  /* Die Scheibe ist flach (oben geprueft), alles Weitere gilt dem Stamm. */
+  const g = sdPruefe(stamm, stamm, richtung, { gruppe: gNr });
+  if (g) return sdVerwirf('baum:' + g);
+  /* Abstaende zu Baeumen, Laternen, Ampeln */
+  for (const b of sdNahe(SD.baumRaster, stamm, SD_BAUM_ABST)) {
+    const min = (ort.gruppe && b.gruppe) ? SD_BAUM_GRUPPE : SD_BAUM_ABST;
+    if (Math.hypot(b.x - x, b.z - z) < min) return sdVerwirf('baum:baum');
+  }
+  for (const [lx, lz] of SD.bestand.laternen) if (Math.hypot(lx - x, lz - z) < SD_BAUM_LATERNE) return sdVerwirf('baum:laterne');
+  for (const [ax, az] of SD.bestand.ampeln) if (Math.hypot(ax - x, az - z) < SD_BAUM_AMPEL) return sdVerwirf('baum:ampel');
+  /* Variante und Drehung: die erste, deren Krone frei ist. Nie dieselbe
+     Variante wie der Nachbar. */
+  const [h1, h2, h3] = ort.h;
+  const v0 = Math.floor(sdHash(h1, h2, SD_H.VARIANTE, h3) * 4);
+  const r0 = Math.floor(sdHash(h1, h2, SD_H.DREHUNG, h3) * 16);
+  for (let dv = 0; dv < 4; dv++) {
+    const v = (v0 + dv) % 4;
+    if (v === ort.vorher) continue;
+    const P = SD.profil[v];
+    for (let dr = 0; dr < 16; dr++) {
+      const r = (r0 + dr * 5) % 16;          // 5 ist teilerfremd zu 16: alle Drehungen, gestreut
+      if (!sdKroneFrei(x, z, P, r, ort)) continue;
+      SD.gruppen++;
+      const dreh = r * Math.PI / 8;
+      const baum = sdNimm({ art: 'Baum', x, z, dreh, v, variante: 'v' + v, gruppe: !!ort.gruppe,
+                            gruppeNr: gNr, bezirk: ort.bezirk, kante: ort.kante ? ort.kante.name : null,
+                            sicht: stamm, kollKasten: stamm, kollH: SLAB_H + P.stammH, a: ort.a });
+      sdEintragen(SD.baumRaster, x, z, { x, z, gruppe: !!ort.gruppe });
+      if (ort.scheibe) {
+        const sch = sdNimm({ art: ort.scheibe === 'rund' ? 'Pflanzscheibe' : 'Baumscheibe', x, z, dreh: 0,
+                             flach: true, gruppeNr: gNr, bezirk: ort.bezirk, sicht: scheibe, baumNr: baum.nr });
+        baum.scheibeNr = sch.nr;
+      }
+      return baum;
+    }
+    sdVerwirf('baum:krone');
+  }
+  return null;
+}
+
+/* Weltlage eines Gliedes an einer Kante: laengs a, Art, Ausrichtung. */
+function sdGlied(K, art, a, hs) {
+  const M = SD_MODELL[art];
+  const tief = M.tief;
+  const x = K.cx + K.nx * tief + K.tx * a, z = K.cz + K.nz * tief + K.tz * a;
+  const innen = Math.atan2(-K.nx, -K.nz);          // Vorderseite (+z) zum Gehweg
+  let dreh = innen;
+  if (art === 'Pflanzkuebel' && hs < 0.5) dreh += Math.PI;
+  if (art === 'Muelleimer') dreh += Math.floor(hs * 4) * Math.PI / 2;
+  if (art === 'Uhr') dreh = Math.atan2(K.tx, K.tz) + (hs < 0.5 ? Math.PI : 0);
+  if (art === 'Poller') dreh = 0;
+  return { art, x, z, dreh, a };
+}
+/* Eine ganze Gruppe pruefen und, wenn alles passt, setzen. */
+function sdGruppeSetzen(K, glieder, name, gVorgabe) {
+  const gNr = gVorgabe || SD.gruppen + 1;
+  const fertig = [];
+  for (const q of glieder) {
+    const M = SD_MODELL[q.art];
+    const sicht = sdDrehKasten(M.sicht, q.x, q.z, q.dreh);
+    const koll = M.koll ? sdDrehKasten(M.koll, q.x, q.z, q.dreh) : sicht;
+    const g = sdPruefe(sicht, koll, [K.nx, K.nz], { gruppe: gNr });
+    if (g) return sdVerwirf(q.art + ':' + g);
+    /* Glieder derselben Gruppe untereinander */
+    for (const f of fertig) if (sdUeber(sicht, f.sicht, 0.05)) return sdVerwirf(q.art + ':glied');
+    fertig.push(Object.assign({}, q, { sicht }));
+  }
+  if (!gVorgabe) SD.gruppen++;
+  const aus = [];
+  for (const q of fertig) {
+    const M = SD_MODELL[q.art];
+    aus.push(sdNimm({ art: q.art, x: q.x, z: q.z, dreh: q.dreh, sicht: q.sicht,
+                      kollKasten: M.koll ? sdDrehKasten(M.koll, q.x, q.z, q.dreh) : null,
+                      kollH: M.koll ? SLAB_H + M.kollH : 0, gruppeNr: gNr, gruppeName: name,
+                      bezirk: K.art, kante: K.name, a: q.a }));
+  }
+  return aus;
+}
+
+/* Die groesste freie Strecke der Moeblierungszone einer Kante: was dort
+   schon steht (neu und Bestand, 17,5 bis 19 m von der Blockmitte), auf
+   die Kante projiziert. */
+function sdLuecke(K, breite) {
+  const belegt = [];
+  const projiziere = (k) => {
+    const a0 = K.tx ? k.x0 - K.cx : k.z0 - K.cz, a1 = K.tx ? k.x1 - K.cx : k.z1 - K.cz;
+    belegt.push([a0, a1]);
+  };
+  const zone = { x0: K.cx + Math.min(K.nx * 17.5, K.nx * SD_BORD) + (K.tx ? -SD_LAENGS : 0),
+                 x1: K.cx + Math.max(K.nx * 17.5, K.nx * SD_BORD) + (K.tx ? SD_LAENGS : 0),
+                 z0: K.cz + Math.min(K.nz * 17.5, K.nz * SD_BORD) + (K.tz ? -SD_LAENGS : 0),
+                 z1: K.cz + Math.max(K.nz * 17.5, K.nz * SD_BORD) + (K.tz ? SD_LAENGS : 0) };
+  for (const e of sdNahe(SD.raster, zone, 2)) if (sdUeber(zone, e.sicht, 0)) projiziere(e.sicht);
+  for (const b of sdNahe(SD.bestand.punkte, zone, 2)) {
+    if (b.x < zone.x0 || b.x > zone.x1 || b.z < zone.z0 || b.z > zone.z1) continue;
+    projiziere({ x0: b.x - b.r, x1: b.x + b.r, z0: b.z - b.r, z1: b.z + b.r });
+  }
+  belegt.sort((p, q) => p[0] - q[0]);
+  let vor = -SD_LAENGS, best = null;
+  const pruefe = (bis) => {
+    const l = bis - vor - 2 * SD_LUECKE;
+    if (l >= 2 * breite && (!best || l > best.laenge)) best = { mitte: (vor + bis) / 2, laenge: l, spiel: l - 2 * breite };
+  };
+  for (const [a0, a1] of belegt) { if (a0 > vor) pruefe(a0); vor = Math.max(vor, a1); }
+  pruefe(SD_LAENGS);
+  return best;
+}
+
+/* ---- Eine Blockkante ---- */
+function sdKante(K) {
+  /* Baeume: Abstand aus der Kante, Startpunkt und Abweichung aus dem
+     Hash - keine zwei Kanten gleich, keine Reihe auf den Zentimeter. */
+  const baeume = [];
+  const cfg = SD_BAUM[K.art];
+  if (cfg && cfg.abstand > 0 && (!cfg.klassen || cfg.klassen.indexOf(K.klasse) >= 0)) {
+    const s = cfg.abstand, L = SD_LAENGS;
+    let ziel = -L + sdHash(K.id, K.seiteNr, SD_H.PHASE, 0) * Math.min(s * 0.5, 4.0);
+    let letzte = -Infinity, vorV = -1;
+    for (let k = 0; ziel <= L + 0.01 && k < 8; k++) {
+      /* +-1 m um das Ziel, und der naechste Abstand streut um +-10 Prozent:
+         eine Reihe, aber keine auf den Zentimeter (gemessen: mit +-0,7 m
+         allein bildeten 35 Baumtripel gleich lange Abstaende). */
+      const wunsch = ziel + (sdHash(K.id, K.seiteNr, SD_H.LAGE, k) - 0.5) * 2.0;
+      let ok = null;
+      for (const d of [0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5, 2.0, -2.0, 2.5, -2.5]) {
+        const a = wunsch + d;
+        if (a < -L || a > L || a - letzte < Math.max(SD_BAUM_ABST, s * 0.72)) continue;
+        ok = sdBaumVersuch({ x: K.cx + K.nx * SD_BAUM_TIEF + K.tx * a, z: K.cz + K.nz * SD_BAUM_TIEF + K.tz * a,
+                             kante: K, a, gruppe: false, bezirk: K.art, vorher: vorV,
+                             scheibe: K.art === 'PARK' ? 'rund' : 'eckig', h: [K.id * 4 + K.seiteNr, k, 0] });
+        if (ok) break;
+      }
+      const schritt = s * (0.9 + 0.2 * sdHash(K.id, K.seiteNr, SD_H.REIHE, 500 + k));
+      if (ok) { baeume.push(ok); letzte = ok.a; vorV = ok.v; ziel = ok.a + schritt; }
+      else ziel += schritt;
+    }
+  }
+  /* Moebelgruppen: die Zahl je Kante aus der Summe der Raten je 100 m
+     Bordstein (abgerundet, der Rest per Hash), die Art jeder Gruppe nach
+     ihrem Anteil. Eine Zahl fuer alle statt einer je Art: sonst bleibt
+     eine Kante im Zentrum, deren Wuerfe alle daneben gehen, ganz leer
+     (gemessen: 28 von 96 Kanten mit 20 m Luecke und mehr). Gruppen am
+     Baum gibt es nur an einer Kante mit Baum. */
+  const raten = SD_GRUPPEN[K.art];
+  if (!raten) return;
+  const faktor = SD_NUTZUNG[K.nutzung] || {};
+  const namen = Object.keys(raten).filter((name) => name.indexOf('baum') !== 0 || baeume.length);
+  const gewicht = namen.map((name) => raten[name] * (faktor[name] || 1));
+  const summe = gewicht.reduce((s, g) => s + g, 0);
+  const erw = summe * (2 * SD_BORD) / 100;
+  let anzahl = Math.floor(erw);
+  if (sdHash(K.id, K.seiteNr, SD_H.ZAHL, 0) < erw - anzahl) anzahl++;
+  const plan = [];
+  for (let i = 0; i < anzahl; i++) {
+    let w = sdHash(K.id, K.seiteNr, SD_H.REIHE, i) * summe, gi = 0;
+    while (gi < namen.length - 1 && w > gewicht[gi]) { w -= gewicht[gi]; gi++; }
+    plan.push({ name: namen[gi], baum: namen[gi].indexOf('baum') === 0, h: sdHash(K.id, K.seiteNr, SD_H.REIHE, 64 + i) });
+  }
+  /* Erst die Gruppen am Baum (sie brauchen einen bestimmten Platz), dann
+     die freien - jeweils in Hash-Reihenfolge. */
+  plan.sort((p, q) => (p.baum === q.baum ? p.h - q.h : p.baum ? -1 : 1));
+  const freieBaeume = baeume.slice();
+  for (const [pi, p] of plan.entries()) {
+    let G = SD_GLIEDER[p.name];
+    /* Poller: zwei bis vier, jeder Abstand fuer sich 1,3 bis 2,1 m - eine
+       Reihe, aber keine abgezirkelte. */
+    if (p.name === 'poller') {
+      const n = 2 + Math.floor(sdHash(K.id, K.seiteNr, SD_H.ART, 900 + pi) * 3);
+      const lage = [0];
+      let vorLuecke = 0;
+      for (let i = 1; i < n; i++) {
+        let luecke = 1.3 + 0.8 * sdHash(K.id, K.seiteNr, SD_H.LAGE, 900 + pi * 8 + i);
+        /* zwei gleich lange Luecken hintereinander waeren wieder abgezirkelt */
+        if (vorLuecke && Math.abs(luecke - vorLuecke) < 0.35) luecke = vorLuecke + (vorLuecke < 1.75 ? 0.4 : -0.4);
+        lage.push(lage[i - 1] + luecke);
+        vorLuecke = luecke;
+      }
+      G = lage.map((v) => ['Poller', v - lage[n - 1] / 2]);
+    }
+    const zaehl = SD.plan[K.art + ':' + p.name] || (SD.plan[K.art + ':' + p.name] = { soll: 0, ist: 0 });
+    zaehl.soll++;
+    const vorher = SD.liste.length;
+    if (p.baum) {
+      /* An einem Baum dieser Kante: Bank 2,2 m daneben, der Muelleimer
+         auf der vom Baum abgewandten Seite. */
+      let gesetzt = false;
+      const start = Math.floor(sdHash(K.id, K.seiteNr, SD_H.ANKER, pi) * Math.max(1, freieBaeume.length));
+      for (let bi = 0; bi < freieBaeume.length && !gesetzt; bi++) {
+        const b = freieBaeume[(start + bi) % freieBaeume.length];
+        const s0 = sdHash(K.id, K.seiteNr, SD_H.SEITE, pi) < 0.5 ? -1 : 1;
+        for (const s of [s0, -s0]) {
+          const anker = b.a + s * 2.2;
+          const glieder = G.map(([art, ver], gi) =>
+            sdGlied(K, art, anker + s * ver, sdHash(K.id, K.seiteNr, SD_H.ART, pi * 8 + gi)));
+          if (glieder.some((q) => Math.abs(q.a) > SD_LAENGS)) continue;
+          if (sdGruppeSetzen(K, glieder, p.name, b.gruppeNr)) {
+            freieBaeume.splice(freieBaeume.indexOf(b), 1);
+            gesetzt = true;
+            break;
+          }
+        }
+      }
+      if (gesetzt) zaehl.ist++;
+      continue;
+    }
+    /* Freie Gruppe: in die groesste Luecke der Kante (Mitte, um den Hash
+       verschoben), dann in 0,3-m-Schritten abwechselnd nach beiden
+       Seiten. Die Abstaende in der Gruppe streuen um bis zu 12 Prozent -
+       keine Reihe auf den Zentimeter. */
+    const spiegel = sdHash(K.id, K.seiteNr, SD_H.SPIEGEL, pi) < 0.5 ? -1 : 1;
+    const versatz = G.map(([, ver], gi) => p.name === 'poller' ? ver
+                                       : ver * (1 + 0.12 * sdHash(K.id, K.seiteNr, SD_H.LAGE, 64 + pi * 8 + gi)));
+    let breite = 0;
+    G.forEach(([art], gi) => {
+      const M = SD_MODELL[art];
+      breite = Math.max(breite, Math.abs(versatz[gi]) + Math.max(-M.sicht[0], M.sicht[1], -M.sicht[2], M.sicht[3]));
+    });
+    const spiel = SD_LAENGS - breite;
+    if (spiel <= 0) continue;
+    const luecke = sdLuecke(K, breite);
+    const a0 = luecke ? clamp(luecke.mitte + (sdHash(K.id, K.seiteNr, SD_H.ANKER, pi) - 0.5) * 0.4 * luecke.spiel, -spiel, spiel)
+                      : -spiel + sdHash(K.id, K.seiteNr, SD_H.ANKER, pi) * 2 * spiel;
+    for (let k = 0; k < 160; k++) {
+      const a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.3;
+      if (Math.abs(a) > spiel) continue;
+      const glieder = G.map(([art], gi) =>
+        sdGlied(K, art, a + spiegel * versatz[gi], sdHash(K.id, K.seiteNr, SD_H.ART, pi * 8 + gi)));
+      if (sdGruppeSetzen(K, glieder, p.name)) break;
+    }
+    if (SD.liste.length > vorher) zaehl.ist++;
+  }
+}
+
+/* ---- Promenade ----
+   Je 24 m stehen dort Baum (z + 3,5), Bank (z + 11,5) und Laterne
+   (z + 19,5). Dazu kommt ein zweiter Baum je Abschnitt, zur Strasse hin
+   versetzt (x = 184,4 - 2,1 m vor der Gehkette, 4,7 m von der Laterne),
+   an jeder zweiten Bank ein Muelleimer und an drei Stellen ein Kiosk am
+   Wasser, die Glasfront zur Promenade. */
+function sdPromenade() {
+  const kiosk = [];
+  const abschnitte = [];
+  for (let z = PROM_Z0, m = 0; z < PROM_Z1; z += 24, m++) abschnitte.push([z, m]);
+  /* drei Kioske, verteilt: je einer im noerdlichen, mittleren und
+     suedlichen Drittel */
+  for (let d = 0; d < 3; d++) {
+    const von = Math.floor(abschnitte.length * d / 3), bis = Math.floor(abschnitte.length * (d + 1) / 3);
+    kiosk.push(von + Math.floor(sdHash(1000, d, SD_H.PROM, 99) * (bis - von)));
+  }
+  const wasser = { nx: 1, nz: 0, tx: 0, tz: 1, name: 'prom:wasser', art: 'UFER', klasse: 'PROMENADE' };
+  const strasse = { nx: -1, nz: 0, tx: 0, tz: 1, name: 'prom:strasse', art: 'UFER', klasse: 'PROMENADE' };
+  let vorV = -1;
+  for (const [z, m] of abschnitte) {
+    /* Baum */
+    const zb = z + 15.0 + (sdHash(1000, m, SD_H.LAGE, 0) - 0.5) * 1.6;
+    if (Math.abs(zb - BRIDGE_Z) >= BRIDGE_HW + 6) {
+      for (const d of [0, 0.6, -0.6, 1.2, -1.2]) {
+        const b = sdBaumVersuch({ x: PROM_X0 + 3.4, z: zb + d, kante: strasse, a: zb + d, gruppe: false,
+                                  bezirk: 'UFER', vorher: vorV, scheibe: null, h: [1000, m, 1] });
+        if (b) { vorV = b.v; break; }
+      }
+    }
+    /* Muelleimer an jeder zweiten Bank (die Bank ist 2,2 m lang, laengs z) */
+    const zBank = z + 11.5;
+    if (Math.abs(zBank - BRIDGE_Z) >= BRIDGE_HW + 6 && sdHash(1000, m, SD_H.ZAHL, 0) < 0.55) {
+      const s = sdHash(1000, m, SD_H.SEITE, 0) < 0.5 ? -1 : 1;
+      for (const seite of [s, -s]) {
+        const q = { art: 'Muelleimer', x: PROM_X1_SD - 3.2, z: zBank + seite * 1.95,
+                    dreh: Math.atan2(-wasser.nx, -wasser.nz) + Math.floor(sdHash(1000, m, SD_H.ART, 0) * 4) * Math.PI / 2, a: 0 };
+        if (sdGruppeSetzen(wasser, [q], 'promMuell')) break;
+      }
+    }
+    /* Kiosk am Wasser, gegenueber der Laterne */
+    if (kiosk.indexOf(m) >= 0) {
+      for (const d of [0, 2, -2, 4, -4, 6, -6]) {
+        const zk = z + 19.5 + d;
+        if (Math.abs(zk - BRIDGE_Z) < BRIDGE_HW + 8) continue;
+        const q = { art: 'Kiosk', x: PROM_X1_SD - 2.0, z: zk, dreh: Math.atan2(-wasser.nx, -wasser.nz), a: 0 };
+        if (sdGruppeSetzen(wasser, [q], 'promKiosk')) break;
+      }
+    }
+  }
+}
+
+/* ---- Park innen: Baumgruppen in den vier Rasenvierteln ----
+   Auf einem 1-m-Raster in Hash-Reihenfolge, frei von Wegen (|u|, |v|
+   >= 3,2), Brunnenplatz (7,5 m), Buschreihen am Rand (<= 14,5) und den
+   Baenken; 4 m zum naechsten Baum - dichter als an der Strasse. */
+function sdParkInnen(p, pi) {
+  for (let q = 0; q < 4; q++) {
+    const sx = q & 1 ? 1 : -1, sz = q & 2 ? 1 : -1;
+    const kand = [];
+    for (let u = 3.2; u <= 14.5 + 1e-6; u += 1.0) for (let v = 3.2; v <= 14.5 + 1e-6; v += 1.0) {
+      if (Math.hypot(u, v) < 7.5) continue;
+      kand.push([u, v, sdHash(2000 + pi, q, SD_H.PARK, kand.length)]);
+    }
+    kand.sort((a, b) => a[2] - b[2]);
+    let n = 0, vorV = -1;
+    for (const [u, v] of kand) {
+      if (n >= SD_PARK_INNEN) break;
+      const b = sdBaumVersuch({ x: p.x + sx * u, z: p.z + sz * v, kante: null, a: 0, gruppe: true,
+                                bezirk: 'PARK', vorher: vorV, scheibe: 'rund', h: [2000 + pi, q, n] });
+      if (b) { n++; vorV = b.v; }
+    }
+  }
+}
+
+/* ---- Planen und die Baeume bauen ----
+   Aufgerufen in initActors, direkt nach dem Gehnetz und vor dem ersten
+   Passanten. */
+function baueStrassenDetails() {
+  if (SD.fertig || SD_AUS) return;
+  SD.fertig = true;
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  /* Das Gehnetz entsteht sonst beim ersten Passanten - hier, an derselben
+     Stelle im Ablauf und ohne Zufall, damit der Plan seine Knoten und
+     Kanten kennt und es selbst unveraendert bleibt. */
+  baueGehnetz();
+  const merk = ZUFALL_SEED;
+  zufallKeimSetzen((WELT_KEIM ^ 0x5d6a0001) >>> 0);
+  try {
+    SD.bestand = sdBestandSammeln();
+    sdBaumProfile();
+    for (let bi = 0; bi < BLOCKS_X; bi++) for (let bj = 0; bj < BLOCKS_Z; bj++) {
+      const t = STADTTEIL[bi * BLOCKS_Z + bj];
+      if (!t) continue;
+      const kanten = blockKanten(t.x, t.z);
+      kanten.forEach((k, seiteNr) => {
+        sdKante(Object.assign(k, {
+          id: bi * BLOCKS_Z + bj, seiteNr, block: true, cx: t.x, cz: t.z,
+          tx: k.nz !== 0 ? 1 : 0, tz: k.nx !== 0 ? 1 : 0, art: t.art,
+          nutzung: kantenNutzung(t.art, k.klasse), name: bi + ',' + bj + ':' + k.seite }));
+      });
+    }
+    sdPromenade();
+    parks.forEach((p, pi) => sdParkInnen(p, pi));
+    sdBaeumeZeichnen();
+  } catch (e) {
+    SD.fehler = String(e && e.stack || e);
+    if (typeof window !== 'undefined') window.__sdFehler = SD.fehler;
+  } finally {
+    zufallKeimSetzen(merk);
+  }
+  SD.ms = typeof performance !== 'undefined' ? performance.now() - t0 : 0;
+  setzeStrassenDetailModelle();
+  setzeStrassenDetailPoller();
+}
+
+/* Hindernis eines Details - erst, wenn sein Sichtbares steht. */
+function sdKollider(e) {
+  if (!e.kollKasten || e.koll) return;
+  e.koll = { x0: e.kollKasten.x0, x1: e.kollKasten.x1, z0: e.kollKasten.z0, z1: e.kollKasten.z1,
+             h: e.kollH, y0: SLAB_H - 0.05, klein: true, strassenDetail: true, id: SD_KOLL_ID + e.nr };
+  addCollider(e.koll);
+}
+
+/* Baeume (je Variante ein Feld), Baum- und Pflanzscheiben (je ein Feld,
+   flach, ohne Schatten), Stammkisten. */
+function sdBaeumeZeichnen() {
+  const scheiben = [], beete = [];
+  for (const e of SD.liste) {
+    if (e.art === 'Baum') SD.profil[e.v].plaetze.push([e.x, SLAB_H, e.z, e.dreh]);
+    else if (e.art === 'Baumscheibe') scheiben.push([e.x, SLAB_H, e.z, 0]);
+    else if (e.art === 'Pflanzscheibe') beete.push([e.x, SLAB_H, e.z, 0]);
+  }
+  for (const P of SD.profil) {
+    const netz = setzeMoebelFeld(P.geo, P.material, P.plaetze, null, sdAnteil('Baum'));
+    if (netz) netz.name = 'StrassenBaum';
+  }
+  /* Baumscheibe: niedriger Betonrahmen um dunkle Erde, 1,3 x 1,3 m - nur
+     4 cm hoch, man geht darueber. */
+  const S = SD_SCHEIBE, W = 0.07;
+  const werkstoff = new THREE.MeshLambertMaterial({ vertexColors: true });
+  if (scheiben.length) {
+    const geo = verschmelzeBoxen([
+      { w: 2 * S, h: 0.04, d: W, x: 0, y: 0.02, z: S - W / 2, farbe: 0x8d8f8c },
+      { w: 2 * S, h: 0.04, d: W, x: 0, y: 0.02, z: -S + W / 2, farbe: 0x8d8f8c },
+      { w: W, h: 0.04, d: 2 * S - 2 * W, x: S - W / 2, y: 0.02, z: 0, farbe: 0x8d8f8c },
+      { w: W, h: 0.04, d: 2 * S - 2 * W, x: -S + W / 2, y: 0.02, z: 0, farbe: 0x8d8f8c },
+      { w: 2 * S - 2 * W, h: 0.016, d: 2 * S - 2 * W, x: 0, y: 0.008, z: 0, farbe: 0x4a3b2c },
+    ]);
+    const netz = setzeMoebelFeld(geo, werkstoff, scheiben, null, sdAnteil('Scheibe'));
+    if (netz) { netz.castShadow = false; netz.name = 'Baumscheibe'; }
+  }
+  /* Pflanzscheibe im Park: dieselbe runde Erdscheibe wie unter den
+     Parkbaeumen von createPark. */
+  if (beete.length) {
+    const geo = new THREE.CylinderGeometry(SD_BEET_R, SD_BEET_R, 0.012, 16).toNonIndexed();
+    const n = geo.attributes.position.count, farben = new Float32Array(n * 3);
+    const f = new THREE.Color(0x675b44);
+    for (let i = 0; i < n; i++) { farben[i * 3] = f.r; farben[i * 3 + 1] = f.g; farben[i * 3 + 2] = f.b; }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    geo.translate(0, 0.018, 0);
+    const netz = setzeMoebelFeld(geo, werkstoff, beete, null, sdAnteil('Scheibe'));
+    if (netz) { netz.castShadow = false; netz.name = 'Pflanzscheibe'; }
+  }
+  for (const e of SD.liste) {
+    if (e.art === 'Baum' || e.art === 'Baumscheibe' || e.art === 'Pflanzscheibe') {
+      SD.sicht[e.nr] = true;
+      sdKollider(e);
+    }
+  }
+}
+
+/* Die Moebelmodelle, sobald ihre Datei da ist (stadtmoebel.glb: Bank,
+   Kuebel; bahnhofmoebel.glb: Muelleimer, Kiosk, Uhr). Jede Art einmal. */
+function setzeStrassenDetailModelle() {
+  if (!SD.liste.length) return;
+  const merk = ZUFALL_SEED;
+  zufallKeimSetzen((WELT_KEIM ^ 0x5d6a0002) >>> 0);
+  try {
+    for (const art of ['Bank', 'Pflanzkuebel', 'Muelleimer', 'Kiosk', 'Uhr']) {
+      if (SD.felder[art]) continue;
+      const M = SD_MODELL[art], modell = MOEBEL[M.datei];
+      if (!modell) continue;
+      const liste = SD.liste.filter((e) => e.art === art);
+      SD.felder[art] = true;
+      if (!liste.length) continue;
+      const netz = setzeMoebelFeld(moebelAufHoehe(moebelGeometrie(modell), M.hoch), modell.material,
+                                   liste.map((e) => [e.x, SLAB_H, e.z, e.dreh]), null, sdAnteil(art));
+      if (netz) netz.name = 'Strassen' + art;
+      for (const e of liste) { SD.sicht[e.nr] = true; sdKollider(e); }
+    }
+  } catch (e) {
+    SD.fehler = String(e && e.stack || e);
+  } finally {
+    zufallKeimSetzen(merk);
+  }
+}
+
+/* Die Poller aus dem Bausatz (stadtteile.glb) - dieselbe Geometrie wie
+   die Eckpoller, ein eigenes Feld. Ohne Hindernis, wie jene. */
+function setzeStrassenDetailPoller() {
+  if (SD.felder.Poller || !TEIL_NETZE.Prop_Bollard || !TEIL_NETZE.Prop_Bollard.length) return;
+  const liste = SD.liste.filter((e) => e.art === 'Poller');
+  SD.felder.Poller = true;
+  if (!liste.length) return;
+  const merk = ZUFALL_SEED;
+  zufallKeimSetzen((WELT_KEIM ^ 0x5d6a0003) >>> 0);
+  try {
+    for (const m of TEIL_NETZE.Prop_Bollard) {
+      const netz = setzeMoebelFeld(m.geometry, m.material, liste.map((e) => [e.x, SLAB_H, e.z, e.dreh]),
+                                   null, sdAnteil('Poller'));
+      if (netz) netz.name = 'StrassenPoller';
+    }
+    for (const e of liste) SD.sicht[e.nr] = true;
+  } catch (e) {
+    SD.fehler = String(e && e.stack || e);
+  } finally {
+    zufallKeimSetzen(merk);
+  }
 }
 
 /* Farbe der Ampel für eine Fahrtrichtung: 'gruen' | 'gelb' | 'rot' */
@@ -39253,6 +40214,9 @@ function hitstop(sec) {
 let actorsReady = false;
 function initActors() {
   heroVisual = makeCharacterVisual('hero', { hero: true });
+  /* CITY V2, Stufe 6A: Strassenbaeume und Strassenmoebel - nach dem
+     Gehnetz, vor dem ersten Passanten, im eigenen Zufallsstrom. */
+  baueStrassenDetails();
   for (let i = 0; i < CFG.civCount; i++) spawnCivilian();
   /* Zwei bis vier Wartende je U-Bahn-Station. */
   for (const u of UBAHNEN) {
@@ -40275,6 +41239,29 @@ if (window.__WEBHERO_TEST__ === true) {
       });
     },
     bankStellen() { return BANK_STELLEN; },
+    /* CITY V2, Stufe 6A: die neuen Strassendetails, so wie sie geplant
+       und gesetzt sind - fuer tools/pruef/street-details.js und
+       freigang.js. kasten: sichtbarer Grundriss (beim Baum der Stamm),
+       koll: das Hindernis oder null, sicht: Grundriss alles Sichtbaren,
+       gezeichnet: das Sichtbare steht (Instanz in einem Feld). */
+    strassenDetails() {
+      return SD.liste.map((e) => {
+        const k = e.sicht;
+        return { nr: e.nr, art: e.art, x: e.x, z: e.z, ry: e.dreh,
+                 r: Math.max(k.x1 - k.x0, k.z1 - k.z0) / 2, kasten: k, sicht: k,
+                 koll: e.koll || null, kollKasten: e.kollKasten || null,
+                 variante: e.variante || null, gruppe: !!e.gruppe, gruppeNr: e.gruppeNr,
+                 gruppeName: e.gruppeName || (e.art === 'Baum' ? 'baum' : null),
+                 bezirk: e.bezirk || null, kanteName: e.kante || null, flach: !!e.flach,
+                 gezeichnet: !!SD.sicht[e.nr] };
+      });
+    },
+    strassenDetailInfo() {
+      return { ms: SD.ms, fehler: SD.fehler, verworfen: Object.assign({}, SD.verworfen), orte: SD.orte,
+               felder: Object.assign({}, SD.felder), gruppen: SD.gruppen, anzahl: SD.liste.length,
+               plan: JSON.parse(JSON.stringify(SD.plan)),
+               aus: SD_AUS };
+    },
     teilStellen(name) { return TEIL_STELLEN[name] || []; },
     teilArten() { return Object.keys(TEIL_STELLEN).filter((k) => TEIL_STELLEN[k].length); },
     /* Welche Hand gerade das Netz fuehrt - Test A zaehlt damit die

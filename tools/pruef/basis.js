@@ -169,6 +169,9 @@ async function starte(breite, hoehe, seed, opt) {
        derselbe Pruefstand das Verhalten vor und nach der Korrektur
        messen kann. */
     if (ein.nahtAlt) window.__WEBHERO_NAHT_ALT = 1;
+    /* Nur zum Messen: die Stadt ohne die Strassenbaeume und -moebel aus
+       CITY V2 Stufe 6A (Stand vor 6A, derselbe Code). */
+    if (ein.ohneSD) window.__WEBHERO_OHNE_SD = 1;
   }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0,
        park: (opt && opt.park !== undefined) ? opt.park : null,
        streetSpur: (opt && opt.streetSpur) || 0,
@@ -177,6 +180,7 @@ async function starte(breite, hoehe, seed, opt) {
        wdhAlt: !!(opt && opt.wdhAlt),
        bremsen: (opt && typeof opt.bremsen === 'string') ? opt.bremsen : null,
        nahtAlt: !!(opt && opt.nahtAlt),
+       ohneSD: !!(opt && opt.ohneSD),
        dachAlt: !!(opt && opt.dachAlt),
        kroneAlt: !!(opt && opt.kroneAlt),
        sturzAlt: !!(opt && opt.sturzAlt),

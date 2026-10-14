@@ -124,8 +124,11 @@ test('Das Testfenster hat keine doppelten Schluessel', () => {
      Sie waechst mit dem Testfenster - was sie nicht darf, ist still
      gross werden, ohne dass jemand hinsieht.
      problem-2, finaler Blocker-Pass: rumpfLage, kamStart, koerperSicht,
-     renderKosten und bildDaten fuer die Pruefstaende - knapp ueber 395. */
-  assert.ok(k.length >= 340 && k.length <= 420,
+     renderKosten und bildDaten fuer die Pruefstaende - knapp ueber 395.
+     Bis problem-2 (Neon Climb Overlay) 420. CITY V2 Stufe 6A:
+     strassenDetails und strassenDetailInfo fuer street-details.js und
+     freigang.js - 422. */
+  assert.ok(k.length >= 340 && k.length <= 440,
     k.length + ' Eintraege gefunden, erwartet rund 370 - der Parser stimmt nicht');
   const zahl = {};
   for (const n of k) zahl[n] = (zahl[n] || 0) + 1;
