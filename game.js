@@ -9396,6 +9396,23 @@ function partieFuerKnochen(name) {
    Das Ergebnis wird je Quelltextur gemerkt: alle sieben Teilnetze des
    Helden benutzen dieselbe Datei. */
 const _hellCache = new WeakMap();
+/* ---- Stufe 7A: das Ergebnis behalten, ab baueStrassenLeben ----
+   In three.js r128 hat eine Textur KEIN userData. Die Zeile
+   "neu.userData.schonGehoben = true" unten wirft deshalb, und der
+   catch-Zweig gibt das Original zurueck: angehoben wird hier nie etwas
+   (geprueft: THREE.REVISION 128, CanvasTexture.userData undefined).
+   Die Arbeit davor lief trotzdem fuer jede Figur und jedes Material -
+   neue Leinwand, drawImage, getImageData, Kurve, neue CanvasTexture. Im
+   Ladeprofil von 38 neuen Passanten waren das 1,74 von 1,86 s; gemerkt
+   (zusammen mit den schwarzen Texturen unten) braucht baueStrassenLeben
+   fuer alle 60 Strassenpassanten rund 0,13 s.
+   Eingeschaltet wird die Anhebung hier NICHT: Held, Gegner und alle
+   Figuren saehen danach anders aus. Ab baueStrassenLeben wird nur das
+   Ergebnis behalten, das ohnehin feststeht (das Original). Vorher bleibt
+   alles, wie es war - jede CanvasTexture zieht ueber ihre UUID vier
+   Zahlen aus dem Stadtstrom, und der muss bis nach den Gangs Zug fuer
+   Zug derselbe bleiben. */
+let HELL_MERKEN = false;
 function hebeSchatten(tex) {
   if (!tex || !tex.image) return tex;
   /* WICHTIG: eine schon angehobene Textur darf NICHT noch einmal durch die
@@ -9434,7 +9451,24 @@ function hebeSchatten(tex) {
     for (let i = 0; i < a.length; i += Math.max(4, (a.length >> 10) & ~3)) {
       summe += a[i] + a[i + 1] + a[i + 2];
     }
-    if (summe < 8) return tex;
+    /* ---- "Bleibt wie es ist" merken - aber nur bei fertigem Bild (Stufe 7A) ----
+       Ohne Eintrag wurde eine solche Textur fuer JEDE neue Figur wieder
+       gelesen: neue Leinwand, drawImage, getImageData. Das trifft vier
+       Texturen, deren Stichproben ganz im Schwarz liegen - die Haare von
+       civilian2 (2048 x 2048), civilian4 und civilian5 und das Oberteil
+       von civilian -, immer mit demselben Ergebnis. Gemerkt wird nur, wenn
+       das Bild fertig dekodiert ist - ein ImageBitmap (so liefert
+       GLTFLoader alle Figurtexturen; dreimal gelesen, dreimal dieselbe
+       Stichprobe) oder ein vollstaendig geladenes Bild; ein noch leeres
+       Bild liefert ebenfalls Schwarz. Hier entsteht keine neue Textur,
+       also auch kein Zug aus dem Stadtstrom - geprueft Zug fuer Zug gegen
+       32107ff. */
+    if (summe < 8) {
+      const fertigBild = (typeof ImageBitmap !== 'undefined' && bild instanceof ImageBitmap) ||
+                         (bild.complete === true && (bild.naturalWidth || 0) > 0);
+      if (fertigBild) _hellCache.set(tex, tex);
+      return tex;
+    }
     /* Kurve einmal als Tabelle - 256 Werte statt Millionen Potenzen. */
     const tab = new Uint8Array(256);
     for (let i = 0; i < 256; i++) tab[i] = Math.round(255 * Math.pow(i / 255, 0.62));
@@ -9453,6 +9487,7 @@ function hebeSchatten(tex) {
     return neu;
   } catch (e) {
     /* Laesst sich die Datei nicht lesen, bleibt es beim Original. */
+    if (HELL_MERKEN) _hellCache.set(tex, tex);
     return tex;
   }
 }
@@ -13697,15 +13732,24 @@ function makeProceduralVisual(cfg) {
 function makeCharacterVisual(kind, cfg) {
   let m = null;
   if (kind === 'civilian') {
-    const variants = ZIVI_SLOTS.filter((s) => glbModels[s]);
-    if (variants.length) m = glbModels[pick(variants)];
+    /* CITY V2, Stufe 7A: Modell und Farben kommen fuer Strassenpassanten
+       aus ziviLook (lokaler Hash) - ohne Zug aus dem Stadtstrom. Alle
+       anderen Zivilisten (Bahnsteig, Fahrgaeste, Einsatzkraefte) waehlen
+       weiter wie bisher. */
+    if (cfg && cfg.zivi && glbModels[cfg.zivi.modell]) m = glbModels[cfg.zivi.modell];
+    else {
+      const variants = ZIVI_SLOTS.filter((s) => glbModels[s]);
+      if (variants.length) m = glbModels[pick(variants)];
+    }
   } else if (kind === 'thug' && cfg && cfg.model && glbModels[cfg.model] && glbModels.thug) {
     m = Object.assign({}, glbModels[cfg.model], { clips: glbModels.thug.clips });
   } else if (glbModels[kind]) {
     m = glbModels[kind];
   }
   const v = m ? makeGlbVisual(m) : makeProceduralVisual(cfg);
-  if ((kind === 'civilian' || (cfg && cfg.model)) && m) faerbeKleidung(v);
+  if ((kind === 'civilian' || (cfg && cfg.model)) && m) {
+    if (cfg && cfg.zivi) ziviFaerben(v, cfg.zivi); else faerbeKleidung(v);
+  }
   /* Welches Modell steckt wirklich dahinter? Fuer die Sichtpruefung
      wichtig: dieselbe Bewegungsdatei kann auf zwei Modellen voellig
      verschieden aussehen, wenn ihre Ruhehaltungen abweichen. */
@@ -13749,6 +13793,33 @@ function faerbeKleidung(v) {
       mat = o.material.clone();
       mat.color = new THREE.Color(wunsch[n]);
       kopien.set(n, mat);
+    }
+    o.material = mat;
+  });
+}
+
+/* ---- Dasselbe ohne Wuerfel und ohne Kopie je Figur (Stufe 7A) ----
+   Die Farben stehen im Look (ziviLook). Gefaerbte Materialien werden
+   GETEILT: zwei Passanten mit demselben roten Oberteil benutzen dasselbe
+   Material. faerbeKleidung legt je Figur bis zu vier Kopien an - bei
+   sechzig Passanten waeren das mit dressCivilian zusammen rund
+   dreihundert Materialien fuer ein paar Dutzend Farben. Geteilt werden
+   darf, weil niemand diese Materialien danach veraendert: Einsatzkraefte
+   (respUniform) und sterbende Gegner (blendMats) legen sich eigene Kopien
+   an. */
+const ZIVI_MAT = new Map();
+function ziviFaerben(v, look) {
+  const wunsch = { Topmat: look.oben, Bottommat: look.unten, Shoesmat: look.schuh, Hairmat: look.haar };
+  v.root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const n = o.material.name;
+    if (!(n in wunsch) || wunsch[n] === undefined || wunsch[n] === 0xffffff) return;
+    const key = o.material.uuid + ':' + wunsch[n];
+    let mat = ZIVI_MAT.get(key);
+    if (!mat) {
+      mat = o.material.clone();
+      mat.color = new THREE.Color(wunsch[n]);
+      ZIVI_MAT.set(key, mat);
     }
     o.material = mat;
   });
@@ -29267,7 +29338,7 @@ function gehRoute(start, ziel) {
     for (const kante of GEH.knoten[akt.i].kanten) {
       /* Ein Ueberweg kostet etwas mehr - so nimmt man lieber den Gehweg
          als bei jeder Gelegenheit ueber die Strasse zu laufen. */
-      const g = kosten[akt.i] + kante.laenge * (kante.ueberweg ? 1.6 : 1);
+      const g = kosten[akt.i] + kante.laenge * (kante.ueberweg ? 1.6 : 1) * (kante.faktor || 1);
       if (g >= kosten[kante.zu]) continue;
       kosten[kante.zu] = g; her[kante.zu] = akt.i;
       offen.push({ i: kante.zu, f: g + schaetz(kante.zu) });
@@ -29420,9 +29491,16 @@ function gehNeuesZiel(c, versuch) {
   if (start < 0) return false;
   const insel = GEH.knoten[start].insel;
   const [minD, maxD] = gehZielWeite(c);
+  /* CITY V2, Stufe 7A: wer zu einem Stadtteil gehoert, zieht sein Ziel aus
+     dessen Liste statt aus der ganzen Stadt. Die Weite gilt weiter als
+     Wunsch; findet sich darin nichts (ein Park ist keine 60 m gross),
+     greift der Notnagel unten - ebenfalls aus der eigenen Liste. */
+  const heim = c.heimat ? SL.heime[c.heimat] : null;
+  const zieh = heim ? () => heim.liste[randi(0, heim.liste.length - 1)]
+                    : () => randi(0, GEH.knoten.length - 1);
   let ziel = -1;
   for (let t = 0; t < 14; t++) {
-    const i = randi(0, GEH.knoten.length - 1);
+    const i = zieh();
     const n = GEH.knoten[i];
     if (n.tot || n.insel !== insel || i === start) continue;
     const d = Math.hypot(n.x - GEH.knoten[start].x, n.z - GEH.knoten[start].z);
@@ -29434,7 +29512,7 @@ function gehNeuesZiel(c, versuch) {
   if (ziel < 0) {
     /* Notnagel: irgendein Knoten auf derselben Insel. */
     for (let t = 0; t < 20 && ziel < 0; t++) {
-      const i = randi(0, GEH.knoten.length - 1);
+      const i = zieh();
       if (!GEH.knoten[i].tot && GEH.knoten[i].insel === insel && i !== start) ziel = i;
     }
   }
@@ -29899,27 +29977,14 @@ function sidewalkLoop(bi, bj) {
   return [V3(x0, 0, z0), V3(x1, 0, z0), V3(x1, 0, z1), V3(x0, 0, z1)];
 }
 
-function spawnCivilian() {
-  const bi = randi(0, BLOCKS_X - 1), bj = randi(0, BLOCKS_Z - 1);
-  /* Der alte Rundweg bleibt als Rueckfall erhalten - die Fahrgaeste der
-     U-Bahn laufen weiter darauf, und wenn das Wegenetz einmal keinen Weg
-     findet, hat jeder trotzdem noch ein Ziel. */
-  const loop = sidewalkLoop(bi, bj);
-  const wp = randi(0, 3);
-  const visual = makeCharacterVisual('civilian', {});
-  if (CITY_LOOK) CITY_LOOK.dressCivilian(visual);
-  /* Gestartet wird auf einem gueltigen Gehwegknoten, nicht auf einer
-     zufaelligen Weltkoordinate. */
-  baueGehnetz();
-  let startKnoten = -1;
-  if (GEH.knoten.length) {
-    for (let t = 0; t < 12 && startKnoten < 0; t++) {
-      const i = randi(0, GEH.knoten.length - 1);
-      if (GEH.knoten[i].insel === GEH.knoten[GEH.hauptInsel || 0].insel) startKnoten = i;
-    }
-  }
-  const start = startKnoten >= 0 ? GEH.knoten[startKnoten] : loop[wp];
-  civilians.push({
+/* ---- Die Werksfelder eines Passanten ----
+   Stufe 7A braucht dieselbe Figur an zwei Stellen: in spawnCivilian und
+   fuer die zusaetzlichen Strassenpassanten. Die Felder stehen deshalb
+   hier - in derselben Reihenfolge wie vorher im Objekt, denn jedes rand()
+   ist ein Zug aus dem Stadtstrom, und die Reihenfolge der Zuege muss fuer
+   die bisherigen 22 Passanten genau dieselbe bleiben. */
+function ziviNeu(visual, loop, wp, startKnoten, start) {
+  return {
     visual, loop, wp,
     knoten: startKnoten,
     pos: V3(start.x + rand(-0.6, 0.6), 0, start.z + rand(-0.6, 0.6)),
@@ -29953,7 +30018,61 @@ function spawnCivilian() {
     fleeT: 0, hurtT: 0, hp: 20,
     savedCd: 0,
     onGround: true, wall: null,
-  });
+  };
+}
+
+/* ---- Zu zweit unterwegs ----
+   Ab und zu schliesst sich einer einem anderen an: gleiches Ziel,
+   ungefaehr gleiches Tempo, kein Gleichschritt und keine Formation.
+   Stufe 7A: ein Passant mit Stadtteil (heimat) geht nur mit jemandem aus
+   demselben Stadtteil - sonst zoege ihn der andere aus seinem Viertel. */
+function ziviBegleiter(c) {
+  if (Math.random() < 0.22) {
+    for (const o of civilians) {
+      if (o === c || o.begleiter || o.bahnsteig !== undefined || !o.route) continue;
+      if (c.heimat !== o.heimat) continue;
+      if (Math.hypot(o.pos.x - c.pos.x, o.pos.z - c.pos.z) > 45) continue;
+      c.begleiter = o; o.begleiter = c;
+      c.speed = o.speed * rand(0.95, 1.05);
+      const bs = gehNaechster(c.pos.x, c.pos.z, 30);
+      const bw = bs >= 0 && o.route ? gehRoute(bs, o.route[o.route.length - 1]) : null;
+      if (bw) { c.route = bw; c.routeI = 0; c.knoten = bs; }
+      break;
+    }
+  }
+}
+
+function spawnCivilian() {
+  const bi = randi(0, BLOCKS_X - 1), bj = randi(0, BLOCKS_Z - 1);
+  /* Der alte Rundweg bleibt als Rueckfall erhalten - die Fahrgaeste der
+     U-Bahn laufen weiter darauf, und wenn das Wegenetz einmal keinen Weg
+     findet, hat jeder trotzdem noch ein Ziel. */
+  const loop = sidewalkLoop(bi, bj);
+  const wp = randi(0, 3);
+  /* ---- CITY V2, Stufe 7A: diese Figur ist ein Platzhalter ----
+     Ihr Aussehen bekommt sie erst in baueStrassenLeben (ziviEinkleiden:
+     Nummer, Stadtteil, Begleiter - lokaler Hash). Gebaut wird sie hier
+     trotzdem genau wie vorher: das Modell zieht einen pick, die Farben
+     vier, und three.js zieht fuer JEDE neue UUID (Knochen, Teil,
+     Materialkopie) vier Zahlen aus Math.random. Ohne diese Zuege an
+     genau dieser Stelle rueckte der Stadtstrom fuer alles Folgende -
+     Startknoten, Bahnsteig, Gangs -, und mit ihm der Fingerabdruck der
+     Welt (gemessen: ab Zug 267 575 eines Ladevorgangs lief alles
+     auseinander). */
+  const visual = makeCharacterVisual('civilian', {});
+  if (CITY_LOOK) CITY_LOOK.dressCivilian(visual);
+  /* Gestartet wird auf einem gueltigen Gehwegknoten, nicht auf einer
+     zufaelligen Weltkoordinate. */
+  baueGehnetz();
+  let startKnoten = -1;
+  if (GEH.knoten.length) {
+    for (let t = 0; t < 12 && startKnoten < 0; t++) {
+      const i = randi(0, GEH.knoten.length - 1);
+      if (GEH.knoten[i].insel === GEH.knoten[GEH.hauptInsel || 0].insel) startKnoten = i;
+    }
+  }
+  const start = startKnoten >= 0 ? GEH.knoten[startKnoten] : loop[wp];
+  civilians.push(ziviNeu(visual, loop, wp, startKnoten, start));
   const c = civilians[civilians.length - 1];
   /* Zwei Passanten duerfen nicht im selben Punkt anfangen: die Knoten
      sind beliebt, und ohne diese Pruefung stehen zwei Figuren beim
@@ -29969,21 +30088,7 @@ function spawnCivilian() {
     c.pos.x += rand(-2.2, 2.2); c.pos.z += rand(-2.2, 2.2);
   }
   if (startKnoten >= 0) gehNeuesZiel(c);
-  /* ---- Zu zweit unterwegs ----
-     Ab und zu schliesst sich einer einem anderen an: gleiches Ziel,
-     ungefaehr gleiches Tempo, kein Gleichschritt und keine Formation. */
-  if (Math.random() < 0.22) {
-    for (const o of civilians) {
-      if (o === c || o.begleiter || o.bahnsteig !== undefined || !o.route) continue;
-      if (Math.hypot(o.pos.x - c.pos.x, o.pos.z - c.pos.z) > 45) continue;
-      c.begleiter = o; o.begleiter = c;
-      c.speed = o.speed * rand(0.95, 1.05);
-      const bs = gehNaechster(c.pos.x, c.pos.z, 30);
-      const bw = bs >= 0 && o.route ? gehRoute(bs, o.route[o.route.length - 1]) : null;
-      if (bw) { c.route = bw; c.routeI = 0; c.knoten = bs; }
-      break;
-    }
-  }
+  ziviBegleiter(c);
 }
 
 /* ---- Wartende am Bahnsteig ----
@@ -30053,6 +30158,7 @@ function spawnBahnsteigZivi(sx, seite, dz) {
     V3(a + rand(4, 9), UB_TIEF, rand(zSteig[0], zSteig[1])),
   ];
   const visual = makeCharacterVisual('civilian', {});
+  ziviKugel(visual);
   const start = loop[randi(1, 3)];
   civilians.push({
     visual, loop, wp: randi(0, 3), bahnsteig: sx, steigSeite: seite,
@@ -30074,6 +30180,428 @@ function spawnBahnsteigZivi(sx, seite, dz) {
   if (c.eingestiegen > 0) c.visual.root.visible = false;
 }
 
+/* ======================= CITY V2, Stufe 7A: Strassenleben =======================
+   Gemessen auf 32107ff (tools/pruef/street-life.js, Abschnitt 6o in
+   docs/CITY-V2-DESIGN.md): 22 Passanten fuer die ganze Stadt, dazu 28
+   Fahrgaeste der U-Bahn, davon 17 im Zug. An den zehn festen
+   Strassenorten standen im Mittel 0 bis 0,4 Personen naeher als 50 m im
+   Bild (0 bis 0,75 naeher als 100 m), an der Local Street nie jemand.
+   Das Modell wurde je Figur gewuerfelt, die Kleidung reihum vergeben.
+
+   Diese Stufe aendert WIE VIELE, WO, WELCHES MODELL und WELCHER LOOK.
+   Gehnetz-Logik, Wegsuche, Flucht, Ereignisse und Bewegungen bleiben:
+     - Die 22 bisherigen Passanten entstehen wie vorher, mit denselben
+       Zufallszuegen in derselben Reihenfolge, und laufen weiter frei
+       durch die ganze Stadt.
+     - SL_EXTRA weitere entstehen NACH den Gangs in einem eigenen
+       Zufallsstrom (baueStrassenLeben). Jeder gehoert zu einem Stadtteil
+       und sucht seine Ziele dort (gehNeuesZiel) - sonst verliefe sich
+       jede Verteilung in ein paar Minuten zu dem, was das Netz von selbst
+       ergibt (gemessen: 54 Prozent der freien Passanten im Zentrum).
+     - Wie viele je Stadtteil: begehbare Gehweglaenge mal SL_DICHTE.
+     - Die Parks bekommen ihr Wegekreuz ins Gehnetz (slParkWege).
+     - Modell, Kleidung und Farben kommen aus einem lokalen Hash
+       (ziviLook), leicht nach Stadtteil gewichtet.
+     - Jede Figur wird als Ganzes gegen das Sichtfeld geprueft (ziviKugel). */
+
+/* Wie viele Passanten dazukommen - gewaehlt aus den Kandidaten aktuell,
+   +25, +50 und +75 Prozent der 50 Zivilisten (Tabelle in docs/CITY-V2-DESIGN.md, Abschnitt 6o).
+   Ein Pruefstand setzt die Zahl ueber window.__WEBHERO_ZIVIS, wie die
+   Wagen ueber __WEBHERO_AUTOS - so lassen sich Kandidaten vergleichen,
+   ohne game.js zwischen den Laeufen zu aendern. */
+const SL_EXTRA = (typeof window !== 'undefined' && window.__WEBHERO_ZIVIS >= 0)
+  ? (window.__WEBHERO_ZIVIS | 0) : 38;
+/* Dichte je Stadtteil im Verhaeltnis, Zentrum = 1. Mal begehbare
+   Gehweglaenge ergibt den Anteil der neuen Passanten. Der Park ist ein
+   Ziel, kein Durchgang - wenige Meter Weg (530 m mit dem Gehwegring um
+   beide Parks), aber dort halten sich Leute auf. Mit 1,5 kamen bei +38
+   drei Leute auf zwei Parks, und auf den Bildern stand im Park niemand;
+   mit 3,0 sind es sechs, drei je Park. */
+const SL_DICHTE = { ZENTRUM: 1.0, GESCHAEFT: 0.8, UFER: 0.6, MISCHUNG: 0.45, WOHN: 0.25, PARK: 3.0 };
+/* Kosten der Parktore fuer die Wegsuche, als Faktor auf die Laenge.
+   Quer durch einen 38-m-Block spart man gegenueber dem Weg aussen herum
+   hoechstens rund 40 m; zwei Tore von je 2 m kosten so 100 m. Damit
+   kuerzt keine Route durch einen Park ab - auch keine Missionsroute. */
+const SL_PARK_FAKTOR = 25;
+/* Nur zum Messen: Figuren wie vor Stufe 7A ohne Sichtfeld-Pruefung. */
+const ZIVI_CULL_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_ZIVI_CULL_ALT;
+const SL_H = { MODELL: 21, OUTFIT: 22, OBEN: 23, UNTEN: 24, SCHUH: 25, HAAR: 26 };
+const SL = {
+  fertig: false, nummer: 0,
+  heime: {},            // Stadtteil -> { name, liste (Knoten, nach Gewicht wiederholt), knoten, laenge, soll }
+  parkKnoten: 0, parkKanten: 0, parkTore: 0,
+  extra: [], ausgelassen: 0, fehler: null, ms: 0,
+};
+
+function slWahl(liste, gewicht, u) {
+  let summe = 0;
+  for (const k of liste) summe += gewicht(k);
+  let x = u * summe;
+  for (const k of liste) { x -= gewicht(k); if (x < 0) return k; }
+  return liste[liste.length - 1];
+}
+
+/* ---- District Flavor, subtil ----
+   Nur vorhandene Modelle und Kleidungen, nur eine Gewichtung - in jedem
+   Stadtteil kommt jedes Modell vor. Zentrum und Geschaeft etwas mehr
+   lange Hosen und Pullover (civilian5, civilian4) und die gedeckteren
+   Kleidungen, Wohnen und Park etwas mehr Kurzes und Sportliches
+   (civilian, civilian2), Ufer und Mischung gleich verteilt.
+   civilian3 steht ueberall etwas zurueck: es nimmt keine Kleidertoenung
+   an und hat damit nur drei unterscheidbare Fassungen (mit Rucksack, mit
+   Tasche, ohne) - jedes andere Modell hat sechs. Im ersten Lauf mit
+   gleichen Gewichten stellte es 20 von 60 Passanten. */
+const SL_MODELL = {
+  ZENTRUM:   { civilian: 0.8, civilian2: 0.7, civilian3: 0.8, civilian4: 1.2, civilian5: 1.4 },
+  GESCHAEFT: { civilian: 0.8, civilian2: 0.7, civilian3: 0.8, civilian4: 1.2, civilian5: 1.4 },
+  WOHN:      { civilian: 1.3, civilian2: 1.3, civilian3: 0.6, civilian4: 1.0, civilian5: 0.9 },
+  PARK:      { civilian: 1.3, civilian2: 1.3, civilian3: 0.6, civilian4: 1.0, civilian5: 0.9 },
+  _:         { civilian: 1.0, civilian2: 1.0, civilian3: 0.7, civilian4: 1.0, civilian5: 1.0 },
+};
+/* Reihenfolge wie OUTFITS in city-visuals.js:
+   Alltag, Pendler, Sport, Freizeit, Stadt, Abend. */
+const SL_OUTFIT = {
+  ZENTRUM:   [0.9, 1.3, 0.6, 0.8, 1.3, 1.1],
+  GESCHAEFT: [0.9, 1.3, 0.6, 0.8, 1.3, 1.1],
+  WOHN:      [1.2, 0.85, 1.2, 1.2, 0.8, 0.75],
+  PARK:      [1.2, 0.85, 1.2, 1.2, 0.8, 0.75],
+};
+const SL_ZUBEHOER = ['rucksack', 'tasche', '-', 'rucksack', 'tasche', '-'];
+/* Farbton der Einzelfarben (nur civilian hat eigene Materialien fuer
+   Oberteil, Hose, Schuhe, Haar): im Zentrum leicht zu den dunklen
+   Eintraegen der vorhandenen Paletten, im Wohngebiet leicht zu den
+   hellen. Weiss heisst "Textur unveraendert" und zaehlt als Mitte. */
+const SL_TON = { ZENTRUM: -1, GESCHAEFT: -1, WOHN: 0.6, PARK: 0.6 };
+function slFarbe(palette, teil, u) {
+  const ton = SL_TON[teil] || 0;
+  return slWahl(palette, (f) => {
+    const r = (f >> 16) & 255, g = (f >> 8) & 255, b = f & 255;
+    const hell = f === 0xffffff ? 0.5 : (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return Math.max(0.15, 1 + ton * (hell - 0.5));
+  }, u);
+}
+/* Der Look eines Passanten: aus seiner Nummer und seinem Stadtteil, ohne
+   Zug aus dem Stadtstrom. versuch waehlt eine andere Fassung, wenn die
+   erste genauso aussieht wie der Begleiter oder ein Nachbar. */
+function ziviLook(nr, teil, versuch) {
+  const slots = ZIVI_SLOTS.filter((sl) => glbModels[sl]);
+  if (!slots.length) return null;
+  const mw = SL_MODELL[teil] || SL_MODELL._, ow = SL_OUTFIT[teil];
+  const h = (salz) => sdHash(7000 + nr, versuch, salz, 0);
+  const look = {
+    teil,
+    modell: slWahl(slots, (sl) => mw[sl] || 1, h(SL_H.MODELL)),
+    outfit: slWahl([0, 1, 2, 3, 4, 5], (o) => (ow ? ow[o] : 1), h(SL_H.OUTFIT)),
+  };
+  if (look.modell === 'civilian') {
+    look.oben = slFarbe(ZIVI_OBEN, teil, h(SL_H.OBEN));
+    look.unten = slFarbe(ZIVI_UNTEN, teil, h(SL_H.UNTEN));
+    look.schuh = slFarbe(ZIVI_SCHUH, teil, h(SL_H.SCHUH));
+    look.haar = slFarbe(ZIVI_HAAR, teil, h(SL_H.HAAR));
+  }
+  return look;
+}
+/* Was man auf der Strasse auseinanderhalten kann. civilian3 hat EIN
+   Material fuer Haut und Kleidung und nimmt keine Kleidertoenung an
+   (gemessen: Ch12_1/Ch12_2, kein Name passt auf dressCivilian) - dort
+   unterscheidet nur das Zubehoer. */
+function ziviLookSchluessel(l) {
+  if (!l) return '';
+  if (l.modell === 'civilian3') return l.modell + '|' + SL_ZUBEHOER[l.outfit];
+  return [l.modell, l.outfit, l.oben || 0, l.unten || 0, l.schuh || 0, l.haar || 0].join('|');
+}
+/* Figur bauen, sobald Ort und Begleiter feststehen: nicht so wie der
+   Begleiter, nicht so wie die Strassenpassanten im Umkreis von 8 m. */
+function ziviEinkleiden(c, nr) {
+  const teil = stadtteilAn(c.pos.x, c.pos.z);
+  const meiden = new Set();
+  if (c.begleiter && c.begleiter.look) meiden.add(ziviLookSchluessel(c.begleiter.look));
+  for (const o of civilians) {
+    if (o === c || !o.look || o.bahnsteig !== undefined) continue;
+    if (Math.hypot(o.pos.x - c.pos.x, o.pos.z - c.pos.z) < 8) meiden.add(ziviLookSchluessel(o.look));
+  }
+  let look = null;
+  for (let v = 0; v < 8; v++) {
+    look = ziviLook(nr, teil, v);
+    if (!look || !meiden.has(ziviLookSchluessel(look))) break;
+  }
+  const visual = makeCharacterVisual('civilian', look ? { zivi: look } : {});
+  if (CITY_LOOK) CITY_LOOK.dressCivilian(visual, look ? look.outfit : undefined, true);
+  ziviKugel(visual);
+  visual.root.position.copy(c.pos);
+  c.visual = visual; c.look = look; c.ziviNr = nr;
+}
+
+/* ---- Die ganze Figur gegen das Sichtfeld pruefen ----
+   makeGlbVisual schaltet frustumCulled fuer jede Figur ab. Fuer die
+   Teile einzeln waere das Pruefen auch falsch: ihre Huellkugeln stammen
+   aus der Ruhehaltung, Haare und Schuhe haben eigene kleine, und im Lauf
+   ragen Arme und Beine heraus - am Bildrand verschwaenden einzelne
+   Teile. Ohne Pruefung wird aber jede Figur bis 130 m gezeichnet, auch
+   hinter der Kamera und unter der Erde: gemessen kosteten die 11 Figuren
+   um den Startpunkt im Leistungstor in JEDER der 300 Aufnahmen 60
+   Aufrufe (scratchpad/kosten.js).
+   Jedes Teil bekommt deshalb dieselbe Kugel: Mitte 0,9 m ueber dem Boden,
+   Halbmesser 1,3 m. Nachgemessen (scratchpad/kugel-check.js): alle 53
+   Clips jedes Passantenmodells an neun Zeitpunkten, jeder Vertex auf der
+   CPU gehaeutet wie im Shader. Jede Haltung eines Passanten bleibt
+   mindestens 11 cm innerhalb (am knappsten jubel mit erhobenen Armen,
+   gehen 34 cm, verletzt am Boden - sit - 20 cm); hinaus ragen nur
+   Clips des Helden, die kein Passant spielt (swing bis 4,8 cm,
+   klettern_frei 0,9 cm). So faellt die Figur als Ganzes aus dem Bild
+   oder bleibt ganz drin. Die Geometrie teilen sich alle Klone eines
+   Modells; die Kugel wird je Modell einmal umgerechnet. Gegner aus
+   civilian4/5 behalten frustumCulled = false - fuer sie aendert sich
+   nichts. */
+const ZIVI_KUGEL_MITTE = 0.9, ZIVI_KUGEL_R = 1.3;
+function ziviKugel(v) {
+  if (ZIVI_CULL_ALT || !v || !v.root || v.procedural) return;
+  const m = glbModels[v.modell];
+  if (!m) return;
+  v.root.updateMatrixWorld(true);
+  if (!m.ziviKugeln) {
+    m.ziviKugeln = new Map();
+    const inv = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), sk = new THREE.Vector3();
+    v.root.traverse((o) => {
+      if (!o.isSkinnedMesh || m.ziviKugeln.has(o.geometry.uuid)) return;
+      const mitte = new THREE.Vector3(0, ZIVI_KUGEL_MITTE, 0).applyMatrix4(v.root.matrixWorld);
+      mitte.applyMatrix4(inv.copy(o.matrixWorld).invert());
+      o.matrixWorld.decompose(p, q, sk);
+      m.ziviKugeln.set(o.geometry.uuid, new THREE.Sphere(mitte, ZIVI_KUGEL_R / Math.max(sk.x, sk.y, sk.z)));
+    });
+  }
+  v.root.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const k = m.ziviKugeln.get(o.geometry.uuid);
+    if (!k) return;
+    o.geometry.boundingSphere = k;
+    o.frustumCulled = true;
+  });
+}
+
+/* ---- Die Parkwege ins Gehnetz ----
+   Die beiden Parks haben ein Wegekreuz von 3,2 m Breite mit einem
+   Brunnenplatz in der Mitte (createPark) - das Gehnetz kannte davon
+   nichts, Passanten liefen nur aussen herum. Je Arm: ein Tor auf der
+   Gehweglinie (17 m von der Mitte, zwischen die Ringknoten gehaengt),
+   Wegpunkte bei 15, 11,5 und 8 m (neben den Baenken bei 7 m) und einer
+   am Platz (4,6 m); um das Becken (Hindernis 6,5 x 6,5 m) vier Eckpunkte
+   bei 4,25/4,25. Nichts davon steht in GEH.raster: gehNaechster findet
+   sie nicht, und damit beginnt und endet keine Mission, keine
+   Einsatzfahrt und keine Rettung auf einem Parkweg. Die Tore kosten
+   SL_PARK_FAKTOR - durch den Park geht nur, wer dorthin will.
+   Laeuft NACH den Gangs: vorher haette ein laengeres GEH.knoten die
+   Zuege der ersten 22 Passanten veraendert (randi ueber die Knotenzahl). */
+function slParkWege() {
+  const haupt = GEH.knoten[GEH.hauptInsel || 0].insel;
+  const neu = (x, z, art, pi) => {
+    const i = GEH.knoten.length;
+    GEH.knoten.push({ x, z, y: groundY(x, z), art, kanten: [], park: pi, insel: -1 });
+    SL.parkKnoten++;
+    return i;
+  };
+  const verbinde = (a, b, opt) => {
+    if (a < 0 || b < 0) return false;
+    const ok = gehVerbinde(a, b, opt);
+    if (ok) SL.parkKanten++;
+    return ok;
+  };
+  parks.forEach((pk, pi) => {
+    const neuIdx = [];
+    const ARME = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    const platz = [];
+    for (const [ax, az] of ARME) {
+      /* Tor auf der Gehweglinie: die beiden Ringknoten links und rechts davon. */
+      const tx = pk.x + ax * GEH_RING, tz = pk.z + az * GEH_RING;
+      let links = -1, rechts = -1, dl = 9, dr = 9;
+      for (let i = 0; i < GEH.knoten.length; i++) {
+        const n = GEH.knoten[i];
+        if (n.park !== undefined || n.tot || n.insel !== haupt) continue;
+        const quer = ax !== 0 ? n.x - tx : n.z - tz;        // Abstand zur Gehweglinie
+        const laengs = ax !== 0 ? n.z - tz : n.x - tx;      // entlang der Linie
+        if (Math.abs(quer) > 1.5 || Math.abs(laengs) > 9) continue;
+        if (laengs < 0 && -laengs < dl) { dl = -laengs; links = i; }
+        if (laengs > 0 && laengs < dr) { dr = laengs; rechts = i; }
+      }
+      let tor = -1;
+      if ((links >= 0 || rechts >= 0) && gehBegehbar(tx, tz, false, 0.5)) {
+        tor = neu(tx, tz, 'parkTor', pi);
+        neuIdx.push(tor);
+        const a1 = verbinde(tor, links), a2 = verbinde(tor, rechts);
+        if (!a1 && !a2) tor = -1; else SL.parkTore++;
+      }
+      let vor = -1;
+      const kette = [];
+      for (const r of [15, 11.5, 8, 4.6]) {
+        const x = pk.x + ax * r, z = pk.z + az * r;
+        if (!gehBegehbar(x, z, false, 0.5)) { vor = -1; kette.push(-1); continue; }
+        const i = neu(x, z, 'park', pi);
+        neuIdx.push(i);
+        kette.push(i);
+        if (vor >= 0) verbinde(vor, i);
+        else if (r === 15) verbinde(tor, i, { faktor: SL_PARK_FAKTOR });
+        vor = i;
+      }
+      platz.push(kette[3]);
+    }
+    /* Um das Becken: Platzpunkte der vier Arme ueber die Ecken verbinden. */
+    for (let k = 0; k < 4; k++) {
+      const [ax, az] = ARME[k], [bx, bz] = ARME[(k + 1) % 4];
+      const ex = pk.x + (ax + bx) * 4.25, ez = pk.z + (az + bz) * 4.25;
+      if (platz[k] < 0 || platz[(k + 1) % 4] < 0 || !gehBegehbar(ex, ez, false, 0.5)) continue;
+      const e = neu(ex, ez, 'park', pi);
+      neuIdx.push(e);
+      verbinde(platz[k], e); verbinde(e, platz[(k + 1) % 4]);
+    }
+    /* Insel: was ueber ein Tor am Ring haengt, gehoert zum Hauptnetz. */
+    const stapel = neuIdx.filter((i) => GEH.knoten[i].kanten.some((e) => GEH.knoten[e.zu].park === undefined));
+    for (const i of stapel) GEH.knoten[i].insel = haupt;
+    while (stapel.length) {
+      const i = stapel.pop();
+      for (const e of GEH.knoten[i].kanten) {
+        const z = GEH.knoten[e.zu];
+        if (z.park === pi && z.insel !== haupt) { z.insel = haupt; stapel.push(e.zu); }
+      }
+    }
+  });
+}
+
+/* Gewicht eines Knotens in seinem Stadtteil: wo die Stadt gesehen wird,
+   halten sich mehr Leute auf - Promenade, Parkwege, Gehwege an Boulevard
+   und Avenue. "Ein hoeherer Gesamtwert bringt nichts, wenn alle Figuren
+   drei Strassen weiter stehen." */
+function slKnotenGewicht(n) {
+  if (n.art === 'prom') return 3;
+  if (n.park !== undefined) return 2;
+  if (n.art === 'ecke' || n.art === 'weg') {
+    const bi = clamp(Math.floor((n.x - RASTER_X0) / PITCH), 0, BLOCKS_X - 1);
+    const bj = clamp(Math.floor((n.z - RASTER_Z0) / PITCH), 0, BLOCKS_Z - 1);
+    const m = gehBlockMitte(bi, bj);
+    const dx = n.x - m.x, dz = n.z - m.z;
+    const kl = [];
+    if (Math.abs(dx) > 12) kl.push(strasseKlasse('x', m.x + Math.sign(dx) * PITCH / 2));
+    if (Math.abs(dz) > 12) kl.push(strasseKlasse('z', m.z + Math.sign(dz) * PITCH / 2));
+    if (kl.indexOf('BOULEVARD') >= 0 || kl.indexOf('AVENUE') >= 0) return 2;
+  }
+  return 1;
+}
+/* Je Stadtteil: die Knoten, auf denen seine Passanten anfangen und ihre
+   Ziele suchen (nach Gewicht wiederholt), und seine begehbare Laenge -
+   Gehwegkanten, ohne Ueberwege und ohne U-Bahn-Koepfe. Eine Kante zaehlt
+   je zur Haelfte fuer die Stadtteile ihrer beiden Enden. */
+function slHeimListen() {
+  const haupt = GEH.knoten[GEH.hauptInsel || 0].insel;
+  const teilVon = (n) => (n.park !== undefined ? 'PARK' : stadtteilAn(n.x, n.z));
+  for (let i = 0; i < GEH.knoten.length; i++) {
+    const n = GEH.knoten[i];
+    if (n.tot || n.insel !== haupt || n.art === 'ubahn') continue;
+    const teil = teilVon(n);
+    const h = SL.heime[teil] || (SL.heime[teil] = { name: teil, liste: [], knoten: 0, laenge: 0, soll: 0 });
+    h.knoten++;
+    const w = slKnotenGewicht(n);
+    for (let k = 0; k < w; k++) h.liste.push(i);
+    for (const e of n.kanten) {
+      if (e.ueberweg) continue;
+      const z = GEH.knoten[e.zu];
+      if (!z || z.tot || z.insel !== haupt || z.art === 'ubahn') continue;
+      h.laenge += e.laenge / 2;
+    }
+  }
+}
+/* Anteil je Stadtteil: Laenge mal Dichte, dann ganze Personen nach dem
+   groessten Rest - die Summe ist immer genau SL_EXTRA. */
+function slVerteilen() {
+  const teile = Object.values(SL.heime).filter((h) => SL_DICHTE[h.name] && h.liste.length)
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
+  let summe = 0;
+  for (const h of teile) summe += SL_DICHTE[h.name] * h.laenge;
+  if (summe <= 0) return teile;
+  let vergeben = 0;
+  const rest = [];
+  for (const h of teile) {
+    const q = SL_EXTRA * SL_DICHTE[h.name] * h.laenge / summe;
+    h.soll = Math.floor(q);
+    vergeben += h.soll;
+    rest.push([q - h.soll, h]);
+  }
+  rest.sort((a, b) => b[0] - a[0] || (a[1].name < b[1].name ? -1 : 1));
+  for (let k = 0; vergeben < SL_EXTRA && k < rest.length; k++, vergeben++) rest[k][1].soll++;
+  return teile;
+}
+function spawnStrassenPassant(heim, ki) {
+  const n = GEH.knoten[ki];
+  const bi = clamp(Math.floor((n.x - RASTER_X0) / PITCH), 0, BLOCKS_X - 1);
+  const bj = clamp(Math.floor((n.z - RASTER_Z0) / PITCH), 0, BLOCKS_Z - 1);
+  civilians.push(ziviNeu(null, sidewalkLoop(bi, bj), 0, ki, n));
+  const c = civilians[civilians.length - 1];
+  c.heimat = heim;
+  /* Der Versatz um den Knoten darf nicht in einem Ding, auf der Fahrbahn
+     oder im Wasser enden - sonst steht er genau auf dem Knoten. */
+  if (!gehBegehbar(c.pos.x, c.pos.z, false, 0.45)) { c.pos.x = n.x; c.pos.z = n.z; }
+  c.pos.y = groundY(c.pos.x, c.pos.z);
+  gehNeuesZiel(c);
+  ziviBegleiter(c);
+  ziviEinkleiden(c, SL.nummer++);
+  SL.extra.push(c);
+}
+/* ---- Die zusaetzlichen Passanten ----
+   Aufgerufen in initActors NACH den Gangs, im eigenen Zufallsstrom -
+   Bahnsteig, Gangs und alles davor bleiben, wie sie waren. */
+function baueStrassenLeben() {
+  if (SL.fertig) return;
+  SL.fertig = true;
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  baueGehnetz();
+  const merk = ZUFALL_SEED;
+  const budget = gehBudget;
+  zufallKeimSetzen((WELT_KEIM ^ 0x5d6a0007) >>> 0);
+  /* Jeder bekommt gleich eine Route - sonst liefe er die ersten Sekunden
+     den Rundweg seines Blocks. */
+  gehBudget = 1e9;
+  HELL_MERKEN = true;
+  try {
+    /* Die bisherigen Strassenpassanten bekommen ihr Aussehen - die
+       Platzhalter aus spawnCivilian gehen aus der Szene. Sie waren noch
+       nie gezeichnet, es haengt also nichts auf der Grafikkarte daran. */
+    for (const c of civilians) {
+      if (c.bahnsteig !== undefined || c.ziviNr !== undefined) continue;
+      if (c.visual && c.visual.root && c.visual.root.parent) c.visual.root.parent.remove(c.visual.root);
+      ziviEinkleiden(c, SL.nummer++);
+    }
+    slParkWege();
+    slHeimListen();
+    for (const h of slVerteilen()) {
+      for (let k = 0; k < h.soll; k++) {
+        /* Startknoten: zufaellig aus der Liste des Stadtteils, mit
+           Abstand zu allen, die schon auf der Strasse stehen - sechs Meter,
+           zum Schluss zwei. Keine Traube beim Start. */
+        let ki = -1;
+        for (let t = 0; t < 16 && ki < 0; t++) {
+          const i = h.liste[randi(0, h.liste.length - 1)];
+          const n = GEH.knoten[i];
+          if (!gehBegehbar(n.x, n.z, false, 0.45)) continue;
+          const mindest = t < 10 ? 6 : 2;
+          let nah = false;
+          for (const o of civilians) {
+            if (o.bahnsteig !== undefined) continue;
+            if (Math.hypot(o.pos.x - n.x, o.pos.z - n.z) < mindest) { nah = true; break; }
+          }
+          if (!nah) ki = i;
+        }
+        if (ki < 0) { SL.ausgelassen++; continue; }
+        spawnStrassenPassant(h.name, ki);
+      }
+    }
+  } catch (e) {
+    SL.fehler = String(e && e.stack || e);
+    if (typeof window !== 'undefined') window.__slFehler = SL.fehler;
+  } finally {
+    gehBudget = budget;
+    zufallKeimSetzen(merk);
+  }
+  SL.ms = (typeof performance !== 'undefined' ? performance.now() : 0) - t0;
+}
+
 function nearestThreatTo(pos, maxDist) {
   let best = null, bestD = maxDist;
   for (const e of enemies) {
@@ -30085,11 +30613,21 @@ function nearestThreatTo(pos, maxDist) {
 }
 
 /* Kleines Handy in der Hand – wird nur eingeblendet, wenn jemand filmt. */
+/* Stufe 7A: Geometrie und Material teilen sich alle Handys. Jeder
+   Strassenpassant bekommt eines (auch wenn er nie filmt) - bisher mit je
+   zwei eigenen Geometrien und Materialien, bei sechzig Passanten also
+   zweihundertvierzig Stueck fuer dasselbe Ding. Veraendert wird daran
+   nichts, nur ein- und ausgeblendet. */
+const HANDY_TEILE = {};
 function makeHandy() {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.16, 0.02),
-    new THREE.MeshBasicMaterial({ color: 0x2a2e36 }));
-  const glas = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.13, 0.01),
-    new THREE.MeshBasicMaterial({ color: 0x9fd2e8 }));
+  if (!HANDY_TEILE.geo) {
+    HANDY_TEILE.geo = new THREE.BoxGeometry(0.09, 0.16, 0.02);
+    HANDY_TEILE.mat = new THREE.MeshBasicMaterial({ color: 0x2a2e36 });
+    HANDY_TEILE.glasGeo = new THREE.BoxGeometry(0.075, 0.13, 0.01);
+    HANDY_TEILE.glasMat = new THREE.MeshBasicMaterial({ color: 0x9fd2e8 });
+  }
+  const m = new THREE.Mesh(HANDY_TEILE.geo, HANDY_TEILE.mat);
+  const glas = new THREE.Mesh(HANDY_TEILE.glasGeo, HANDY_TEILE.glasMat);
   glas.position.z = 0.015; m.add(glas);
   m.visible = false;
   return m;
@@ -30098,15 +30636,22 @@ function makeHandy() {
 /* Regenschirm – bei Regen hält ihn jeder zweite Passant hoch. Er hängt
    wie das Handy am Handknochen. */
 const SCHIRM_FARBEN = [0x2a2e36, 0x2c5a8c, 0x9c2a2a, 0x3f7a44, 0x6b4a9c, 0xb8912a, 0xc4c8cc];
+/* Wie beim Handy: eine Geometrie, ein Material je Schirmfarbe. */
+const SCHIRM_TEILE = { mats: new Map() };
 function makeSchirm(farbe) {
+  if (!SCHIRM_TEILE.dachGeo) {
+    SCHIRM_TEILE.dachGeo = new THREE.ConeGeometry(0.78, 0.36, 10, 1, true);
+    SCHIRM_TEILE.stockGeo = new THREE.CylinderGeometry(0.016, 0.016, 0.78, 5);
+    SCHIRM_TEILE.stockMat = new THREE.MeshLambertMaterial({ color: 0x6b5335 });
+  }
+  if (!SCHIRM_TEILE.mats.has(farbe)) {
+    SCHIRM_TEILE.mats.set(farbe, new THREE.MeshLambertMaterial({ color: farbe, side: THREE.DoubleSide }));
+  }
   const g = new THREE.Group();
-  const dach = new THREE.Mesh(
-    new THREE.ConeGeometry(0.78, 0.36, 10, 1, true),
-    new THREE.MeshLambertMaterial({ color: farbe, side: THREE.DoubleSide }));
+  const dach = new THREE.Mesh(SCHIRM_TEILE.dachGeo, SCHIRM_TEILE.mats.get(farbe));
   dach.position.y = 0.52;
   g.add(dach);
-  const stock = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.78, 5),
-    new THREE.MeshLambertMaterial({ color: 0x6b5335 }));
+  const stock = new THREE.Mesh(SCHIRM_TEILE.stockGeo, SCHIRM_TEILE.stockMat);
   stock.position.y = 0.24;
   g.add(stock);
   g.visible = false;
@@ -40260,6 +40805,9 @@ function initActors() {
   spawnGangAwayFromPlayer();
   spawnGangAwayFromPlayer();
   spawnGangAwayFromPlayer();
+  /* CITY V2, Stufe 7A: Parkwege und die zusaetzlichen Strassenpassanten -
+     nach allem, was aus dem Stadtstrom zieht, im eigenen Strom. */
+  baueStrassenLeben();
   actorsReady = true;
 }
 wendeGrafikAn();
@@ -41922,6 +42470,19 @@ if (window.__WEBHERO_TEST__ === true) {
                ohneKante, arten, bauzeitMs: +(GEH.bauzeit || 0).toFixed(1) };
     },
     gehKnotenListe() { baueGehnetz(); return GEH.knoten; },
+    /* CITY V2 Stufe 7A: der Plan der zusaetzlichen Passanten - nur lesen. */
+    strassenLeben() {
+      return {
+        soll: SL_EXTRA, extra: SL.extra.length, ausgelassen: SL.ausgelassen,
+        dichte: Object.assign({}, SL_DICHTE), parkFaktor: SL_PARK_FAKTOR,
+        parkKnoten: SL.parkKnoten, parkKanten: SL.parkKanten, parkTore: SL.parkTore,
+        heime: Object.values(SL.heime).map((h) => ({ name: h.name, knoten: h.knoten,
+          liste: h.liste.length, laenge: +h.laenge.toFixed(1), soll: h.soll })),
+        ms: +SL.ms.toFixed(1), fehler: SL.fehler, cullAlt: ZIVI_CULL_ALT,
+        materialien: ZIVI_MAT.size,
+      };
+    },
+    ziviLookSchluessel(c) { return c && c.look ? ziviLookSchluessel(c.look) : null; },
     /* Knotenpruefung mit Koerpervolumen statt Grundriss. */
     knotenPruefung() {
       baueGehnetz();

@@ -48,7 +48,7 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `anim-eigentempo.js` | Eigengeschwindigkeit der Gangclips im Animationslabor |
 | `stadtraster.js` | CITY V2: der LOCKED CORE, alle Rastermaße und Weltgrenzen |
 | `strassen.js` | CITY V2: die Straßenhierarchie und ob jeder Wagen auf einer Spur seiner Straße fährt |
-| `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor; `ruhig` blendet Wagen, Passanten und Gegner aus (sonst ±3–4 Aufrufe Streuung je Lauf) |
+| `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor; `ruhig` blendet Wagen, Passanten und Gegner aus (sonst ±3–4 Aufrufe Streuung je Lauf); `zivis=N` setzt die Zahl der zusätzlichen Straßenpassanten (Stufe 7A), `cullAlt` zeichnet Passanten wie vorher ohne Sichtfeld-Prüfung |
 | `stadt-bilder.js` | CITY V2: vierzehn feste Aufnahmen zum Vergleich zweier Ausbaustufen |
 | `street-details.js` | CITY V2 Stufe 6A: Bäume und Stadtmöbel je Stadtteil und Straßenklasse, leere Gehwegstrecken, Wiederholung; für die neuen Details die harten Platzierungsfehler (Soll überall 0) |
 | `street-bilder.js` | CITY V2 Stufe 6A: zehn feste Straßenbilder auf Augenhöhe und drei Luftbilder, gleiche Stelle vorher und nachher |
@@ -56,6 +56,8 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `sd-sicht-bilder.js` | CITY V2 Stufe 6B: je Art dieselbe Spielansicht mit kürzeren Sichtweiten, gezählt die geänderten Bildpunkte |
 | `ladezeit.js` | CITY V2 Stufe 6B: Zeitmarken T0 bis T6 des Ladens (nur von außen gemessen) mit Bildern, Shaderbau, Uploads je Abschnitt; `wurzel=` misst auch einen alten Stand |
 | `fassaden-zugang.js` | CITY V2 Stufe 6B: echter Lauf vom Bordstein und vom Gehweg an 20 Fassaden mit Straßendetails davor, Haustüren und Arkaden; completelyBlockedFacadeAccess (Soll 0) |
+| `street-life.js` | CITY V2 Stufe 7A: Straßenbevölkerung – Zahl, Stadtteil, Modell, Look; sichtbar im Bild und im Umkreis 25/50/100/150 m an den zehn Straßenorten; Startprüfung (Ding, Haus, Fahrbahn, Wasser, Haustür, abseits Netz, gleicher Punkt); im Lauf Dinge/Häuser, Fahrbahn ohne Überweg, Eingang blockiert, abseits Netz, Stau-Trauben, enge Stellen, längster Stillstand, gleiche Looks, Park (Weg/Bank/Platz/Eingang/Ringstreifen/Rasen, dazu Busch und Pflanzscheibe) und Promenade; `zivis=N`, `cullAlt`, `gegner=s` (zweite Phase mit Gangs); harte Geometriefehler = Exit 1 |
+| `street-life-bilder.js` | CITY V2 Stufe 7A: die zehn Straßenorte aus Stufe 6 mit Passanten und vier Spielkamera-Ansichten (Zentrum, Wohnstraße, Park, Promenade) zu drei Zeitpunkten, nach festem Vorlauf; je Bild gezählt, wer im Bildkegel steht und wer wirklich zu sehen ist (Figur ausgeblendet, geänderte Bildpunkte); `zivis=N` |
 
 Aufruf jeweils aus diesem Ordner, z. B.
 

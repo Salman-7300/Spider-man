@@ -2348,6 +2348,364 @@ Hauskiste stehen nur zwei Poller ohne Hindernis, wie in 6A).
 
 ---
 
+## 6o. Strassenleben: Passanten-Vielfalt und Bevoelkerung je Stadtteil (Stufe 7A)
+
+7A aendert WIE VIELE Passanten es gibt, WO sie unterwegs sind, WELCHES
+MODELL und WELCHER LOOK - keine neue Passanten-KI, keine neue Wegsuche,
+keine neuen Modelle, kein Sitzen oder Telefonieren (das ist 7B). Held,
+Gegner und das Retargeting bleiben unberuehrt. Pruefstand
+`tools/pruef/street-life.js`, Bilder `tools/pruef/street-life-bilder.js`.
+Alle Laeufe mit Keim 4711; das Spiel haelt im ersten Bild nach dem Laden
+an (`basis.js`, Option `frierSofort`) und wird danach in festen Schritten
+gerechnet. Ohne das liefen je nach Rechnerlast 30 bis 100 Bilder in
+Echtzeit, und zwei Laeufe mit demselben Code zeigten an demselben Ort 0
+und 3 Figuren. Waehrend der Messung steht die Figur unverwundbar auf
+einem Dach nahe dem Startpunkt: unten auf der Kreuzung bleiben Passanten
+im Umkreis von 9 m stehen und gaffen - auch mitten auf dem Ueberweg.
+
+**Bestand 32107ff.** 50 Zivilisten: 22 Strassenpassanten, die frei durch
+die ganze Stadt laufen, und 28 Fahrgaeste der U-Bahn, davon 17 im Zug.
+Im Mittel (240 s) standen im Zentrum 8,6 Passanten, in der Mischung 6,0,
+im Geschaeftsviertel 3,0, im Wohngebiet 2,7, am Ufer 1,4 und in den
+beiden Parks zusammen 0,3. Das Modell wurde je Figur gewuerfelt, die
+Kleidung reihum vergeben, und jede Figur bekam eigene Materialkopien.
+Gezeichnet wurde jede Figur ohne Sichtfeld-Pruefung (`frustumCulled =
+false`), also bis 130 m - auch hinter der Kamera und unter der Erde.
+
+**Die fuenf Passantenmodelle:**
+
+| Modell | Kleidung | Knochen | Dreiecke | Teile | Materialien |
+| --- | --- | --- | --- | --- | --- |
+| civilian | T-Shirt, kurze Cargohose, Turnschuhe | 67 | 35.193 | 7 | 6 - Oberteil, Hose, Schuhe, Haar je eigenes, einzeln toenbar |
+| civilian2 | kurzes Oberteil, Jeansshorts | 65 | 53.452 | 6 | 2 - Haar 2048 x 2048, transparent |
+| civilian3 | T-Shirt, lange dunkle Hose | 65 | 49.178 | 2 | 2 - beide transparent, Haut und Kleidung in einem: keine Kleidertoenung moeglich |
+| civilian4 | gestreifter Pullover, Jeans, Absatzschuhe | 65 | 48.207 | 6 | 2 |
+| civilian5 | Pullover, Leggings, Turnschuhe | 65 | 52.118 | 7 | 2 |
+
+Alle sind auf 1,76 m gebracht und haben 53 Clips mit vollstaendig
+gebundenen Spuren (civilian3 bis 5 spielen die Clips von civilian). Zum
+Vergleich: Held 13.400, Schlaeger 14.800 Dreiecke - eine Passantenfigur
+kostet das Drei- bis Vierfache.
+
+**Wie viele - die Kandidaten.** Basis sind die 50 Zivilisten; getestet
++0, +13, +25 und +38 zusaetzliche Strassenpassanten (aktuell, +25, +50,
++75 Prozent). Sicht: im Bild UND ohne Haus dazwischen, Mittel je Sekunde,
+Summe ueber die zehn Strassenorte aus Stufe 6. Lauf: 240 s ohne Gangs.
+Kosten: spielnah an den zehn Orten (Figur an der Kamera, Mehraufrufe
+gegen dieselbe Aufnahme ohne Passanten), CPU am Zentrum-Ort.
+
+| | vorher | +0 | +13 | +25 | +38 |
+| --- | --- | --- | --- | --- | --- |
+| im Bild bis 50 m | 1,63 | 1,71 | 3,09 | 4,27 | 6,48 |
+| im Bild bis 100 m | 3,51 | 3,33 | 6,85 | 8,19 | 12,49 |
+| Umkreis 360 Grad bis 50 m | 3,91 | 4,46 | 7,40 | 10,31 | 13,50 |
+| Fahrbahn ohne Ueberweg, gehend | 22 | 23 | 37 | 48 | 53 |
+| abseits des Netzes > 3 s | 17 | 14 | 31 | 41 | 31 |
+| groesste Traube (2 m) | 2 | 1 | 2 | 2 | 4 |
+| Mehraufrufe, Median | 37 | 14,5 | 13,5 | 20,5 | 27 |
+| Mehrdreiecke, Median | 327k | 97k | 126k | 152k | 234k |
+| CPU der Passanten je Schritt | 1,5 ms | 1,6 ms | 2,0 ms | 2,4 ms | 2,9 ms |
+
+Gewaehlt: **+38** (50 -> 88 Zivilisten, auf der Strasse 22 -> 60). Damit
+stehen an einem Strassenort im Mittel 0,65 Personen naeher als 50 m im
+Bild (+25: 0,43, vorher 0,16; im Endstand 0,60). Die Fehler je Person
+steigen nicht (Fahrbahn 1,0 -> 0,9 je Passant), es gibt keine
+Stau-Traube, und die Kosten bleiben unter denen von vorher, weil die
+Figuren jetzt gegen das Sichtfeld geprueft werden (siehe Leistung). +38
+ist der hoechste Kandidat; mehr wurde nicht versucht. Die
+Kandidatenbilder an zwei festen Ansichten zeigten in keiner Stufe mehr
+als eine ferne Figur - fuer die Wahl zaehlten deshalb die Messwerte
+ueber 240 s.
+
+**Wo - Dichte je Stadtteil.** Jeder neue Passant gehoert zu einem
+Stadtteil und sucht seine Ziele nur dort (`gehNeuesZiel` zieht aus der
+Knotenliste des Stadtteils) - ohne diese Bindung laeuft jede Verteilung
+in wenigen Minuten zu dem, was das Netz von selbst ergibt (gemessen: 54
+Prozent der freien Passanten im Zentrum). Wie viele je Stadtteil:
+begehbare Gehweglaenge (Gehwegkanten ohne Ueberwege und U-Bahn-Koepfe,
+jede Kante zur Haelfte fuer beide Enden) mal Dichte, ganze Personen nach
+dem groessten Rest. In der Knotenliste zaehlt die Promenade dreifach,
+Parkwege und Gehwege an Boulevard und Avenue doppelt - dort, wo man die
+Stadt sieht, halten sich mehr Leute auf. Ein Begleiter kommt nur aus
+demselben Stadtteil. Die 22 bisherigen Passanten bleiben frei.
+
+| Stadtteil | Netz | Dichte | neu | im Stadtteil, Mittel vorher -> 7A | je km Netz |
+| --- | --- | --- | --- | --- | --- |
+| Zentrum | 2788 m | 1,0 | 10 | 8,6 -> 18,9 | 6,8 |
+| Geschaeft | 1497 m | 0,8 | 4 | 3,0 -> 7,5 | 5,0 |
+| Ufer | 3415 m | 0,6 | 7 | 1,4 -> 9,7 | 2,8 (Promenade 7,9) |
+| Mischung | 4841 m | 0,45 | 8 | 6,0 -> 15,9 | 3,3 |
+| Wohnen | 3004 m | 0,25 | 3 | 2,7 -> 4,9 | 1,6 |
+| Park | 530 m | 3,0 | 6 | 0,3 -> 2,9 | 5,5 |
+
+Der Park ist ein Ziel, kein Durchgang: mit Dichte 1,5 kamen drei Leute
+auf zwei Parks, und auf den Parkbildern stand niemand; mit 3,0 sind es
+sechs. Das Ufer liegt im ganzen Stadtteil unter der Mischung, auf der
+Promenade aber mit 7,9 Personen je km dichter als das Zentrum (im Mittel
+4,6 Personen auf 580 m, vorher 0,25).
+
+**Die Parkwege im Gehnetz.** Das Wegekreuz der Parks (3,2 m breit, mit
+Brunnenplatz) kannte das Gehnetz nicht - Passanten liefen nur aussen
+herum. Neu je Arm ein Tor auf der Gehweglinie (17 m von der Mitte,
+zwischen die Ringknoten gehaengt), Wegpunkte bei 15, 11,5, 8 und 4,6 m,
+um das Becken vier Eckpunkte: 48 Knoten (8 Tore), 64 Kanten. Das Netz
+hat damit 1525 statt 1477 Knoten und 1909 statt 1845 Kanten. Die Tore
+kosten in der Wegsuche das 25-fache ihrer Laenge (`kante.faktor`): quer
+durch einen Block spart man hoechstens rund 40 m, zwei Tore kosten 100 m
+- keine Route, auch keine Missionsroute, kuerzt durch einen Park ab. Die
+Parkknoten stehen nicht in `GEH.raster`: `gehNaechster` findet sie nicht,
+also beginnt und endet keine Mission, Einsatzfahrt oder Rettung auf einem
+Parkweg.
+
+**Welches Modell, welcher Look.** Aus einem lokalen Hash
+(`sdHash(7000 + Nummer, Versuch, Salz)`), nicht aus dem Stadtstrom:
+Modell nach Stadtteil gewichtet, eine der sechs vorhandenen Kleidungen
+aus `city-visuals.js`, bei civilian dazu Oberteil, Hose, Schuhe und Haar
+aus den vorhandenen Paletten. Kein Passant sieht aus wie sein Begleiter
+oder wie ein Passant im Umkreis von 8 m (bis zu acht Versuche). Die
+22 bisherigen Passanten bekommen ihren Look ebenso; ihre Figur entsteht
+zuerst aber genau wie vorher und wird erst danach ersetzt - jede neue
+UUID zieht in three.js vier Zahlen aus `Math.random`, und ohne diese Zuege
+an genau dieser Stelle rueckte der Stadtstrom fuer alles Folgende.
+Gegenprobe: die 310.054 Zuege eines Ladevorgangs bis `actorsReady` sind
+Zug fuer Zug dieselben wie auf 32107ff; Haeuser 617, Lots, 300
+Parkautos, 45 Wagen, 12 Gegner (dieselbe Liste), 41 POIs und 2103
+Strassendetails haben denselben Fingerabdruck, nur die Passanten nicht
+(50 -> 88). Die zusaetzlichen Passanten entstehen nach den Gangs in einem
+eigenen Strom.
+
+District Flavor, subtil - nur Gewichte, jedes Modell kommt ueberall vor:
+Zentrum und Geschaeft etwas mehr civilian4/5 (lange Hosen, Pullover) und
+Pendler-, Stadt- und Abendkleidung, Wohnen und Park etwas mehr civilian
+und civilian2 und Alltag, Sport, Freizeit; die Einzelfarben im Zentrum
+leicht zu den dunklen, im Wohngebiet zu den hellen Eintraegen der
+Paletten. civilian3 steht ueberall zurueck: ohne Toenung hat es nur drei
+unterscheidbare Fassungen (Rucksack, Tasche, ohne) - im ersten Lauf mit
+gleichen Gewichten stellte es 20 von 60 Passanten.
+
+Verteilung der 60 Strassenpassanten: civilian 10, civilian2 15,
+civilian3 13, civilian4 13, civilian5 9; Alltag 8, Pendler 12, Sport 7,
+Freizeit 7, Stadt 12, Abend 14; 28 unterscheidbare Looks (vorher 17 von
+22). Drei Paare, keines gleich gekleidet. Gleich aussehende naeher als
+3 m: 5 Paar-Sekunden in 240 s. Je Stadtteil zum Beispiel: Zentrum Stadt 4,
+Abend 3, Pendler 2, Sport 1; Park Sport 3, Alltag 2, Abend 1.
+
+Materialien werden geteilt: die getoenten Farben (`ZIVI_MAT`, 19 fuer alle
+Passanten), die Kleidungskopien von `dressCivilian` (nur fuer die neuen
+Looks, Option `share`), Handy und Schirm. Niemand veraendert diese
+Materialien danach - Einsatzkraefte und sterbende Gegner legen eigene
+Kopien an, und `material.dispose` kommt im Spiel nicht vor. Trotz 38
+Figuren mehr hat die Szene 2332 statt 2417 Materialien und 3261 statt
+3351 Geometrien.
+
+**Startpunkte.** Alle 60 Strassenpassanten vor dem ersten Schritt
+geprueft: in einem Ding (Baum, Bank, Muelleimer, Kuebel, Kiosk ...) 0, in
+einem Haus 0, auf der Fahrbahn oder einem Ueberweg 0, im Wasser 0, vor
+einer Haustuer 0, an einer Arkade 0, mehr als 3 m neben dem Netz 0, auf
+demselben Punkt wie ein anderer 0. Beim Setzen haelt jeder 6 m Abstand zu
+allen, die schon stehen (nach zehn Versuchen 2 m); ausgelassen 0.
+
+**Lauf ohne Gangs, 240 s:**
+
+| | 32107ff | 7A |
+| --- | --- | --- |
+| Strassenpassanten | 22 | 60 |
+| in einem Ding / Haus laenger als 1 s | 0 / 0 | 0 / 0 |
+| Fahrbahn ohne Ueberweg, gehend | 22 (1,0 je Passant) | 57 (0,95 je Passant) |
+| abseits des Netzes > 3 s | 17 (0,77) | 42 (0,70) |
+| Eingang laenger als 5 s blockiert | 0 | 0 |
+| Stau-Trauben (3+ ungewollt still, 10 s) | 0 | 0 |
+| groesste Traube (2 m) / dichteste Stelle (andere im 5-m-Umkreis) | 2 / 1 | 3 / 3 |
+| enge Stelle 5 s blockiert | 0 | 3 - alle gewollt (zwei Aktivitaeten, ein Gespraech) |
+| laengster ungewollter Stillstand | 8 s | 69 s (s. u.) |
+
+Die Fahrbahnfaelle sind Bestand und je Person nicht haeufiger: Passanten
+streifen an der Brueckenstrasse und an Ecken den Bordstein. Mit Gangs
+(120 s danach): in Ding und Haus 0 / 0 auf beiden Staenden.
+
+Der Stillstand von 69 s: ein freier Passant beim Queren an der
+Blockmitte -150 westlich von Block 100 (86,4/-148,3). Dieselbe Stelle hat
+32107ff im ersten Messdurchgang (Held noch auf der Kreuzung) mit 69 s
+bei 81,3/-150,5, und der Kandidat +38 im zweiten Durchgang mit 75 s bei
+82/-148,7. Bestand der Querungslogik, in 7A nicht angefasst.
+
+**Park und Ufer.** Der Ring um einen Park (17 m von der Mitte) liegt seit
+jeher im Rasen - einen gepflasterten Gehweg gibt es dort nicht.
+Personen im Park, Mittel je Sekunde (beide Parks):
+
+| Zone | 32107ff | 7A |
+| --- | --- | --- |
+| Ring (Rasenstreifen am Rand) | 0,20 | 1,48 |
+| Eingang / Weg / Bank / Platz | 0 / 0 / 0 / 0 | 0,26 / 0,17 / 0,20 / 0,05 |
+| Rasen innen | 0 | 0,13 |
+| in einem Busch | 0,03 | 0,16 |
+| auf einer Pflanzscheibe | 0 | 0,00 (1 Personen-Sekunde) |
+
+Rasen innen heisst: an den Toren schneidet der Passant die Kurve vom Ring
+auf den Weg ab, 1 bis 2 m ueber den Rasen. Die Buschfaelle sind Bestand:
+die niedrigen Bueschel am Nord- und Suedrand (`createPark`, z = 16,05 und
+16,5 m) reichen bis 16,77 m an die Ringlinie (17 m) heran, und schon der
+kleine Seitenversatz beim Gehen (0,02 bis 0,42 m) streift sie. Gemessen
+an der Zeit auf dem Ring sind es auf 32107ff 15 Prozent, in 7A 11 Prozent
+- 7A bringt nur mehr Menschen auf den Ring. Weder die Bueschel noch das Gehnetz
+werden in 7A verschoben.
+
+Promenade: im Mittel 4,58 Personen (vorher 0,25), hoechstens 7, an der
+dichtesten Stelle 1 andere im 5-m-Umkreis - belebt, nicht voll.
+
+**Sicht an den zehn Orten** (im Bild und frei, Mittel je Sekunde,
+25 / 50 / 100 m; frei heisst: keine Hauskiste zwischen Kamera und Figur -
+Baeume, Laternen und Wagen zaehlen hier nicht als Sichtsperre):
+
+| Ort | 32107ff | 7A |
+| --- | --- | --- |
+| 01 Zentrum | 0,18 / 0,41 / 0,75 | 0,52 / 1,16 / 2,27 |
+| 02 Geschaeft | 0 / 0,01 / 0,33 | 0 / 0 / 0,65 |
+| 03 Mischung | 0,04 / 0,20 / 0,50 | 0,17 / 0,55 / 1,07 |
+| 04 Wohnen | 0 / 0,05 / 0,15 | 0,02 / 0,17 / 0,71 |
+| 05 Parkrand | 0,06 / 0,32 / 0,61 | 0,44 / 0,95 / 1,54 |
+| 06 Park innen | 0,01 / 0,28 / 0,53 | 0,39 / 1,87 / 2,94 |
+| 07 Ufer | 0,05 / 0,10 / 0,14 | 0,36 / 0,92 / 1,40 |
+| 08 Boulevard | 0,03 / 0,16 / 0,27 | 0,05 / 0,05 / 0,27 |
+| 09 Local Street | 0 / 0 / 0 | 0 / 0 / 0 |
+| 10 Avenue | 0 / 0,10 / 0,23 | 0,17 / 0,36 / 0,85 |
+| Summe | 0,37 / 1,63 / 3,51 | 2,12 / 6,03 / 11,70 |
+
+Im Umkreis von 50 m (360 Grad) sind es 3,91 -> 14,75. Die Local Street
+am Stadtrand (-300/-250) sieht auch in 7A niemanden: das Wohngebiet hat
+die geringste Dichte, und die Ecke liegt abseits. Am Boulevard-Ort stehen
+die Leute in diesem Lauf weiter weg (bis 150 m 0,32 -> 0,59).
+
+**Leistung.** `stadt-leistung.js`, unveraendertes Verfahren, 300
+Aufnahmen; 7A drei Laeufe mit identischem Ergebnis:
+
+| Lage | 32107ff | 7A | 7A ohne Sichtfeld-Pruefung (`cullAlt`) |
+| --- | --- | --- | --- |
+| Strasse | 798,5 | 753,5 | 836,5 |
+| Dach | 810 | 768 | 849 |
+| Luftbild | 897 | **859,5** | 936 |
+| GESAMT | 834 | **794** | 870,5 |
+| Dreiecke Median | 3,71 Mio. | 3,40 Mio. | 4,10 Mio. |
+| Aufrufe / Dreiecke hoechstens | 2551 / 4,54 Mio. | 2597 / 4,93 Mio. | 2597 / 4,93 Mio. |
+
+Die Ersparnis kommt ganz aus der Sichtfeld-Pruefung: ohne sie laegen
+GESAMT 36,5 und das Luftbild 39 Aufrufe ueber 32107ff - das Luftbild bei
+936, ueber der Grenze. Gemessen auf 32107ff kosteten die 11 Figuren um den
+Startpunkt in jeder der 300 Aufnahmen 60 Aufrufe, egal wohin die Kamera
+sah. Jetzt bekommt jedes Teil einer Figur dieselbe Huellkugel (Mitte
+0,9 m ueber dem Boden, Halbmesser 1,3 m), und die Figur faellt als Ganzes
+aus dem Bild. Nachgemessen ueber alle 53 Clips jedes Passantenmodells an
+neun Zeitpunkten, jeder Vertex auf der CPU gehaeutet wie im Shader: jede
+Haltung eines Passanten bleibt mindestens 11 cm innerhalb (am knappsten
+`jubel` mit erhobenen Armen, `walk` 34 cm, verletzt am Boden `sit`
+20 cm); hinaus ragen nur Heldenclips, die kein Passant spielt (`swing`
+bis 4,8 cm, `klettern_frei` 0,9 cm). Gegner aus civilian4/5 teilen die
+Geometrie, behalten aber `frustumCulled = false` - fuer sie aendert sich
+nichts. Die teuerste der 300 Aufnahmen liegt bei 2597 statt 2551
+Aufrufen; der Pruefstand speichert keine Werte je Aufnahme, und Wagen und
+Figuren stehen beim Einfrieren auf beiden Staenden woanders - der Anteil
+der Passanten daran ist nicht getrennt gemessen.
+
+Spielnah an den zehn Orten (Figur an der Kamera): Passanten kosten im
+Median 27,5 Aufrufe und 219.000 Dreiecke (vorher 37 und 327.000), am
+meisten am Boulevard und im Zentrum (+70 und +65 bei 30 und 34 Figuren im
+130-m-Kreis). CPU: 2,9 ms je Schritt fuer alle Passanten (vorher 1,5 ms),
+Wegsuche 9 mal in 600 Schritten.
+
+Im `ruhig`-Modus (Wagen, Passanten und Gegner ausgeblendet) misst 7A 675
+statt 679,5 (6B). Ursache: ausserhalb der drei Listen bleiben auf beiden
+Staenden dieselben fuenf Figuren sichtbar; eine davon (sitzend bei
+12,3/12,4) wuerfelt ihr Modell zur Laufzeit und ist in 7A civilian3 mit
+2 Teilen statt eines Modells mit 7 - der Laufzeitstrom ist mit mehr
+Passanten ein anderer. Am Zeichnen hat 7A dort nichts geaendert.
+
+Sichtweiten unveraendert: gezeichnet und animiert bis `LOD_WEITE` 130 m
+(100 und 70 m in den niedrigeren Grafikstufen), Schatten bis 46 m, die
+KI rechnet fuer alle (ueber 60 m Manhattan-Abstand nur jedes dritte
+Bild). Kein Befund verlangte eine Aenderung.
+
+**Ladezeit.** `hebeSchatten` hebt in three.js r128 nie etwas an: eine
+Textur hat dort kein `userData`, die Zeile mit `schonGehoben` wirft, und
+der catch-Zweig gibt das Original zurueck. Die Arbeit davor lief trotzdem
+fuer jede neue Figur und jede Textur - neue Leinwand, `drawImage`,
+`getImageData`, neue CanvasTexture. Im Ladeprofil der 38 neuen Passanten
+waren das 1,74 von 1,86 s. Gemerkt wird jetzt nur, was ohnehin
+feststeht (das Original): bei einer ganz schwarzen Stichprobe sofort,
+wenn das Bild fertig dekodiert ist (dabei entsteht keine Textur, also
+kein Zug aus dem Stadtstrom), sonst erst ab `baueStrassenLeben`, damit
+die Zuege davor dieselben bleiben. Angehoben wird weiterhin nichts - das
+wuerde Held und Gegner veraendern. `baueStrassenLeben` braucht fuer alle 60
+Strassenpassanten auf ruhiger Maschine 0,13 s (drei Laeufe 0,127 /
+0,131 / 0,144 s; unter der Last der Pruefstaende 0,5 bis 0,9 s). Ladezeit
+(`ladezeit.js`, je zwei Laeufe im Wechsel): 7A laedt nicht langsamer -
+letzte Datei geladen 12,8 / 13,6 s gegen 16,0 / 15,4 s, Szene ruhig
+26,6 / 27,3 s gegen 32,5 / 29,6 s. Der Abstand entsteht aber schon vor
+dem Strassendetail-Plan, also bevor der erste Passant gebaut wird; er ist
+7A nicht zugeordnet.
+
+**Bilder und Video.** `street-life-bilder.js` nach 120 s Vorlauf: die
+zehn Orte aus Stufe 6 vorher und nachher, dazu vier Spielkamera-Ansichten
+(Zentrum, Wohnstrasse, Park vom Weg zum Brunnen, Uferpromenade) zu drei
+Zeitpunkten im Abstand von 30 s. Eine Stosszeit kennt das Spiel nicht -
+die Bevoelkerung haengt nicht von der Uhrzeit ab. Je Bild zaehlt das
+Werkzeug, wer wirklich zu sehen ist (Figur ausgeblendet und neu
+gezeichnet, mindestens 25 geaenderte Bildpunkte in ihrem Bildrechteck):
+in den 22 Bildern bis 50 m vorher 2 Personen, in 7A 17; bis 100 m 4
+gegen 29. Im einzelnen Bild bleibt es aber bei 0 bis 2 Menschen bis
+50 m, meist als kleine Figuren in 30 bis 50 m Entfernung - die Strassen
+wirken belebter, nicht voll. Der Bildkegel allein zaehlt auch Figuren
+hinter einer Hauswand: am Zentrum-Ort 3 im Kegel, 2 sichtbar; an der
+Promenade zu t2 zwei im Kegel, keine sichtbar - das Bild ist dort
+pixelgleich mit 32107ff. Das
+Video (2:07 min, 15 Bilder je Sekunde in Echtzeit, normale Spielkamera,
+Gehen mit Alt+W, Gangs aus) geht durch Zentrum (Boulevard z=25),
+Geschaeft (Avenue z=175), Wohnen (Strasse z=125), Park (Westarm, Brunnen,
+Nordarm) und die Uferpromenade. Abschnitt 1 endet, wo die Figur an einem
+Bushaeuschen (Bestand) haengen bleibt; der Parkabschnitt ist neu
+gerechnet, weil die erste Route in eine Bank fuehrte. Auch im Video sieht
+man meist einzelne Passanten, oft 30 bis 60 m entfernt; nahe Begegnungen
+gibt es in der Wohnstrasse und auf der Promenade. Der weisse
+Promenadenbelag in einem Teil der Bilder ist Bestand - schon im Video
+aus 6B in 88 von 330 Bildern.
+
+**Regression (Keim 4711):** `node --test` 170/170; street-details harte
+Fehler 0 (2103 Dinge, 1309 Hindernisse, wie 6B); freigang alle Flaechen
+frei (der Arkaden-Befund an der Laterne -18/150 ist Bestand; der
+Spielzaehler "auf Fahrbahn" steht bei 5 statt 2 - er zaehlt die
+Passanten, die gerade regulaer queren); Stadtraster unveraendert;
+Parkautos gleich; Kernsysteme Story 8/8, Seitenfehler 0, npc- und
+enemyStaticPenetration 0, Stadtmoebel 19 Felder, 2884 Stueck; Naht
+221/221/221, Aussenecke 150/150; Innenklettern 0/0/0/0 (Kontrolle aussen
+89/92); MO1 0/0/0; Kletterstetigkeit Foreign 0; Top-out 13/13 und 8/8,
+postTopOutUnexpectedDisplacement 0,000; Brutal-Halle gehen und rennen
+30/30, invisibleCollision 0; Neon-Pflichtbahnen 27, Brust/Becken/Knie/
+Schnitt 0. Naht, Innenklettern, MO1, Kletterstetigkeit, Top-out,
+Brutal-Halle und Neon-Bahnen sind zeilengleich mit 6B.
+
+Kernsysteme, Boss-Lebenszyklus: im Regressionslauf "im Spiel 2, nach
+Abbau 1". Nachgefahren mit der Bossliste vor und nach dem Abschnitt
+(scratchpad/ks-probe.js): ein ENFORCER aus einem Ereignis des Abschnitts
+davor lebt noch (nachEvent, 130 bis 200 m entfernt), der Test setzt einen
+zweiten, besiegt den neuen, und der alte wartet seine Schonzeit ab - der
+vorgesehene Ablauf, kein Leck. Ob ein Ereignisboss ueberlebt, haengt vom
+Zufall der Echtzeitphase vor dem Einfrieren ab: 32107ff zeigt den Befund
+in 2 von 5 Laeufen, 7A in 2 von 4; 339184b hatte ihn im Vergleichslauf zu
+6A.
+
+npc-wege, Keim 4711: 32107ff A 1, D 81, E 85 (wie in 6B); 7A A 1, D 85,
+E 78. Der A-Fall von 32107ff (fluechtender Passant an der Hauskiste
+-9/100) kommt in 7A nicht mehr vor; dafuer laeuft ein verfolgender
+Gegner bei 83/-167 fuer 3,3 s durch eine Hauskiste. An Gegnern aendert
+7A nichts, der Laufzeitzufall ist ein anderer. Die E-Fehlschlaege haben
+auf beiden Staenden dieselbe Form: andere Gegner belegen die Ringplaetze,
+keiner kommt auf 3,2 m heran, keiner wird abgebaut. Mit zwei
+weiteren Keimen (nur der Gegnerteil, `npc-wege.js ... <keim> nurE`): Keim
+1234 32107ff 72, 7A 79; Keim 2026 32107ff 81, 7A 72; A beide Male 0 auf
+beiden Staenden. Ueber drei Keime 79,3 gegen 76,3 - die Streuung je Keim
+ist groesser als der Unterschied, und jeder Fehlschlag hat dieselbe Form.
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,

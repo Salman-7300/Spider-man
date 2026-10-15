@@ -53,11 +53,19 @@ const seed = sArg === undefined ? 4711 : +sArg.slice(5);
    Einfrieren gerade stehen. Fuer Vorher/Nachher-Vergleiche einzelner
    Aufrufe; die Standardmessung bleibt wie sie war. */
 const ruhig = process.argv.indexOf('ruhig') > 0;
+/* "zivis=N" (Stufe 7A): Zahl der zusaetzlichen Strassenpassanten, wie
+   window.__WEBHERO_ZIVIS - fuer Kandidatenvergleiche. "cullAlt": Figuren
+   ohne Sichtfeld-Pruefung, Stand vor 7A. */
+const zArg = process.argv.find((v) => v.indexOf('zivis=') === 0);
+const zivis = zArg === undefined ? null : +zArg.slice(6);
+const cullAlt = process.argv.indexOf('cullAlt') > 0;
 
 (async () => {
   const opt = {};
   if (alt) opt.wdhAlt = true;
   if (bremsen !== null) opt.bremsen = bremsen;
+  if (zivis !== null) opt.zivis = zivis;
+  if (cullAlt) opt.ziviCullAlt = true;
   const { b, page } = await starte(1280, 720, seed, opt);
   const aus = await page.evaluate((ruhig) => {
     const d = __dbg;

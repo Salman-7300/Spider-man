@@ -926,10 +926,18 @@
     const matrix = new THREE.Matrix4().copy(bone.matrixWorld).invert().multiply(v.root.matrixWorld);
     matrix.decompose(mesh.position, mesh.quaternion, mesh.scale); bone.add(mesh); return mesh;
   }
-  function dressCivilian(v, variant) {
+  /* Stage 7A: with share = true, tinted copies are shared between all
+     civilians wearing the same outfit over the same base material (keyed by
+     material, region and outfit) instead of one or two new materials per
+     passer-by; nothing mutates these copies afterwards. Without it the old
+     per-figure copies stay - each new material draws a UUID from the game's
+     seeded Math.random, and the street civilians spawned before the gangs
+     must keep consuming exactly the same numbers. */
+  const dressCopies = new Map();
+  function dressCivilian(v, variant, share) {
     if (!v || !v.root || v.procedural || v.root.userData.cityOutfit) return;
     const kind = variant === undefined ? civilianSerial++ % OUTFITS.length : ((variant % OUTFITS.length) + OUTFITS.length) % OUTFITS.length;
-    const outfit = OUTFITS[kind], copies = new Map();
+    const outfit = OUTFITS[kind], copies = share ? dressCopies : new Map();
     v.root.traverse(o => {
       if (!o.isMesh || !o.material) return;
       const name = o.name || '';
@@ -939,7 +947,7 @@
         const region = /^(Topmat)$/i.test(mat.name) || /cloth|shirt|tops/i.test(name) ? 'top'
           : /^(Bottommat)$/i.test(mat.name) || /pants|bottoms/i.test(name) ? 'pants' : null;
         if (!region || !mat.color) return mat;
-        const key = mat.uuid + ':' + region;
+        const key = mat.uuid + ':' + region + (share ? ':' + outfit.name : '');
         if (!copies.has(key)) { const copy = mat.clone(); copy.color.multiply(new THREE.Color(outfit[region])); copies.set(key, copy); }
         return copies.get(key);
       });

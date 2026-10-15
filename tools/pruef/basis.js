@@ -172,7 +172,31 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: die Stadt ohne die Strassenbaeume und -moebel aus
        CITY V2 Stufe 6A (Stand vor 6A, derselbe Code). */
     if (ein.ohneSD) window.__WEBHERO_OHNE_SD = 1;
+    /* ---- Gleich nach dem Laden einfrieren (Stufe 7A) ----
+       Zwischen actorsReady und dem ersten frier(true) eines Skripts laeuft
+       das Spiel einige Sekunden in Echtzeit weiter - auf SwiftShader mal
+       dreissig, mal hundert Bilder. Die Passanten stehen danach jedes Mal
+       woanders, und zwei Laeufe mit demselben Code zeigten an demselben
+       Ort 0 und 3 Figuren. Mit dieser Option haelt das Spiel im ERSTEN Bild
+       nach actorsReady an, bevor dort simuliert wird; der Pruefstand rechnet
+       danach selbst in festen Schritten. Das Spiel merkt davon nichts:
+       umgebogen wird nur requestAnimationFrame dieser Seite. */
+    /* Stufe 7A: Zahl der zusaetzlichen Strassenpassanten (Kandidaten wie
+       bei den Wagen) und Figuren ohne Sichtfeld-Pruefung (Stand davor). */
+    if (ein.zivis !== null) window.__WEBHERO_ZIVIS = ein.zivis;
+    if (ein.ziviCullAlt) window.__WEBHERO_ZIVI_CULL_ALT = 1;
+    if (ein.frierSofort) {
+      const rafOrig = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (cb) => rafOrig((t) => {
+        const d = window.__dbg;
+        if (d && d.actorsReady && !window.__frierSofortGetan) { window.__frierSofortGetan = true; d.frier(true); }
+        cb(t);
+      });
+    }
   }, { seed: seed === undefined ? null : seed, autos: (opt && opt.autos) || 0,
+       frierSofort: !!(opt && opt.frierSofort),
+       zivis: (opt && typeof opt.zivis === 'number') ? opt.zivis : null,
+       ziviCullAlt: !!(opt && opt.ziviCullAlt),
        park: (opt && opt.park !== undefined) ? opt.park : null,
        streetSpur: (opt && opt.streetSpur) || 0,
        hybrid: (opt && opt.hybrid) || 0,
