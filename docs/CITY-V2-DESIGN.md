@@ -2157,6 +2157,197 @@ Unterschied auf Programmbau (+3,3 s) und Warten auf den GPU-Prozess
 
 ---
 
+## 6n. Street-Detail-Polish und Leistungsreserve (Stufe 6B)
+
+6B fuegt nichts hinzu. Erst angesehen, dann gemessen, dann nur geaendert,
+was ein Bild oder eine Zahl belegt.
+
+**Bewertung der 6A-Bilder (zehn feste Orte, drei Luftbilder, das
+2:12-Video).** A = sichtbar besser, B = zu leer, C = zu voll, D = Muster,
+E = Prop unpassend, F = Baum verdeckt zu viel, G = gut.
+
+| Ort | Wertung | Begruendung |
+| --- | --- | --- |
+| 01 Zentrum 0/-50 N (Street) | A | Uhr vorn, Bank und Muelleimer hinten; Seitenstrasse bewusst ohne Baeume, Gehweg vorn noch leer (B-Tendenz, gewollt) |
+| 02 Geschaeft -150/-100 O (Boulevard) | A | Baumreihe, Arkadenstuetzen frei; zwei Muelleimer 3,5 m auseinander (C-Tendenz) |
+| 03 Mischung -200/50 N | A | natuerliche Baumreihe beidseits, Arkade frei |
+| 04 Wohnen -250/100 N | A | Baumreihe beidseits |
+| 05 Parkrand -200/-150 O | A | Randreihe und Gruppen innen; grosse Krone dicht an der Kamera, parktypisch |
+| 06 Park innen | A | Weg und Brunnen frei, Kronen rahmen den Blick (F-Grenzfall, parktypisch) |
+| 07 Ufer, Promenade | A | zweite Baumreihe; die Laterne ist nur aus genau diesem Blick hinter dem Baum (steht ueber 4 m daneben) |
+| 08 Boulevard 100/0 N | G | Baum, Uhr, Muelleimer, gegenueber Kuebel-Bank-Kuebel |
+| 09 Local -300/-250 S | A | Baumreihe einer Wohnstrasse |
+| 10 Avenue 0/150 O | A | Gegenseite Baumreihe und Kuebel, eigene Seite ein Muelleimer |
+| Luftbilder | A, A, G | Wohnen: Strassenbaumraster; Park dicht und gruen; Zentrum sparsam |
+
+Dichte: die dichteste Kante jedes Stadtteils (Zentrum 8 Teile, Geschaeft
+6, Mischung 5, Ufer 5, Wohnen 4, Park 3) aus Fussgaenger- und
+Spielkamerahoehe gerendert - keine wirkt ueberfuellt. Park 20,4, Ufer
+6,8, Wohnen 6,2 Baeume je 100 m und Zentrum 13,8 Mobiliar je 100 m wirken
+im Spiel natuerlich; keine Dichte wurde veraendert. Echte Auffaelligkeiten
+gab es nur im Kleinen: drei Muelleimer im 2-m-Takt an einer
+Geschaeftskante (x -268,3), zehn Muelleimer-Paare unter 5 m, zwei
+Bahnhofsuhren 7,8 m auseinander an derselben Kante und drei Uhrenpaare
+ueber Eck einer Kreuzung. Ursache: mehrere freie Gruppen einer Kante
+landeten in derselben groessten Luecke.
+
+**Geaendert 1 - Mindestabstand gleicher Arten (`SD_ART_ABSTAND`):** ein
+Muelleimer haelt 8 m zum naechsten neuen Muelleimer, eine Uhr 60 m zur
+naechsten Uhr; was zu nah kaeme, faellt weg wie jede verworfene Gruppe.
+Muelleimer 272 -> 268, Uhren 13 -> 7 (die naechste Uhr jetzt 60 bis
+81 m entfernt), eine Bank+Muelleimer-Gruppe weniger. Paare unter 5 m:
+10 -> 0. Mobiliar je 100 m im Zentrum 13,8 -> 13,6, sonst gleich.
+
+**Geaendert 2 - Sichtweiten (`SD_SICHT`), mit Bildern statt geschaetzt**
+(`tools/pruef/sd-sicht-bilder.js`: je Art dieselbe Spielansicht an vier
+Stellen - Boulevard, Avenue, Promenade, Dachkante -, dazu fuenf
+Pollerreihen; gezaehlt die Bildpunkte, die sich gegen die alte
+Sichtweite aendern, von 921.600):
+
+| Art | vorher | nachher | geaenderte Bildpunkte | Hoehe an der Grenze |
+| --- | --- | --- | --- | --- |
+| Baum | 185 m | 185 m | - (Silhouette) | 18 Pt. |
+| Uhr | 185 m | 185 m | - (Wahrzeichen) | 7 Pt. |
+| Kiosk | 185 m | 150 m | auf 170 m hinter Baeumen unsichtbar | 8 Pt. |
+| Bank | 150 m | 120 m | 0 bis 25 | 4 Pt. |
+| Pflanzkuebel | 150 m | 100 m | 0, vom Dach 73 | 4 Pt. |
+| Muelleimer | 110 m | 80 m | 0 bis 17 | 6 Pt. |
+| Poller | 150 m | 60 m | 0 bis 21 | 7 x 2 Pt. |
+| Baum-/Pflanzscheibe | 110 m | 60 m | vereinzelte Punkte | unter 1 Pt. ab 30 m |
+
+Kein neues LOD: nur der Radius des vorhandenen Feldes
+(`updateMoebelSicht`). Ein leeres Feld (count 0) zeichnet three.js r128
+schon nicht - eine Leerfeld-Regel braucht es nicht.
+
+**Warum das Luftbild ueber 899 lag** (`tools/pruef/sd-leistung.js`,
+gerechnet aus Belegung und Geometrie, an jeder der 300 Stellen gegen ein
+echtes Bild mit und ohne die Felder geprueft, Abweichung hoechstens 2):
+`stadt-leistung.js` friert das Spiel ein und bewegt nur die Kamera. Die
+Instanzfelder bleiben so belegt wie um die Figur am Startpunkt
+(25/25, Zentrum) und werden nicht nach Sichtkegel geschnitten - jedes
+nicht leere 6A-Feld kostet deshalb in JEDER Aufnahme genau einen
+Aufruf, egal wohin die Kamera schaut: vier Baumvarianten, Baumscheibe,
+Bank, Muelleimer, Kuebel, Poller, Uhr, Kiosk = 11 (die Pflanzscheibe
+ist dort leer). Die Luftansicht lag ohne 6A schon bei 889,5 - plus 11 =
+900,5. Spielnah gemessen (Figur an der Kamera, Felder nachgezogen) waren
+es 893,5: in 118 m Hoehe sind die kleinen Dinge ausserhalb ihrer
+Sichtweite.
+
+Nach 6B sind am Startpunkt Kiosk (176 m) und Poller (64,6 m) ausserhalb
+ihrer Sichtweite; 6A kostet dort 9 statt 11 Aufrufe.
+
+**Leistung (`stadt-leistung.js`, 300 Aufnahmen, unveraendertes
+Verfahren):**
+
+| Lage | 339184b | a74d256 (6A) | 6B |
+| --- | --- | --- | --- |
+| Strasse | 790,5 | 801,5 | 799,5 |
+| Dach | 802 | 813 | 811 |
+| Luftbild | 890 | 900,5 | **898,5** |
+| GESAMT | 826 | 837 | **835** |
+| Dreiecke Median | 3,15 Mio. | 3,86 Mio. | 3,73 Mio. |
+
+6A und 6B sind Mediane aus vier bzw. drei Laeufen. Derselbe Stand
+streut um drei bis vier Aufrufe (a74d256: 833,5 / 837 / 837 / 837) - je
+nachdem, wo Wagen, Passanten und Gegner beim Einfrieren gerade stehen;
+sie machen 155 bis 200 der Aufrufe aus. Fuer genaue Differenzen gibt es
+deshalb `stadt-leistung.js ... ruhig` (die drei ausgeblendet, wie
+`street-bilder.js`): 339184b 671 / Luftbild 691,5, a74d256 682 / 702,5,
+6B 679,5 / 700 - 6B spart dort 2,5 Aufrufe und 3,9 Prozent Dreiecke.
+Die 6A-Felder kosten eingefroren 9 statt 11 Aufrufe, ihre Dreiecke
+582.000 statt 712.000; spielnah im Luftbild 6 statt 8 Aufrufe.
+
+Offen gesagt: das Luftbild liegt nur deshalb unter 899, weil am
+Startpunkt der Messung jetzt auch das Pollerfeld leer ist (naechster
+Poller 64,6 m, Sichtweite 60 m). Die 60 m sind aus den Bildern gewaehlt,
+nicht fuer den Pruefstand - aber ohne sie laege das Luftbild bei 899,5.
+
+**Collider (Teil 7):** die 1320 Hindernisse bleiben. `collidersNear`
+liefert an den Orten, an denen das Spiel fragt, 11 bis 14 Prozent mehr
+Kandidaten (Passanten 93 -> 103, Gegner 79 -> 90, Wagen 70 -> 80 im
+Mittel). Die Simulation ohne Bild kostet je Schritt 3,68 ms (a74d256)
+gegen 3,72 ms (derselbe Code mit `ohneSD`) und 3,55 ms (339184b), je drei
+Laeufe im Wechsel - kein messbarer Anstieg, nichts geaendert.
+
+**Ladezeit, getrennt (`tools/pruef/ladezeit.js`, Zeitmarken nur im
+Pruefstand, je drei Laeufe im Wechsel, Median in s):**
+
+| Marke | 339184b | a74d256 | a74d256 + ohneSD | 6B |
+| --- | --- | --- | --- | --- |
+| T1 letzte Datei geladen | 25,5 | 24,8 | 24,1 | 25,8 |
+| T2 Stadtgeometrie fertig | 26,6 | 25,7 | 25,1 | 26,5 |
+| T3 Strassendetail-Plan fertig | - | 22,8 | - | 24,2 |
+| T4 Instanzfelder fertig | - | 25,7 | - | 26,5 |
+| T5 erster vollstaendiger Render | 29,3 | 31,8 | 28,2 | 31,6 |
+| T6 Pruefstand: Szene ruhig | 36,4 | 43,6 | 37,6 | 43,2 |
+
+Woher die +6 s kommen:
+* Planung: 0,6 s, aber VOR T1 - sie laeuft, waehrend noch Dateien
+  laden, und verschiebt nichts.
+* Geometrie: T1 und T2 unveraendert.
+* Upload: der erste vollstaendige Render nach T2 dauert 5,6 bis 6,2 s
+  statt 2,8 bis 3,4 s; darin wartet der Hauptfaden 2,6 bis 3,1 s in
+  bufferData statt 1,1 bis 1,5 s - bis der SwiftShader-GPU-Prozess die
+  neuen Geometrien und Instanzen uebernommen und die zusaetzlichen
+  Dreiecke gerendert hat.
+* Shaderbau: ein Programm mehr (Baumfelder), uebersetzt waehrend die
+  Dateien noch laden. Der lange Shaderbau nach T5 (1,3 bis 5,2 s am
+  Stueck) steckt in allen Staenden.
+* Ruhekriterium: T5 bis T6 im Median 11,6 s statt 9,1 s - lange Bilder
+  verzoegern die Abfragen.
+6B aendert daran wenig (erster Render 4,7 bis 5,2 s): hochgeladen werden
+alle Instanzen, die Sichtweite bestimmt nur, wie viele gezeichnet
+werden. Keine Spielaenderung wegen SwiftShader allein.
+
+**Top-out-Pruefstand und echter Spielablauf:** die Aenderung aus 6A an
+`topoutlandung.js` nimmt Strassendetails NUR im Pruefstand und nur fuer
+den einen Lauf (frische Seite je Fall) auf der 3 m breiten Anlaufbahn aus
+der Kollision - am Spielcode aendert sie nichts. Gegenprobe im Spiel mit
+allen Strassendetails: am FlatFacade-Problemdach (Haus 169, +z, f 0,8)
+steht der Baum (-308,52/-131,80) auf der geraden Anlaufbahn. Die Figur
+startet auf dem Gehweg 1,4 m daneben, ist nach 0,8 s an der Wand,
+klettert, rueckt an der Wand seitlich auf f 0,8 (Kante bei x -308,22) und
+zieht sich ueber die Kante: auf dem Dach (y 17,63),
+postTopOutUnexpectedDisplacement 0,000. Kein neuer Code noetig.
+
+**Fassaden-Zugang (`tools/pruef/fassaden-zugang.js`):** 20 Fassaden mit
+neuen Strassendetails davor, deterministisch aus 803 Kandidaten gewaehlt
+(Stadtteile reihum), alle 1,5 m echt angelaufen - vom Bordstein (durch
+die Moeblierungszone) und vom Gehweg. completelyBlockedFacadeAccess
+0 von 20, Wand erreichbar 20 von 20; vom Gehweg kommt jeder Lauf an, vom
+Bordstein sind einzelne Stellen hinter Bank oder Baum zu (jede Fassade
+hat 3 bis 9 direkte Zugaenge). Haustueren: kein neues Ding in Durchgang
+oder Vorfeld (0 von 27), jeder Lauf vom Gehweg zur Tuer kommt an.
+Arkaden und offene Hallen: kein neues Ding im 1,5-m-Streifen (0 von 444
+Seiten).
+
+**Muster-Audit:** die 60 Kanten mit gemeinsamem Muster - 10 sind reiner
+Bestand (Eckpoller, Kuebel mit Laterne), 46 enthalten neue Dinge, liegen
+aber an verschiedenen Strassen oder weit auseinander, 4 liegen paarweise
+an derselben Strasse, je 100 m auseinander (ein einzelner Muelleimer;
+Baum + Muelleimer) - im Bild nicht als Wiederholung zu erkennen, ein
+anderer Block liegt dazwischen. Keine Korrektur.
+
+**Fingerabdruck:** Haeuser 617, Lots, 300 Parkautos, 45 Wagen, 12 Gegner,
+41 POIs gleich 339184b und a74d256 - kein neuer Aufruf des Stadtzufalls.
+
+**Regression (Keim 4711):** `node --test` 170/170; street-details harte
+Fehler 0 (neu 2103 Dinge, 1309 Hindernisse); freigang alle Flaechen frei
+(der Arkaden-Befund an der Laterne -18/150 ist Bestand, davon neue
+Strassendetails 0); Stadtraster unveraendert; Parkautos gleich;
+Kernsysteme Story 8/8, Seitenfehler 0, npc- und enemyStaticPenetration 0,
+Stadtmoebel 19 Felder, 2884 Stueck; Naht 221/221/221, Aussenecke
+150/150; Innenklettern 0/0/0/0 (Kontrolle aussen 89/92 wie in 6A); MO1
+0/0/0; Kletterstetigkeit Foreign 0; Top-out 13/13 und 8/8,
+postTopOutUnexpectedDisplacement 0,000 (zeilengleich mit 6A); Brutal-Halle
+gehen und rennen 30/30, invisibleCollision 0; Neon-Pflichtbahnen 27,
+Brust/Becken/Knie/Schnitt 0. Zusaetzlich npc-wege: A 1, D 81, E 85 von
+100 - der A-Fall ist ein fluechtender Passant auf einer U-Bahn-Route im
+Haus (dieselbe Art Fall hat 339184b im selben Durchgang; an dieser
+Hauskiste stehen nur zwei Poller ohne Hindernis, wie in 6A).
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,

@@ -48,10 +48,14 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `anim-eigentempo.js` | Eigengeschwindigkeit der Gangclips im Animationslabor |
 | `stadtraster.js` | CITY V2: der LOCKED CORE, alle Rastermaße und Weltgrenzen |
 | `strassen.js` | CITY V2: die Straßenhierarchie und ob jeder Wagen auf einer Spur seiner Straße fährt |
-| `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor |
+| `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor; `ruhig` blendet Wagen, Passanten und Gegner aus (sonst ±3–4 Aufrufe Streuung je Lauf) |
 | `stadt-bilder.js` | CITY V2: vierzehn feste Aufnahmen zum Vergleich zweier Ausbaustufen |
 | `street-details.js` | CITY V2 Stufe 6A: Bäume und Stadtmöbel je Stadtteil und Straßenklasse, leere Gehwegstrecken, Wiederholung; für die neuen Details die harten Platzierungsfehler (Soll überall 0) |
 | `street-bilder.js` | CITY V2 Stufe 6A: zehn feste Straßenbilder auf Augenhöhe und drei Luftbilder, gleiche Stelle vorher und nachher |
+| `sd-leistung.js` | CITY V2 Stufe 6B: Zeichenaufrufe und Dreiecke der Straßendetails je Art an den 300 Stellen von `stadt-leistung.js`, eingefroren und spielnah, gegen echte Bilder geprüft; Lesbarkeit in Bildpunkten |
+| `sd-sicht-bilder.js` | CITY V2 Stufe 6B: je Art dieselbe Spielansicht mit kürzeren Sichtweiten, gezählt die geänderten Bildpunkte |
+| `ladezeit.js` | CITY V2 Stufe 6B: Zeitmarken T0 bis T6 des Ladens (nur von außen gemessen) mit Bildern, Shaderbau, Uploads je Abschnitt; `wurzel=` misst auch einen alten Stand |
+| `fassaden-zugang.js` | CITY V2 Stufe 6B: echter Lauf vom Bordstein und vom Gehweg an 20 Fassaden mit Straßendetails davor, Haustüren und Arkaden; completelyBlockedFacadeAccess (Soll 0) |
 
 Aufruf jeweils aus diesem Ordner, z. B.
 

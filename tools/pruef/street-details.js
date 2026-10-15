@@ -128,6 +128,7 @@ const zielJson = ausgabePfad(process.argv[2]);
     }
     const leer = {};          // stadtteil -> { max, ort, ganzLeer, kanten }
     const muster = new Map(); // Signatur -> Zahl (Wiederholung ganzer Kanten)
+    const musterKanten = new Map(); // Signatur -> Kanten (fuer das Muster-Audit, Stufe 6B)
     let regelReihen = 0, gleicheNachbarn = 0, gleicheNachbarnNeu = 0;
     const regelBsp = [];
     for (const t of d.stadtteile()) {
@@ -150,6 +151,16 @@ const zielJson = ausgabePfad(process.argv[2]);
            (die stehen an jeder Ecke gleich). */
         const sig = l.filter((g) => g.art !== 'Ampel').map((g) => g.art + '@' + Math.round(g.kante.laengs)).join('|');
         if (sig) muster.set(sig, (muster.get(sig) || 0) + 1);
+        if (sig) {
+          /* Kantenmitte und die Strasse davor (Achse + Linie), damit das
+             Audit sagen kann, ob zwei gleiche Kanten einander sehen. */
+          const cx = R.x0 + t.bi * R.pitch + R.pitch / 2, cz = R.z0 + t.bj * R.pitch + R.pitch / 2;
+          const nv = { N: [0, 1], S: [0, -1], O: [1, 0], W: [-1, 0] }[seite];
+          if (!musterKanten.has(sig)) musterKanten.set(sig, []);
+          musterKanten.get(sig).push({ id, bezirk: t.art, mx: cx + nv[0] * HALB, mz: cz + nv[1] * HALB,
+                                       achse: nv[0] !== 0 ? 'x' : 'z', linie: nv[0] !== 0 ? cx + nv[0] * R.pitch / 2 : cz + nv[1] * R.pitch / 2,
+                                       neu: l.some((g) => g.quelle === 'neu') });
+        }
         /* Gleichmaessige Reihen: drei gleiche hintereinander mit gleichem
            Abstand (+-0,3 m) */
         const gleich = (a, c) => a.art === c.art;
@@ -344,7 +355,8 @@ const zielJson = ausgabePfad(process.argv[2]);
              jeTeil, jeKlasse, kantenJe,
              wiederholung: { regelReihen, regelBsp, gleicheNachbarn, gleicheNachbarnNeu,
                              haeufigstesMuster: musterListe.slice(0, 3).map(([m, n]) => ({ n, muster: m.slice(0, 120) })),
-                             kantenMitGleichemMuster: musterListe.filter(([, n]) => n > 1).reduce((a, [, n]) => a + n, 0) },
+                             kantenMitGleichemMuster: musterListe.filter(([, n]) => n > 1).reduce((a, [, n]) => a + n, 0),
+                             gruppen: musterListe.filter(([, n]) => n > 1).map(([m, n]) => ({ n, muster: m, kanten: musterKanten.get(m) })) },
              pruef, fehlerZahl, fehler: Object.fromEntries(Object.entries(fehler).map(([k, l]) => [k, l.slice(0, 8)])),
              neuListe: neu.map((e) => ({ nr: e.nr, art: e.art, x: +e.x.toFixed(2), z: +e.z.toFixed(2), variante: e.variante || null, bezirk: e.bezirk || null })) };
   });
@@ -377,6 +389,29 @@ const zielJson = ausgabePfad(process.argv[2]);
   p('  Wiederholung: ' + aus.wiederholung.kantenMitGleichemMuster + ' Kanten teilen ihr Muster mit einer anderen; gleichmaessige Dreierreihen ' +
     aus.wiederholung.regelReihen + '; gleiche Variante nebeneinander ' + aus.wiederholung.gleicheNachbarn + ' (neu ' + aus.wiederholung.gleicheNachbarnNeu + ')');
   for (const m of aus.wiederholung.haeufigstesMuster) p('    ' + m.n + ' x  ' + m.muster);
+  /* Muster-Audit (Stufe 6B): sind die Kanten mit gleichem Muster nur
+     Bestand, oder sieht man die Wiederholung? Sichtbar heisst: zwei
+     gleiche Kanten an derselben Strasse (gegenueber oder nebeneinander)
+     mit hoechstens 120 m zwischen den Kantenmitten. */
+  if (aus.wiederholung.gruppen) {
+    const kl = { bestand: [0, 0], neuUnsichtbar: [0, 0], neuSichtbar: [0, 0] }, sichtbar = [];
+    for (const g of aus.wiederholung.gruppen) {
+      const K = g.kanten, neuDabei = K.some((k) => k.neu);
+      let paar = null;
+      for (let i = 0; i < K.length && !paar; i++) for (let j = i + 1; j < K.length && !paar; j++) {
+        if (K[i].achse === K[j].achse && Math.abs(K[i].linie - K[j].linie) < 1 &&
+            Math.hypot(K[i].mx - K[j].mx, K[i].mz - K[j].mz) <= 120) paar = [K[i].id, K[j].id];
+      }
+      const art = !neuDabei ? 'bestand' : paar ? 'neuSichtbar' : 'neuUnsichtbar';
+      kl[art][0]++; kl[art][1] += K.length;
+      if (paar && neuDabei) sichtbar.push({ muster: g.muster, kanten: K.map((k) => k.id + ' ' + k.bezirk), paar });
+      g.audit = art;
+    }
+    aus.wiederholung.audit = { klassen: kl, sichtbar };
+    p('  Muster-Audit: nur Bestand ' + kl.bestand[0] + ' Muster / ' + kl.bestand[1] + ' Kanten; mit neuen Dingen, nicht gemeinsam sichtbar ' +
+      kl.neuUnsichtbar[0] + ' / ' + kl.neuUnsichtbar[1] + '; sichtbar wiederholt ' + kl.neuSichtbar[0] + ' / ' + kl.neuSichtbar[1]);
+    for (const v of sichtbar) p('    sichtbar: ' + v.paar.join(' + ') + '   ' + v.muster.slice(0, 140));
+  }
   if (aus.gesamt.neu) {
     p('');
     p('== Harte Fehler der neuen Details (Soll: alle 0) ==');

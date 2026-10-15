@@ -46,15 +46,28 @@ const bremsen = bArg === undefined ? null : bArg.slice(8);
    Differenz nicht deuten. */
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const seed = sArg === undefined ? 4711 : +sArg.slice(5);
+/* "ruhig" (Stufe 6B): Wagen, Passanten und Gegner vor dem Messen
+   ausblenden, wie street-bilder.js. Ohne sie schwankt der Median der
+   Zeichenaufrufe von Lauf zu Lauf um drei bis vier (gemessen: a74d256
+   837 und 833,5, derselbe Stand) - je nachdem, wo die Figuren beim
+   Einfrieren gerade stehen. Fuer Vorher/Nachher-Vergleiche einzelner
+   Aufrufe; die Standardmessung bleibt wie sie war. */
+const ruhig = process.argv.indexOf('ruhig') > 0;
 
 (async () => {
   const opt = {};
   if (alt) opt.wdhAlt = true;
   if (bremsen !== null) opt.bremsen = bremsen;
   const { b, page } = await starte(1280, 720, seed, opt);
-  const aus = await page.evaluate(() => {
+  const aus = await page.evaluate((ruhig) => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
+    if (ruhig) {
+      for (const c of d.cars) if (c.mesh) c.mesh.visible = false;
+      for (const c of d.civilians) { const r = c.visual && (c.visual.root || c.visual.group); if (r) r.visible = false; }
+      for (const e of d.enemies) { const r = e.visual && (e.visual.root || e.visual.group); if (r) r.visible = false; }
+      d.cars.length = 0; d.civilians.length = 0; d.enemies.length = 0;
+    }
     const R = d.raster();
 
     /* Messpunkte: ein gleichmaessiges Gitter ueber die Stadt, in
@@ -112,7 +125,7 @@ const seed = sArg === undefined ? 4711 : +sArg.slice(5);
                         schwelle: hi.schwelle },
              speicher: { texturen: speicher.texturen, geometrien: speicher.geometrien,
                          programme: speicher.programme } };
-  });
+  }, ruhig);
   await b.close();
 
   const median = (a) => {

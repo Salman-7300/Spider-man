@@ -26113,6 +26113,16 @@ const SD_GLIEDER = {
   baumBank:      [['Bank', 0]],
   baumBankMuell: [['Bank', 0], ['Muelleimer', 1.3]],
 };
+/* ---- Mindestabstand gleicher Arten (Stufe 6B) ----
+   Gemessen an 6A (Keim 4711): drei Muelleimer im 2-m-Takt an einer
+   Geschaeftskante (x -268,3, z 44 bis 48), zehn Muelleimer-Paare unter
+   5 m, zwei Bahnhofsuhren 7,8 m auseinander an derselben Kante und drei
+   Uhrenpaare ueber Eck einer Kreuzung (25 bis 39 m). Mehrere freie
+   Gruppen einer Kante landeten in derselben groessten Luecke. Ein
+   Muelleimer haelt deshalb 8 m zum naechsten neuen Muelleimer, eine Uhr
+   60 m zur naechsten Uhr - was zu nah kaeme, faellt weg wie jede andere
+   verworfene Gruppe. */
+const SD_ART_ABSTAND = { Muelleimer: 8, Uhr: 60 };
 /* Die Modelle, an ihren Eckpunkten gemessen (Hoehenbaender, Fuss auf
    y = 0, Ursprung wie moebelGeometrie). Vorn ist +z: Sitzflaeche,
    Glasfront, Zifferblatt.
@@ -26165,9 +26175,22 @@ const PROM_X1_SD = RIVER_X0;                // Kaimauer: Ende der Promenade
    je Stueck, mehr als ein Baum) und von den Baeumen (3024). Kleine Dinge
    verschwinden deshalb frueher: ein Muelleimer ist auf 110 m noch sechs
    Bildpunkte hoch. Dasselbe Verfahren wie bei den Kit-Haeusern (170 m),
-   kein neues LOD - nur der Radius des vorhandenen Feldes. */
-const SD_SICHT = { Baum: 185, Scheibe: 110, Bank: 150, Pflanzkuebel: 150, Muelleimer: 110,
-                   Poller: 150, Uhr: 185, Kiosk: 185 };
+   kein neues LOD - nur der Radius des vorhandenen Feldes.
+
+   Stufe 6B, mit Bildern statt geschaetzt (tools/pruef/sd-sicht-bilder.js):
+   an vier Spielkamera-Stellen (Boulevard, Avenue, Promenade, Dachkante)
+   je Art dieselbe Ansicht mit 50 bis 150 m gegen die alte Sichtweite,
+   gezaehlt die geaenderten Bildpunkte (von 921.600):
+     Muelleimer  80 m:  0 bis 17      Poller      60 m:  0 bis 21
+     Kuebel     100 m:  0, vom Dach 73 Bank       120 m:  0 bis 25
+     Scheibe     60 m:  vereinzelte Punkte, ab 30 m in Augenhoehe < 1 Pt.
+     Kiosk      150 m:  auf 170 m hinter Baeumen und Muelleimern unsichtbar
+   Poller zusaetzlich an fuenf Pollerreihen (58 bis 72 m entfernt) mit
+   50 bis 70 m: bei 60 m wechseln hoechstens 10 Punkte - ein Poller ist
+   dort 7 Punkte hoch und 2 breit. Baum (Silhouette) und Uhr
+   (Wahrzeichen) bleiben - kuerzer braechte dort nichts Messbares. */
+const SD_SICHT = { Baum: 185, Scheibe: 60, Bank: 120, Pflanzkuebel: 100, Muelleimer: 80,
+                   Poller: 60, Uhr: 185, Kiosk: 150 };
 function sdAnteil(art) { return (SD_SICHT[art] || MOEBEL_SICHT) / 235; }
 const SD_H = { PHASE: 1, LAGE: 2, VARIANTE: 3, DREHUNG: 4, ZAHL: 5, REIHE: 6, ANKER: 7,
                SEITE: 8, SPIEGEL: 9, PARK: 10, PROM: 11, ART: 12 };
@@ -26573,6 +26596,12 @@ function sdGruppeSetzen(K, glieder, name, gVorgabe) {
     const koll = M.koll ? sdDrehKasten(M.koll, q.x, q.z, q.dreh) : sicht;
     const g = sdPruefe(sicht, koll, [K.nx, K.nz], { gruppe: gNr });
     if (g) return sdVerwirf(q.art + ':' + g);
+    const mind = SD_ART_ABSTAND[q.art];
+    if (mind) {
+      for (const e of sdNahe(SD.raster, sicht, mind)) {
+        if (e.art === q.art && Math.hypot(e.x - q.x, e.z - q.z) < mind) return sdVerwirf(q.art + ':abstand');
+      }
+    }
     /* Glieder derselben Gruppe untereinander */
     for (const f of fertig) if (sdUeber(sicht, f.sicht, 0.05)) return sdVerwirf(q.art + ':glied');
     fertig.push(Object.assign({}, q, { sicht }));

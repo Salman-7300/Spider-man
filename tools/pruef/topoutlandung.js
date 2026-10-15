@@ -142,7 +142,13 @@ async function fahre(F) {
        13/13, Kontrolle 6/6 statt 8/8; mit ohneSD derselbe Code 13/13
        und 8/8). Gemessen wird das Ueberziehen, nicht der Anlauf: wie
        Autos, Passanten und Gegner kommen Strassendetails auf der
-       Anlaufbahn (3 m breit) fuer diesen Lauf aus der Kollision. */
+       Anlaufbahn (3 m breit) fuer diesen Lauf aus der Kollision.
+       NUR HIER IM PRUEFSTAND, in der frischen Seite dieses einen Falls -
+       der Spielcode bleibt unveraendert, im Spiel stehen Baum und Bank
+       mit Hindernis da. Dass man dort trotzdem an die Wand kommt
+       (aussen um den Baum herum, an der Wand seitlich auf f 0,8, dann
+       ueber die Kante), zeigt der echte Spielablauf aus Stufe 6B
+       (docs/CITY-V2-DESIGN.md, Abschnitt 6n). */
     const bahnX = ax ? [Math.min(front, front + nx * 5), Math.max(front, front + nx * 5)] : [t - 1.5, t + 1.5];
     const bahnZ = ax ? [t - 1.5, t + 1.5] : [Math.min(front, front + nz * 5), Math.max(front, front + nz * 5)];
     for (const q of d.colliders) {
