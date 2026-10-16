@@ -3020,11 +3020,16 @@ NACHHER (die zehn Orte, dazu die vier Spielkamera-Ansichten aus 7A zu
 drei Zeitpunkten); die Bilder des Endstands sind bytegleich mit denen der
 Kandidatenwahl (35 Prozent, M1). Je Bild zaehlt das Werkzeug, wer
 wirklich zu sehen ist und was er tut: in den 22 Bildern bis 25 m vorher
-3 Personen, in 7B 5 (eine sitzt, eine hat das Handy, eine wartet); bis
+3 Personen, in 7B 5 (eine sitzt, eine hat das Handy, einer steht); bis
 50 m 17 gegen 8, bis 100 m 29 gegen 15 - vorher alle gehend, in 7B 6 von
-15 nicht. Eine Momentaufnahme haengt am Zufall des Augenblicks (vorher
-kommen 16 der 29 aus den vier Parkansichten); verglichen wird das Mittel
-ueber 240 s (Tabellen oben). Nahaufnahmen (scratchpad/nah.js, im Lauf
+15 nicht, davon 5 im Aufenthalt. Der Stehende am Ufer-Ort (4,4 m vor der
+Kamera, die Arme hoch) ist ein Gehender, der gafft: das Werkzeug stellt
+den unsichtbaren Helden fuer jede Aufnahme an die Kamera, und wer naeher
+als 9 m ist, bleibt stehen und jubelt ihm zu - Bestand seit 7A,
+nachgestellt (Bild bytegleich, Passant ohne Aufenthalt, gafft und
+jubelt); das Werkzeug zaehlt ihn als "wartend". Eine Momentaufnahme
+haengt am Zufall des Augenblicks (vorher kommen 16 der 29 aus den vier
+Parkansichten); verglichen wird das Mittel ueber 240 s (Tabellen oben). Nahaufnahmen (scratchpad/nah.js, im Lauf
 gesucht, Kamera 3 bis 8,5 m auf Augenhoehe mit freier Sicht): Bank des
 Bankmodells mit einer Person, Bestandsbank im Park, Bank im Wohngebiet,
 Gespraech am Gehweg, Handy am Gehweg, Park (Treffpunkt neben dem
