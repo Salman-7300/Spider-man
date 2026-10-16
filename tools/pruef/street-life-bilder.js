@@ -29,8 +29,17 @@
    sichtbar" (die Figur einmal ausgeblendet und neu gezeichnet: mindestens
    25 Bildpunkte in ihrem Bildrechteck aendern sich).
 
+   Stufe 7B: die wirklich Sichtbaren bis 25/50/100 m dazu nach dem, was sie
+   gerade tun - gehen (in Bewegung), sitzen (auf einer Bank), reden (im
+   Gespraech), telefon (steht mit dem Handy), warten (steht sonst: wartet,
+   schaut sich um, an der Ampel). Gilt fuer jeden Stand; vor Stufe 7B gibt
+   es nur kein Sitzen.
+
    Aufruf:  node tools/pruef/street-life-bilder.js <ordner> [seed=4711]
-              [zeit=0.45] [vorlauf=120] [zivis=N]
+              [zeit=0.45] [vorlauf=120] [zivis=N] [anteil=0.35] [mix=<datei.json>]
+   anteil (ab Stufe 7B): hoechster Anteil der Strassenpassanten im
+   Aufenthalt - fuer den Vergleich der Kandidaten; mix: Stadtteil ->
+   Gewichte der Beschaeftigungen (nur zum Vergleich der Mischungen).
    ========================================================================= */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -39,6 +48,9 @@ const ziel = process.argv[2];
 if (!ziel) { console.log('Aufruf: node tools/pruef/street-life-bilder.js <ordner>'); process.exit(1); }
 const arg = (k, def) => { const a = process.argv.find((v) => v.indexOf(k + '=') === 0); return a === undefined ? def : +a.slice(k.length + 1); };
 const SEED = arg('seed', 4711), ZEIT = arg('zeit', 0.45), VORLAUF = arg('vorlauf', 120), ZIVIS = arg('zivis', null);
+const ANTEIL = arg('anteil', null);
+const mixArg = process.argv.find((v) => v.indexOf('mix=') === 0);
+const MIX = mixArg ? JSON.parse(fs.readFileSync(mixArg.slice(4), 'utf8')) : null;
 fs.mkdirSync(ziel, { recursive: true });
 
 /* Die zehn Orte aus street-bilder.js - gleiche Kamera. */
@@ -77,9 +89,11 @@ function kamera(o) {
   const opt = { frierSofort: true };
   if (ZIVIS !== null) opt.zivis = ZIVIS;
   const { b, page } = await starte(1280, 720, SEED, opt);
-  await page.evaluate((vorlauf) => {
+  await page.evaluate(({ vorlauf, anteil, mix }) => {
     const d = __dbg;
     d.frier(true); d.setzeRegen(0);
+    if (anteil !== null && d.setzeAufenthaltAnteil) d.setzeAufenthaltAnteil(anteil);
+    if (mix && d.setzeAufenthaltMix) for (const [t, w] of Object.entries(mix)) d.setzeAufenthaltMix(t, w);
     d.player.iFrames = 1e9;
     d.setzeTempo('maxEnemies', 0);
     const ohneGegner = () => {
@@ -101,7 +115,7 @@ function kamera(o) {
     const aufsDach = () => { if (dach && Math.abs(d.player.pos.y - dach.h) > 1) d.setzePos(dach.x, dach.h + 0.05, dach.z); };
     ohneGegner();
     for (let s = 0; s < vorlauf; s++) { aufsDach(); d.schritt(1 / 30, 30); ohneGegner(); }
-  }, VORLAUF);
+  }, { vorlauf: VORLAUF, anteil: ANTEIL, mix: MIX });
   const info = [];
   /* Die zehn Orte einmal (nach dem Vorlauf), die vier Spielkamera-
      Ansichten zu drei Zeitpunkten (nach dem Vorlauf, +30 s, +60 s) - ein
@@ -173,6 +187,16 @@ function kamera(o) {
          Schatten. Zum Schluss wird wieder mit allen gezeichnet - das ist
          das gespeicherte Bild. */
       const sicht = [0, 0, 0, 0];
+      const ARTEN = ['gehen', 'sitzen', 'reden', 'telefon', 'warten'];
+      const jeArt = {};
+      for (const k of ARTEN.concat(['gesamt'])) jeArt[k] = [0, 0, 0];
+      const artVon = (c) => {
+        if (c.saAnker && c.saArt === 'sitzen' && ['setzen', 'da', 'auf'].indexOf(c.saPhase) >= 0) return 'sitzen';
+        if (c.sozialPartner && c.gehZustand === 'sozial') return 'reden';
+        if (Math.hypot(c.vel.x, c.vel.z) > 0.3) return 'gehen';
+        if (c.handy && c.handy.visible) return 'telefon';
+        return 'warten';
+      };
       const cv = [...document.querySelectorAll('canvas')].find((q) => q.id !== 'minimapC');
       const gl = cv && (cv.getContext('webgl2') || cv.getContext('webgl'));
       if (gl && kandidaten.length) {
@@ -201,17 +225,23 @@ function kamera(o) {
             const i = (y * W + x) * 4;
             if (Math.abs(voll[i] - ohne[i]) + Math.abs(voll[i + 1] - ohne[i + 1]) + Math.abs(voll[i + 2] - ohne[i + 2]) > 24) px++;
           }
-          if (px >= 25) RADIEN.forEach((g, i) => { if (dist <= g) sicht[i]++; });
+          if (px >= 25) {
+            RADIEN.forEach((g, i) => { if (dist <= g) sicht[i]++; });
+            const art = artVon(c);
+            [25, 50, 100].forEach((g, i) => { if (dist <= g) { jeArt[art][i]++; jeArt.gesamt[i]++; } });
+          }
         }
         zeichne();
       }
-      return { imKegel: n, sichtbar: gl ? sicht : null, calls: ri.calls, dreiecke: ri.dreiecke };
+      return { imKegel: n, sichtbar: gl ? sicht : null, jeArt: gl ? jeArt : null, calls: ri.calls, dreiecke: ri.dreiecke };
     }, { k, zeit: ZEIT, autos: !!o.autos });
     await page.screenshot({ path: path.join(ziel, o.datei + '.png') });
-    info.push({ name: o.datei, titel: o.titel, kamera: k, imKegel25_50_100_150: r.imKegel, sichtbar25_50_100_150: r.sichtbar, calls: r.calls, dreiecke: r.dreiecke });
+    info.push({ name: o.datei, titel: o.titel, kamera: k, imKegel25_50_100_150: r.imKegel, sichtbar25_50_100_150: r.sichtbar,
+                sichtbarJeArt25_50_100: r.jeArt, calls: r.calls, dreiecke: r.dreiecke });
     console.log(o.datei.padEnd(20) + ' im Bildkegel 25/50/100/150 m: ' + r.imKegel.join(' / ').padEnd(16) +
                 ' wirklich sichtbar: ' + (r.sichtbar ? r.sichtbar.join(' / ') : '-').padEnd(16) + ' Aufrufe ' + r.calls);
+    if (r.jeArt) console.log('                     bis 25/50/100 m: ' + Object.entries(r.jeArt).map(([a, v]) => a + ' ' + v.join('/')).join('  '));
   }
-  fs.writeFileSync(path.join(ziel, 'orte.json'), JSON.stringify({ seed: SEED, zeit: ZEIT, vorlauf: VORLAUF, orte: info }, null, 1));
+  fs.writeFileSync(path.join(ziel, 'orte.json'), JSON.stringify({ seed: SEED, zeit: ZEIT, vorlauf: VORLAUF, anteil: ANTEIL, orte: info }, null, 1));
   await b.close();
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -2300,7 +2300,7 @@ function inWater(x, z) {
    steht, an der keine stehen darf (Fahrbahn, Wasser, Bruecke). */
 const BANK_STELLEN = [];
 function baueBank(x, y, z, laengsZ, holz, rueck) {
-  BANK_STELLEN.push({ x, y, z, laengsZ: !!laengsZ });
+  BANK_STELLEN.push({ x, y, z, laengsZ: !!laengsZ, rueck: rueck === undefined ? -1 : (rueck >= 0 ? 1 : -1) });
   /* rueck = +1 dreht die Lehne auf die andere Seite. Auf dem Bahnsteig
      standen die Baenke sonst mit der Lehne zum Gleis und dem Gesicht zur
      Wand - genau das sah verkehrt herum aus. */
@@ -12683,6 +12683,12 @@ function makeGlbVisual(m) {
     },
     /* Nur für Messungen: passt die Schrittweite zum echten Tempo? */
     laufInfo() { return letzterTakt; },
+    /* Weltposition des Beckens - zum Sitzen auf einer Bank (Stufe 7B). */
+    hueftPos(out) {
+      if (!knochen.hips) return null;
+      root.updateMatrixWorld(true);
+      return knochen.hips.getWorldPosition(out);
+    },
     /* Weltposition des Kopfes – für den Spinnensinn. */
     kopfPos(out) {
       const b = knochen.head || knochen.neck;
@@ -12853,8 +12859,11 @@ function makeGlbVisual(m) {
        liegenden Fahrgast. Die Haltung wird deshalb gesetzt - Huefte und
        Knie je rund 85 Grad, Rumpf aufrecht, Arme locker.
        Der Aufrufer setzt das Becken mit sitzMasse auf die Sitzflaeche.
-       Fahrer richten Oberkoerper und Haende auf das Lenkrad aus. */
-    poseSitzen(k, bankY, fahrer) {
+       Fahrer richten Oberkoerper und Haende auf das Lenkrad aus.
+       fussZiel (Stufe 7B, Bank auf der Strasse): Weltpunkt zwischen den
+       Knoecheln. Ohne ihn liegen die Fuesse fest 0,53 m unter dem Becken -
+       mit dem Gesaess auf einer 0,475 m hohen Bank schwebten sie dann. */
+    poseSitzen(k, bankY, fahrer, fussZiel) {
       const w = clamp(k === undefined ? 1 : k, 0, 1);
       if (w <= 0 || !knochen.hips) return;
       root.updateMatrixWorld(true);
@@ -12879,8 +12888,11 @@ function makeGlbVisual(m) {
         const bone = knochen[side + 'upleg'];
         if (!bone) continue;
         const sign = bone.getWorldPosition(new THREE.Vector3()).sub(hip).dot(right) < 0 ? -1 : 1;
+        const fussP = fussZiel
+          ? new THREE.Vector3(fussZiel.x, fussZiel.y, fussZiel.z).addScaledVector(right, sign * 0.16)
+          : point(sign * 0.16, -0.53, fahrer ? 0.51 : 0.43);
         gliedZiel(bone, knochen[side + 'leg'], knochen[side + 'foot'],
-          point(sign * 0.16, -0.53, fahrer ? 0.51 : 0.43), point(sign * 0.2, -0.05, 0.65), w);
+          fussP, point(sign * 0.2, -0.05, 0.65), w);
         setzeFuss(side, forward, new THREE.Vector3(0, -1, 0), w);
         gliedZiel(knochen[side + 'arm'], knochen[side + 'forearm'], knochen[side + 'hand'],
           point(sign * (fahrer ? 0.22 : 0.14), fahrer ? 0.28 : 0.05, fahrer ? 0.43 : 0.37),
@@ -29531,7 +29543,7 @@ function gehNeuesZiel(c, versuch) {
   /* Ein Begleiter bekommt dasselbe Ziel - so laufen zwei wirklich
      zusammen, ohne dass es eine Formation braucht. */
   const b = c.begleiter;
-  if (b && !b.dead && b.state === 'walk' && b !== c) {
+  if (b && !b.dead && b.state === 'walk' && b !== c && !b.saAnker) {
     const bs = gehNaechster(b.pos.x, b.pos.z, 30, insel);
     const bw = bs >= 0 ? gehRoute(bs, ziel) : null;
     if (bw) { b.route = bw; b.routeI = 0; b.knoten = bs; b.gehZustand = 'gehen'; }
@@ -29698,12 +29710,21 @@ function gehSchritt(c, dt) {
         c.route = null; c.gehZustand = null;
         return null;
       }
+      /* ---- Stufe 7B: am Ziel ein echter Platz ----
+         Wer auf dem Weg zu einem Platz war, geht jetzt die letzten Meter
+         dorthin; sonst wird hier einer in der Naehe gewaehlt (Bank,
+         Gelaender, Kiosk ...). Gibt es keinen oder keine Lust, bleibt es
+         beim kurzen Umschauen - nicht mehr drei bis sechzehn Sekunden
+         mitten auf dem Gehweg. Die Haltungen, die hier vorher standen,
+         sind ausgemessen und nicht mehr dabei: telefon laeuft im Kreis
+         (Fuesse 36 cm), trinken hat keinen Becher, warten ist eine tiefe
+         Hocke. */
+      if (c.saAnker && c.saPhase === 'route') { saLos(c); return { dirX: 0, dirZ: 0, speed: 0 }; }
+      if (saAmZiel(c, zielI)) return { dirX: 0, dirZ: 0, speed: 0 };
       c.gehZustand = 'aktivitaet';
-      /* Auf der Promenade bleibt man laenger und schaut sich um. */
-      const prom = ziel.art === 'prom' || ziel.art === 'bruecke';
-      c.aktivT = prom ? rand(6, 16) : rand(3, 9);
-      c.ruhePose = prom ? pick(['umschauen', 'warten', 'froh', 'telefon'])
-                        : pick(['telefon', 'tippen', 'umschauen', 'warten', 'trinken']);
+      c.aktivT = 1 + 1.5 * sdHash(c.ziviNr || 0, SA_H.START, c.saDurchlauf || 0, 3);
+      c.ruhePose = 'umschauen';
+      SA.stat.kurzHalt++;
       return { dirX: 0, dirZ: 0, speed: 0 };
     }
     c.routeI++;
@@ -29890,26 +29911,29 @@ function sozialPartnerSuche(c) {
   if (c.bahnsteig !== undefined || c.geisel || c.state !== 'walk') return;
   if ((c.gesellig || 0) < 0.45 || (c.sozialCd || 0) > 0) return;
   if (c.pos.y < -1) return;
+  /* ---- Stufe 7B: nur an einem Gespraechsplatz ----
+     Bisher blieben zwei stehen, wo sie sich trafen - mitten auf dem
+     Gehweg, an der Ampel, vor der Tuer. Jetzt gehen beide zu einem
+     freien Gespraechsplatz in der Naehe (saPaarSuchen); gibt es keinen,
+     gibt es kein Gespraech. Wie oft gesucht wird, haengt am Stadtteil
+     (SA_MIX.reden). */
+  if (c.saAnker || c.gehZustand === 'aktivitaet' || !SA.fertig || !saBudget(2)) return;
+  const teil = stadtteilAn(c.pos.x, c.pos.z);
+  const mix = SA_MIX[teil] || SA_MIX.MISCHUNG;
+  c.sozialSuchN = (c.sozialSuchN || 0) + 1;
+  if (sdHash(c.ziviNr || 0, SA_H.PAAR, c.sozialSuchN, 0) > mix.reden / 0.3 * (SA_LUST[teil] || 0.8)) return;
   for (const o of ziviNachbarn(c)) {
     if (o === c || o.sozialPartner || o.geisel || o.state !== 'walk') continue;
     if (o.bahnsteig !== undefined || (o.gesellig || 0) < 0.35) continue;
     if (o.gehZustand === 'queren' || o.gehZustand === 'warten') continue;
     if ((o.sozialCd || 0) > 0) continue;
+    if (o.saAnker || o.gehZustand === 'aktivitaet') continue;
     const d = Math.hypot(o.pos.x - c.pos.x, o.pos.z - c.pos.z);
     if (d < 2.0 || d > 9) continue;
     if (Math.abs(o.pos.y - c.pos.y) > 1.5) continue;
-    /* Beide merken sich einander - so kann ein Dritter keinen von beiden
-       mehr ansprechen. */
-    c.sozialPartner = o; o.sozialPartner = c;
-    c.gehZustand = 'sozialHin'; o.gehZustand = 'sozialHin';
-    c.sozialT = 0; o.sozialT = 0;
-    const dauer = rand(5, 15);
-    c.sozialDauer = dauer; o.sozialDauer = dauer;
-    /* Die Art der Begegnung: meist ein Gespraech, manchmal nur kurzes
-       Winken, selten eine Diskussion. */
-    const art = Math.random() < 0.12 ? 'streiten' : (Math.random() < 0.22 ? 'kurz' : 'reden');
-    c.sozialArt = art; o.sozialArt = art;
-    GEH_STAT.gespraeche++;
+    const k = saPaarSuchen(c, o);
+    if (!k) { SA.stat.gespraechOhne++; continue; }
+    saGespraechStarten(c, o, k);
     return;
   }
 }
@@ -29918,55 +29942,80 @@ function sozialEnde(c, abbruch) {
   c.sozialPartner = null;
   c.sozialCd = rand(18, 45);
   if (c.gehZustand === 'sozial' || c.gehZustand === 'sozialHin') c.gehZustand = 'gehen';
+  if (c.saAnker && c.saPhase === 'paar') {
+    if (!abbruch) SA.stat.fertig.reden = (SA.stat.fertig.reden || 0) + 1;
+    saLoesen(c);
+  }
   if (o) {
     o.sozialPartner = null;
     o.sozialCd = rand(18, 45);
     if (o.gehZustand === 'sozial' || o.gehZustand === 'sozialHin') o.gehZustand = 'gehen';
+    if (o.saAnker && o.saPhase === 'paar') {
+      if (!abbruch) SA.stat.fertig.reden = (SA.stat.fertig.reden || 0) + 1;
+      saLoesen(o);
+    }
   }
   if (abbruch) GEH_STAT.gespraecheAbbruch++; else GEH_STAT.gespraecheOk++;
 }
 function sozialSchritt(c, dt) {
   const o = c.sozialPartner;
+  const halt = { dirX: 0, dirZ: 0, speed: 0 };
   /* Der Partner ist weg, verletzt, auf der Flucht oder eingestiegen:
      sauber aufloesen, damit niemand ewig glaubt, er wuerde noch reden. */
   if (!o || o.sozialPartner !== c || o.state !== 'walk' || o.geisel ||
       o.eingestiegen > 0 || o.hp <= 0) {
     sozialEnde(c, true);
-    return { dirX: 0, dirZ: 0, speed: 0 };
+    return halt;
   }
-  const dx = o.pos.x - c.pos.x, dz = o.pos.z - c.pos.z;
-  const d = Math.hypot(dx, dz) || 1;
-  c.facing = dampAngle(c.facing, Math.atan2(dx, dz), dt * 4);
+  const A = c.saAnker;
+  if (!A || c.saPhase !== 'paar') { sozialEnde(c, true); return halt; }
+  const P = A.plaetze[c.saPlatz];
+  const dx = P.x - c.pos.x, dz = P.z - c.pos.z;
+  const d = Math.hypot(dx, dz);
   if (c.gehZustand === 'sozialHin') {
-    if (d > SOZ_ABSTAND + 0.35) {
-      return { dirX: dx / d, dirZ: dz / d, speed: Math.min(c.speed, 1.7) };
+    /* Zum eigenen Platz, nicht auf den anderen zu. Wer nicht hinkommt,
+       gibt nach 29 s auf - der Platz ist dann fuer eine Weile gesperrt. */
+    if (!c.gafft) c.saT += dt;
+    if (c.saT > SA_PAAR_WEIT / 1.2 + 8) { saSperren(A, c); sozialEnde(c, true); return halt; }
+    if (d > 0.2) {
+      const v = Math.min(c.speed, 1.5);
+      return { dirX: dx / d, dirZ: dz / d, speed: d < 1.2 ? Math.max(0.5, v * d / 1.2) : v };
     }
-    c.gehZustand = 'sozial';
-    c.sozialT = 0;
-    c.redeT = 0;
-    return { dirX: 0, dirZ: 0, speed: 0 };
+    c.facing = dampAngle(c.facing, P.blick, Math.min(1, dt * 6));
+    c.ruhePose = 'idle';
+    const Q = o.saAnker === A ? A.plaetze[o.saPlatz] : null;
+    if (!Q || Math.hypot(Q.x - o.pos.x, Q.z - o.pos.z) > 0.25) return halt;
+    c.gehZustand = 'sozial'; c.sozialT = 0;
+    if (o.gehZustand === 'sozialHin') { o.gehZustand = 'sozial'; o.sozialT = 0; }
+    return halt;
   }
-  /* Im Gespraech: stehen bleiben, sonst rutscht die Figur ueber den
-     Gehweg, waehrend sie redet. */
+  /* Im Gespraech: stehen bleiben, einander zugewandt. Erst ein kurzer
+     Gruss (winken), dann spricht immer einer (froh) und der andere hoert
+     zu (idle oder umschauen); die Rollen wechseln nach 2 bis 4,5 s. Nicht
+     reden: das ist eine SITZENDE Bewegung, im Stehen schwebte die Figur
+     mit dem Becken auf Sitzhoehe. */
   c.sozialT += dt;
-  c.redeT -= dt;
-  if (c.redeT <= 0) {
-    c.redeT = rand(1.6, 3.6);
-    if (c.sozialArt === 'streiten') c.ruhePose = 'streiten';
-    else if (c.sozialArt === 'kurz') c.ruhePose = pick(['winken', 'reden', 'froh']);
-    else c.ruhePose = Math.random() < 0.55 ? 'reden' : pick(['idle', 'warten', 'froh']);
+  c.facing = dampAngle(c.facing, P.blick, Math.min(1, dt * 4));
+  const nrA = Math.min(c.ziviNr || 0, o.ziviNr || 0), nrB = Math.max(c.ziviNr || 0, o.ziviNr || 0);
+  const gruss = 1.1 + 0.8 * sdHash(nrA, nrB, A.id, SA_H.GRUSS + 50);
+  if (c.sozialT < gruss) c.ruhePose = 'winken';
+  else {
+    let t0 = gruss, k = 0;
+    while (k < 40) {
+      const lang = 2 + 2.5 * sdHash(nrA, nrB, A.id, SA_H.ROLLE * 100 + k);
+      if (c.sozialT < t0 + lang) break;
+      t0 += lang; k++;
+    }
+    const spricht = (k + c.saPlatz) % 2 === 0;
+    c.ruhePose = spricht ? 'froh'
+               : (sdHash(nrA, nrB, A.id, SA_H.POSE * 100 + k * 2 + c.saPlatz) < 0.6 ? 'idle' : 'umschauen');
   }
-  const dauer = c.sozialArt === 'kurz' ? Math.min(5, c.sozialDauer) : c.sozialDauer;
+  const dauer = c.sozialArt === 'kurz' ? Math.min(6, c.sozialDauer) : c.sozialDauer;
   if (c.sozialT > dauer) {
     sozialEnde(c, false);
     if (!c.route) gehNeuesZiel(c);
   }
-  /* Ein winziger Abstandshalter, damit sie sich nicht ineinander
-     schieben - das grosse Abstandssystem bleibt unangetastet. */
-  if (d < SOZ_ABSTAND - 0.25) {
-    return { dirX: -dx / d, dirZ: -dz / d, speed: 0.5 };
-  }
-  return { dirX: 0, dirZ: 0, speed: 0 };
+  return halt;
 }
 
 
@@ -30600,6 +30649,1319 @@ function baueStrassenLeben() {
     zufallKeimSetzen(merk);
   }
   SL.ms = (typeof performance !== 'undefined' ? performance.now() : 0) - t0;
+  baueAufenthalt();                  // Stufe 7B, ohne Zufallszug
+}
+
+/* ======================= Stufe 7B: Aufenthalt =======================
+   Dieselben Strassenpassanten, aber nicht alle immer unterwegs: sie
+   setzen sich auf die vorhandenen Baenke, bleiben an Gelaender, Kiosk,
+   Uhr und Brunnen stehen, telefonieren, warten und reden zu zweit - und
+   gehen danach weiter.
+
+   Kein zweites System daneben: der Aufenthalt ist der vorhandene Halt am
+   Routenende (gehZustand 'aktivitaet') mit einem Platz, den es wirklich
+   gibt, und das Gespraech ist die vorhandene Begegnung (sozialPartner),
+   jetzt an einem Platz, an dem es niemandem im Weg steht. Vorrang
+   behalten Flucht, Ausweichen vor Autos, Verletzung, Geisel und Fahrgast:
+   sie beenden den Aufenthalt sofort, wer sitzt, steht schnell auf.
+
+   Die Anker entstehen EINMAL beim Laden aus dem, was steht: Baenke der
+   Stufe 6A und des Bestands, Kioske, Uhren, das Gelaender der Promenade,
+   der Brunnenplatz der Parks, Luecken in der Moeblierungszone der
+   Gehwege. Ohne Zufallszug (der Ladestrom bleibt Zug fuer Zug gleich),
+   abgelegt nach 12-m-Zellen und nach Zugangsknoten - zur Laufzeit wird
+   nie die ganze Liste durchsucht. Sichtbare Dinge kommen keine dazu. */
+const SA_H = { START: 31, ART: 32, DAUER: 33, UNTERWEGS: 34, ROLLE: 35, PAAR: 36,
+               EINZEL: 37, BLICK: 38, LAGE: 39, GRUSS: 40, POSE: 41 };
+/* Hoechstens dieser Anteil der Strassenpassanten hat zugleich einen
+   Aufenthalt vor (unterwegs dorthin, dort, beim Aufstehen). Gemessen
+   wurden 20, 35 und 50 Prozent - siehe docs/CITY-V2-DESIGN.md, 6p. */
+let SA_ANTEIL = 0.35;
+const SA_ZELLE = 12;
+/* Welche Beschaeftigung wie oft, je Stadtteil. reden gewichtet die
+   Begegnungen (sozialPartnerSuche), die anderen werden am Routenende und
+   unterwegs gewaehlt. Zentrum und Geschaeft mehr Warten, Telefon und
+   kurze Gespraeche, Wohnen weniger stehende Gruppen, Ufer mehr Bank und
+   Verweilen, Park am meisten Sitzen. */
+const SA_MIX = {
+  ZENTRUM:   { sitzen: 0.20, reden: 0.30, handy: 0.25, warten: 0.20, umschauen: 0.05 },
+  GESCHAEFT: { sitzen: 0.20, reden: 0.25, handy: 0.30, warten: 0.20, umschauen: 0.05 },
+  MISCHUNG:  { sitzen: 0.30, reden: 0.20, handy: 0.20, warten: 0.15, umschauen: 0.15 },
+  WOHN:      { sitzen: 0.40, reden: 0.10, handy: 0.20, warten: 0.15, umschauen: 0.15 },
+  UFER:      { sitzen: 0.35, reden: 0.20, handy: 0.10, warten: 0.05, umschauen: 0.30 },
+  PARK:      { sitzen: 0.50, reden: 0.15, handy: 0.10, warten: 0.00, umschauen: 0.25 },
+};
+/* Wie gern man in einem Stadtteil ueberhaupt stehen bleibt. */
+const SA_LUST = { ZENTRUM: 0.9, GESCHAEFT: 0.9, MISCHUNG: 0.8, WOHN: 0.6, UFER: 1.0, PARK: 1.2 };
+/* Dauer in Sekunden; der Wert dazwischen kommt aus sdHash(Passant,
+   Art, Anker, Durchlauf) - keine Welle, in der alle zugleich aufstehen. */
+const SA_DAUER = { sitzen: [18, 50], reden: [10, 24], handy: [8, 22], warten: [6, 15], umschauen: [5, 13] };
+/* Wer reden will und allein am Gespraechsplatz steht, wartet so lange
+   auf jemanden, der vorbeikommt (oder schon dort wartet). */
+const SA_TREFF = [12, 24];
+/* So weit darf der Zweite weg sein (gerade Linie ueber den Gehweg). */
+const SA_TREFF_WEIT = 22;
+const SA_ARTNR = { sitzen: 1, reden: 2, handy: 3, warten: 4, umschauen: 5 };
+/* Gehwegkante: Wahrscheinlichkeit fuer einen Gespraechsplatz und einen
+   Einzelplatz je Stadtteil. */
+const SA_KANTE = {
+  ZENTRUM: [0.75, 0.85], GESCHAEFT: [0.75, 0.85], MISCHUNG: [0.55, 0.7],
+  WOHN: [0.3, 0.45], UFER: [0.5, 0.6], PARK: [0.4, 0.5],
+};
+const SA_TYPEN_ORT = {
+  gehweg: ['handy', 'warten', 'umschauen'], gelaender: ['umschauen', 'handy', 'warten'],
+  kiosk: ['warten', 'umschauen', 'handy'], uhr: ['warten', 'handy'], brunnen: ['umschauen', 'handy'],
+};
+/* ---- Die Sitzflaeche, gemessen ----
+   Bankmodell der Stufe 6A (plaza_bench_01 auf 0,952 m), an den Dreiecken
+   abgetastet: Sitz oben 0,475 m, 0,43 m tief (z -0,215 bis 0,215), Lehne
+   vorn bei z -0,174 (drei Latten von 0,56 bis 0,94 m), Armlehnen innen
+   bei x +-0,655 - und auf der Sitzflaeche liegt ein Kissen von x 0,20
+   bis 0,60. Nutzbar ist also x -0,655 bis 0,20.
+   Bestandsbank (baueBank): Latten oben bei y + 0,4675, Sitz bis 0,285 vor
+   der Mitte, Lehne vorn bei 0,17 hinter der Mitte, Lehnenstuetzen innen
+   bei +-0,835.
+   hoch: Oberkante ueber dem Boden; lehne, vorn: auf der Achse nach vorn,
+   von der Bankmitte; koll: Vorderkante des Hindernisses (die
+   Bestandsbank steht als Kiste von 0,62 m Tiefe darin, 2,5 cm mehr als
+   die Latten); frei: nutzbare Strecke laengs. */
+const SA_BANK = {
+  modell:  { hoch: 0.475, lehne: -0.174, vorn: 0.215, koll: 0.215, frei: [-0.655, 0.20], laenge: 1.5 },
+  bestand: { hoch: 0.4675, lehne: -0.17, vorn: 0.285, koll: 0.31, frei: [-0.835, 0.835], laenge: 2.2 },
+};
+/* Der Standpunkt vor der Bank: Koerperradius der Passanten (0,35 m)
+   plus 1 cm vor dem Hindernis - so schiebt collideBody niemanden weg,
+   der dort steht, und der Anlauf ist mit demselben Radius frei. */
+const SA_STEH_LUFT = 0.36;
+/* Platz je Sitzendem: die breiteste gemessene Sitzhaltung (mit
+   Umhaengetasche halb 0,31 m) plus 20 cm Abstand zum Nachbarn. Die
+   Bankmodelle haben damit EINEN Platz (0,855 m nutzbar), die
+   Bestandsbaenke ZWEI (1,67 m). */
+const SA_SITZBREITE = 0.62, SA_SITZLUFT = 0.2;
+/* Tiefster gemessener Ruecken (mit Rucksack 0,304 m hinter dem
+   Hueftgelenk) - danach richtet sich, wie weit die Beine vorstehen. */
+const SA_RUECKEN_MAX = 0.31;
+const SA_SETZ_T = 0.9, SA_AUF_T = 0.9, SA_AUF_SCHNELL = 0.35;
+/* So weit halten Gehende vom Standpunkt eines Sitzenden (bei seinen
+   Fuessen) Abstand - statt ZIVI_ABSTAND 0,85 m. */
+const SA_BEIN_ABSTAND = 1.15;
+/* Knoechel im Sitzen vor dem Hueftgelenk (poseSitzen nimmt 0,43). */
+const SA_FUSS_VOR = 0.46;
+/* Unterseite der Sitzhaltung (saSitzMasse): je 2,5 cm nach vorn ab 15 cm
+   hinter dem Hueftgelenk. Der Oberschenkel darf hoechstens 1 cm in die
+   Sitzflaeche eintauchen; dafuer rueckt man bis 12 cm nach vorn
+   (saSitzLage). */
+const SA_UNTEN_N = 26, SA_EINTAUCHEN = 0.01, SA_VOR_MAX = 0.12;
+
+const SA = {
+  fertig: false, anker: [], raster: new Map(), jeKnoten: new Map(), knotenRaster: new Map(),
+  mass: new Map(), haut: new Map(), verworfen: {}, ms: 0, fehler: null, strasse: 0, aktiv: 0, still: 0, orte: [],
+  stat: { begonnen: {}, fertig: {}, abbruch: {}, ohneWeg: 0, gesperrt: 0, kurzHalt: 0,
+          gespraechAnker: 0, gespraechOhne: 0, messungen: 0 },
+};
+const _saV = new THREE.Vector3(), _saF = new THREE.Vector3();
+function saVerwirf(g) { SA.verworfen[g] = (SA.verworfen[g] || 0) + 1; return null; }
+function saZelle(x, z) { return Math.floor(x / SA_ZELLE) + ',' + Math.floor(z / SA_ZELLE); }
+function saNeu(a) {
+  a.id = SA.anker.length;
+  a.belegt = a.plaetze.map(() => null);
+  a.sperreBis = 0; a.fehl = 0; a.fehlSeit = 0;
+  SA.anker.push(a);
+  const k = saZelle(a.x, a.z);
+  if (!SA.raster.has(k)) SA.raster.set(k, []);
+  SA.raster.get(k).push(a);
+  a.plaetze.forEach((p, i) => {
+    if (!SA.jeKnoten.has(p.knoten)) SA.jeKnoten.set(p.knoten, []);
+    SA.jeKnoten.get(p.knoten).push([a, i]);
+  });
+  return a;
+}
+/* Alle Knoten, von denen aus man einen Platz ansteuern darf: Hauptinsel,
+   kein U-Bahn-Kopf, Parkwege eingeschlossen (die stehen nicht in
+   GEH.raster). */
+function saKnotenRaster() {
+  const haupt = GEH.knoten[GEH.hauptInsel || 0].insel;
+  GEH.knoten.forEach((n, i) => {
+    if (n.tot || n.insel !== haupt || n.art === 'ubahn') return;
+    const k = saZelle(n.x, n.z);
+    if (!SA.knotenRaster.has(k)) SA.knotenRaster.set(k, []);
+    SA.knotenRaster.get(k).push(i);
+  });
+}
+/* Abstand eines Grundrisses zum Gehnetz (Knoten, Kanten, Ueberwege) -
+   wie sdNetz, aber mit den Parkwegen. */
+function saNetzAbstand(k) {
+  const aus = { knoten: Infinity, kante: Infinity, ueberweg: Infinity };
+  const i0 = Math.floor((k.x0 + k.x1) / 2 / SA_ZELLE), j0 = Math.floor((k.z0 + k.z1) / 2 / SA_ZELLE);
+  for (let i = i0 - 1; i <= i0 + 1; i++) for (let j = j0 - 1; j <= j0 + 1; j++) {
+    const l = SA.knotenRaster.get(i + ',' + j);
+    if (!l) continue;
+    for (const ni of l) {
+      const n = GEH.knoten[ni];
+      const dk = sdKastenPunkt(k, n.x, n.z);
+      if (dk < aus.knoten) aus.knoten = dk;
+      for (const e of n.kanten) {
+        const m = GEH.knoten[e.zu];
+        if (!m) continue;
+        const d = sdStreckeKasten(n.x, n.z, m.x, m.z, k);
+        if (e.ueberweg) { if (d < aus.ueberweg) aus.ueberweg = d; }
+        else if (d < aus.kante) aus.kante = d;
+      }
+    }
+  }
+  return aus;
+}
+/* ---- Die Hindernisse der Strassendetails, auch vor ihren Modellen ----
+   Bank, Kuebel, Muelleimer, Kiosk und Uhr tragen ihr Hindernis erst ein,
+   wenn ihre Modelldatei geladen ist (setzeStrassenDetailModelle) - beim
+   Bau der Anker ist das oft noch nicht so. Gemessen: ein Anlauf zu einer
+   Promenadenbank fuehrte mitten durch den Muelleimer daneben, und wer ihn
+   ging, blieb dort haengen. Geprueft wird deshalb auch gegen die
+   geplante Hinderniskiste (kollKasten) jedes Details. */
+function saSdFrei(x, z, r) {
+  /* SD.raster: 10-m-Zellen nach der Mitte des Details; keine Kiste ist
+     breiter als 1 m von ihrer Mitte - 1,5 m Rand reichen. */
+  const i0 = Math.floor((x - r - 1.5) / 10), i1 = Math.floor((x + r + 1.5) / 10);
+  const j0 = Math.floor((z - r - 1.5) / 10), j1 = Math.floor((z + r + 1.5) / 10);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const l = SD.raster.get(i + ',' + j);
+    if (!l) continue;
+    for (const e of l) {
+      const k = e.kollKasten;
+      if (k && x > k.x0 - r && x < k.x1 + r && z > k.z0 - r && z < k.z1 + r) return false;
+    }
+  }
+  return true;
+}
+/* Kommt man auf gerader Linie durch? Alle 35 cm eine Scheibe vom Radius r. */
+function saFreieStrecke(ax, az, bx, bz, r) {
+  const d = Math.hypot(bx - ax, bz - az);
+  const n = Math.max(1, Math.ceil(d / 0.35));
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, px = ax + (bx - ax) * t, pz = az + (bz - az) * t;
+    if (!saSdFrei(px, pz, r) || !gehBegehbar(px, pz, false, r)) return false;
+  }
+  return true;
+}
+/* Der Zugang zu einem Platz: der Knoten im Umkreis von 12 m mit dem
+   kuerzesten freien Weg, direkt oder ueber Umwegpunkte (um eine Bank
+   herum). Naechste Knoten zuerst, Abbruch, sobald keiner mehr kuerzer
+   sein kann. */
+function saZugang(sx, sz, umwege) {
+  const kand = [];
+  const i0 = Math.floor(sx / SA_ZELLE), j0 = Math.floor(sz / SA_ZELLE);
+  for (let i = i0 - 1; i <= i0 + 1; i++) for (let j = j0 - 1; j <= j0 + 1; j++) {
+    const l = SA.knotenRaster.get(i + ',' + j);
+    if (!l) continue;
+    for (const ni of l) {
+      const n = GEH.knoten[ni];
+      const d = Math.hypot(n.x - sx, n.z - sz);
+      if (d <= 12) kand.push([d, ni]);
+    }
+  }
+  kand.sort((a, b) => a[0] - b[0]);
+  let best = null;
+  for (const [d0, ni] of kand) {
+    if (best && d0 >= best.len) break;
+    const n = GEH.knoten[ni];
+    for (const weg of umwege) {
+      let px = n.x, pz = n.z, len = 0, ok = true;
+      for (const [qx, qz] of weg.concat([[sx, sz]])) {
+        len += Math.hypot(qx - px, qz - pz);
+        if ((best && len >= best.len) || !saFreieStrecke(px, pz, qx, qz, 0.35)) { ok = false; break; }
+        px = qx; pz = qz;
+      }
+      if (ok) best = { knoten: ni, weg, len };
+    }
+  }
+  return best;
+}
+/* Flaechen, die frei bleiben wie bei den Strassendetails der Stufe 6:
+   Zebrastreifen, Haustueren mit Vorfeld, U-Bahn-Treppen, Aufzuege,
+   Missionsorte. */
+function saFlaeche(k) {
+  if (aufZebra(k.x0 - 0.5, k.x1 + 0.5, k.z0 - 0.5, k.z1 + 0.5)) return 'zebra';
+  const B = SD.bestand;
+  for (const t of (B ? B.tueren : hausTueren())) {
+    if (sdUeber(k, t.durchgang, 0.3) || sdUeber(k, t.vorfeld, 0.3)) return 'tuer';
+  }
+  if (B) for (const l of B.loecher) if (sdUeber(k, l, 1.5)) return 'ubahn';
+  for (const a of AUFZUEGE) if (sdKastenPunkt(k, a.x, a.z) < 3.0) return 'aufzug';
+  for (const p of (B ? B.pois : POI.liste)) if (sdKastenPunkt(k, p.x, p.z) < 3.0) return 'poi';
+  return null;
+}
+function saAnkerNahe(x, z) {
+  const aus = [];
+  const i0 = Math.floor(x / SA_ZELLE), j0 = Math.floor(z / SA_ZELLE);
+  for (let i = i0 - 1; i <= i0 + 1; i++) for (let j = j0 - 1; j <= j0 + 1; j++) {
+    const l = SA.raster.get(i + ',' + j);
+    if (l) for (const A of l) aus.push(A);
+  }
+  return aus;
+}
+/* Darf hier jemand stehen? Boden auf Gehweghoehe, freie Flaechen, nichts
+   auf Koerperhoehe (Radius 0,42), 0,5 m Luft zu jedem Strassendetail,
+   nicht auf einer Baumscheibe, Laternen und Ampeln mit Abstand, mindestens
+   netzLuft zum Gehnetz, 2 m zu jedem Ueberweg - und wenn innen gegeben
+   ist (Normale der Gehwegkante nach aussen), bleiben von der Innenkante
+   1,8 m Gehweg frei (sdGehwegFrei, dieselbe Pruefung wie in Stufe 6).
+   Zu den Plaetzen anderer Anker 1,3 m, zu einem Bankplatz 1,6 m, zu
+   einer Arkade 1 m. Und:
+   im bespielbaren Gebiet (imGebiet) - an der Promenade endet es 3 m vor
+   der Kaimauer, dahinter hat kein Passant etwas verloren. */
+function saStehFrei(x, z, innen, netzLuft) {
+  if (!imGebiet(x, z)) return 'gebiet';
+  const k = { x0: x - 0.35, x1: x + 0.35, z0: z - 0.35, z1: z + 0.35 };
+  const f = saFlaeche(k);
+  if (f) return f;
+  if (!gehPlatzFrei(x, z, 0.42)) return 'hindernis';
+  /* Arkaden und offene Hallen (Hindernis mit begehbarem Boden darunter):
+     nicht davor stehen bleiben - dort geht man hinein und hinaus. */
+  for (const col of collidersNear(x, z)) if (col.boden && sdUeber(k, col, 1.0)) return 'arkade';
+  for (const e of sdNahe(SD.raster, k, 2)) if (sdUeber(k, e.sicht, e.flach ? 0.05 : 0.5)) return 'detail';
+  if (SD.bestand) {
+    for (const b of sdNahe(SD.bestand.punkte, k, 2)) if (sdKastenPunkt(k, b.x, b.z) < b.r + 0.2) return 'bestand';
+  }
+  for (const A of saAnkerNahe(x, z)) {
+    for (const P of A.plaetze) if (Math.hypot(P.x - x, P.z - z) < (A.art === 'bank' ? 1.6 : 1.3)) return 'anker';
+  }
+  const netz = saNetzAbstand(k);
+  if (netz.ueberweg < 2.0) return 'ueberweg';
+  if (netz.kante < netzLuft || netz.knoten < netzLuft) return 'netz';
+  /* Boden zuletzt: groundY (mit U-Bahn-Schacht und Aufzug) ist der teure
+     Teil, und die meisten Stellen scheitern vorher an Ding oder Gehnetz. */
+  for (const [px, pz] of [[x, z], [k.x0, k.z0], [k.x1, k.z0], [k.x0, k.z1], [k.x1, k.z1]]) {
+    if (inWater(px, pz) || onBridge(px, pz)) return 'boden';
+    if (Math.abs(groundY(px, pz, 2) - SLAB_H) > 0.03) return 'boden';
+  }
+  if (innen && !sdGehwegFrei(k, innen[0], innen[1])) return 'gehweg';
+  return null;
+}
+
+/* ---- Bank: Sitzplaetze aus der gemessenen Flaeche ----
+   b: Mitte, Richtung nach vorn (fx, fz) und laengs (lx, lz), Bankart.
+   Je Platz: Lehnenpunkt (dort, wo der Ruecken anliegt), Standpunkt vor der
+   Bank (dort steht man, bevor man sich setzt - Koerperradius vor der
+   Sitzkante), Sitzhoehe, Blick nach vorn. rMax: wie tief der Ruecken
+   hoechstens sein darf, damit vor den Fussspitzen noch 1,8 m Gehweg
+   bleiben. */
+function saBankAnker(b) {
+  const M = SA_BANK[b.art];
+  const breit = M.frei[1] - M.frei[0];
+  const n = Math.floor(breit / (SA_SITZBREITE + SA_SITZLUFT));
+  if (n < 1) return saVerwirf('bank:schmal');
+  const plaetze = [];
+  const L2 = M.laenge / 2 + 0.55;
+  for (let i = 0; i < n; i++) {
+    const a = M.frei[0] + (i + 0.5) * breit / n;
+    const lx = b.x + b.lx * a + b.fx * M.lehne, lz = b.z + b.lz * a + b.fz * M.lehne;
+    const steh = Math.max(M.vorn, M.koll) + SA_STEH_LUFT - M.lehne;
+    const sx = lx + b.fx * steh, sz = lz + b.fz * steh;
+    /* Die Promenadenbaenke blicken aufs Wasser; ihr Standpunkt liegt
+       0,47 m jenseits der Gebietsgrenze (3 m vor der Kaimauer). Erlaubt
+       wird er bis 2 m vor der Mauer - nur fuer diesen Platz und nur
+       waehrend des Aufenthalts (haltenImGebiet in updateCivilians). */
+    if (!imGebiet(sx, sz) && !(sx <= RIVER_X0 - 2 && imGebiet(RIVER_X0 - 3, sz))) { saVerwirf('bank:gebiet'); continue; }
+    if (inWater(sx, sz) || onBridge(sx, sz) || Math.abs(groundY(sx, sz, 2) - b.boden) > 0.03) { saVerwirf('bank:boden'); continue; }
+    /* Wo die Beine hinreichen: von der Sitzkante bis zu den Fussspitzen
+       der tiefsten Sitzhaltung, so breit wie der Platz. */
+    const beine = (r) => {
+      const f0 = M.vorn, f1 = M.lehne + r + 0.015 + SA_FUSS_VOR + 0.25;
+      const ecken = [[a - 0.31, f0], [a + 0.31, f0], [a - 0.31, f1], [a + 0.31, f1]]
+        .map(([q, f]) => [b.x + b.lx * q + b.fx * f, b.z + b.lz * q + b.fz * f]);
+      return { x0: Math.min(...ecken.map((e) => e[0])), x1: Math.max(...ecken.map((e) => e[0])),
+               z0: Math.min(...ecken.map((e) => e[1])), z1: Math.max(...ecken.map((e) => e[1])), f1 };
+    };
+    const tief = beine(SA_RUECKEN_MAX);
+    const fl = saFlaeche(tief);
+    if (fl) { saVerwirf('bank:' + fl); continue; }
+    let frei = true;
+    for (const q of [-0.25, 0, 0.25]) for (const f of [M.vorn + 0.15, M.vorn + 0.35, tief.f1]) {
+      const px = b.x + b.lx * (a + q) + b.fx * f, pz = b.z + b.lz * (a + q) + b.fz * f;
+      if (!gehPlatzFrei(px, pz, 0.08) || !saSdFrei(px, pz, 0.08)) frei = false;
+    }
+    if (!frei) { saVerwirf('bank:beine'); continue; }
+    let rMax = SA_RUECKEN_MAX;
+    if (!sdGehwegFrei(tief, -b.fx, -b.fz)) {
+      rMax = 0.2;
+      if (!sdGehwegFrei(beine(rMax), -b.fx, -b.fz)) { saVerwirf('bank:gehweg'); continue; }
+    }
+    /* Zugang: gerade auf den Standpunkt zu, sonst um ein Bankende herum
+       (Ecke vorn, notfalls erst seitlich daneben). */
+    const umwege = [[]];
+    for (const s of [1, -1]) {
+      const ex = b.x + b.lx * s * L2, ez = b.z + b.lz * s * L2;
+      const vorn = [ex + b.fx * (M.lehne + steh), ez + b.fz * (M.lehne + steh)];
+      umwege.push([vorn], [[ex - b.fx * 0.2, ez - b.fz * 0.2], vorn]);
+    }
+    const zu = saZugang(sx, sz, umwege);
+    if (!zu) { saVerwirf('bank:zugang'); continue; }
+    plaetze.push({ x: sx, z: sz, lx, lz, fx: b.fx, fz: b.fz, y: b.boden + M.hoch, boden: b.boden,
+                   blick: Math.atan2(b.fx, b.fz), rMax, knoten: zu.knoten, weg: zu.weg, lang: a });
+  }
+  if (!plaetze.length) return null;
+  return saNeu({ art: 'bank', ort: b.ort, teil: stadtteilAn(b.x, b.z), x: b.x, z: b.z,
+                 typen: ['sitzen'], plaetze, bank: b.art });
+}
+/* Ein Einzelplatz: Stelle, Blick, Ort (welche Beschaeftigungen). */
+/* geprueft: der Aufrufer hat saStehFrei schon gefragt (spart beim Laden
+   die doppelte Gehwegpruefung). */
+function saEinzel(x, z, blick, ort, innen, geprueft) {
+  const g = geprueft ? null : saStehFrei(x, z, innen, 0.45);
+  if (g) return saVerwirf('einzel:' + g);
+  const zu = saZugang(x, z, [[]]);
+  if (!zu) return saVerwirf('einzel:zugang');
+  return saNeu({ art: 'einzel', ort, teil: stadtteilAn(x, z), x, z, typen: SA_TYPEN_ORT[ort],
+                 plaetze: [{ x, z, blick, knoten: zu.knoten, weg: zu.weg }] });
+}
+/* Ein Gespraechsplatz: zwei Stellen im Abstand SOZ_ABSTAND, einander
+   zugewandt, nichts dazwischen. */
+function saPaar(ax, az, bx, bz, ort, innen, geprueft) {
+  const g = geprueft ? null : (saStehFrei(ax, az, innen, 0.45) || saStehFrei(bx, bz, innen, 0.45));
+  if (g) return saVerwirf('paar:' + g);
+  if (!saFreieStrecke(ax, az, bx, bz, 0.12)) return saVerwirf('paar:dazwischen');
+  const za = saZugang(ax, az, [[]]), zb = saZugang(bx, bz, [[]]);
+  if (!za || !zb) return saVerwirf('paar:zugang');
+  const blick = Math.atan2(bx - ax, bz - az);
+  return saNeu({ art: 'paar', ort, teil: stadtteilAn((ax + bx) / 2, (az + bz) / 2),
+                 x: (ax + bx) / 2, z: (az + bz) / 2, typen: ['reden'],
+                 plaetze: [{ x: ax, z: az, blick, knoten: za.knoten, weg: za.weg },
+                           { x: bx, z: bz, blick: blick + Math.PI, knoten: zb.knoten, weg: zb.weg }] });
+}
+/* Gehwegkante: Luecken in der Moeblierungszone (17,5 bis 19 m von der
+   Blockmitte). Die Person steht 1,15 m vom Bordstein, an Boulevards
+   1,25 m (die aeussere Spur liegt dort 1,4 m vom Bordstein - so naht
+   kein Wagen auf weniger als 2,6 m, und niemand muss ausweichen). Je
+   Kante hoechstens ein Gespraechs- und ein Einzelplatz, 4,5 m
+   auseinander, die Lage aus sdHash. */
+function saGehwegKante(t, K, id, seiteNr) {
+  const tx = K.nz !== 0 ? 1 : 0, tz = K.nx !== 0 ? 1 : 0;
+  const tief = K.klasse === 'BOULEVARD' ? 17.75 : 17.85;
+  const W = SA_KANTE[t.art] || SA_KANTE.MISCHUNG;
+  const pos = (a) => [t.x + K.nx * tief + tx * a, t.z + K.nz * tief + tz * a];
+  const innen = [K.nx, K.nz];
+  const start = (sdHash(id, seiteNr, SA_H.LAGE, 0) - 0.5) * 8;
+  const reihe = [];
+  for (let k = 0; k < 24; k++) {
+    const a = start + (k % 2 ? 1 : -1) * Math.ceil(k / 2);
+    if (Math.abs(a) <= 10.5) reihe.push(a);
+  }
+  const gesetzt = [];
+  const frei = (a) => gesetzt.every((q) => Math.abs(q - a) > 4.5);
+  if (sdHash(id, seiteNr, SA_H.PAAR, 0) < W[0]) {
+    let ok = false;
+    for (const a of reihe) {
+      if (!frei(a)) continue;
+      const [ax, az] = pos(a - SOZ_ABSTAND / 2), [bx, bz] = pos(a + SOZ_ABSTAND / 2);
+      if (saStehFrei(ax, az, innen, 0.45) || saStehFrei(bx, bz, innen, 0.45)) continue;
+      if (saPaar(ax, az, bx, bz, 'gehweg', innen, true)) { gesetzt.push(a); ok = true; break; }
+    }
+    if (!ok) saVerwirf('kante:paar');
+  }
+  if (sdHash(id, seiteNr, SA_H.EINZEL, 0) < W[1]) {
+    let ok = false;
+    for (const a of reihe) {
+      if (!frei(a)) continue;
+      const [x, z] = pos(a);
+      if (saStehFrei(x, z, innen, 0.45)) continue;
+      const blick = Math.atan2(K.nx, K.nz) + (sdHash(id, seiteNr, SA_H.BLICK, 0) - 0.5) * 1.6;
+      if (saEinzel(x, z, blick, 'gehweg', innen, true)) { gesetzt.push(a); ok = true; break; }
+    }
+    if (!ok) saVerwirf('kante:einzel');
+  }
+}
+/* Promenade: alle 7 m ein Einzelplatz mit Blick aufs Wasser, alle 22 m
+   ein Gespraechsplatz - so nah am Wasser, wie Passanten duerfen (das
+   Gebiet endet 3 m vor der Kaimauer). Der Gehweg der Promenade laeuft
+   in ihrer Mitte (Knoten bei x 186,5 bis 187,3). */
+function saPromenade() {
+  const blickW = Math.atan2(1, 0);
+  const innen = [1, 0];                 // der Gehweg der Promenade liegt landeinwaerts
+  let letzteG = -1e9, letzteP = -1e9;
+  for (let z = PROM_Z0 + 3; z <= PROM_Z1 - 3; z += 1) {
+    if (z - letzteG >= 7) {
+      for (const x of [RIVER_X0 - 3.15, RIVER_X0 - 3.45]) {
+        if (saStehFrei(x, z, innen, 0.45)) continue;
+        if (saEinzel(x, z, blickW, 'gelaender', innen, true)) { letzteG = z; break; }
+      }
+    }
+    if (z - letzteP >= 22) {
+      const x = RIVER_X0 - 3.3;
+      if (!saStehFrei(x, z, innen, 0.45) && !saStehFrei(x, z + SOZ_ABSTAND, innen, 0.45) &&
+          saPaar(x, z, x, z + SOZ_ABSTAND, 'promenade', innen, true)) letzteP = z;
+    }
+  }
+}
+/* Vor einem Kiosk (Glasfront = +z des Modells), Blick zum Kiosk. */
+function saKiosk(e) {
+  const fx = Math.sin(e.dreh), fz = Math.cos(e.dreh);
+  saEinzel(e.x + fx * 1.6, e.z + fz * 1.6, Math.atan2(-fx, -fz), 'kiosk', null);
+}
+/* Neben einer Bahnhofsuhr, Blick zur Strasse. */
+function saUhr(e) {
+  const bi = clamp(Math.floor((e.x - RASTER_X0) / PITCH), 0, BLOCKS_X - 1);
+  const bj = clamp(Math.floor((e.z - RASTER_Z0) / PITCH), 0, BLOCKS_Z - 1);
+  const m = gehBlockMitte(bi, bj);
+  const dx = e.x - m.x, dz = e.z - m.z;
+  const nx = Math.abs(dx) > Math.abs(dz) ? Math.sign(dx) : 0, nz = nx ? 0 : Math.sign(dz);
+  const tx = nz !== 0 ? 1 : 0, tz = nx !== 0 ? 1 : 0;
+  const a = tx ? e.x - m.x : e.z - m.z;
+  for (const s of [1, -1]) {
+    const x = m.x + nx * 17.75 + tx * (a + s * 1.25), z = m.z + nz * 17.75 + tz * (a + s * 1.25);
+    if (saStehFrei(x, z, [nx, nz], 0.45)) continue;
+    if (saEinzel(x, z, Math.atan2(nx, nz), 'uhr', [nx, nz], true)) return;
+  }
+}
+/* Park: am Brunnenrand je Arm zwei Plaetze, 22,5 Grad neben der
+   Wegachse und ausserhalb des Beckenhindernisses (6,5 x 6,5 m), Blick zur
+   Mitte; am Wegrand je Arm (Hash) ein Gespraechsplatz 2,35 m neben der
+   Achse, hinter den Baenken. */
+function saPark(pk, pi) {
+  const ARME = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const r = 3.25 + 0.45, q = r * Math.tan(Math.PI / 8);
+  ARME.forEach(([ax, az], k) => {
+    const qx = -az, qz = ax;
+    for (const s of [-1, 1]) {
+      const x = pk.x + ax * r + qx * s * q, z = pk.z + az * r + qz * s * q;
+      saEinzel(x, z, Math.atan2(pk.x - x, pk.z - z), 'brunnen', null);
+    }
+    if (sdHash(1100 + pi, k, SA_H.PAAR, 0) > 0.75) return;
+    const s = sdHash(1100 + pi, k, SA_H.LAGE, 0) < 0.5 ? -1 : 1;
+    for (const d of [11, 12.5, 10, 13.5]) {
+      const x0 = pk.x + ax * d + qx * s * 2.35, z0 = pk.z + az * d + qz * s * 2.35;
+      const x1 = x0 + ax * SOZ_ABSTAND, z1 = z0 + az * SOZ_ABSTAND;
+      if (saStehFrei(x0, z0, null, 0.45) || saStehFrei(x1, z1, null, 0.45)) continue;
+      if (saPaar(x0, z0, x1, z1, 'park', null, true)) break;
+    }
+  });
+}
+/* Aufgerufen am Ende von baueStrassenLeben - ohne Zufallszug. */
+function baueAufenthalt() {
+  if (SA.fertig) return;
+  SA.fertig = true;
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  try {
+    baueGehnetz();
+    saKnotenRaster();
+    SA.strasse = civilians.filter((c) => c.bahnsteig === undefined).length;
+    SA.sdModelle = Object.keys(SD.felder).filter((k) => SD.felder[k]);
+    for (const e of SD.liste) {
+      if (e.art !== 'Bank') continue;
+      const fx = Math.sin(e.dreh), fz = Math.cos(e.dreh);
+      saBankAnker({ x: e.x, z: e.z, fx, fz, lx: fz, lz: -fx, art: 'modell', ort: 'sd', boden: SLAB_H });
+    }
+    for (const e of BANK_STELLEN) {
+      if (Math.abs(e.y - SLAB_H) > 0.05) continue;               // Bahnsteig
+      const rs = e.rueck === undefined ? -1 : e.rueck;
+      const fx = e.laengsZ ? -rs : 0, fz = e.laengsZ ? 0 : -rs;
+      saBankAnker({ x: e.x, z: e.z, fx, fz, lx: fz, lz: -fx, art: 'bestand', ort: 'bestand', boden: e.y });
+    }
+    for (let bi = 0; bi < BLOCKS_X; bi++) for (let bj = 0; bj < BLOCKS_Z; bj++) {
+      const t = STADTTEIL[bi * BLOCKS_Z + bj];
+      if (!t) continue;
+      blockKanten(t.x, t.z).forEach((K, seiteNr) => saGehwegKante(t, K, bi * BLOCKS_Z + bj, seiteNr));
+    }
+    saPromenade();
+    for (const e of SD.liste) {
+      if (e.art === 'Kiosk') saKiosk(e);
+      else if (e.art === 'Uhr') saUhr(e);
+    }
+    parks.forEach((pk, pi) => saPark(pk, pi));
+  } catch (e) {
+    SA.fehler = String(e && e.stack || e);
+    if (typeof window !== 'undefined') window.__saFehler = SA.fehler;
+  }
+  SA.ms = (typeof performance !== 'undefined' ? performance.now() : 0) - t0;
+}
+
+/* Punkte einer Hautgeometrie, die vor allem an Becken, Ober- oder
+   Unterschenkel haengen (staerkstes Gewicht) - einmal je Geometrie. */
+function saBeinPunkte(mesh) {
+  const g = mesh.geometry;
+  if (g.userData.saBein) return g.userData.saBein;
+  const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, knochen = mesh.skeleton.bones;
+  const bein = knochen.map((b) => /(hips|leftupleg|rightupleg|leftleg|rightleg)$/i.test(b.name));
+  const aus = [];
+  for (let i = 0; i < si.count; i++) {
+    const w = [sw.getX(i), sw.getY(i), sw.getZ(i), sw.getW(i)];
+    const k = [si.getX(i), si.getY(i), si.getZ(i), si.getW(i)];
+    let best = 0;
+    for (let j = 1; j < 4; j++) if (w[j] > w[best]) best = j;
+    if (bein[k[best]]) aus.push(i);
+  }
+  g.userData.saBein = Int32Array.from(aus);
+  return g.userData.saBein;
+}
+/* Unterseite je Band (2,5 cm nach vorn ab 15 cm hinter dem Becken): der
+   tiefste Punkt, ab dem Gesaess gemessen (positiv = tiefer). Was mehr als
+   5,5 cm darunter liegt, ist Wade und haengt unter der Sitzplatte. */
+function saUntenBaender(pkt, g, unten) {
+  for (let i = 0; i < pkt.length; i += 2) {
+    const tiefer = g - pkt[i + 1];
+    if (tiefer > 0.055) continue;
+    const k = Math.floor((pkt[i] + 0.15) / 0.025);
+    if (k >= 0 && k < SA_UNTEN_N && tiefer > unten[k]) unten[k] = tiefer;
+  }
+  return unten;
+}
+/* ---- Masse der sitzenden Figur ----
+   Gemessen in genau der Haltung, die das Spiel zeigt (Clip sitzen,
+   poseSitzen), jeder Punkt auf der CPU gehaeutet wie im Shader: wie tief
+   das Gesaess unter dem Hueftgelenk liegt, wie weit Ruecken, Rucksack oder
+   Tasche dahinter reichen - ab 12 cm unter dem Gelenk, dort beginnt die
+   Lehne (danach rueckt die Figur von der Lehne ab), wie hoch der Knoechel
+   ueber der Sohle steht, wie breit sie sitzt, wo das Becken im Stand ist
+   und wie die Unterseite verlaeuft (saSitzLage).
+   Die Haut ist je Modell gleich - alle Outfits zeigen dieselben
+   Hautteile, sie unterscheiden sich in Farbe und im Zubehoer. Deshalb wird
+   die Haut je Modell einmal gerechnet (SA.haut) und je Modell und
+   Kleidung nur noch Rucksack und Tasche dazu: gemessen kostete die volle
+   Messung je Look rund 5 ms beim ersten Hinsetzen, 24 Looks also 24
+   solche Spitzen statt 5. Ein fester Abzug liesse die einen schweben und
+   die anderen in der Bank versinken - dieselbe Erfahrung wie im
+   U-Bahn-Wagen. Danach stehen alle Knochen wieder wie vorher. */
+function saSitzMasse(c) {
+  const v = c.visual;
+  const sig = v.modell + '|' + (c.look ? c.look.outfit : '-');
+  let m = SA.mass.get(sig);
+  if (m) return m;
+  m = { gesaess: 0.1, ruecken: SA_RUECKEN_MAX, knoechel: 0.12, halb: 0.31, stand: 0.95, gemessen: false };
+  const tMess = typeof performance !== 'undefined' ? performance.now() : 0;
+  const root = v.root, M = glbModels[v.modell];
+  const clipS = M && M.clips.find((q) => q.name === 'sitzen');
+  const clipI = M && M.clips.find((q) => q.name === 'idle');
+  const inner = root && root.children.find((o) => {
+    let s = false; o.traverse((q) => { if (q.isSkinnedMesh) s = true; }); return s;
+  });
+  if (clipS && inner && v.poseSitzen) {
+    const knochen = [], kn = {};
+    root.traverse((o) => {
+      if (!o.isBone) return;
+      knochen.push([o, o.position.clone(), o.quaternion.clone(), o.scale.clone()]);
+      kn[o.name.replace(/mixamorig:?/i, '').toLowerCase()] = o;
+    });
+    const merkP = root.position.clone(), merkR = root.rotation.y;
+    const mixer = new THREE.AnimationMixer(inner);
+    try {
+      const fremd = new Set();
+      for (const z of [c.handy, c.schirm]) if (z) z.traverse((q) => fremd.add(q));
+      const haut = [], starr = [];
+      /* Sichtbar heisst: ohne die Wurzel - die ist jenseits LOD_WEITE
+         ausgeblendet, die Teile darunter zaehlen trotzdem. */
+      root.traverse((o) => {
+        if (!o.isMesh || fremd.has(o)) return;
+        for (let p = o; p && p !== root; p = p.parent) if (p.visible === false) return;
+        (o.isSkinnedMesh ? haut : starr).push(o);
+      });
+      const hautSig = v.modell + '|' + haut.map((q) => q.name).join(',');
+      let H = SA.haut.get(hautSig) || null;
+      root.position.set(0, 0, 0); root.rotation.set(0, 0, 0);
+      const hp = new THREE.Vector3(), p = new THREE.Vector3();
+      if (clipI && kn.hips) {
+        const a = mixer.clipAction(clipI);
+        a.play(); mixer.setTime(0);
+        root.updateMatrixWorld(true);
+        kn.hips.getWorldPosition(hp);
+        m.stand = hp.y;
+        a.stop();
+      }
+      const act = mixer.clipAction(clipS);
+      act.reset(); act.play(); mixer.setTime(clipS.duration * 0.4);
+      root.updateMatrixWorld(true);
+      v.poseSitzen(1);
+      root.updateMatrixWorld(true);
+      kn.hips.getWorldPosition(hp);
+      /* Haut: Gesaess, Sohle, Ruecken, Breite (jeder vierte bis zehnte
+         Punkt genuegt dafuer) - einmal je Modell */
+      if (!H) {
+        let gesaess = Infinity, sohle = Infinity, hinten = 0, halb = 0;
+        for (const mesh of haut) {
+          const pos = mesh.geometry.attributes.position;
+          const schritt = Math.max(1, Math.floor(pos.count / 4000));
+          for (let i = 0; i < pos.count; i += schritt) {
+            mesh.boneTransform(i, p); p.applyMatrix4(mesh.matrixWorld);
+            const dy = p.y - hp.y, dx = p.x - hp.x, dz = p.z - hp.z;
+            if (dy < 0 && Math.abs(dx) < 0.17 && dz > -0.15 && dz < 0.06) gesaess = Math.min(gesaess, dy);
+            if (dy > -0.12 && dy < 0.62 && Math.abs(dx) < 0.3) hinten = Math.max(hinten, -dz);
+            sohle = Math.min(sohle, p.y);
+            if (dy > -0.2) halb = Math.max(halb, Math.abs(dx));
+          }
+        }
+        let knoechel = 0, nk = 0;
+        for (const nm of ['leftfoot', 'rightfoot']) if (kn[nm]) { kn[nm].getWorldPosition(p); knoechel += p.y; nk++; }
+        H = isFinite(gesaess) && isFinite(sohle) && nk
+          ? { gesaess, hinten, halb, kn0: knoechel / nk - sohle, sitz: {} } : { fehlt: true };
+        SA.haut.set(hautSig, H);
+      }
+      if (!H.fehlt) {
+        /* Rucksack und Tasche dieses Outfits */
+        let hinten = H.hinten, halb = H.halb;
+        for (const mesh of starr) {
+          const pos = mesh.geometry.attributes.position;
+          for (let i = 0; i < pos.count; i++) {
+            p.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+            const dy = p.y - hp.y, dx = p.x - hp.x, dz = p.z - hp.z;
+            if (dy > -0.12 && dy < 0.62 && Math.abs(dx) < 0.3) hinten = Math.max(hinten, -dz);
+            if (dy > -0.2) halb = Math.max(halb, Math.abs(dx));
+          }
+        }
+        /* Unterseite in der Haltung, die das Spiel wirklich stellt: die
+           Knoechel SA_FUSS_VOR vor dem Becken auf dem Boden (poseSitzen mit
+           Fussziel), je Bankart - deren Sitzhoehe macht den Kniewinkel.
+           Mit dem festen Fussziel oben (0,43 m vor, 0,53 m unter dem
+           Becken) war das Bein weniger gestreckt; gemessen tauchte der
+           Oberschenkel im Spiel dann bis 1,4 cm tiefer ein als berechnet.
+           Gerechnet wird jeder Punkt, der vor allem an Becken, Ober- oder
+           Unterschenkel haengt (saBeinPunkte), dazu Rucksack und Tasche. */
+        const sitz = {};
+        for (const [art, B] of Object.entries(SA_BANK)) {
+          mixer.setTime(clipS.duration * 0.4);
+          root.updateMatrixWorld(true);
+          kn.hips.getWorldPosition(hp);
+          v.poseSitzen(1, undefined, false, new THREE.Vector3(hp.x, hp.y - (B.hoch - H.gesaess - H.kn0), hp.z + SA_FUSS_VOR));
+          root.updateMatrixWorld(true);
+          const pkt = [];
+          const nimm = () => {
+            const dy = p.y - hp.y, dx = p.x - hp.x, dz = p.z - hp.z;
+            if (dy < 0.1 && Math.abs(dx) < 0.25 && dz > -0.15 && dz < 0.5) pkt.push(dz, dy);
+          };
+          if (!H.sitz[art]) {
+            let g2 = Infinity;
+            for (const mesh of haut) {
+              for (const i of saBeinPunkte(mesh)) {
+                mesh.boneTransform(i, p); p.applyMatrix4(mesh.matrixWorld);
+                const dy = p.y - hp.y, dx = p.x - hp.x, dz = p.z - hp.z;
+                if (dy < 0 && Math.abs(dx) < 0.17 && dz > -0.15 && dz < 0.06) g2 = Math.min(g2, dy);
+                nimm();
+              }
+            }
+            if (!isFinite(g2)) g2 = H.gesaess;
+            H.sitz[art] = { g: g2, unten: saUntenBaender(pkt, g2, new Array(SA_UNTEN_N).fill(-1)) };
+            pkt.length = 0;
+          }
+          const HS = H.sitz[art];
+          for (const mesh of starr) {
+            const pos = mesh.geometry.attributes.position;
+            for (let i = 0; i < pos.count; i++) { p.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld); nimm(); }
+          }
+          sitz[art] = { gesaess: -HS.g, unten: saUntenBaender(pkt, HS.g, HS.unten.slice()) };
+        }
+        m = { gesaess: -H.gesaess, ruecken: hinten, knoechel: H.kn0, halb, stand: m.stand, gemessen: true, sitz, lagen: {} };
+      }
+      SA.stat.messungen++;
+      SA.stat.messMs = +((SA.stat.messMs || 0) + ((typeof performance !== 'undefined' ? performance.now() : 0) - tMess)).toFixed(1);
+    } catch (e) {
+      SA.fehler = SA.fehler || String(e && e.stack || e);
+    } finally {
+      mixer.stopAllAction(); mixer.uncacheRoot(inner);
+      for (const [o, pp, qq, ss] of knochen) { o.position.copy(pp); o.quaternion.copy(qq); o.scale.copy(ss); }
+      root.position.copy(merkP); root.rotation.set(0, merkR, 0);
+      root.updateMatrixWorld(true);
+    }
+  }
+  SA.mass.set(sig, m);
+  return m;
+}
+/* Wo die Huefte auf dieser Bank sitzt (r: vor der Lehnenflaeche, hoch:
+   ueber der Sitzflaeche). Der Oberschenkel faellt zum Knie hin ab - wer
+   mit kurzem Ruecken ganz hinten sitzt, hat das tiefe Stueck noch ueber
+   der Sitzflaeche: gemessen ueber alle 24 Looks bis 4,4 cm in der Kante
+   (civilian4, Bestandsbank). Erst rueckt die Figur nach vorn, hoechstens
+   12 cm und nur so weit, wie der Platz es fuer den Gehweg vor den Fuessen
+   zulaesst (rMax); reicht das nicht, hebt sich die Huefte, bis hoechstens
+   1 cm eintaucht. */
+function saSitzLage(m, bank, rMax) {
+  const key = bank + '|' + rMax;
+  if (m.lagen && m.lagen[key]) return m.lagen[key];
+  const M = SA_BANK[bank], vorn = M.vorn - M.lehne;
+  const r0 = Math.min(m.ruecken, rMax) + 0.015;
+  const S = m.sitz && m.sitz[bank];
+  let lage = { r: r0, hoch: S ? S.gesaess : m.gesaess, tief: 0, heben: 0 };
+  if (S) {
+    const rHoch = Math.min(rMax + 0.015, vorn - 0.12);
+    let best = null;
+    for (let s = 0; s <= SA_VOR_MAX + 1e-9; s += 0.01) {
+      const r = r0 + s;
+      if (s > 0 && r > rHoch) break;
+      let tief = 0;
+      for (let k = 0; k < SA_UNTEN_N; k++) {
+        const f0 = r - 0.15 + k * 0.025;
+        if (f0 + 0.025 <= 0.02 || f0 >= vorn - 0.005) continue;
+        if (S.unten[k] > tief) tief = S.unten[k];
+      }
+      if (!best || tief < best.tief - 1e-9) best = { r, tief };
+      if (tief <= SA_EINTAUCHEN) break;
+    }
+    const heben = Math.max(0, best.tief - SA_EINTAUCHEN);
+    lage = { r: best.r, hoch: S.gesaess + heben, tief: best.tief, heben };
+  }
+  if (m.lagen) m.lagen[key] = lage;
+  return lage;
+}
+
+/* ---- Zur Laufzeit ---- */
+function saSitzt(c) {
+  return !!c.saAnker && c.saArt === 'sitzen' &&
+         (c.saPhase === 'setzen' || c.saPhase === 'da' || c.saPhase === 'auf');
+}
+function saStill(c) {
+  return !!c.saAnker && (c.saPhase === 'drehen' || c.saPhase === 'setzen' || c.saPhase === 'da' ||
+                         c.saPhase === 'auf' || (c.saPhase === 'paar' && c.gehZustand === 'sozial'));
+}
+/* Wer darf jetzt einen Aufenthalt beginnen? Strassenpassanten, die gerade
+   einfach unterwegs sind - nicht auf der Flucht, nicht verletzt, nicht im
+   Gespraech, nicht beim Gaffen, nicht auf der Fahrbahn. */
+function saDarf(c) {
+  return SA.fertig && c.bahnsteig === undefined && c.ziviNr !== undefined && !c.geisel &&
+         c.state === 'walk' && !(c.eingestiegen > 0) && !c.sozialPartner && !c.saAnker &&
+         !c.gafft && (c.autoWeg || 0) <= 0 && (c.saCd || 0) <= 0 && c.pos.y > -1 &&
+         c.gehZustand !== 'queren' && c.gehZustand !== 'warten';
+}
+function saBudget(n) { return SA.aktiv + (n || 1) <= SA_ANTEIL * SA.strasse; }
+/* Frei ist ein Platz erst, wenn der letzte Nutzer wirklich gegangen ist
+   (mehr als 1 m weg) oder abgebrochen hat und nicht mehr dort steht. */
+function saPlatzFrei(A, i) {
+  const o = A.belegt[i];
+  if (!o) return true;
+  if (o.saAnker === A && o.saPlatz === i) return false;
+  const P = A.plaetze[i];
+  if (o.state === 'walk' && Math.hypot(o.pos.x - P.x, o.pos.z - P.z) < 1.0) return false;
+  A.belegt[i] = null;
+  return true;
+}
+function saAnkerFrei(A, c) {
+  if (A.sperreBis > elapsed) return false;
+  return !(c.saSperre && c.saSperre.id === A.id && c.saSperre.bis > elapsed);
+}
+/* Reihenfolge der Beschaeftigungen fuer diesen Passanten: nach dem Mix
+   seines Stadtteils gezogen, ohne Zuruecklegen, aus dem lokalen Hash. */
+function saTypReihe(c, teil, salz) {
+  const mix = SA_MIX[teil] || SA_MIX.MISCHUNG;
+  const reste = ['sitzen', 'reden', 'handy', 'warten', 'umschauen'].filter((t) => mix[t] > 0);
+  const aus = [];
+  for (let k = 0; reste.length; k++) {
+    let summe = 0;
+    for (const t of reste) summe += mix[t];
+    let u = sdHash(c.ziviNr, SA_H.ART, salz, k) * summe, wahl = reste.length - 1;
+    for (let i = 0; i < reste.length; i++) { u -= mix[reste[i]]; if (u < 0) { wahl = i; break; } }
+    aus.push(reste.splice(wahl, 1)[0]);
+  }
+  return aus;
+}
+/* Freie Plaetze fuer typ im Umkreis weite um (x, z), naechste zuerst.
+   anzahl 2: zwei freie Plaetze am selben Anker (Begleiter auf einer
+   Bank). nurKnoten: nur Plaetze mit diesem Zugangsknoten. */
+function saKandidat(c, typ, x, z, weite, anzahl, nurKnoten, rMin) {
+  let best = null;
+  const i0 = Math.floor((x - weite) / SA_ZELLE), i1 = Math.floor((x + weite) / SA_ZELLE);
+  const j0 = Math.floor((z - weite) / SA_ZELLE), j1 = Math.floor((z + weite) / SA_ZELLE);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const l = SA.raster.get(i + ',' + j);
+    if (!l) continue;
+    for (const A of l) {
+      if (A.typen.indexOf(typ) < 0 || !saAnkerFrei(A, c)) continue;
+      const frei = [];
+      for (let pi = 0; pi < A.plaetze.length; pi++) {
+        const P = A.plaetze[pi];
+        if (nurKnoten !== undefined && P.knoten !== nurKnoten) continue;
+        if (rMin !== undefined && P.rMax < rMin) continue;
+        if (saPlatzFrei(A, pi)) frei.push(pi);
+      }
+      if (frei.length < anzahl) continue;
+      const P = A.plaetze[frei[0]];
+      const d = Math.hypot(P.x - x, P.z - z);
+      if (d > weite || (best && d >= best.d)) continue;
+      best = { A, plaetze: frei.slice(0, anzahl), d };
+    }
+  }
+  return best;
+}
+/* Einen Platz belegen und den Weg dorthin anlegen. ki: wo der Passant
+   gerade ist (Knoten). Liegt der Zugang woanders, geht es ueber das
+   Gehnetz dorthin - ist kein Weg da, wird der Platz nicht erzwungen. */
+function saBelegen(c, A, i, typ, ki, dauer) {
+  const P = A.plaetze[i];
+  let route = null;
+  if (P.knoten !== ki) {
+    if (gehBudget <= 0) return false;
+    gehBudget--;
+    route = ki >= 0 ? gehRoute(ki, P.knoten) : null;
+    if (!route) { SA.stat.ohneWeg++; saSperren(A, c); return false; }
+  }
+  A.belegt[i] = c;
+  c.saAnker = A; c.saPlatz = i; c.saArt = typ;
+  c.saDauer = dauer; c.saT = 0; c.saW = 0; c.saFlucht = false;
+  c.saWeg = (P.weg || []).map(([x, z]) => ({ x, z })).concat([{ x: P.x, z: P.z }]);
+  c.saWegI = 0;
+  SA.stat.begonnen[typ] = (SA.stat.begonnen[typ] || 0) + 1;
+  if (route) {
+    c.route = route; c.routeI = 0; c.knoten = ki;
+    c.saPhase = 'route'; c.gehZustand = 'gehen';
+    let lang = 0;
+    for (let k = 1; k < route.length; k++) {
+      lang += Math.hypot(GEH.knoten[route[k]].x - GEH.knoten[route[k - 1]].x,
+                         GEH.knoten[route[k]].z - GEH.knoten[route[k - 1]].z);
+    }
+    c.saBis = elapsed + lang / 0.9 + 20;
+  } else saLos(c);
+  return true;
+}
+function saDauer(c, typ, A) {
+  const [lo, hi] = typ === 'reden' ? SA_TREFF : SA_DAUER[typ];
+  return lo + (hi - lo) * sdHash(c.ziviNr, SA_H.DAUER + 16 * SA_ARTNR[typ], A.id, c.saDurchlauf);
+}
+/* Vom Zugangsknoten die letzten Meter zum Platz. Erst genau auf den
+   Knoten (angekommen heisst bis 1,15 m daneben): nur von dort ist der
+   Weg als frei geprueft - schraeg daneben lief man an der Promenade
+   gegen die Bankkante. */
+function saLos(c) {
+  const kn = GEH.knoten[c.saAnker.plaetze[c.saPlatz].knoten];
+  if (kn && Math.hypot(kn.x - c.pos.x, kn.z - c.pos.z) > 0.3) c.saWeg.unshift({ x: kn.x, z: kn.z });
+  c.saPhase = 'hin'; c.saT = 0; c.saWegI = 0;
+  c.saHinStart = { x: c.pos.x, z: c.pos.z };
+  c.gehZustand = 'aktivitaet';
+  let lang = 0, px = c.pos.x, pz = c.pos.z;
+  for (const w of c.saWeg) { lang += Math.hypot(w.x - px, w.z - pz); px = w.x; pz = w.z; }
+  c.saHinMax = lang / 0.8 + 8;
+  if (!c.route || !c.route.length) c.route = [c.knoten >= 0 ? c.knoten : 0];
+}
+/* Wer zweimal binnen zwei Minuten nicht ankommt, sperrt den Anker fuer
+   anderthalb Minuten; der Passant selbst meidet ihn eine Minute lang. */
+function saSperren(A, c) {
+  if (c) c.saSperre = { id: A.id, bis: elapsed + 60 };
+  if (elapsed - A.fehlSeit > 120) { A.fehl = 0; A.fehlSeit = elapsed; }
+  if (++A.fehl >= 2) { A.sperreBis = elapsed + 90; SA.stat.gesperrt++; }
+}
+function saLoesen(c) {
+  c.saAnker = null; c.saPhase = null; c.saW = 0; c.saFlucht = false; c.saLage = null;
+  c.saCd = 4 + 6 * sdHash(c.ziviNr || 0, SA_H.START, c.saDurchlauf || 0, 7);
+  if (c.gehZustand === 'aktivitaet') c.gehZustand = 'gehen';
+  c.poseT = 0;
+}
+/* Abbruch (Teil 14): sofort - wer sitzt, steht vorher schnell auf. */
+function saAbbruch(c, grund, sofort) {
+  if (!c.saAnker) return;
+  if (SA.orte.length < 300) {
+    SA.orte.push({ grund, x: +c.pos.x.toFixed(2), z: +c.pos.z.toFixed(2), id: c.saAnker.id, art: c.saArt,
+                   phase: c.saPhase, t: +elapsed.toFixed(1) });
+  }
+  if (c.saPhase === 'paar') {
+    if (c.sozialPartner) sozialEnde(c, true); else saLoesen(c);
+    SA.stat.abbruch[grund] = (SA.stat.abbruch[grund] || 0) + 1;
+    if (grund === 'spieler') saPlatzMachen(c);
+    return;
+  }
+  if (!sofort && saSitzt(c)) {
+    if (c.saPhase !== 'auf' || !c.saFlucht) {
+      SA.stat.abbruch[grund] = (SA.stat.abbruch[grund] || 0) + 1;
+      c.saPhase = 'auf'; c.saT = 0; c.saW0 = c.saW; c.saAufDauer = SA_AUF_SCHNELL; c.saFlucht = true;
+      c.saPlatzWeg = grund === 'spieler';
+    }
+    return;
+  }
+  SA.stat.abbruch[grund] = (SA.stat.abbruch[grund] || 0) + 1;
+  if (grund === 'unerreichbar' || grund === 'stau') saSperren(c.saAnker, c);
+  saLoesen(c);
+  if (grund === 'spieler') saPlatzMachen(c);
+}
+/* Dem Spieler Platz machen (Kollision): ein Schritt weg vom Spieler -
+   gerade weg, wenn dort frei ist, sonst schraeg oder zur Seite, nie auf
+   ihn zu. Das vorhandene Ausweichen (ausweichT, 1,4 m/s) traegt die
+   Figur 0,84 m weit, auch wenn sie danach stehen bleibt und schaut.
+   Ohne diesen Schritt blieb eine Aufgestandene zwischen Spieler und Bank
+   stecken: das Ausweichen vor dem Spieler drueckte sie gegen die Bank,
+   0,1 bis 0,2 m neben ihm (nachgestellt). */
+function saPlatzMachen(c) {
+  let ax = c.pos.x - player.pos.x, az = c.pos.z - player.pos.z;
+  const al = Math.hypot(ax, az);
+  if (al < 0.01) { ax = Math.sin(c.facing); az = Math.cos(c.facing); } else { ax /= al; az /= al; }
+  let best = null;
+  for (let k = 0; k < 8; k++) {
+    const w = k * Math.PI / 4, cw = Math.cos(w), sw = Math.sin(w);
+    const dx = ax * cw - az * sw, dz = ax * sw + az * cw;
+    const guete = dx * ax + dz * az;           // 1: gerade weg, 0: zur Seite
+    if (guete < -0.05) continue;
+    if (!gehPlatzFrei(c.pos.x + dx * 0.45, c.pos.z + dz * 0.45, 0.35) ||
+        !gehPlatzFrei(c.pos.x + dx * 0.9, c.pos.z + dz * 0.9, 0.35)) continue;
+    if (!best || guete > best.guete) best = { dx, dz, guete };
+  }
+  if (best) { c.ausweichT = 0.6; c.ausweichX = best.dx; c.ausweichZ = best.dz; }
+}
+/* Zurueck auf den Zugangsknoten, denselben gepruefte Weg rueckwaerts -
+   gerade auf den naechsten Routenpunkt zu liefe man an einer Bank, die
+   zwischen Platz und Gehweg steht, gegen die Lehne. */
+function saZurueck(c) {
+  const P = c.saAnker.plaetze[c.saPlatz];
+  const kn = GEH.knoten[P.knoten];
+  const weg = (P.weg || []).slice().reverse().map(([x, z]) => ({ x, z }));
+  if (kn) weg.push({ x: kn.x, z: kn.z });
+  if (!weg.length) { saEnde(c); return; }
+  let lang = 0, px = c.pos.x, pz = c.pos.z;
+  for (const w of weg) { lang += Math.hypot(w.x - px, w.z - pz); px = w.x; pz = w.z; }
+  c.saWeg = weg; c.saWegI = 0; c.saPhase = 'zurueck'; c.saT = 0;
+  c.saHinMax = lang / 0.8 + 6;
+}
+/* Fertig: dem Begleiter nach, wenn er schon weitergeht, sonst ein neues
+   Ziel. */
+function saEnde(c) {
+  if (c.saArt !== 'reden') SA.stat.fertig[c.saArt] = (SA.stat.fertig[c.saArt] || 0) + 1;
+  saLoesen(c);
+  const b = c.begleiter;
+  if (b && b.state === 'walk' && !b.saAnker && b.route && b.route.length && gehBudget > 0) {
+    const s = gehNaechster(c.pos.x, c.pos.z, 30);
+    gehBudget--;
+    const w = s >= 0 ? gehRoute(s, b.route[b.route.length - 1]) : null;
+    if (w) { c.route = w; c.routeI = 0; c.knoten = s; c.gehZustand = 'gehen'; return; }
+  }
+  const r = gehNeuesZiel(c);
+  if (r !== true) { c.route = null; c.zielSuchT = 0.3; }
+}
+/* Der Begleiter geht mit: auf eine Bank mit zwei freien Plaetzen. */
+function saBegleiterFrei(c) {
+  const b = c.begleiter;
+  if (!b || !saDarf(b) || b.gehZustand === 'aktivitaet') return null;
+  return Math.hypot(b.pos.x - c.pos.x, b.pos.z - c.pos.z) < 5 ? b : null;
+}
+/* Am Routenende: einen Platz in der Naehe waehlen (Teil 3, 11). */
+function saWaehle(c, teil, ki, weite) {
+  const b = saBegleiterFrei(c);
+  if (c.begleiter && c.begleiter.state === 'walk' && !b &&
+      Math.hypot(c.begleiter.pos.x - c.pos.x, c.begleiter.pos.z - c.pos.z) < 6) return false;
+  for (const typ of saTypReihe(c, teil, c.saDurchlauf)) {
+    if (typ === 'reden') {
+      if (b) { if (saGespraechWahl(c, b, weite)) return true; continue; }
+      if (!saBudget(2)) continue;
+      const kr = saKandidat(c, 'reden', c.pos.x, c.pos.z, weite, 2);
+      if (kr && saBelegen(c, kr.A, kr.plaetze[0], 'reden', ki, saDauer(c, 'reden', kr.A))) return true;
+      continue;
+    }
+    if (typ === 'sitzen' && REGEN.staerke > 0.25) continue;
+    if (b && typ !== 'sitzen') continue;
+    let rMin;
+    if (typ === 'sitzen') {
+      rMin = saSitzMasse(c).ruecken;
+      if (b) rMin = Math.max(rMin, saSitzMasse(b).ruecken);
+    }
+    const k = saKandidat(c, typ, c.pos.x, c.pos.z, weite, b ? 2 : 1, undefined, rMin);
+    if (!k) { if (typ === 'sitzen') VALID.sitzAbgelehnt++; continue; }
+    if (b && !saBudget(2)) return false;
+    const dauer = saDauer(c, typ, k.A);
+    if (!saBelegen(c, k.A, k.plaetze[0], typ, ki, dauer)) continue;
+    if (b) {
+      b.saDurchlauf = (b.saDurchlauf || 0) + 1;
+      const bk = b.knoten !== undefined && b.knoten >= 0 ? b.knoten : gehNaechster(b.pos.x, b.pos.z, 30);
+      if (!saBelegen(b, k.A, k.plaetze[1], typ, bk, dauer)) { /* allein ist auch recht */ }
+    }
+    return true;
+  }
+  return false;
+}
+function saAmZiel(c, ki) {
+  if (!saDarf(c) || !saBudget()) return false;
+  const teil = stadtteilAn(c.pos.x, c.pos.z);
+  c.saDurchlauf = (c.saDurchlauf || 0) + 1;
+  if (sdHash(c.ziviNr, SA_H.START, c.saDurchlauf, 0) > (SA_LUST[teil] || 0.8)) return false;
+  return saWaehle(c, teil, ki, 16);
+}
+/* Unterwegs (alle 3,5 bis 5,5 s, nur an den naechsten zwei Knoten der
+   eigenen Route): ein freier Platz am Weg - kurz setzen, stehen bleiben,
+   telefonieren. Die Route endet dann dort. */
+function saUnterwegs(c, dt) {
+  if (c.saSuchT === undefined) c.saSuchT = 2 + 4 * sdHash(c.ziviNr || 0, SA_H.UNTERWEGS, 0, 0);
+  c.saSuchT -= dt;
+  if (c.saSuchT > 0) return;
+  c.saSuchN = (c.saSuchN || 0) + 1;
+  c.saSuchT = 3.5 + 2 * sdHash(c.ziviNr || 0, SA_H.UNTERWEGS, c.saSuchN, 1);
+  if (!saDarf(c) || c.gehZustand !== 'gehen' || !c.route || !saBudget()) return;
+  if (c.routeI >= c.route.length - 2) return;               // das Routenende waehlt selbst
+  const teil = stadtteilAn(c.pos.x, c.pos.z);
+  if (sdHash(c.ziviNr, SA_H.UNTERWEGS, c.saSuchN, 2) > 0.5 * (SA_LUST[teil] || 0.8)) return;
+  if (c.begleiter && c.begleiter.state === 'walk' &&
+      Math.hypot(c.begleiter.pos.x - c.pos.x, c.begleiter.pos.z - c.pos.z) < 6) return;
+  for (let k = 0; k <= 1; k++) {
+    const ki = c.route[c.routeI + k];
+    const liste = ki !== undefined ? SA.jeKnoten.get(ki) : null;
+    if (!liste) continue;
+    for (const typ of saTypReihe(c, teil, 1000 + c.saSuchN)) {
+      if (typ === 'sitzen' && REGEN.staerke > 0.25) continue;
+      if (typ === 'reden' && !saBudget(2)) continue;
+      const rMin = typ === 'sitzen' ? saSitzMasse(c).ruecken : undefined;
+      for (const [A, i] of liste) {
+        if (A.typen.indexOf(typ) < 0 || !saAnkerFrei(A, c) || !saPlatzFrei(A, i)) continue;
+        if (typ === 'reden' && !saPlatzFrei(A, 1 - i)) continue;
+        if (rMin !== undefined && A.plaetze[i].rMax < rMin) continue;
+        c.saDurchlauf = (c.saDurchlauf || 0) + 1;
+        c.route = c.route.slice(0, c.routeI + k + 1);
+        A.belegt[i] = c;
+        c.saAnker = A; c.saPlatz = i; c.saArt = typ;
+        c.saDauer = saDauer(c, typ, A); c.saT = 0; c.saW = 0; c.saFlucht = false;
+        const P = A.plaetze[i];
+        c.saWeg = (P.weg || []).map(([x, z]) => ({ x, z })).concat([{ x: P.x, z: P.z }]);
+        c.saWegI = 0; c.saPhase = 'route'; c.saBis = elapsed + 40;
+        SA.stat.begonnen[typ] = (SA.stat.begonnen[typ] || 0) + 1;
+        return;
+      }
+    }
+  }
+}
+/* Gesehen wird, was steht: Beschaeftigung je Zeitabschnitt. */
+function saPose(c) {
+  if (c.saArt === 'sitzen') return 'sitzen';
+  if (c.saArt === 'handy') return 'tippen';
+  if (c.saArt === 'reden') {
+    const ab = Math.floor(c.saT / 3.5);
+    return sdHash(c.ziviNr, SA_H.POSE, c.saDurchlauf || 0, 50 + ab) < 0.7 ? 'umschauen' : 'tippen';
+  }
+  const ab = Math.floor(c.saT / 4.5);
+  const u = sdHash(c.ziviNr, SA_H.POSE, c.saDurchlauf || 0, ab);
+  if (c.saArt === 'umschauen') return u < 0.75 ? 'umschauen' : 'idle';
+  return u < 0.6 ? 'idle' : 'umschauen';
+}
+const saGlatt = (t) => t * t * (3 - 2 * t);
+/* Ein Schritt im Aufenthalt: Richtung und Tempo wie gehSchritt. */
+function saSchritt(c, dt) {
+  const A = c.saAnker, P = A.plaetze[c.saPlatz];
+  const halt = { dirX: 0, dirZ: 0, speed: 0 };
+  if (c.saPhase === 'hin' || c.saPhase === 'zurueck') {
+    const zur = c.saPhase === 'zurueck';
+    if (!c.gafft) c.saT += dt;
+    if (c.saT > c.saHinMax) {
+      if (zur) saEnde(c); else saAbbruch(c, 'unerreichbar', true);
+      return halt;
+    }
+    const w = c.saWeg[c.saWegI];
+    const dx = w.x - c.pos.x, dz = w.z - c.pos.z, d = Math.hypot(dx, dz);
+    const letzter = c.saWegI >= c.saWeg.length - 1;
+    if (d < (letzter ? (zur ? 0.6 : 0.18) : 0.45)) {
+      if (!letzter) { c.saWegI++; return halt; }
+      if (zur) { saEnde(c); return halt; }
+      c.saPhase = 'drehen'; c.saT = 0;
+      return halt;
+    }
+    const v = Math.min(c.speed, 1.5);
+    return { dirX: dx / d, dirZ: dz / d, speed: letzter && d < 1.5 ? Math.max(0.5, v * d / 1.5) : v };
+  }
+  c.saT += dt;
+  if (c.saPhase === 'drehen') {
+    c.ruhePose = 'idle';
+    c.facing = dampAngle(c.facing, P.blick, Math.min(1, dt * 6));
+    let diff = P.blick - c.facing;
+    while (diff > Math.PI) diff -= TAU;
+    while (diff < -Math.PI) diff += TAU;
+    if (Math.abs(diff) < 0.1 || c.saT > 1.4) {
+      c.facing = P.blick;
+      c.saPhase = c.saArt === 'sitzen' ? 'setzen' : 'da'; c.saT = 0;
+      c.saStart = { x: c.pos.x, z: c.pos.z };
+      if (c.saArt === 'sitzen') { c.saMass = saSitzMasse(c); c.saLage = saSitzLage(c.saMass, A.bank, P.rMax); }
+    }
+    return halt;
+  }
+  c.facing = dampAngle(c.facing, P.blick, Math.min(1, dt * 6));
+  if (c.saPhase === 'setzen') {
+    c.ruhePose = 'sitzen';
+    c.saW = saGlatt(Math.min(1, c.saT / SA_SETZ_T));
+    if (c.saT >= SA_SETZ_T) { c.saPhase = 'da'; c.saT = 0; c.saW = 1; }
+    return halt;
+  }
+  if (c.saPhase === 'da') {
+    c.ruhePose = saPose(c);
+    if (c.saArt === 'sitzen') c.saW = 1;
+    if (c.saArt === 'reden') {
+      c.saPartnerT = (c.saPartnerT || 0) - dt;
+      if (c.saPartnerT <= 0) {
+        c.saPartnerT = 0.8;
+        if (saPartnerHolen(c)) return halt;
+      }
+    }
+    if (c.saT >= c.saDauer) {
+      if (c.saArt === 'sitzen') { c.saPhase = 'auf'; c.saT = 0; c.saW0 = 1; c.saAufDauer = SA_AUF_T; }
+      else {
+        if (c.saArt === 'reden') SA.stat.redenAllein = (SA.stat.redenAllein || 0) + 1;
+        saZurueck(c);
+      }
+    }
+    return halt;
+  }
+  if (c.saPhase === 'auf') {
+    const t = Math.min(1, c.saT / c.saAufDauer);
+    c.saW = c.saW0 * (1 - saGlatt(t));
+    c.ruhePose = c.saW > 0.25 ? 'sitzen' : 'idle';
+    if (t >= 1) {
+      c.saW = 0;
+      if (c.saFlucht) {
+        const weg = c.saPlatzWeg;
+        c.saPlatzWeg = false;
+        saLoesen(c);
+        if (weg) saPlatzMachen(c);
+      } else saZurueck(c);
+    }
+    return halt;
+  }
+  return halt;
+}
+/* Die sitzende Figur auf die Bank legen (nach play()): das Hueftgelenk
+   wandert von der Stehlage ueber dem Standpunkt (saW 0) auf die
+   Sitzflaeche (saW 1) - Gesaess auf der Oberkante, Ruecken vor der Lehne
+   (Lage aus saSitzLage); die Fuesse bleiben auf dem Boden (poseSitzen mit
+   Fussziel). */
+function saSitzPose(c) {
+  const v = c.visual, A = c.saAnker, P = A.plaetze[c.saPlatz];
+  const m = c.saMass || (c.saMass = saSitzMasse(c));
+  if (!v.root.visible || !v.hueftPos || !v.poseSitzen) return;
+  const L = c.saLage || (c.saLage = saSitzLage(m, A.bank, P.rMax));
+  const w = c.saW;
+  const r = L.r;
+  const h1x = P.lx + P.fx * r, h1z = P.lz + P.fz * r, h1y = P.y + L.hoch;
+  const st = c.saStart || P;
+  const h0x = st.x - P.fx * 0.05, h0z = st.z - P.fz * 0.05, h0y = P.boden + m.stand * 0.97;
+  v.hueftPos(_saV);
+  v.root.position.x += h0x + (h1x - h0x) * w - _saV.x;
+  v.root.position.y += h0y + (h1y - h0y) * w - _saV.y;
+  v.root.position.z += h0z + (h1z - h0z) * w - _saV.z;
+  const f1x = h1x + P.fx * SA_FUSS_VOR, f1z = h1z + P.fz * SA_FUSS_VOR;
+  _saF.set(st.x + (f1x - st.x) * w, P.boden + m.knoechel, st.z + (f1z - st.z) * w);
+  v.poseSitzen(1, undefined, false, _saF);
+}
+/* Zaehlen, wer gerade einen Aufenthalt vorhat (fuer den Anteil). */
+function saZaehlen() {
+  let n = 0, s = 0;
+  for (const c of civilians) {
+    if (!c.saAnker) continue;
+    n++;
+    if (saStill(c)) s++;
+  }
+  SA.aktiv = n; SA.still = s;
+}
+/* Zuteilung zweier Personen auf die beiden Stellen eines
+   Gespraechsplatzes: die kuerzere Summe der Wege, jeder auf gerader
+   Linie (Koerperradius frei, nur Gehweg - ueber eine Fahrbahn fuehrt
+   keine) hoechstens SA_PAAR_WEIT. */
+const SA_PAAR_WEIT = 25;
+function saPaarZuteilen(c, o, A) {
+  if (A.art !== 'paar' || !saAnkerFrei(A, c) || !saAnkerFrei(A, o)) return null;
+  if (!saPlatzFrei(A, 0) || !saPlatzFrei(A, 1)) return null;
+  const [P, Q] = A.plaetze;
+  const d1 = Math.hypot(P.x - c.pos.x, P.z - c.pos.z) + Math.hypot(Q.x - o.pos.x, Q.z - o.pos.z);
+  const d2 = Math.hypot(Q.x - c.pos.x, Q.z - c.pos.z) + Math.hypot(P.x - o.pos.x, P.z - o.pos.z);
+  for (const tausch of d2 < d1 ? [true, false] : [false, true]) {
+    const pc = tausch ? Q : P, po = tausch ? P : Q;
+    if (Math.hypot(pc.x - c.pos.x, pc.z - c.pos.z) > SA_PAAR_WEIT ||
+        Math.hypot(po.x - o.pos.x, po.z - o.pos.z) > SA_PAAR_WEIT) continue;
+    if (!saFreieStrecke(c.pos.x, c.pos.z, pc.x, pc.z, 0.35) ||
+        !saFreieStrecke(o.pos.x, o.pos.z, po.x, po.z, 0.35)) continue;
+    return { A, ic: tausch ? 1 : 0, io: tausch ? 0 : 1, d: Math.min(d1, d2) };
+  }
+  return null;
+}
+function saPaarAnker(x, z, weite) {
+  const aus = [];
+  const i0 = Math.floor((x - weite) / SA_ZELLE), i1 = Math.floor((x + weite) / SA_ZELLE);
+  const j0 = Math.floor((z - weite) / SA_ZELLE), j1 = Math.floor((z + weite) / SA_ZELLE);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const l = SA.raster.get(i + ',' + j);
+    if (!l) continue;
+    for (const A of l) {
+      if (A.art !== 'paar') continue;
+      const d = Math.hypot(A.x - x, A.z - z);
+      if (d <= weite) aus.push([d, A]);
+    }
+  }
+  return aus.sort((a, q) => a[0] - q[0]).map((e) => e[1]);
+}
+/* Zwei, die sich begegnen (sozialPartnerSuche): ein Gespraechsplatz nah
+   an beiden. */
+function saPaarSuchen(c, o) {
+  let best = null;
+  for (const A of saPaarAnker((c.pos.x + o.pos.x) / 2, (c.pos.z + o.pos.z) / 2, 12)) {
+    const k = saPaarZuteilen(c, o, A);
+    if (k && (!best || k.d < best.d)) best = k;
+  }
+  return best;
+}
+/* Wer reden will (Routenende, Mix des Stadtteils), sucht sich einen
+   Gespraechsplatz in der Naehe und jemanden, der gerade frei vorbeikommt -
+   oder seinen Begleiter. */
+function saPartner(c, A) {
+  const aus = [];
+  for (const o of civilians) {
+    if (o === c || !saDarf(o) || (o.gesellig || 0) < 0.25 || o.gehZustand === 'aktivitaet') continue;
+    const ob = o.begleiter;
+    if (ob && ob.state === 'walk' && Math.hypot(ob.pos.x - o.pos.x, ob.pos.z - o.pos.z) < 6) continue;
+    if (Math.abs(o.pos.y - c.pos.y) > 1.5) continue;
+    const d = Math.hypot(o.pos.x - A.x, o.pos.z - A.z);
+    if (d <= SA_PAAR_WEIT) aus.push([d, o]);
+  }
+  return aus.sort((a, q) => a[0] - q[0]).slice(0, 3).map((e) => e[1]);
+}
+function saGespraechWahl(c, b, weite) {
+  if (!saBudget(2)) return false;
+  SA.stat.redenVersuch = (SA.stat.redenVersuch || 0) + 1;
+  const anker = saPaarAnker(c.pos.x, c.pos.z, weite).slice(0, 4);
+  let partner = 0;
+  for (const A of anker) {
+    for (const o of (b ? [b] : saPartner(c, A))) {
+      partner++;
+      const k = saPaarZuteilen(c, o, A);
+      if (k) { saGespraechStarten(c, o, k); return true; }
+    }
+  }
+  const g = !anker.length ? 'redenOhneAnker' : !partner ? 'redenOhnePartner' : 'redenOhneLinie';
+  SA.stat[g] = (SA.stat[g] || 0) + 1;
+  return false;
+}
+/* Am Treffpunkt: wartet dort schon jemand, reden die beiden; sonst wird
+   ein freier Passant geholt, der im Umkreis von SA_TREFF_WEIT vorbeigeht
+   und auf gerader Linie zur zweiten Stelle kommt. */
+function saPartnerHolen(c) {
+  const A = c.saAnker, j = 1 - c.saPlatz, Q = A.plaetze[j];
+  const w = A.belegt[j];
+  if (w && w !== c && w.saAnker === A && w.saPlatz === j && w.saArt === 'reden' && w.saPhase === 'da' && !w.sozialPartner) {
+    saGespraechStarten(c, w, { A, ic: c.saPlatz, io: j, d: 0 });
+    return true;
+  }
+  if (!saPlatzFrei(A, j)) return false;
+  let best = null;
+  for (const o of civilians) {
+    if (o === c || !saDarf(o) || (o.gesellig || 0) < 0.25 || o.gehZustand === 'aktivitaet') continue;
+    const ob = o.begleiter;
+    if (ob && ob.state === 'walk' && Math.hypot(ob.pos.x - o.pos.x, ob.pos.z - o.pos.z) < 6) continue;
+    if (Math.abs(o.pos.y - c.pos.y) > 1.5 || !saAnkerFrei(A, o)) continue;
+    const d = Math.hypot(Q.x - o.pos.x, Q.z - o.pos.z);
+    if (d > SA_TREFF_WEIT || (best && d >= best.d)) continue;
+    if (!saFreieStrecke(o.pos.x, o.pos.z, Q.x, Q.z, 0.35)) continue;
+    best = { o, d };
+  }
+  if (!best) return false;
+  saGespraechStarten(c, best.o, { A, ic: c.saPlatz, io: j, d: best.d });
+  return true;
+}
+function saGespraechStarten(c, o, k) {
+  /* Beide merken sich einander - so kann ein Dritter keinen von beiden
+     mehr ansprechen. */
+  c.sozialPartner = o; o.sozialPartner = c;
+  c.gehZustand = 'sozialHin'; o.gehZustand = 'sozialHin';
+  c.sozialT = 0; o.sozialT = 0;
+  saGespraech(c, o, k);
+  const [lo, hi] = SA_DAUER.reden;
+  const dauer = lo + (hi - lo) * sdHash(c.ziviNr || 0, o.ziviNr || 0, k.A.id, SA_H.DAUER);
+  c.sozialDauer = dauer; o.sozialDauer = dauer;
+  /* Meist ein Gespraech, manchmal nur ein kurzer Gruss. Die Diskussion
+     ist weg: ihr Clip (streiten) laesst die Fuesse 26 cm rutschen. */
+  const art = sdHash(c.ziviNr || 0, o.ziviNr || 0, k.A.id, SA_H.GRUSS) < 0.22 ? 'kurz' : 'reden';
+  c.sozialArt = art; o.sozialArt = art;
+  GEH_STAT.gespraeche++;
+}
+function saGespraech(c, o, k) {
+  const A = k.A;
+  A.belegt[k.ic] = c; A.belegt[k.io] = o;
+  for (const [p, i] of [[c, k.ic], [o, k.io]]) {
+    if (p.saAnker !== A) {
+      SA.stat.begonnen.reden = (SA.stat.begonnen.reden || 0) + 1;
+      p.saDurchlauf = (p.saDurchlauf || 0) + 1;
+    }
+    p.saAnker = A; p.saPlatz = i; p.saPhase = 'paar'; p.saArt = 'reden'; p.saT = 0;
+  }
+  SA.stat.gespraechAnker++;
 }
 
 function nearestThreatTo(pos, maxDist) {
@@ -30757,6 +32119,7 @@ function updateCivilians(dtBild) {
   ziviRasterBauen();
   sammleQuerer();
   gehBudget = 3;
+  saZaehlen();
   if (rufMeldungCd > 0) rufMeldungCd -= dtBild;
   /* Wie viele Verletzte gerade unversorgt herumliegen – davon hängt ab,
      ob der Ruf sinkt oder sich langsam wieder erholt. */
@@ -30769,6 +32132,20 @@ function updateCivilians(dtBild) {
        Die Geisel laeuft weiter, damit sie nicht mitten in ihrer Animation
        einfriert. */
     if (MISSION_INTERIOR.active && !c.geisel) continue;
+    /* Stufe 7B: Geisel, Fahrgast, Verletzter - der Aufenthalt endet
+       sofort; wer zu lange zu seinem Platz unterwegs ist, gibt ihn auf. */
+    if (c.saAnker && (c.geisel || c.bahnsteig !== undefined || c.eingestiegen > 0 || c.state === 'hurt')) {
+      saAbbruch(c, c.state === 'hurt' ? 'verletzt' : 'mission', true);
+    } else if (c.saAnker && c.saPhase === 'route' && elapsed > c.saBis) saAbbruch(c, 'unerreichbar', true);
+    /* Stufe 7B: kommt der Spieler naeher als SPIELER_ABSTAND, endet der
+       Aufenthalt - wer sitzt, steht schnell auf, wer steht, redet oder zu
+       seinem Platz geht, geht weiter, und das Ausweichen vor dem Spieler
+       greift wieder. Vorher blieb die Figur stehen: im Aufenthalt war das
+       Ausweichen aus, und der Spieler stand 60 Bilder lang 0,3 m neben
+       ihrer Mitte (nachgestellt, auch im Kernsystem-Lauf). */
+    else if (c.saAnker && c.saPhase !== 'route' &&
+             Math.abs(c.pos.y - player.pos.y) < 1.6 &&
+             Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) < SPIELER_ABSTAND) saAbbruch(c, 'spieler');
     /* Der Zähler muss FEST an der Figur hängen. Ein mitlaufender Zähler,
        der nur bei manchen Figuren hochgezählt wird, verteilt die Bilder
        ungleich – einzelne Zivilisten kamen dann kaum noch dran und
@@ -30903,6 +32280,8 @@ function updateCivilians(dtBild) {
       /* Ein Gespraech endet sofort, wenn eine Gang auftaucht - und zwar
          fuer BEIDE, damit keiner glaubt, er wuerde noch reden. */
       if (c.sozialPartner) sozialEnde(c, true);
+      /* Stufe 7B: ebenso jeder Aufenthalt - wer sitzt, steht schnell auf. */
+      if (c.saAnker) saAbbruch(c, 'gefahr');
       /* Die Route bleibt gemerkt: nach kurzem Schreck geht es weiter.
          Nur wer auf der Fahrbahn stand, faengt danach neu an. */
       if (c.gehZustand === 'queren' || c.gehZustand === 'warten') c.gehZustand = 'gehen';
@@ -30913,7 +32292,7 @@ function updateCivilians(dtBild) {
        Passanten liefen bisher stur ueber die Strasse, auch wenn ein Wagen
        heranfuhr. Wer ein Auto in Fahrtrichtung dicht vor sich hat, springt
        quer zur Fahrbahn zur Seite - dorthin, wo der naechste Gehweg ist. */
-    if (c.state !== 'hurt' && c.pos.y < 2.5 && (c.autoWeg || 0) <= 0) {
+    if (c.state !== 'hurt' && c.pos.y < 2.5 && (c.autoWeg || 0) <= 0 && !saSitzt(c)) {
       for (const car of cars) {
         if (car.aus) continue;
         const cx = car.mesh.position.x, cz = car.mesh.position.z;
@@ -30941,6 +32320,7 @@ function updateCivilians(dtBild) {
         c.autoWeg = 1.1;
         c.autoWegX = car.axis === 'x' ? 0 : (seit >= 0 ? 1 : -1);
         c.autoWegZ = car.axis === 'x' ? (seit >= 0 ? 1 : -1) : 0;
+        if (c.saAnker) saAbbruch(c, 'auto', true);
         break;
       }
     }
@@ -30985,6 +32365,8 @@ function updateCivilians(dtBild) {
       c.sozialSuchT = rand(2, 6);
       if (!fern) sozialPartnerSuche(c);
     }
+    if (c.saCd > 0) c.saCd -= dt;
+    saUnterwegs(c, dt);
     const dHeld = Math.hypot(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
     const sichtbar = dHeld < 9 && Math.abs(player.pos.y - c.pos.y) < 6;
     /* ---- Der Held landet neben einer Gruppe ----
@@ -31007,7 +32389,7 @@ function updateCivilians(dtBild) {
     if (c.gaffEinsatzT > 0) c.gaffEinsatzT -= dt;
     const gaffEins = (c.gaffEinsatzT > 0 && c.gaffEinsatz) ? c.gaffEinsatz : null;
     if (!threat && c.state !== 'flee' && c.state !== 'hurt' && (sichtbar || gaffEins) &&
-        (c.neugier === undefined || c.neugier > 0.3)) {
+        (c.neugier === undefined || c.neugier > 0.3) && !saSitzt(c)) {
       if (c.staunT === undefined || c.staunT <= 0) {
         c.staunT = rand(1.6, 3.4) * (0.6 + (c.neugier || 0.5));
         /* Gefilmt und gerufen wird nur beim Helden. Ein Krankenwagen
@@ -31030,7 +32412,13 @@ function updateCivilians(dtBild) {
        !(c.schirm && c.schirm.visible)));
 
     let dirX = 0, dirZ = 0, speed = c.speed;
-    if (c.autoWeg > 0) {
+    if (c.saAnker && c.saPhase !== 'route' && c.saPhase !== 'paar') {
+      /* Stufe 7B: auf den letzten Metern zum Platz, dort und beim
+         Aufstehen fuehrt der Aufenthalt. Wer sitzt und in Gefahr ist,
+         steht zuerst auf (saAbbruch), dann greift die Flucht. */
+      const g = saSchritt(c, dt);
+      dirX = g.dirX; dirZ = g.dirZ; speed = g.speed;
+    } else if (c.autoWeg > 0) {
       /* Ausweichen hat Vorrang vor allem anderen - auch vor der Flucht
          vor Ganoven. Ein Auto ist schneller da. */
       dirX = c.autoWegX; dirZ = c.autoWegZ;
@@ -31140,7 +32528,8 @@ function updateCivilians(dtBild) {
        nicht mitten im Gespraech und nicht beim Warten am Ueberweg: dort
        gehoert die Haltung zum Zustand und darf nicht ausgewuerfelt
        werden. */
-    if (speed <= 0.1 && !c.sozialPartner && c.gehZustand !== 'warten') {
+    if (speed <= 0.1 && !c.sozialPartner && c.gehZustand !== 'warten' &&
+        c.gehZustand !== 'aktivitaet' && !c.saAnker) {
       c.poseT = (c.poseT || 0) - dt;
       if (c.poseT <= 0) {
         c.poseT = rand(4, 11);
@@ -31153,6 +32542,9 @@ function updateCivilians(dtBild) {
     /* Wer tippt oder telefoniert, hat das Geraet auch in der Hand. */
     if (!c.gafft && speed <= 0.1 && (c.ruhePose === 'tippen' || c.ruhePose === 'telefon'))
       c.handy.visible = !(c.schirm && c.schirm.visible);
+    /* Wer auf der Bank sitzt, haelt weder Handy noch Schirm - die Arme
+       liegen im Schoss (poseSitzen). */
+    if (saSitzt(c)) { c.handy.visible = false; if (c.schirm) c.schirm.visible = false; }
     if (c.gafft) {
       speed = 0; dirX = 0; dirZ = 0;
       const gz = c.gaffZiel || player.pos;
@@ -31176,7 +32568,8 @@ function updateCivilians(dtBild) {
        Gilt fuer jeden Zivilisten, der wirklich unterwegs ist: auf der
        Route, auf der Flucht, beim Ausweichen vor einem Auto. Wer steht,
        redet oder gafft, laeuft nirgends hin und braucht es nicht. */
-    if (speed > 1.0 && (dirX || dirZ) && !c.gafft && !c.sozialPartner) {
+    if (speed > 1.0 && (dirX || dirZ) && !c.gafft && !c.sozialPartner &&
+        !(c.saAnker && (c.saPhase === 'hin' || c.saPhase === 'zurueck'))) {
       const a2 = ausweichRichtung(c, dirX, dirZ, c.radius || 0.38, dt);
       dirX = a2.x; dirZ = a2.z;
     }
@@ -31209,6 +32602,10 @@ function updateCivilians(dtBild) {
          ueberhaupt erst erzeugt. */
       const neueStufe = st !== (c.festLetzte || 0);
       c.festLetzte = st;
+      /* Stufe 7B: wer auf den letzten Metern zu seinem Platz haengt,
+         laesst ihn - kein Erzwingen, kein Dauerversuch. */
+      if (neueStufe && st >= 2 && c.saAnker && (c.saPhase === 'hin' || c.saPhase === 'zurueck'))
+        saAbbruch(c, c.saPhase === 'hin' ? 'stau' : 'stauZurueck', true);
       if (st === 0) c.festGezaehlt = 0;
       else if (neueStufe) { GEH_STAT.festgefahren++; festMelden(c, st >= 6 ? 4 : Math.min(3, st)); }
       if (!neueStufe) {
@@ -31298,7 +32695,7 @@ function updateCivilians(dtBild) {
        untereinander gar nicht wahrgenommen haben (nur Ganoven taten das).
        Die Korrektur ist bewusst weich: ein leichtes Auseinandergehen,
        kein Wegstossen. */
-    if (!c.geisel && !(c.eingestiegen > 0)) {
+    if (!c.geisel && !(c.eingestiegen > 0) && !saStill(c)) {
       /* ---- Abstand haengt vom Gedraenge ab ----
          Fester Abstand von 85 cm ist auf freiem Gehweg richtig, in einer
          Traube blockieren sich damit aber alle gegenseitig. Ab drei
@@ -31315,9 +32712,13 @@ function updateCivilians(dtBild) {
       for (const o of ziviNachbarn(c)) {
         const ax = c.pos.x - o.pos.x, az = c.pos.z - o.pos.z;
         const ad = Math.hypot(ax, az);
-        if (ad > abstand || ad < 0.001) continue;
+        /* Stufe 7B: vor einem Sitzenden (sein Standpunkt liegt bei den
+           Fuessen) wird weiter ausgewichen - sonst streift man im
+           Vorbeigehen seine Schuhspitzen. */
+        const ab = saSitzt(o) ? SA_BEIN_ABSTAND : abstand;
+        if (ad > ab || ad < 0.001) continue;
         if (Math.abs(c.pos.y - o.pos.y) > 1.5) continue;
-        const schub = (abstand - ad) * Math.min(1, dt * 6) * 0.5;
+        const schub = (ab - ad) * Math.min(1, dt * 6) * 0.5;
         c.pos.x += (ax / ad) * schub; c.pos.z += (az / ad) * schub;
       }
       /* ---- Abstand zum Spieler ----
@@ -31415,6 +32816,7 @@ function updateCivilians(dtBild) {
     c.visual.play(zAnim,
       { phase: c.phase, speed01: clamp(speed / 5.2, 0, 1), speed,
         t: elapsed + c.phase }, dt);
+    if (saSitzt(c)) saSitzPose(c);
 
     /* Beim Filmen wird der Arm mit dem Handy zum Helden gestreckt –
        vorher hing der Arm herunter und das Handy schwebte davor. */
@@ -31558,11 +32960,13 @@ function updateCivilians(dtBild) {
       }
       geiselFesselSetzen(c);
     }
-    if (haltenImGebiet(c.pos)) c.waypoint = null;
+    /* Stufe 7B: auf den geprueften Wegen eines Aufenthalts nicht - der
+       Standpunkt vor einer Promenadenbank liegt knapp hinter der Grenze. */
+    if (!(c.saAnker && c.saPhase !== 'route' && c.saPhase !== 'paar') && haltenImGebiet(c.pos)) c.waypoint = null;
     /* Der Bodenausgleich zieht die Fuesse auf die Bodenhoehe unter der
        Figur. Bei einer SITZENDEN Figur ist das falsch - ihre Fuesse
        haengen schon richtig. */
-    if (c.visual.bodenAusgleich && !sitzt) {
+    if (c.visual.bodenAusgleich && !sitzt && !saSitzt(c)) {
       c.visual.bodenAusgleich(Math.min(1, dt * 12));
       if (c.visual.zehenAusgleich && c.state !== 'hurt')
         c.visual.zehenAusgleich(groundY(c.pos.x, c.pos.z, c.pos.y), 1);
@@ -41816,6 +43220,42 @@ if (window.__WEBHERO_TEST__ === true) {
       });
     },
     bankStellen() { return BANK_STELLEN; },
+    /* CITY V2, Stufe 7B: Aufenthaltsanker, Belegung und Zaehler - fuer
+       tools/pruef/street-life-activities.js. */
+    aufenthalt() {
+      return {
+        fertig: SA.fertig, ms: SA.ms, fehler: SA.fehler, anteil: SA_ANTEIL, strasse: SA.strasse,
+        aktiv: SA.aktiv, still: SA.still, verworfen: Object.assign({}, SA.verworfen), sdModelle: SA.sdModelle || [],
+        stat: JSON.parse(JSON.stringify(SA.stat)), mass: Object.fromEntries(SA.mass), orte: SA.orte.slice(),
+        bank: SA_BANK,
+        anker: SA.anker.map((a) => ({
+          id: a.id, art: a.art, ort: a.ort, teil: a.teil, x: a.x, z: a.z, typen: a.typen, bank: a.bank || null,
+          gesperrt: a.sperreBis > elapsed, belegt: a.belegt.map((o) => (o ? civilians.indexOf(o) : -1)),
+          plaetze: a.plaetze.map((p) => Object.assign({}, p, { weg: (p.weg || []).map((w) => w.slice()) })),
+        })),
+      };
+    },
+    setzeAufenthaltAnteil(x) { SA_ANTEIL = x; },
+    /* Nur zum Messen (street-life-activities.js, Sitzen je Look): Passant
+       ci sofort auf Platz i der Bank id setzen - Phase da, ganz gesetzt,
+       Lage wie im Spiel (saSitzMasse, saSitzLage); saSitzPose stellt ihn
+       im naechsten Bild hin. aufenthaltLoesen gibt den Platz wieder frei. */
+    aufenthaltSitzen(ci, id, i) {
+      const c = civilians[ci], A = SA.anker[id];
+      if (!c || !A || A.art !== 'bank' || !A.plaetze[i] || !saPlatzFrei(A, i)) return false;
+      if (c.saAnker) saAbbruch(c, 'messung', true);
+      const P = A.plaetze[i];
+      A.belegt[i] = c;
+      c.saAnker = A; c.saPlatz = i; c.saArt = 'sitzen'; c.saPhase = 'da';
+      c.saT = 0; c.saDauer = 1e9; c.saW = 1; c.saFlucht = false;
+      c.saMass = saSitzMasse(c); c.saLage = saSitzLage(c.saMass, A.bank, P.rMax);
+      c.pos.set(P.x, P.boden, P.z); c.vel.set(0, 0, 0); c.facing = P.blick;
+      c.saStart = { x: P.x, z: P.z }; c.gehZustand = 'aktivitaet';
+      return true;
+    },
+    aufenthaltLoesen(ci) { const c = civilians[ci]; if (c && c.saAnker) saAbbruch(c, 'messung', true); },
+    /* Nur zum Messen (Teil 11): den Mix eines Stadtteils ersetzen. */
+    setzeAufenthaltMix(teil, werte) { if (SA_MIX[teil]) Object.assign(SA_MIX[teil], werte); },
     /* CITY V2, Stufe 6A: die neuen Strassendetails, so wie sie geplant
        und gesetzt sind - fuer tools/pruef/street-details.js und
        freigang.js. kasten: sichtbarer Grundriss (beim Baum der Stamm),

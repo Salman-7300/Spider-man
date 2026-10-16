@@ -2706,6 +2706,430 @@ ist groesser als der Unterschied, und jeder Fehlschlag hat dieselbe Form.
 
 ---
 
+## 6p. Aufenthalt: Baenke, Gespraeche und sichtbare Beschaeftigung (Stufe 7B)
+
+7B aendert, WAS die Strassenpassanten ausser Gehen tun - sitzen,
+telefonieren, warten, sich umschauen, zu zweit reden - und WO: nur an
+Plaetzen, die es in der Stadt wirklich gibt und an denen niemand im Weg
+steht. Gleich bleiben die 88 Zivilisten (60 Strasse, 28 U-Bahn), ihre
+Verteilung je Stadtteil, Modelle, Looks, Materialien, Sichtfeld-Pruefung,
+Parkwege, Wegsuche, Stadt, Haeuser, Verkehr, die Stufe-6-Details,
+Missionen und Akt 1. Keine neuen Modelle, keine neuen Bewegungsdateien,
+keine neue Passanten-KI, kein neues sichtbares Ding. Pruefstand
+`tools/pruef/street-life-activities.js`, Bilder
+`tools/pruef/street-life-bilder.js` (jetzt mit Zaehlung je Zustand). Alle
+Laeufe mit Keim 4711, eingefroren im ersten Bild nach dem Laden und in
+festen Schritten gerechnet (wie 7A); die Figur steht unverwundbar auf
+einem Dach, Gangs und Vorfaelle sind aus.
+
+**Bestand e92110a (Teil 1).** Ausser Gehen gab es zweierlei. Am
+Routenende einen kurzen Halt (`gehZustand 'aktivitaet'`) mit einer
+gewuerfelten Haltung aus zwoelf (telefon, warten, umschauen, tippen,
+reden, streiten, trinken, ...) - dort, wo die Route endete, oft mitten
+auf dem Gehweg. Und Begegnungen (`sozialPartner`): zwei bleiben stehen,
+wo sie sich treffen. Gemessen ueber 240 s (neuer Pruefstand, auf
+e92110a): im Mittel 3,7 Passanten im kurzen Halt; 4 Gespraeche mit 47
+Paar-Sekunden, davon 21, in denen das Paar dem Gehweg die 1,8 m nahm,
+und 15, in denen ein Ding zwischen den beiden stand. Gesessen hat auf
+der Strasse niemand - Sitzen gab es nur fuer Fahrgaeste in Bus, Zug und
+Wagen und fuer die Geisel. Die 212 Baenke (182 aus Stufe 6A, 30 Bestand)
+standen leer.
+
+**Clips (Teil 2).** Die zwoelf Ruheclips an je einem echten Passanten
+jedes Modells angesehen (vorn, schraeg) und gemessen (Fuesse gegen die
+Wurzel an 40 Zeitpunkten, Hand am Kopf). Genommen: `sitzen` (steht still;
+dazu poseSitzen mit Fussziel), `tippen` (Handy vor dem Gesicht, Hand
+0,34 bis 0,44 m vom Kopf), `idle` und `umschauen` (Warten, Verweilen,
+Zuhoeren), `froh` (wer spricht) und `winken` (Gruss). Nicht genommen:
+`reden` (eine SITZENDE Bewegung - im Stehen schwebte die Figur),
+`streiten` (kein Streit auf offener Strasse), `warten` (die Fuesse
+wandern 0,32 bis 0,34 m um die Wurzel), `trinken` und `telefon` (38,8 s
+lang, der Arm klebt 0,31 m am Kopf; `tippen` liest sich besser).
+
+**Die Anker (Teil 4 bis 10).** Einmal beim Laden aus dem, was steht
+(`baueAufenthalt`, nach dem Strassenleben, ohne Zug aus dem Stadtstrom),
+abgelegt nach 12-m-Zellen und nach Zugangsknoten - zur Laufzeit wird nie
+die ganze Liste durchsucht.
+
+- **Bank:** jede Bank der Stufe 6A und des Bestands auf Strassenhoehe.
+  Die Sitzflaeche ist an den Dreiecken gemessen: Bankmodell Sitz 0,475 m
+  hoch, 0,43 m tief, Armlehnen innen bei +-0,655 m - und auf dem Sitz
+  liegt ein Kissen von 0,20 bis 0,60 m; nutzbar sind 0,855 m.
+  Bestandsbank 0,4675 m hoch, nutzbar 1,67 m. Platz je Sitzendem: die
+  breiteste gemessene Sitzhaltung (mit Tasche 0,62 m) plus 20 cm zum
+  Nachbarn - das Modell hat damit EINEN Platz, die Bestandsbank ZWEI.
+  Je Platz: Lehnenpunkt, Standpunkt vor der Bank (Koerperradius plus
+  1 cm vor dem Hindernis), Anlaufweg vom Zugangsknoten (gerade oder um
+  ein Bankende herum, alle 0,35 m frei), Bein- und Fussflaeche frei,
+  davor 1,8 m Gehweg.
+- **Gespraech (paar):** zwei Stellen 1,25 m auseinander, einander
+  zugewandt, nichts dazwischen - in Luecken der Moeblierungszone am
+  Gehweg, an der Promenade (Gelaenderseite, alle 22 m) und neben den
+  Parkwegen (2,35 m neben der Wegachse, also 0,75 m neben dem 3,2 m
+  breiten Weg im Rasen).
+- **Einzel:** Gehwegkante (Handy, Warten, Umschauen), Gelaender der
+  Promenade (alle 7 m), Kiosk. Am Brunnenrand der Parks (16 Stellen) lag
+  das Wegenetz um das Becken zu nah; an den sieben Uhren bestand keine
+  Stelle die Standpruefung.
+
+Jeder Standplatz muss frei sein: Boden auf Gehweghoehe, nichts auf
+Koerperhoehe (0,42 m), 0,5 m zu jedem Strassendetail, kein
+Zebrastreifen, keine Tuer und kein Tuervorfeld, kein U-Bahn-Eingang,
+3 m zu Aufzuegen und besonderen Orten, nicht unter Arkaden, 2 m zu jedem
+Ueberweg, Abstand zum Gehnetz, und von der Innenkante bleiben 1,8 m
+Gehweg frei (dieselbe Pruefung wie Stufe 6). Haltestellen mit Wegen gibt
+es im Spiel nicht; die Bushaeuschen sind Bestand und Hindernis.
+
+| | Anker | Plaetze |
+| --- | --- | --- |
+| Bank (Stufe 6A / Bestand) | 199 (171 / 28) | 220 |
+| Gespraech (Gehweg / Promenade / Park) | 227 (197 / 24 / 6) | 454 |
+| Einzel (Gehweg / Gelaender / Kiosk) | 311 (239 / 70 / 2) | 311 |
+| Summe | 737 | 985 |
+
+Plaetze je Stadtteil (Bank / Gespraech / Einzel): Zentrum 50 / 98 / 48,
+Geschaeft 18 / 52 / 30, Mischung 57 / 136 / 94, Wohnen 21 / 66 / 37, Ufer
+57 / 82 / 99, Park 17 / 20 / 3. Von 212 Baenken bekamen 199 einen Platz;
+14 verworfen wegen des Gehwegs vor den Fuessen, 8 ohne freien Anlauf.
+Der Bau dauert beim Laden 139 bis 145 ms, einmal 200 ms (drei Laeufe;
+das Strassenleben aus 7A in denselben Laeufen 106 bis 160 ms, stark
+streuend).
+
+**Ablauf (Teil 11 bis 13).** Ein Aufenthalt beginnt am Routenende (statt
+des bisherigen gewuerfelten Halts) oder unterwegs (alle 3,5 bis 5,5 s,
+nur an den naechsten zwei Knoten der eigenen Route). Gewaehlt wird nach
+dem Stadtteil (Mischung unten) unter den freien Plaetzen im Umkreis von
+16 m; der Platz wird belegt (kein Zweiter kann ihn nehmen), dann geht
+es ueber das Gehnetz zum Zugangsknoten, genau auf den Knoten, auf dem
+geprueften Weg zum Platz, dort drehen, setzen (0,9 s) oder stehen,
+bleiben, wieder aufstehen (0,9 s), denselben Weg zurueck auf den Knoten
+und weiter. Kein Teleport: die Figur geht jeden Meter. Gibt es keinen
+Weg, wird nichts erzwungen; wer zweimal binnen zwei Minuten nicht
+ankommt, sperrt den Platz anderthalb Minuten (im Lauf: nie noetig). Der
+Begleiter setzt sich mit auf eine Bank mit zwei freien Plaetzen.
+Gespraeche entstehen aus der vorhandenen Begegnung - jetzt gehen beide
+zu einem freien Gespraechsplatz in der Naehe, sonst gibt es keins; oder
+einer wartet an einem Gespraechsplatz 12 bis 24 s, ob jemand
+vorbeikommt (bis 22 m, gerade Linie ueber den Gehweg). Im Gespraech:
+Gruss (winken 1,1 bis 1,9 s), dann spricht einer (froh), der andere
+hoert zu (idle oder umschauen), die Rollen wechseln nach 2 bis 4,5 s -
+nie im Gleichtakt.
+
+Dauer (Teil 15) aus `sdHash(Passant, Art, Anker, Durchlauf)`: sitzen 18
+bis 50 s, reden 10 bis 24 s, Handy 8 bis 22 s, warten 6 bis 15 s,
+umschauen 5 bis 13 s - keine Welle, in der alle zugleich aufstehen.
+
+Vorrang (Teil 14): Flucht, Gefahr, Mission (Geisel, Fahrgast),
+Verletzung, Ausweichen vor Autos, Stau auf den letzten Metern und der
+Spieler (naeher als 0,75 m) beenden den Aufenthalt sofort; wer sitzt,
+steht in 0,35 s auf. Gemessen mit einer Gang 7 m neben der Person:
+Sitzender gibt den Platz nach 0,33 bis 0,4 s frei, flieht ab 0,03 bis
+0,1 s, bewegt sich ab 0,43 bis 0,5 s; Stehende und Redende nach 0,03
+bis 0,1 s. Niemand bleibt neben einem Gegner sitzen oder stehen (0
+Passanten-Sekunden im Aufenthalt naeher als 9 m an einem Gegner, nach
+0,5 s Reaktionszeit). Danach geht jeder wieder. Der Spieler 0,3 m neben
+einer Figur: stehend frei nach einem Bild, sitzend nach 0,37 s; dann
+tritt sie einen Schritt (0,84 m, `saPlatzMachen`) vom Spieler weg -
+gerade weg, wenn frei, sonst zur Seite, an einer Bank also an der Bank
+entlang. Vorher blieb sie im Aufenthalt stehen: das Ausweichen vor dem
+Spieler war dort zusammen mit dem Abstand zwischen Passanten
+ausgeschaltet, und der Spieler stand 60 Bilder lang 0,3 m neben ihrer
+Mitte (nachgestellt). Nur mit dem Abbruch blieb eine Aufgestandene
+zwischen Spieler und Bank stecken - das Ausweichen drueckte sie gegen die
+Bank, 0,1 bis 0,2 m neben ihm (nachgestellt); mit dem Schritt steht sie
+nach 0,8 s 0,7 m und danach 1,1 m entfernt.
+
+**Sitzen.** Gesessen wird mit dem Clip `sitzen` und poseSitzen; das
+Hueftgelenk wandert von der Stehlage auf die Sitzflaeche, die Knoechel
+stehen 0,46 m vor dem Becken auf dem Boden. Wie tief das Gesaess unter
+dem Hueftgelenk liegt und wie weit Ruecken, Rucksack oder Tasche dahinter
+reichen, wird einmal gemessen (`saSitzMasse`, jeder Punkt auf der CPU
+gehaeutet wie im Shader): Ruecken 0,08 m (civilian4 ohne Tasche) bis
+0,30 m (civilian2 mit Rucksack). Der Oberschenkel faellt zum Knie hin ab;
+wer mit kurzem Ruecken ganz hinten sitzt, hat das tiefe Stueck noch ueber
+der Sitzflaeche - gemessen ueber alle 24 Looks bis 4,4 cm in der
+Kante. Deshalb wird die Unterseite in genau der Haltung gemessen, die das
+Spiel stellt (je Bankart, deren Sitzhoehe den Kniewinkel macht; mit dem
+festen Fussziel der Messung lag das Bein anders, im Spiel tauchte der
+Oberschenkel dann bis 1,4 cm tiefer ein als berechnet), und
+`saSitzLage` rueckt die Figur bis 12 cm nach vorn (nur so weit, wie der
+Gehweg vor den Fuessen es zulaesst); reicht das nicht, hebt sich die
+Huefte, bis hoechstens 1 cm eintaucht. Die Haut ist je Modell gleich und
+wird nur einmal je Modell gerechnet, je Look nur Rucksack und Tasche
+dazu: 24 Looks kosten zusammen rund 100 ms, verteilt auf das erste
+Hinsetzen jedes Looks (vorher 125 ms).
+
+Gemessen jeder Look auf jeder Bankart mit der Platzierung des Spiels
+(48 Sitzhaltungen, je 1,5 s nach dem Hinsetzen, jeder Vertex): Gesaess
+-1,0 bis 0 cm zur Sitzflaeche, in der Sitzplatte (tiefer als 1,2 cm)
+nichts, Sohlen -0,1 bis 0 cm ueber dem Boden, Ruecken 0,7 bis 13,6 cm vor
+der Lehne, Huefte 12,5 bis 31,9 cm vor der Lehne, angehoben hoechstens
+1,1 cm; die Huellkugel der Figur bleibt mindestens 44,6 cm innerhalb. Im
+Lauf dazu jede sitzende Figur der Stadt: 38 Messungen, Gesaess -1,0 bis
+0 cm, 0 Fehler. Die Nahaufnahmen der vorn sitzenden Looks (civilian4 und
+civilian5 auf der Bestandsbank, 11 und 12 cm vorgerueckt) zeigen
+aufrechtes Sitzen auf der vorderen Haelfte.
+
+**Anteil und Mischung (Teil 11, 16).** Hoechstens ein Anteil der 60
+Strassenpassanten hat zugleich einen Aufenthalt vor (unterwegs dorthin,
+dort, beim Aufstehen). Gemessen 20, 35 und 50 Prozent, 240 s, dazu eine
+zweite Mischung M2 (Zentrum mehr Handy und Reden, Wohnen und Park mehr
+Sitzen) bei 35 Prozent. Sicht wie in 7A: im Bildkegel der zehn
+Strassenorte und ohne Haus dazwischen, Mittel je Sekunde, Summe ueber
+die Orte; telefon heisst Handyhaltung bis 32 m (so weit zeigt das Spiel
+das Handy).
+
+| | e92110a | 20 % | 35 % | 35 % M2 | 50 % |
+| --- | --- | --- | --- | --- | --- |
+| im Aufenthalt (Mittel) | - | 11,5 | 19,7 | 19,6 | 25,9 |
+| davon sitzend/stehend/redend | (kurzer Halt 3,7) | 7,4 | 12,3 | 12,1 | 16,5 |
+| Sitzplaetze belegt, Mittel / max | 0 | 3,7 / 8 | 5,2 / 8 | 5,6 / 8 | 7,6 / 12 |
+| Gespraeche in 240 s | 4 | 3 | 8 | 7 | 9 |
+| gehend (Mittel) | 41,2 | 34,1 | 28,6 | 27,8 | 23,2 |
+| sichtbar bis 50 m: gehend | 5,40 | 6,03 | 4,41 | 4,45 | 4,08 |
+| sichtbar bis 50 m: sitzend | 0 | 0,46 | 0,90 | 0,70 | 0,92 |
+| sichtbar bis 50 m: redend | 0 | 0,13 | 0,37 | 0,05 | 0,16 |
+| sichtbar bis 50 m: Telefon / wartend | 0,02 / 0,62 | 0,03 / 0,54 | 0,05 / 0,95 | 0,14 / 0,82 | 0,21 / 0,53 |
+| sichtbar bis 50 m: gesamt | 6,03 | 7,19 | 6,67 | 6,17 | 5,92 |
+| sichtbar bis 100 m: gesamt | 11,70 | 12,61 | 12,03 | 12,11 | 11,65 |
+
+Gewaehlt: **35 Prozent, Mischung M1**. Damit stehen an den zehn Orten bis
+50 m im Mittel 2,27 Personen, die nicht gehen (vorher 0,64), und es
+bleiben 4,41 Gehende im Bild. 50 Prozent bringt keine weitere sichtbare
+Beschaeftigung (1,82), nimmt aber noch einmal ein Fuenftel der Gehenden
+von der Strasse; 20 Prozent halbiert die Beschaeftigung. M2 zeigt weniger
+Gespraeche, wo man hinsieht (0,05 statt 0,37). Die Kandidatenbilder (22
+je Kandidat nach 120 s Vorlauf, Vergleichsblaetter vorher/20/35/50)
+zeigen dasselbe in klein - 0 bis 5 Sichtbare je Bild, nicht gehend bis
+100 m: vorher 0, 20 % 5, 35 % 6, 50 % 6; eine Momentaufnahme haengt aber
+am Zufall des Augenblicks (vorher kommen 16 der 29 Sichtbaren aus den
+vier Parkansichten; gemittelt ist der Park in beiden Staenden gleich,
+2,94 und 2,99 bis 100 m).
+
+Mischung M1 (Anteil je Beschaeftigung; Lust: wie gern man ueberhaupt
+stehen bleibt):
+
+| Stadtteil | sitzen | reden | Handy | warten | umschauen | Lust |
+| --- | --- | --- | --- | --- | --- | --- |
+| Zentrum | 0,20 | 0,30 | 0,25 | 0,20 | 0,05 | 0,9 |
+| Geschaeft | 0,20 | 0,25 | 0,30 | 0,20 | 0,05 | 0,9 |
+| Mischung | 0,30 | 0,20 | 0,20 | 0,15 | 0,15 | 0,8 |
+| Wohnen | 0,40 | 0,10 | 0,20 | 0,15 | 0,15 | 0,6 |
+| Ufer | 0,35 | 0,20 | 0,10 | 0,05 | 0,30 | 1,0 |
+| Park | 0,50 | 0,15 | 0,10 | 0 | 0,25 | 1,2 |
+
+Im Lauf (Mittel je Sekunde; Personen im Stadtteil vorher / 7B, dann in
+7B sitzend, stehend mit Handy/warten/umschauen, im Gespraech oder am
+Treffpunkt, auf dem Weg zum Platz; kurzer Halt vorher / 7B):
+
+| Stadtteil | Personen | sitzend | stehend | Gespraech | zum Platz | kurzer Halt |
+| --- | --- | --- | --- | --- | --- | --- |
+| Zentrum | 18,90 / 18,68 | 1,65 | 0,94 | 0,97 | 2,19 | 0,97 / 0,21 |
+| Geschaeft | 7,45 / 7,87 | 0,44 | 0,76 | 0,27 | 0,80 | 0,62 / 0,10 |
+| Mischung | 15,90 / 16,43 | 1,22 | 1,43 | 0,38 | 1,74 | 0,85 / 0,13 |
+| Wohnen | 4,94 / 3,69 | 0,29 | 0,31 | 0,09 | 0,33 | 0,31 / 0,03 |
+| Ufer | 9,68 / 9,23 | 0,88 | 0,85 | 0,47 | 1,88 | 0,64 / 0,04 |
+| Park | 2,90 / 4,10 | 0,82 | 0,18 | 0,31 | 0,48 | 0,27 / 0,04 |
+
+In 240 s begonnen: 37 Mal sitzen, 44 Handy, 34 reden, 31 umschauen,
+18 warten; 8 Gespraeche zu zweit (122 Paar-Sekunden, Abstand 1,04 bis
+1,48 m); 73 Mal am Routenende nur kurz umgeschaut (1 bis 2,5 s) - kein
+Platz in der Naehe frei, der Anteil voll oder keine Lust. Belegt waren
+im Mittel 5,2 der 220 Sitzplaetze, hoechstens 8.
+
+**Im Weg? (Teil 17, 21, 22).** Jeder der 737 Plaetze ist im Pruefstand
+noch einmal nachgeprueft - mit allen Hindernissen, auch denen der spaeter
+geladenen Moebelmodelle: Standpunkt, Tuer, Abstand zum Gehnetz (0,75 m),
+1,8 m Gehweg daneben, Anlaufweg, bei Gespraechsplaetzen Abstand,
+Blickrichtung und nichts dazwischen - 0 Fehler. Im Lauf: niemand in
+einem Ding oder Haus, niemand abseits seines Anlaufwegs, niemand durch
+die Beinflaeche eines Sitzenden (Gehende halten 1,15 m vom Standpunkt
+eines Sitzenden statt 0,85 m), keine Doppelbelegung; Gespraeche 0 Mal zu
+nah, zu weit, abgewandt, im Hindernis, getrennt oder auf dem Gehweg
+(vorher 21 und 15 Sekunden). Keine Stau-Traube, keine Traube aus drei
+Aufenthalten, groesste Traube 3 (vorher 3); ohne Weg 0, gesperrt 0,
+unerreichbar 0, Stau auf den letzten Metern 0. Laengster ungewollter
+Stillstand 3 s (vorher 2 s); gezaehlt nur die Sekunden, in denen jemand
+steht und gerade nichts Gewolltes tut - die erste Fassung zaehlte die
+Sitzzeit davor mit (41 s Bank, dann 1 s bis zum Losgehen: "43 s"). Die
+Geisel einer Mission (stGeisel setzt den naechsten Passanten dorthin)
+gilt als gewollt: 71 Passanten-Sekunden, vorher 70. Kreuzung 86/-148:
+ein Aufenthalt von mehr als 10 s in 8 m Umkreis, ungewollt 0 s.
+
+`street-life.js` (7A) auf 7B: harte Geometriefehler 0; Fahrbahn ohne
+Ueberweg gehend 86 (vorher 87), abseits Netz > 3 s 88 (83 - die Plaetze
+liegen bewusst neben dem Netz), enge Stelle blockiert 3 (5). Park: im
+Busch 27 Personen-Sekunden (vorher 38), auf Pflanzscheibe 0 (1), Rasen
+innen 123 (30) - das sind die Gespraechsplaetze neben den Parkwegen, die
+bewusst 0,75 m neben dem Weg im Rasen liegen; im Park sind im Mittel 4,1
+statt 2,9 Personen.
+
+**Pruefstand (Teil 18 bis 20).** `street-life-activities.js` misst Anker,
+Lauf, Sicht je Zustand, Sitzgeometrie (jede Sitzende und jeder Look auf
+jeder Bankart, jeder Vertex), Huellkugel (stehende Haltungen: 8 Figuren,
+mindestens 35,7 cm innen; sitzend siehe oben), Gefahr und Spieler.
+Endstand: harte Fehler 0. Auf e92110a laeuft er ohne Anker-, Sitz- und
+Gefahrteil; dort sind die zwei Gespraechsfehler (21 und 15 Sekunden) die
+einzigen harten Fehler.
+
+**Sicht je Ort** (Mittel je Sekunde, vorher / 7B):
+
+| Ort | bis 50 m gesamt | bis 50 m nicht gehend | bis 100 m gesamt |
+| --- | --- | --- | --- |
+| 01 Zentrum | 1,16 / 1,06 | 0,05 / 0,39 | 2,27 / 2,37 |
+| 02 Geschaeft | 0 / 0 | 0 / 0 | 0,65 / 0,96 |
+| 03 Mischung | 0,55 / 0,17 | 0,02 / 0,01 | 1,07 / 0,53 |
+| 04 Wohnen | 0,17 / 0,24 | 0 / 0 | 0,71 / 0,67 |
+| 05 Parkrand | 0,95 / 0,75 | 0,10 / 0,36 | 1,54 / 0,90 |
+| 06 Park innen | 1,87 / 2,16 | 0,28 / 0,69 | 2,94 / 2,99 |
+| 07 Ufer | 0,92 / 1,77 | 0,09 / 0,73 | 1,40 / 2,33 |
+| 08 Boulevard | 0,05 / 0,28 | 0 / 0,09 | 0,27 / 0,59 |
+| 09 Local Street | 0 / 0,01 | 0 / 0 | 0 / 0,11 |
+| 10 Avenue | 0,36 / 0,23 | 0,10 / 0 | 0,85 / 0,58 |
+| Summe | 6,03 / 6,67 | 0,64 / 2,27 | 11,70 / 12,03 |
+
+Bis 50 m je Zustand (Summe): gehend 5,40 -> 4,41, sitzend 0 -> 0,90,
+redend 0 -> 0,37, Telefon 0,02 -> 0,05, wartend 0,62 -> 0,95.
+
+**Leistung (Teil 27 bis 29).** Endstand, auf der ruhigen Maschine
+nacheinander gemessen. `stadt-leistung.js`, 300 Aufnahmen, drei Laeufe
+und e92110a im selben Durchgang: GESAMT-Median 794, Luftbild 859,5,
+Strasse 753,5, Dach 768, hoechstens 2597 Aufrufe - zwei Laeufe Aufruf
+fuer Aufruf und Dreieck fuer Dreieck wie e92110a, der erste nach dem
+Neustart der Maschine 0,5 bis 1 Aufruf darunter (7B fuegt nichts
+Sichtbares hinzu). CPU der Passanten (kosten2, 600 Schritte am
+Zentrum-Ort mit und ohne Passanten, drei Laeufe je Stand im Wechsel):
+2,8 / 2,9 / 2,9 ms je Schritt gegen 3,1 / 3,1 / 3,4 ms auf e92110a -
+nicht hoeher (wer sitzt oder steht, braucht kein Ausweichen und keine
+Schrittplanung). Wegsuchen 20 statt 9 in 600 Schritten (die Wege zum
+Platz), zusammen 0,9 bis 1,4 ms statt 2,4 bis 5 ms (kurze Wege).
+Spielnah an den zehn Orten kosten die Passanten im Median 29,5 statt 27,5
+Aufrufe: je gezeichnete Figur gleich viele Teile (Zentrum 5,6 und 5,5),
+aber am Zentrum-Ort stehen 13 statt 11 im Bildkegel, weil Sitzende und
+Stehende laenger im Bild bleiben; 216.000 statt 219.000 Dreiecke.
+Ladezeit bis spielbereit 34,5 und 34,0 s gegen 36,2 und 31,8 s (die
+Streuung ist groesser als der Ankerbau); Ankerbau beim Laden 139, 145
+und 200 ms (im 200-ms-Lauf brauchte auch das Strassenleben aus 7A 160
+statt 106 bis 136 ms). Zur Laufzeit gibt es keine Suche ueber alle
+Anker: Kandidaten kommen aus der 12-m-Zelle oder vom Knoten der eigenen
+Route; je Bild wird nur die Liste der Passanten gezaehlt (88).
+
+**Bilder und Video (Teil 30, 31).** `street-life-bilder.js` nach 120 s
+Vorlauf, e92110a und 7B nebeneinander: 22 Vergleichsblaetter VORHER |
+NACHHER (die zehn Orte, dazu die vier Spielkamera-Ansichten aus 7A zu
+drei Zeitpunkten); die Bilder des Endstands sind bytegleich mit denen der
+Kandidatenwahl (35 Prozent, M1). Je Bild zaehlt das Werkzeug, wer
+wirklich zu sehen ist und was er tut: in den 22 Bildern bis 25 m vorher
+3 Personen, in 7B 5 (eine sitzt, eine hat das Handy, eine wartet); bis
+50 m 17 gegen 8, bis 100 m 29 gegen 15 - vorher alle gehend, in 7B 6 von
+15 nicht. Eine Momentaufnahme haengt am Zufall des Augenblicks (vorher
+kommen 16 der 29 aus den vier Parkansichten); verglichen wird das Mittel
+ueber 240 s (Tabellen oben). Nahaufnahmen (scratchpad/nah.js, im Lauf
+gesucht, Kamera 3 bis 8,5 m auf Augenhoehe mit freier Sicht): Bank des
+Bankmodells mit einer Person, Bestandsbank im Park, Bank im Wohngebiet,
+Gespraech am Gehweg, Handy am Gehweg, Park (Treffpunkt neben dem
+Parkweg), Ufer (Promenade), Zentrum (Bank am Gehweg). Zwei auf einer Bank
+kam in keiner Suche vor (im Mittel sind 5 der 220 Plaetze belegt); dafuer
+ein gekennzeichnet GESTELLTES Bild mit dem Pruefaufruf aufenthaltSitzen:
+zwei Passanten auf den zwei Plaetzen einer Bestandsbank, Plaetze
+0,835 m auseinander, die Huellen 7,7 cm voneinander. Video (normale
+Spielkamera, Gehen mit Alt+W, Gangs und Vorfaelle aus, 15 Bilder je
+Sekunde in Echtzeit) in zwei Fassungen. Feste Wege wie in 7A (Zentrum
+Boulevard z=25, Geschaeft Avenue z=175, Wohnen Strasse z=125, Park zum
+Brunnen, Uferpromenade; 2:14 min): im 30-m-Umkreis meist 0 bis 1
+Person, einen Aufenthalt sieht man nur in der Geschaeftsstrasse (warten)
+und am Ufer (Handy) - so duenn sind 60 Passanten auf dieser Stadt. An
+der belebtesten Stelle vorbei (2:14 min): je Stadtteil nach dem Vorlauf
+die Stelle mit den meisten Leuten im Aufenthalt (gibt es keine, wird in
+5-s-Schritten bis 60 s weitergerechnet - Wohnen 20 s, Park 5 s), der Weg
+ueber das Gehnetz ohne Ueberweg von 25 bis 40 m davor bis 25 bis 40 m
+dahinter (im Park ueber den Ringstreifen im Rasen, den auch die Passanten
+gehen). Dort zeigt jeder Abschnitt, was die Mittelwerte sagen: meist eine
+Person im Aufenthalt in 30 m - im Zentrum, in der Geschaeftsstrasse und
+im Wohngebiet je eine Sitzende auf der Bank (im Wohngebiet danach eine,
+die sich umschaut), im Park ein Treffpunkt neben dem Parkweg und eine
+Sitzende, am Ufer eine Sitzende auf der Promenadenbank, die aufsteht,
+waehrend der Held vorbeigeht, und auf ihrem Anlaufweg zum Gehnetz
+zurueckgeht.
+
+**Regression (Keim 4711, Endstand):** `node --test` 170/170;
+street-details harte Fehler 0 (2103 Dinge, 1309 Hindernisse, Ausgabe
+zeilengleich mit 7A); freigang alle Flaechen frei, zeilengleich mit 7A bis
+auf die Bauzeit und den Spielzaehler "auf Fahrbahn" (2 statt 5 - er
+zaehlt, wer gerade regulaer quert); Stadtraster unveraendert; Parkautos
+gleich; Bevoelkerung 88 (60 Strasse, 28 U-Bahn), Heimat, Modelle und
+Kleidung wie e92110a, 28 verschiedene Looks; Culling aktiv (Huellkugel:
+stehende Haltungen 8 von 8 gemessen, mindestens 35,7 cm innen, sitzend
+44,6 cm). Kernsysteme Story 8/8 (8 gestartet, 8 sauber beendet),
+Seitenfehler 0, Boss-Lebenszyklus ok, npc- und enemyStaticPenetration 0,
+Stadtmoebel 19 Felder, 2884 Stueck. Naht 221/221/221, Aussenecke 150/150,
+MO1 0/0/0, Kletterstetigkeit (Foreign 0), Top-out 13/13 und 8/8 mit
+postTopOutUnexpectedDisplacement 0,000, Brutal-Halle gehen und rennen
+30/30 mit invisibleCollision 0, Neon-Pflichtbahnen 27 mit
+Brust/Becken/Knie/Schnitt 0 - alle zeilengleich mit 7A. Innenklettern
+0/0/0/0.
+
+Fingerabdruck der Weltgenerierung (`szene.js`): Haeuser, Lots, POIs,
+Parkautos, Wagen, Gegner und Strassendetails gleich; im ersten Bild nach
+dem Laden auch Szenenobjekte, Meshes und Materialien (18000 / 7902 /
+2306). Der Passanten-Eintrag des Werkzeugs haengt an der Reihenfolge der
+Kinder im Figurenbaum und wechselt schon zwischen zwei Laeufen desselben
+Stands (e92110a 4c26fc39 und de9e7428); ohne Reihenfolge, ueber alle
+Meshes (Name, sichtbar, Farbe, Material) sind 7B und e92110a gleich
+(d5817994). Spaeter haengen die Zahlen an den Handys und Schirmen, die
+das Spiel beim ersten Gebrauch anlegt - nach der Echtzeitphase beide
+Staende 20159 Objekte.
+
+Drei Befunde, alle nachgestellt und auf e92110a ebenso vorhanden:
+
+- Innenklettern, Kontrolle aussen: im Regressionslauf 14 von 92
+  angeklebt (e92110a 89). Der Held ist dort ab Raum 4 TOT (hp 0,
+  "downed"): der Pruefstand laesst die Echtzeit bis zum Einfrieren laufen,
+  setzt keine Unverwundbarkeit und schaltet keine Weltereignisse ab; in
+  den 1527 s Testzeit starten 14 bis 16 Ueberfaelle und Gangs, deren
+  Gegner neben den Testhaeusern stehen. Ob sie ihn erwischen, haengt am
+  Zufall der Echtzeitphase - schon ein Zusatz, der erst nach dem Test
+  laeuft, macht aus 14 wieder 89. Deterministisch nachgestellt
+  (eingefroren im ersten Bild, dann n s gerechnet): ohne Vorlauf 7B 89/92
+  (zweimal) und e92110a 89/92; mit 3 s Vorlauf 7B 20/92 und e92110a
+  20/92, beide Male der Held tot; mit 6, 10 und 15 s 7B 89/92. Die vier
+  Innenwerte sind in allen Laeufen 0.
+- Kernsysteme, playerNpcOverlap: im Endstand 12 Bilder in 5 von 10
+  Laeufen, e92110a 0 in 7 Laeufen. Jedes Mal derselbe fliehende Passant
+  (vorher im Aufenthalt, jetzt wieder gehend), der bei t = 61,25 s in
+  0,18 s durch den stehenden Helden rennt. Nachgestellt auf freier
+  Flaeche (Gegner 4 m hinter dem Passanten, Held 2,5 m davor): auf 7B und
+  e92110a identisch kleinster Abstand 0,054 m, 11 Bilder unter 0,45 m -
+  die Fluchtsteuerung weicht dem Spieler nicht aus, und der Abstandsschub
+  haelt Rennende nicht auf. 7B aendert nur, wer beim Auftauchen der Gang
+  wo steht. Nicht in 7B repariert (Fluchtsteuerung ist Bestand).
+- npc-wege: 7B A 1, B 2, C 0, D 86, E 83 (7A: A 1, B 0, D 85, E 78). Die
+  B-Faelle sind Passanten, die 93 bis 107 s vor Gangs fliehen und dabei
+  unter die Bodenflaeche geraten (einer am anderen Ufer). e92110a heute im
+  selben Ablauf: A 0, B 1, D 84, E 84. Mit eingefrorenem Start beide
+  Staende gleich: A 3, B 1, C 0, D 89, E 79 und 78.
+
+Mit Gangs im 7A-Pruefstand (`street-life.js gegner=120`) zaehlte 7B bei
+Keim 4711 44 Fahrbahn-Episoden ohne Ueberweg statt 30 (ohne Gangs 42
+statt 57). Weitere Keime, beide Staende: 11 23 gegen 26, 12 29 gegen 39,
+13 30 gegen 46 - in Summe ueber vier Keime 126 gegen 141 mit Gangs und
+286 gegen 367 insgesamt; kein Nachteil durch 7B.
+
+**Grenzen.** Belegt sind im Mittel 5 von 220 Sitzplaetzen - 60
+Strassenpassanten auf einer Stadt dieser Groesse; die meisten Baenke im
+Bild bleiben leer, und zwei Fremde auf einer Bank kommen kaum vor (nur
+die Bestandsbank hat zwei Plaetze). Das Handy zeigt das Spiel wie bisher
+nur bis 32 m um den Helden. Das Bankmodell hat wegen des Kissens nur
+einen Platz. Bei Regen (Staerke ueber 0,25) setzt sich niemand. Die
+Momentaufnahmen an den zehn Orten streuen stark; verglichen wird das
+Mittel ueber 240 s. Nicht 7B: der weisse Promenadenbelag in einem Teil
+der Bilder, das Bushaeuschen, an dem die Figur im 7A-Video haengen
+blieb, fliehende Passanten, die dem Spieler nicht ausweichen, und der
+Innenklettern-Pruefstand, der den Helden ungeschuetzt unter die Gangs
+der Weltereignisse stellt (siehe Regression).
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,
