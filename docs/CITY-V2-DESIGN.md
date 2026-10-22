@@ -3017,19 +3017,23 @@ Route; je Bild wird nur die Liste der Passanten gezaehlt (88).
 **Bilder und Video (Teil 30, 31).** `street-life-bilder.js` nach 120 s
 Vorlauf, e92110a und 7B nebeneinander: 22 Vergleichsblaetter VORHER |
 NACHHER (die zehn Orte, dazu die vier Spielkamera-Ansichten aus 7A zu
-drei Zeitpunkten); die Bilder des Endstands sind bytegleich mit denen der
+drei Zeitpunkten); die Bilder des Endstands sind bis auf einzelne
+Bildpunkte des Renderers (PSNR 80 bis 105 dB) gleich denen der
 Kandidatenwahl (35 Prozent, M1). Je Bild zaehlt das Werkzeug, wer
-wirklich zu sehen ist und was er tut: in den 22 Bildern bis 25 m vorher
-3 Personen, in 7B 5 (eine sitzt, eine hat das Handy, einer steht); bis
-50 m 17 gegen 8, bis 100 m 29 gegen 15 - vorher alle gehend, in 7B 6 von
-15 nicht, davon 5 im Aufenthalt. Der Stehende am Ufer-Ort (4,4 m vor der
-Kamera, die Arme hoch) ist ein Gehender, der gafft: das Werkzeug stellt
-den unsichtbaren Helden fuer jede Aufnahme an die Kamera, und wer naeher
-als 9 m ist, bleibt stehen und jubelt ihm zu - Bestand seit 7A,
-nachgestellt (Bild bytegleich, Passant ohne Aufenthalt, gafft und
-jubelt); das Werkzeug zaehlt ihn als "wartend". Eine Momentaufnahme
-haengt am Zufall des Augenblicks (vorher kommen 16 der 29 aus den vier
-Parkansichten); verglichen wird das Mittel ueber 240 s (Tabellen oben). Nahaufnahmen (scratchpad/nah.js, im Lauf
+wirklich zu sehen ist und was er tut; wer dem Helden zuschaut, zaehlt
+seit der Abnahme getrennt als "gafft" - das Werkzeug stellt den
+unsichtbaren Helden fuer jede Aufnahme an die Kamera, und wer naeher als
+9 m ist, bleibt stehen und jubelt ihm zu (Bestand seit 7A, kein
+Aufenthalt). In den 22 Bildern bis 25 m vorher 3 Personen, in 7B 5
+(eine sitzt, eine hat das Handy, einer gafft); bis 50 m 17 gegen 8, bis
+100 m 29 gegen 15 - vorher alle gehend, in 7B 6 von 15 nicht gehend: 4
+im Aufenthalt (Bank, Gespraechsplatz, Warten, Handyplatz - das Handy
+zeigt das Spiel erst unter 32 m), 1 kurzer Halt am Routenende mit Handy,
+1 Gaffer (am Ufer-Ort, 4,4 m vor der Kamera, die Arme hoch; nachgestellt:
+Passant ohne Aufenthalt, gafft und jubelt). Eine Momentaufnahme haengt am
+Zufall des Augenblicks (vorher kommen 16 der 29 aus den vier
+Parkansichten); verglichen wird das Mittel ueber 240 s (Tabellen oben).
+Nahaufnahmen (scratchpad/nah.js, im Lauf
 gesucht, Kamera 3 bis 8,5 m auf Augenhoehe mit freier Sicht): Bank des
 Bankmodells mit einer Person, Bestandsbank im Park, Bank im Wohngebiet,
 Gespraech am Gehweg, Handy am Gehweg, Park (Treffpunkt neben dem
@@ -3039,12 +3043,15 @@ ein gekennzeichnet GESTELLTES Bild mit dem Pruefaufruf aufenthaltSitzen:
 zwei Passanten auf den zwei Plaetzen einer Bestandsbank, Plaetze
 0,835 m auseinander, die Huellen 7,7 cm voneinander. Video (normale
 Spielkamera, Gehen mit Alt+W, Gangs und Vorfaelle aus, 15 Bilder je
-Sekunde in Echtzeit) in zwei Fassungen. Feste Wege wie in 7A (Zentrum
-Boulevard z=25, Geschaeft Avenue z=175, Wohnen Strasse z=125, Park zum
-Brunnen, Uferpromenade; 2:14 min): im 30-m-Umkreis meist 0 bis 1
+Sekunde in Echtzeit) in zwei Fassungen, jede mit Titeltafel und
+Kennzeile in jedem Bild. Fassung A - unveraenderte Rundwege, die festen
+Wege wie in 7A (Zentrum Boulevard z=25, Geschaeft Avenue z=175, Wohnen
+Strasse z=125, Park zum Brunnen, Uferpromenade; 2:18 min): im
+30-m-Umkreis meist 0 bis 1
 Person, einen Aufenthalt sieht man nur in der Geschaeftsstrasse (warten)
-und am Ufer (Handy) - so duenn sind 60 Passanten auf dieser Stadt. An
-der belebtesten Stelle vorbei (2:14 min): je Stadtteil nach dem Vorlauf
+und am Ufer (Handy) - so duenn sind 60 Passanten auf dieser Stadt.
+Fassung B - gezielt ausgewaehlte belebte Stellen, also NICHT
+repraesentativ (2:18 min): je Stadtteil nach dem Vorlauf
 die Stelle mit den meisten Leuten im Aufenthalt (gibt es keine, wird in
 5-s-Schritten bis 60 s weitergerechnet - Wohnen 20 s, Park 5 s), der Weg
 ueber das Gehnetz ohne Ueberweg von 25 bis 40 m davor bis 25 bis 40 m
@@ -3055,7 +3062,9 @@ im Wohngebiet je eine Sitzende auf der Bank (im Wohngebiet danach eine,
 die sich umschaut), im Park ein Treffpunkt neben dem Parkweg und eine
 Sitzende, am Ufer eine Sitzende auf der Promenadenbank, die aufsteht,
 waehrend der Held vorbeigeht, und auf ihrem Anlaufweg zum Gehnetz
-zurueckgeht.
+zurueckgeht. Abnahmemedien (beide Videofassungen, Vergleichsblaetter,
+Nahaufnahmen, Plan und Ergebnis des Ueberlappungsvergleichs) liegen in
+`docs/abnahme-7b/`.
 
 **Regression (Keim 4711, Endstand):** `node --test` 170/170;
 street-details harte Fehler 0 (2103 Dinge, 1309 Hindernisse, Ausgabe
@@ -3098,16 +3107,54 @@ Drei Befunde, alle nachgestellt und auf e92110a ebenso vorhanden:
   (eingefroren im ersten Bild, dann n s gerechnet): ohne Vorlauf 7B 89/92
   (zweimal) und e92110a 89/92; mit 3 s Vorlauf 7B 20/92 und e92110a
   20/92, beide Male der Held tot; mit 6, 10 und 15 s 7B 89/92. Die vier
-  Innenwerte sind in allen Laeufen 0.
+  Innenwerte sind in allen Laeufen 0. Abnahme: der Pruefstand ist jetzt
+  isoliert (Standard: eingefroren nach dem Laden, Weltereignisse, Gegner
+  und Wagen in jedem Schritt aus, je Fall ein lebender Held am festen
+  Start, nicht unverwundbar) und meldet Tod, Treffer, verfehlten oder
+  ungueltigen Start als UNGUELTIGEN Fall - weder Kletterfehler noch
+  bestanden (Exit 2); `welt` ist der Integrationslauf mit aktiven
+  Weltereignissen und Gefahren, ohne Isolierung. Isoliert: 7B zweimal
+  und e92110a zeilengleich - innen 108 gueltig, 0/0/0/0, aussen 89 von
+  92 angeklebt, 0 ungueltig; ebenso nach 3 s freiem Vorlauf. Eingebauter
+  Tod beim Start und im Lauf: beide als ungueltig gemeldet, die uebrigen
+  Faelle starten wieder lebend. welt: 7B ohne Stoerung (bestanden),
+  e92110a zwei Treffer durch eine Gang (UNGUELTIG).
 - Kernsysteme, playerNpcOverlap: im Endstand 12 Bilder in 5 von 10
   Laeufen, e92110a 0 in 7 Laeufen. Jedes Mal derselbe fliehende Passant
   (vorher im Aufenthalt, jetzt wieder gehend), der bei t = 61,25 s in
-  0,18 s durch den stehenden Helden rennt. Nachgestellt auf freier
-  Flaeche (Gegner 4 m hinter dem Passanten, Held 2,5 m davor): auf 7B und
-  e92110a identisch kleinster Abstand 0,054 m, 11 Bilder unter 0,45 m -
-  die Fluchtsteuerung weicht dem Spieler nicht aus, und der Abstandsschub
-  haelt Rennende nicht auf. 7B aendert nur, wer beim Auftauchen der Gang
-  wo steht. Nicht in 7B repariert (Fluchtsteuerung ist Bestand).
+  0,18 s durch den stehenden Helden rennt.
+  (A) Der Mechanismus ist alt: nachgestellt auf freier Flaeche (Gegner
+  4 m hinter dem Passanten, Held 2,5 m davor) auf 7B und e92110a
+  identisch kleinster Abstand 0,054 m, 11 Bilder unter 0,45 m - die
+  Fluchtsteuerung weicht dem Spieler nicht aus, und der Abstandsschub
+  haelt Rennende nicht auf.
+  (B) Ob 7B die Haeufigkeit im Ablauf erhoeht, prueft ein gepaarter
+  Vergleich mit vorab festgelegtem Plan (`tools/pruef/flucht-ueberlappung.js`,
+  Plan und Ergebnis in `docs/abnahme-7b/`): 20 Keime mal zehn
+  Strassenorte je Stand, eingefroren im ersten Bild, 120 s Vorlauf, keine
+  Weltereignisse; der Held steht 30 s still (Gaffer sammeln sich), dann
+  eine Gang 10 m voraus mit auf beiden Staenden gleich gesetztem Zufall,
+  10 s Flucht. Koerper aus player.radius/height und c.radius,
+  Ueberschneidung = Mittenabstand unter der Radiensumme bei
+  ueberlappender Hoehe, zusammenhaengende Bilder als ein Ereignis.
+  Ergebnis 7B gegen e92110a (je 200 gueltige Episoden): Ueberschneidungen
+  mit Fliehenden 6 gegen 6 (Ratenverhaeltnis 1,00, 95 % 0,27 bis 3,74,
+  einseitig p = 0,61), davon tiefer als 0,45 m 1 gegen 2, Dauer 0,13 bis
+  0,30 s gegen 0,12 bis 0,33 s, Tiefe 0,10 bis 0,52 m gegen 0,06 bis
+  0,74 m; Fluchtbegegnungen unter 2 m 13 gegen 16 (0,81, bis 1,80);
+  Spielzaehler 84 gegen 92 Bilder (0,91, 0,67 bis 1,24); je Episode
+  gepaart 6-mal mehr, 6-mal weniger, 188-mal gleich. Nach der vorab
+  festgelegten Regel ist das Ergebnis UNKLAR: eine Erhoehung ist nicht
+  nachweisbar, die seltenen Ueberschneidungen lassen aber bis zum
+  3,7-fachen offen. Verschoben hat sich die Herkunft: e92110a 6 von 6 aus
+  Gaffern; 7B 3 aus Gaffern und 3 unmittelbar nach einem
+  Aufenthalts-Abbruch (zweimal von der Bank aufgesprungen, einmal auf dem
+  Weg zur Bank; 0,47 bis 3,65 s nach dem Abbruch). Im 10-m-Kreis standen
+  bei Gangbeginn weniger Gaffer (74 gegen 98), dafuer Sitzende (10) und
+  Handy (4). Ueberschneidungen ohne Flucht: 7B 7, e92110a 10 (eine in 7B
+  dauert 30 s: der Held wurde neben eine Passantin gesetzt, die dann
+  stehen bleibt und gafft - Versuchsaufbau). Nicht in 7B repariert: keine
+  Flucht- oder Kollisionsaenderung auf Verdacht.
 - npc-wege: 7B A 1, B 2, C 0, D 86, E 83 (7A: A 1, B 0, D 85, E 78). Die
   B-Faelle sind Passanten, die 93 bis 107 s vor Gangs fliehen und dabei
   unter die Bodenflaeche geraten (einer am anderen Ufer). e92110a heute im
@@ -3129,9 +3176,8 @@ einen Platz. Bei Regen (Staerke ueber 0,25) setzt sich niemand. Die
 Momentaufnahmen an den zehn Orten streuen stark; verglichen wird das
 Mittel ueber 240 s. Nicht 7B: der weisse Promenadenbelag in einem Teil
 der Bilder, das Bushaeuschen, an dem die Figur im 7A-Video haengen
-blieb, fliehende Passanten, die dem Spieler nicht ausweichen, und der
-Innenklettern-Pruefstand, der den Helden ungeschuetzt unter die Gangs
-der Weltereignisse stellt (siehe Regression).
+blieb, und fliehende Passanten, die dem Spieler nicht ausweichen (siehe
+Regression).
 
 ---
 
