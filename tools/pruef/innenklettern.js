@@ -33,18 +33,57 @@
                                         Grundriss des Hauses erst unter der
                                         Decke und spaeter ueber dem Dach war
 
-   Aufruf:  node tools/pruef/innenklettern.js [seed=4711]
+   Zwei Betriebsarten (CITY V2, Abnahme Stufe 7B):
+
+     isoliert  (Standard) der Klettertest selbst. Eingefroren im ersten Bild
+               nach dem Laden, danach nur feste Schritte. Stoerungen sind im
+               Pruefstand abgestellt - vor jedem Fall und in jedem Schritt:
+               Weltereignisse beendet, Gegner und Wagen aus den Listen,
+               keine Zufallsmission (Passanten sind wie bisher draussen).
+               Jeder Fall beginnt mit einem lebenden Helden: volle
+               Lebenspunkte, keine Treffer- oder Schadenssperre, NICHT
+               unverwundbar - ein Treffer waere eine Stoerung.
+     welt      Integrationslauf: Echtzeit, bis die Szene steht, wie frueher;
+               Weltereignisse und normale Gefahren bleiben aktiv, nichts
+               wird isoliert, niemand wiederbelebt.
+
+   Gueltigkeit je Fall (beide Betriebsarten): ein Fall ist UNGUELTIG, wenn
+   der Held beim Start tot ist, beim Start verletzt (nur isoliert), nicht
+   am Boden steht, den Startpunkt verfehlt oder im Hindernis steht, oder
+   wenn er im Lauf getroffen wird oder stirbt. Ungueltige Faelle zaehlen
+   weder als Kletterfehler noch als bestanden; sie werden mit Grund
+   gemeldet. Vorher lief der Test nach dem Tod des Helden (eine Gang aus
+   einem Weltereignis) einfach weiter und sammelte 78 "Kontrollfehler" -
+   und meldete trotzdem "bestanden", weil ein toter Held innen auch nicht
+   klettert.
+
+   Ergebnis: bestanden (0) nur ohne harte Befunde UND ohne ungueltige
+   Faelle (Exit 0); harte Befunde: NICHT bestanden (Exit 1); sonst
+   UNGUELTIG (Exit 2).
+
+   Aufruf:  node tools/pruef/innenklettern.js [seed=4711] [welt]
    ========================================================================= */
 const { starte } = require('./basis');
 const sArg = process.argv.find((v) => v.indexOf('seed=') === 0);
 const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
+const WELT = process.argv.includes('welt');
 
 (async () => {
-  const { b, page } = await starte(640, 360, SEED, {});
-  const aus = await page.evaluate(() => {
+  const { b, page } = await starte(640, 360, SEED, WELT ? {} : { frierSofort: true });
+  const aus = await page.evaluate((WELT) => {
     const d = __dbg, P = d.player;
     d.frier(true); d.setzeRegen(0);
     d.cars.length = 0; d.civilians.length = 0; d.enemies.length = 0;
+    /* Isoliert: Stoerungen im Pruefstand abstellen, vor jedem Fall und in
+       jedem Schritt. Im Weltlauf bleibt alles an. */
+    const HP_VOLL = P.hp > 0 ? P.hp : 100;
+    const ruhe = () => {
+      if (WELT) return;
+      d.evAlleBeenden();
+      if (d.enemies.length) d.enemies.length = 0;
+      if (d.cars.length) d.cars.length = 0;
+    };
+    if (!WELT) { d.setzeTempo('maxEnemies', 0); d.setzeMissionCd(1e9); ruhe(); }
     const TASTEN = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space', 'KeyZ'];
     const los = () => { for (const t of TASTEN) d.taste(t, false); };
     const WAND = 0.8;
@@ -58,9 +97,9 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
       }
       return null;
     };
-    const summe = { innen: { laeufe: 0, angeklebt: 0, interiorClimbSurface: 0, playerInsideBuildingWhileClimbing: 0,
+    const summe = { innen: { laeufe: 0, ungueltig: 0, angeklebt: 0, interiorClimbSurface: 0, playerInsideBuildingWhileClimbing: 0,
                              topOutFromInterior: 0, playerCrossesRoofFromBelow: 0 },
-                    aussen: { laeufe: 0, angeklebt: 0, aufsDach: 0, playerInsideBuildingWhileClimbing: 0 } };
+                    aussen: { laeufe: 0, ungueltig: 0, angeklebt: 0, aufsDach: 0, playerInsideBuildingWhileClimbing: 0 } };
     const faelle = [];
     const raeume = d.kitInnen();
     raeume.forEach((r, ri) => {
@@ -98,19 +137,44 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
           d.setzePos(sx, y0, sz);
           P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
           P.wallInfo = null; P.wall = null; P.hautTiefe = 0; P.eckBogen = null; P.kante = null;
+          if (!WELT) {
+            /* definierter, lebender Start */
+            P.dead = false; P.hp = HP_VOLL; P.hurtCd = 0; P.hitT = 0; P.regenCd = 0; P.iFrames = 0;
+            d.setzeMissionCd(1e9); ruhe();
+          }
           /* Blick auf die Wand: innen nach (nx,nz), aussen nach -(nx,nz) */
           const bx = art === 'innen' ? nx : -nx, bz = art === 'innen' ? nz : -nz;
           P.facing = Math.atan2(bx, bz);
           d.setzeKamYaw(Math.atan2(-bx, -bz));
-          for (let i = 0; i < 20; i++) d.schritt(1 / 60);
+          for (let i = 0; i < 20; i++) { ruhe(); d.schritt(1 / 60); }
           const S = summe[art];
+          /* Gueltiger Start? Sonst ist das kein Kletterfall. */
+          let startFehler = null;
+          if (P.dead || P.hp <= 0) startFehler = 'Held tot beim Start';
+          else if (!WELT && P.hp < HP_VOLL) startFehler = 'Held verletzt beim Start';
+          else if (P.state !== 'ground') startFehler = 'kein Bodenstand beim Start (' + P.state + ')';
+          else if (Math.hypot(P.pos.x - sx, P.pos.z - sz) > 0.5) startFehler = 'Startpunkt verfehlt';
+          else if (imKollider(P.pos.x, P.pos.y + 1.2, P.pos.z)) startFehler = 'Start im Hindernis';
+          if (startFehler) {
+            S.ungueltig++;
+            faelle.push({ raum: ri, art, n: [nx, nz], ungueltig: startFehler, bild: 0, hp: +P.hp.toFixed(1), zustand: P.state });
+            continue;
+          }
+          const hp0 = P.hp;
           S.laeufe++;
           const F = { raum: ri, art, n: [nx, nz], angeklebt: false, klettern: 0, imRaum: 0, imHaus: 0,
                       kanteInnen: 0, unterDecke: false, ueberDach: false, aufsDach: false, maxY: 0 };
           d.taste('ShiftLeft', true); d.taste('KeyW', true);
           let vorZustand = P.state;
           for (let i = 0; i < 600; i++) {
+            ruhe();
             d.schritt(1 / 60);
+            /* Treffer oder Tod im Lauf: Stoerung, kein Kletterergebnis */
+            if (P.dead || P.hp < hp0 - 1e-6) {
+              F.ungueltig = P.dead ? 'Held tot im Lauf' : 'Treffer im Lauf';
+              F.bild = i; F.hp = +P.hp.toFixed(1); F.zustand = P.state;
+              break;
+            }
             if (i === 150) d.taste('ShiftLeft', false);
             const p = P.pos;
             const kl = P.state === 'climb' || P.state === 'kante';
@@ -141,6 +205,7 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
             if (F.aufsDach) break;
           }
           los();
+          if (F.ungueltig) { S.laeufe--; S.ungueltig++; faelle.push(F); continue; }
           if (F.angeklebt) S.angeklebt++;
           if (art === 'innen') {
             S.interiorClimbSurface += F.imRaum;
@@ -156,18 +221,29 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
       }
     });
     return { summe, faelle, raeume: raeume.length };
-  });
-  console.log('\n== Klettern im Innenraum der begehbaren Haeuser (Keim ' + SEED + ') ==');
+  }, WELT);
+  console.log('\n== Klettern im Innenraum der begehbaren Haeuser (Keim ' + SEED + ', ' +
+              (WELT ? 'Weltlauf: Ereignisse und Gefahren aktiv' : 'isoliert: Ereignisse, Gegner, Wagen aus; lebender Start je Fall') + ') ==');
   console.log('  Innenraeume ' + aus.raeume);
   const I = aus.summe.innen, A = aus.summe.aussen;
-  console.log('  innen:  Laeufe ' + I.laeufe + '  angeklebt ' + I.angeklebt);
+  console.log('  innen:  Laeufe ' + I.laeufe + '  angeklebt ' + I.angeklebt + '  ungueltig ' + I.ungueltig);
   console.log('    interiorClimbSurface               ' + I.interiorClimbSurface);
   console.log('    playerInsideBuildingWhileClimbing  ' + I.playerInsideBuildingWhileClimbing);
   console.log('    topOutFromInterior                 ' + I.topOutFromInterior);
   console.log('    playerCrossesRoofFromBelow         ' + I.playerCrossesRoofFromBelow);
   console.log('  aussen (Kontrolle): Laeufe ' + A.laeufe + '  angeklebt ' + A.angeklebt + '  aufs Dach ' + A.aufsDach +
-              '  im Haus beim Klettern ' + A.playerInsideBuildingWhileClimbing);
+              '  im Haus beim Klettern ' + A.playerInsideBuildingWhileClimbing + '  ungueltig ' + A.ungueltig);
+  const ung = aus.faelle.filter((F) => F.ungueltig);
+  if (ung.length) {
+    const gruende = {};
+    for (const F of ung) gruende[F.ungueltig] = (gruende[F.ungueltig] || 0) + 1;
+    console.log('  UNGUELTIGE Faelle ' + ung.length + ' ' + JSON.stringify(gruende) + ' - weder Kletterfehler noch bestanden');
+    for (const F of ung.slice(0, 12))
+      console.log('    ' + F.art + ' Raum ' + F.raum + ' n ' + F.n + '  ' + F.ungueltig + '  Bild ' + (F.bild || 0) + '  hp ' + F.hp + '  Zustand ' + F.zustand);
+    if (ung.length > 12) console.log('    ... und ' + (ung.length - 12) + ' weitere');
+  }
   for (const F of aus.faelle) {
+    if (F.ungueltig) continue;
     if (F.art === 'innen' && (F.angeklebt || F.ueberDach))
       console.log('    innen Raum ' + F.raum + ' n ' + F.n + '  klettern ' + F.klettern + '  imRaum ' + F.imRaum +
                   '  imHaus ' + F.imHaus + '  kante ' + F.kanteInnen + '  durchs Dach ' + (F.ueberDach ? 'JA' : 'nein') + '  maxY ' + F.maxY +
@@ -177,6 +253,14 @@ const SEED = sArg === undefined ? 4711 : +sArg.slice(5);
                   '  imHaus ' + F.imHaus + '  maxY ' + F.maxY);
   }
   const hart = I.interiorClimbSurface + I.playerInsideBuildingWhileClimbing + I.topOutFromInterior + I.playerCrossesRoofFromBelow;
-  console.log(hart === 0 ? 'INNENKLETTERN: bestanden (0)' : 'INNENKLETTERN: NICHT bestanden (' + hart + ')');
+  let code = 0;
+  if (hart > 0) {
+    console.log('INNENKLETTERN: NICHT bestanden (' + hart + ')' + (ung.length ? ', dazu ' + ung.length + ' ungueltige Faelle' : ''));
+    code = 1;
+  } else if (ung.length) {
+    console.log('INNENKLETTERN: UNGUELTIG (' + ung.length + ' Faelle ungueltig; die gueltigen ohne harten Befund)');
+    code = 2;
+  } else console.log('INNENKLETTERN: bestanden (0)');
   await b.close();
+  process.exitCode = code;
 })();
