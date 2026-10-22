@@ -187,12 +187,17 @@ function kamera(o) {
          Schatten. Zum Schluss wird wieder mit allen gezeichnet - das ist
          das gespeicherte Bild. */
       const sicht = [0, 0, 0, 0];
-      const ARTEN = ['gehen', 'sitzen', 'reden', 'telefon', 'warten'];
+      /* gafft: wer stehen bleibt und den Helden anschaut, anjubelt oder
+         filmt. Das Werkzeug stellt den (unsichtbaren) Helden fuer jede
+         Aufnahme an die Kamera; wer naeher als 9 m ist, gafft - das ist
+         kein Aufenthalt und wird getrennt gezaehlt, nicht als wartend. */
+      const ARTEN = ['gehen', 'sitzen', 'reden', 'telefon', 'warten', 'gafft'];
       const jeArt = {};
       for (const k of ARTEN.concat(['gesamt'])) jeArt[k] = [0, 0, 0];
       const artVon = (c) => {
         if (c.saAnker && c.saArt === 'sitzen' && ['setzen', 'da', 'auf'].indexOf(c.saPhase) >= 0) return 'sitzen';
         if (c.sozialPartner && c.gehZustand === 'sozial') return 'reden';
+        if (c.gafft) return 'gafft';
         if (Math.hypot(c.vel.x, c.vel.z) > 0.3) return 'gehen';
         if (c.handy && c.handy.visible) return 'telefon';
         return 'warten';
