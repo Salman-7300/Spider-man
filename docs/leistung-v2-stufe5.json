@@ -1,0 +1,67 @@
+{
+  "raster": {
+    "pitch": 50,
+    "blocksX": 10,
+    "blocksZ": 11,
+    "x0": -325,
+    "x1": 175,
+    "z0": -275,
+    "z1": 275,
+    "stadtRand": 175,
+    "gebietX0": -331,
+    "gebietZ0": -292,
+    "gebietZ1": 292,
+    "promZ0": -290,
+    "promZ1": 290,
+    "spielX0": -343,
+    "spielZ0": -293,
+    "spielZ1": 293,
+    "randX0": -340,
+    "randX1": 190,
+    "luftX0": -320,
+    "luftX1": 170,
+    "luftZ0": -270,
+    "luftZ1": 270,
+    "flussX0": 192,
+    "flussX1": 330,
+    "uferX0": 330,
+    "uferX1": 400,
+    "promX0": 181,
+    "autoXMax": 179
+  },
+  "speicher": {
+    "texturen": 335,
+    "geometrien": 2113,
+    "programme": 33
+  },
+  "gesamt": {
+    "n": 300,
+    "callsMed": 861.5,
+    "callsMax": 2508,
+    "triMed": 3102574,
+    "triMax": 4044408
+  },
+  "proLage": {
+    "strasse": {
+      "n": 100,
+      "callsMed": 796.5,
+      "callsMax": 2504,
+      "triMed": 3089912.5,
+      "triMax": 4043838
+    },
+    "dach": {
+      "n": 100,
+      "callsMed": 784,
+      "callsMax": 2508,
+      "triMed": 3086833,
+      "triMax": 4044408
+    },
+    "luft": {
+      "n": 100,
+      "callsMed": 899,
+      "callsMax": 1873,
+      "triMed": 3132180,
+      "triMax": 3638820
+    }
+  }
+}
