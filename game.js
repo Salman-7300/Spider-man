@@ -1446,6 +1446,7 @@ function updateTagNacht(dt) {
     : mischen(_mischFarbe, 0x1b2740, 0x9fc4e8, tagAnteil);
   scene.background.copy(himmelFarbe);
   scene.fog.color.copy(himmelFarbe).lerp(_tagB.setHex(0xffffff), 0.12 * tagAnteil);
+  biLichtSetzen(1 - tagAnteil);   // Stufe 8A: Schriften und Schaufenster
 
   /* Nachts wird die Sicht kürzer – das gibt Tiefe und spart Rechenzeit. */
   scene.fog.near = 110 + tagAnteil * 60;
@@ -3465,6 +3466,52 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
      modellen wie ein Fremdkoerper. */
 }
 
+/* ======================= CITY V2, Stufe 8A: Bezirksidentitaet =======================
+   Gemessen vor dieser Stufe (tools/pruef/district-identity.js, Keim 4711):
+   die sechs Stadtteile unterschieden sich auf Strassenhoehe fast nur in
+   der Haushoehe. Dieselben Downtown-Modelle stehen ueberall, die
+   Fassadenfarbe liegt in jedem Stadtteil zu 83 bis 93 Prozent im Grau
+   (Mittelfarbe #5d5b59 bis #7a7974), Leuchtschilder haengen im
+   Wohngebiet so dicht wie im Geschaeftsviertel, jeder Gehweg hat
+   dieselben grauen 4-m-Platten, und die prozeduralen Wohnhaeuser haben
+   bis zum Boden ein Fensterraster - keinen einzigen Eingang.
+
+   Stufe 8A setzt deshalb an drei Stellen an, die in jedem Strassenbild
+   gross zu sehen sind, und bleibt dabei EIN System fuer die ganze Stadt:
+     1. Gehwegbelag   Farbe und Plattenmass je Stadtteil (hier, ohne
+                      zusaetzlichen Zeichenaufruf: Eckpunktfarbe und
+                      Kachelung im vorhandenen Gehweg-Mesh)
+     2. Erdgeschoss   Ladenschilder an Ladenkanten, Hauseingaenge mit
+                      Hausnummer und Leuchte an Wohnkanten - flach auf der
+                      vorhandenen Fassade (biBauen, weiter unten)
+     3. Orientierung  Wegweiser an Bezirksgrenzen, Banner an vorhandenen
+                      Laternen, Parkportale, die Namen der drei
+                      Wahrzeichen (biBauen)
+   Die Grenze zwischen zwei Stadtteilen ist immer eine Strasse: der Belag
+   wechselt am Bordstein, nicht an einer unsichtbaren Linie.
+
+   Pruefschalter __WEBHERO_OHNE_8A: alles wie vor dieser Stufe (Belag
+   grau, keine Details) - fuer den Vergleich mit demselben Code. */
+const BI_AUS = typeof window !== 'undefined' && !!window.__WEBHERO_OHNE_8A;
+/* ---- Der Gehwegbelag je Stadtteil ----
+   Die Textur bleibt dieselbe (sidewalkTex, eine Platte mit Fuge); die
+   Farbe multipliziert sie, die Kachel bestimmt das Plattenmass. Die
+   Mischung behaelt den heutigen Belag - sie ist die Mitte, an der sich
+   die anderen absetzen. Der Bordstein (Seitenflaechen) bleibt grau. */
+const BI_BELAG = {
+  ZENTRUM:   { farbe: 0xb9c0c8, kachel: 6.0, kachelZ: 3.0, name: 'dunkler Granit, Grossformat 6 x 3 m' },
+  GESCHAEFT: { farbe: 0xf0d8b8, kachel: 3.0, name: 'Sandstein' },
+  MISCHUNG:  { farbe: 0xffffff, kachel: 4.0, name: 'Betonplatte (Bestand)' },
+  WOHN:      { farbe: 0xcf8f78, kachel: 1.6, name: 'Klinker' },
+  UFER:      { farbe: 0xe2ebf3, kachel: 5.0, name: 'heller Uferstein' },
+  PARK:      { farbe: 0xffffff, kachel: 4.0, name: 'Bestand (Rasen deckt)' },
+};
+function biBelag(art) { return (!BI_AUS && BI_BELAG[art]) || BI_BELAG.MISCHUNG; }
+/* Zustand der Details (gefuellt von biBauen). Steht hier oben, weil
+   updateTagNacht ihn schon vor dem Laden der Modelle fragt. */
+const BI = { liste: [], verworfen: {}, jeModell: {}, mesh: null, mat: null, ms: 0, fehler: null, fertig: false,
+             atlas: null, dreiecke: 0 };
+
 function buildCity() {
   /* Boden (Asphalt) – Stadtseite.
      Nicht als eine geschlossene Platte: ueber jedem U-Bahn-Schacht bleibt
@@ -3648,6 +3695,7 @@ function buildCity() {
       const loecher = ubahnLoecherFuerBlock(cx, cz);
       /* Die Streifen wandern in eine gemeinsame Sammlung: mit acht
          Schachtloechern waeren es sonst rund vierzig eigene Platten. */
+      const sockelAb = sockelStreifen.length;
       for (const t of sockelTeile(cx, cz, size, loecher)) sockelStreifen.push(t);
       /* Zwei Blöcke werden zum Park statt zur Baustelle – die Stadt war
          bisher lückenlos zugebaut. */
@@ -3657,6 +3705,9 @@ function buildCity() {
          vor dem Bauen - die Bebauung soll ihr folgen, nicht umgekehrt. */
       const istPark = !loecher.length && ((bi === 2 && bj === 2) || (bi === 5 && bj === 1));
       stadtteilMerken(bi, bj, cx, cz, istPark);
+      /* Stufe 8A: der Belag dieses Blocks folgt seinem Stadtteil */
+      for (let k = sockelAb; k < sockelStreifen.length; k++)
+        sockelStreifen[k].art = STADTTEIL[bi * BLOCKS_Z + bj].art;
       if (istPark) bauePark(cx, cz, size);
       else if (!loecher.length && KIT_BLOCKS.some(([a3, b3]) => a3 === bi && b3 === bj)) {
         baueAltbauBlock(cx, cz, size);
@@ -3740,20 +3791,30 @@ function buildCity() {
   {
     const teile = sockelStreifen.map((t) => ({
       geo: new THREE.BoxGeometry(t.w, SLAB_H * 2, t.d),
-      x: t.x, y: 0, z: t.z, farbe: 0xffffff,
+      x: t.x, y: 0, z: t.z, farbe: biBelag(t.art).farbe,
     }));
     if (teile.length) {
       const geo = verschmelzeTeile(teile);
-      /* UV aus der Weltlage: gleiche Kachelung ueber alle Streifen. */
-      const p = geo.attributes.position;
+      /* UV aus der Weltlage: gleiche Kachelung ueber alle Streifen eines
+         Stadtteils - das Plattenmass kommt aus BI_BELAG (Stufe 8A, ohne
+         sie ueberall 4 m). Der Bordstein, die Seitenflaechen, bleibt
+         grau: nur die Oberseite bekommt die Farbe des Belags. */
+      const p = geo.attributes.position, nrm = geo.attributes.normal, col = geo.attributes.color;
       const uv = new Float32Array(p.count * 2);
-      const KACHEL = 4.0;
-      for (let i = 0; i < p.count; i++) {
-        uv[i * 2] = p.getX(i) / KACHEL;
-        uv[i * 2 + 1] = -p.getZ(i) / KACHEL;
-      }
+      let o = 0;
+      teile.forEach((t, k) => {
+        const n = t.geo.index ? t.geo.index.count : t.geo.attributes.position.count;
+        const bel = biBelag(sockelStreifen[k].art);
+        const KACHEL = bel.kachel, KACHEL_Z = bel.kachelZ || bel.kachel;
+        for (let i = o; i < o + n; i++) {
+          uv[i * 2] = p.getX(i) / KACHEL;
+          uv[i * 2 + 1] = -p.getZ(i) / KACHEL_Z;
+          if (nrm.getY(i) < 0.5) col.setXYZ(i, 1, 1, 1);
+        }
+        o += n;
+      });
       geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: sidewalkTex }));
+      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: sidewalkTex, vertexColors: !BI_AUS }));
       mesh.receiveShadow = true;
       cityGroup.add(mesh);
     }
@@ -7537,10 +7598,12 @@ function loadGlbAssets(done) {
 const HAUS_MODELLE = [];
 function ladeHaeuser(loader) {
   if (!HAUS_KISTEN.length) return;
+  /* Stufe 8A: die Bezirksdetails kommen mit den Modellen (biBauen am
+     Ende von setzeHausModelle); fehlen die Modelle, auf den Kisten. */
   loader.load('assets/haeuser.glb', (gltf) => {
     try { setzeHausModelle(gltf.scene); }
-    catch (e) { window.__hausFehler = String(e && e.message || e); }
-  }, undefined, (e) => { window.__hausFehler = 'laden: ' + String(e && e.message || e); });
+    catch (e) { window.__hausFehler = String(e && e.message || e); biBauen(); }
+  }, undefined, (e) => { window.__hausFehler = 'laden: ' + String(e && e.message || e); biBauen(); });
 }
 
 /* ====================== Wo steht wirklich eine Wand? ======================
@@ -8661,6 +8724,7 @@ function setzeHausModelle(szene) {
        vollstaendig. */
     window.__hausFehler = 'nur ' + fertig.length + ' von ' + warten.length +
                           ' Modellen vorbereitet - Rueckfall bleibt stehen';
+    biBauen();                     // auf den prozeduralen Kisten
     return;
   }
   for (const t of fertig) {
@@ -8690,6 +8754,8 @@ function setzeHausModelle(szene) {
   if (fertig.length) for (const m of HAUS_FASSADEN_FALL) m.visible = false;
   /* Die Leuchtreklame von der Kiste auf die sichtbare Modellfassade */
   if (fertig.length) neonAnFassade(fertig);
+  /* Stufe 8A: Bezirksdetails - erst jetzt, sie brauchen die Tiefenkarten */
+  biBauen();
 }
 
 function ladeStadtteile(loader) {
@@ -32020,6 +32086,1048 @@ function makeSchirm(farbe) {
   return g;
 }
 
+/* ======================= CITY V2, Stufe 8A: die Bezirksdetails =======================
+   Der Gehwegbelag entsteht mit der Stadt (BI_BELAG, buildCity). Alles
+   andere hier, EINMAL, sobald die Hausmodelle stehen - die Ladenschilder
+   und Wegweiser an den Modellhaeusern brauchen deren Tiefenkarte.
+
+   WAS (je Stadtteil zwei bis drei Merkmale, ein gemeinsames System):
+     ZENTRUM    Granitplatten; Banner an den Laternen; die Namen der drei
+                Wahrzeichen (Stadtkrone, Nordturm, Bankhaus) ueber der Lobby
+     GESCHAEFT  Sandsteinpflaster; Ladenschilder an fast jeder Front;
+                Banner an den Laternen
+     MISCHUNG   der bisherige Belag; Laeden und Hauseingaenge gemischt,
+                je nach Kante
+     WOHN       Klinker; Hauseingaenge mit Hausnummer und Leuchte an den
+                Reihenhaeusern
+     UFER       heller Uferstein; Banner an den Promenadenlaternen;
+                Hauseingaenge an den Wohnkanten
+     PARK       ein Portal mit Schild ueber jedem der vier Parkwege
+   Dazu an den Bezirksgrenzen (und im Zentrum, im Geschaeftsviertel und am
+   Ufer an der wichtigsten Ecke jedes Blocks) ein Wegweiser: oben der
+   Stadtteil, darunter bis zu zwei Ziele mit Pfeil laengs der Strasse.
+   Die Namen kommen aus der Bezirkslogik und den vorhandenen Orten
+   (Stadtpark, Flussbruecke, die Wahrzeichen) - keine erfundenen
+   Strassennamen. Ladenschilder tragen nur die Art des Ladens.
+
+   WIE, damit nichts anderes sich aendert:
+     - FLACH: jede Tafel liegt 1,5 cm vor der sichtbaren Flaeche. Am
+       prozeduralen Haus ist das die Kiste; am Modell nur dort, wo die
+       Tiefenkarte der Kletterhaut (dieselbe Abbildung wie hautTiefe) in
+       der ganzen Tafel EINE Ebene zeigt (Spanne <= BI_EBEN) - vor einer
+       Arkade, einer Halle oder einem Fensterloch steht keine Tafel. Am
+       Turm das Band ueber der Lobby (createTower: es liegt in der Kiste).
+     - KEIN HINDERNIS: keine Tafel, kein Banner, kein Portal bekommt
+       eines. Ein neues Hindernis aenderte gehPlatzFrei - und damit
+       Ereignisorte, Wege und Missionen. Das Portal steht auf zwei
+       duennen Stuetzen neben dem Weg, das Schild ueber Kopfhoehe (wie
+       Laterne und Ampelmast).
+     - KEIN STADTZUFALL: jede Entscheidung aus biHash (Weltkeim, Ort,
+       Art). Das Anlegen von THREE-Objekten zieht ueber die uuid Zufall -
+       deshalb laeuft alles in einem eigenen Strom, der Stadtstrom wird
+       danach zurueckgesetzt (wie lotsBlock und die Strassendetails).
+     - EIN ZEICHENAUFRUF: alle Tafeln in einer Geometrie, ein Material,
+       eine Textur (ein Atlas, im Spiel gezeichnet - nichts geladen).
+       Nachts leuchten nur die Teile mit 'leucht' (Schriften der Laeden
+       und Wahrzeichen, Schaufenster, Tuerleuchten): emissiveMap ist der
+       Atlas selbst, der Anteil kommt aus dem Eckpunkt.
+     - Neon bleibt, wie es ist: wo ein Leuchtschild haengt, weicht die
+       neue Tafel aus oder entfaellt. */
+const BI_EBEN = 0.02;          // hoechste Tiefenspanne unter einer Tafel (m)
+const BI_TIEF_MAX = 0.6;       // tiefer liegende Ebenen bekommen keine Tafel
+const BI_VOR = 0.015;          // so weit vor der Flaeche liegt die Tafel
+const BI_H = { LADEN: 1, WORT: 2, TUER: 3, NUMMER: 4, LAGE: 5, FENSTER: 6, BANNER: 7, ECKE: 8, ZIEL: 9 };
+/* Ein eigener Hash - der Stadtzufall bleibt unberuehrt (wie sdHash). */
+function biHash(a, b, c, d) {
+  let h = (WELT_KEIM ^ 0x3c6ef372) >>> 0;
+  const teile = [a, b, c, d];
+  for (let i = 0; i < 4; i++) {
+    h = Math.imul(h ^ ((teile[i] | 0) >>> 0), 0x9e3779b1) >>> 0;
+    h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b) >>> 0;
+    h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35) >>> 0;
+    h ^= h >>> 16;
+  }
+  return (h >>> 0) / 4294967296;
+}
+/* Gedeckte Stadtteilfarben - Kopf der Wegweiser und Banner. */
+const BI_FARBE = { ZENTRUM: '#2f4a6b', GESCHAEFT: '#74303a', MISCHUNG: '#4f565e',
+                   WOHN: '#3b6347', UFER: '#1d5a72', PARK: '#46703a' };
+const BI_NAME = { ZENTRUM: 'Zentrum', GESCHAEFT: 'Geschäftsviertel', MISCHUNG: 'Mischgebiet',
+                  WOHN: 'Wohngebiet', UFER: 'Ufer', PARK: 'Stadtpark' };
+/* Ladenarten: Wort, Grund, Schrift - dunkle Gruende, helle Schrift, eine
+   Familie. Keine Markennamen. */
+const BI_LAEDEN = [
+  ['Bäckerei', '#6b4426', '#f3e3c3'], ['Café', '#2f4f3e', '#f1ead8'],
+  ['Apotheke', '#7b2b2b', '#ffffff'], ['Blumen', '#46603f', '#f5f0e0'],
+  ['Bücher', '#24344f', '#efe6cf'], ['Optik', '#2b2f36', '#e8e8e8'],
+  ['Mode', '#1a1a1a', '#f2efe6'], ['Schuhe', '#5a2430', '#f0e2d0'],
+  ['Feinkost', '#4c4a22', '#f2e6b8'], ['Friseur', '#2e4c52', '#e9f0f0'],
+  ['Elektro', '#2c4766', '#e6eef6'], ['Juwelier', '#3a3040', '#d9c27a'],
+  ['Reisebüro', '#30506b', '#f4f4f4'], ['Spielwaren', '#7a5a1e', '#fff3d6'],
+  ['Bistro', '#5b2a24', '#f3e1c8'], ['Weinhandlung', '#4a1f2b', '#e7d3a6'],
+];
+/* Bueros, Hotels, Kanzleien: an den Buerofronten des Zentrums - Graphit
+   mit Silberschrift, kleiner und ruhiger als ein Ladenschild. */
+const BI_BUEROS = ['Hotel', 'Kanzlei', 'Versicherung', 'Galerie', 'Verlag', 'Notariat', 'Architekten', 'Agentur'];
+const BI_LADEN_JE = {
+  GESCHAEFT: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  ZENTRUM:   [1, 14, 11, 5, 6, 12, 2, 15],
+  MISCHUNG:  [0, 1, 2, 3, 4, 8, 9, 10, 14],
+  WOHN:      [0, 2, 3, 9, 10, 8, 1],
+  UFER:      [1, 14, 15, 3, 0],
+};
+const BI_TUEREN = ['#2f4a3a', '#5b2530', '#26364f', '#6a4a30'];
+const BI_WAHRZEICHEN = ['Stadtkrone', 'Nordturm', 'Bankhaus'];
+const BI_ZIELE = ['Zentrum', 'Stadtpark', 'Uferpromenade', 'Flussbrücke'];
+const BI_BANNER = ['ZENTRUM', 'GESCHAEFT', 'UFER'];
+/* Masse (m). Die Zellen des Atlas haben dasselbe Seitenverhaeltnis. */
+const BI_MASS = {
+  brett: 0.55,               // Ladenschild hoch
+  brettH: [0.55, 0.45, 0.38],// ... am Modell, je nach ebenem Band
+  brettY: [2.75, 3.30],      // ... an der Kiste (ueber dem Schaufenster)
+  fenster: [0.32, 2.52],     // Schaufenster an der Kiste
+  tuer: [1.15, 2.30],        // Hauseingang samt Gewaende und Stufe
+  nummer: [0.30, 0.15], nummerY: 1.72,
+  lampe: [0.16, 0.21], lampeY: 2.05,
+  weiser: 1.10, weiserYs: [2.45, 2.75, 2.2, 3.05, 3.7], kopf: 0.248, zeile: 0.20,
+  banner: [0.60, 1.20], bannerY: 2.50, bannerAb: 0.08,
+  marke: 0.50, markeH: [0.55, 0.45, 0.36],
+  portal: { stuetze: 0.10, hoch: 3.32, schildY: [2.78, 3.28], quer: [2.25, 2.6, 2.95], ein: [0.25, 0.7, 1.6],
+            ankerLuft: 0.75, netzLuft: 0.6 },
+};
+
+function biVerwirf(grund, K) {
+  BI.verworfen[grund] = (BI.verworfen[grund] || 0) + 1;
+  /* je Modell, damit sich zeigt, an welcher Fassade es scheitert */
+  if (K) { const k = grund + '|' + (K.modell || 'kiste'); BI.jeModell[k] = (BI.jeModell[k] || 0) + 1; }
+}
+
+/* ---- Der Atlas ----
+   Eine 1024x2048-Leinwand, Zelle an Zelle; jede Zelle bekommt 4 Pixel
+   Rand aus ihrer eigenen Randfarbe, damit die Mipmaps nicht die
+   Nachbarzelle einmischen. */
+function biAtlas() {
+  const W = 1024, H = 2048, RAND = 4;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#7f7f7f'; c.fillRect(0, 0, W, H);
+  const zellen = {};
+  let x = 0, y = 0, zeileH = 0;
+  const SCHRIFT = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+  const text = (t, cx, cy, maxB, maxH, farbe, fett, abstand) => {
+    let px = Math.floor(maxH);
+    const satz = () => { c.font = (fett ? 'bold ' : '') + px + 'px ' + SCHRIFT; };
+    satz();
+    const breite = (s) => c.measureText(s).width + (abstand ? abstand * (s.length - 1) : 0);
+    const m = breite(t);
+    if (m > maxB) { px = Math.max(8, Math.floor(px * maxB / m)); satz(); }
+    c.fillStyle = farbe; c.textBaseline = 'middle';
+    if (!abstand) { c.textAlign = 'center'; c.fillText(t, cx, cy); return; }
+    c.textAlign = 'left';
+    let lx = cx - breite(t) / 2;
+    for (const ch of t) { c.fillText(ch, lx, cy); lx += c.measureText(ch).width + abstand; }
+  };
+  const polster = [];
+  const zelle = (name, w, h, malen) => {
+    if (x + w + 2 * RAND > W) { x = 0; y += zeileH; zeileH = 0; }
+    if (y + h + 2 * RAND > H) throw new Error('Atlas voll bei ' + name);
+    const x0 = x + RAND, y0 = y + RAND;
+    c.save(); c.beginPath(); c.rect(x0, y0, w, h); c.clip();
+    malen(x0, y0, w, h);
+    c.restore();
+    polster.push([x0, y0, w, h]);
+    zellen[name] = { u0: x0 / W, u1: (x0 + w) / W, v0: 1 - (y0 + h) / H, v1: 1 - y0 / H, w, h, rand: 6 / w };
+    x += w + 2 * RAND; zeileH = Math.max(zeileH, h + 2 * RAND);
+  };
+  /* Ladenschilder: 248 x 56 - das Brett ist 0,55 m hoch, das Wort 2,44 m breit. */
+  BI_LAEDEN.forEach(([wort, grund, schrift], i) => zelle('laden' + i, 248, 56, (x0, y0, w, h) => {
+    c.fillStyle = grund; c.fillRect(x0, y0, w, h);
+    c.fillStyle = 'rgba(255,255,255,0.16)'; c.fillRect(x0, y0 + 3, w, 2); c.fillRect(x0, y0 + h - 5, w, 2);
+    text(wort, x0 + w / 2, y0 + h / 2 + 1, w - 30, 34, schrift, true);
+  }));
+  BI_BUEROS.forEach((wort, i) => zelle('buero' + i, 248, 56, (x0, y0, w, h) => {
+    c.fillStyle = '#24272c'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = '#5d636b'; c.fillRect(x0, y0 + 3, w, 2); c.fillRect(x0, y0 + h - 5, w, 2);
+    text(wort.toUpperCase(), x0 + w / 2, y0 + h / 2 + 1, w - 36, 28, '#d3d7dc', true, 4);
+  }));
+  for (const art of STADTTEILE) zelle('kopf_' + art, 248, 56, (x0, y0, w, h) => {
+    c.fillStyle = BI_FARBE[art]; c.fillRect(x0, y0, w, h);
+    text(BI_NAME[art], x0 + w / 2, y0 + h / 2 + 1, w - 24, 30, '#ffffff', true);
+  });
+  BI_ZIELE.forEach((z, i) => zelle('ziel' + i, 248, 56, (x0, y0, w, h) => {
+    c.fillStyle = '#2a2e33'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x0, y0 + h - 2, w, 2);
+    text(z, x0 + w / 2, y0 + h / 2 + 1, w - 24, 30, '#f2f2f2', true);
+  }));
+  zelle('pfeil', 56, 56, (x0, y0, w, h) => {
+    c.fillStyle = '#2a2e33'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(x0, y0 + h - 2, w, 2);
+    c.fillStyle = '#f2f2f2'; c.beginPath();
+    c.moveTo(x0 + 10, y0 + h / 2); c.lineTo(x0 + 27, y0 + 12); c.lineTo(x0 + 27, y0 + 22);
+    c.lineTo(x0 + 46, y0 + 22); c.lineTo(x0 + 46, y0 + 34); c.lineTo(x0 + 27, y0 + 34);
+    c.lineTo(x0 + 27, y0 + 44); c.closePath(); c.fill();
+  });
+  BI_WAHRZEICHEN.forEach((n, i) => zelle('marke' + i, 496, 56, (x0, y0, w, h) => {
+    c.fillStyle = '#2b2722'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = '#8a6d3b'; c.fillRect(x0, y0 + 2, w, 2); c.fillRect(x0, y0 + h - 4, w, 2);
+    text(n.toUpperCase(), x0 + w / 2, y0 + h / 2 + 1, w - 40, 34, '#dcb874', true, 9);
+  }));
+  zelle('park', 496, 56, (x0, y0, w, h) => {
+    c.fillStyle = '#35592c'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = '#e9e2c8'; c.fillRect(x0, y0 + 3, w, 2); c.fillRect(x0, y0 + h - 5, w, 2);
+    text('STADTPARK', x0 + w / 2, y0 + h / 2 + 1, w - 60, 32, '#f4efdc', true, 7);
+  });
+  /* Hauseingang: Gewaende, Oberlicht, Tuerblatt mit zwei Fuellungen, Stufe. */
+  BI_TUEREN.forEach((farbe, i) => zelle('tuer' + i, 96, 192, (x0, y0, w, h) => {
+    c.fillStyle = '#cbc2b0'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = '#b3ab9b'; c.fillRect(x0 + 6, y0 + 6, w - 12, 3);
+    c.fillStyle = '#34414b'; c.fillRect(x0 + 14, y0 + 12, w - 28, 22);            // Oberlicht
+    c.fillStyle = '#c9a463'; c.fillRect(x0 + 14, y0 + 22, w - 28, 2);
+    c.fillStyle = '#9f978a'; c.fillRect(x0 + 10, y0 + 34, w - 20, 5);             // Kaempfer
+    c.fillStyle = farbe; c.fillRect(x0 + 14, y0 + 39, w - 28, 140);               // Tuerblatt
+    c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = 2;
+    c.strokeRect(x0 + 21, y0 + 47, w - 42, 52); c.strokeRect(x0 + 21, y0 + 110, w - 42, 60);
+    c.fillStyle = 'rgba(255,255,255,0.10)'; c.fillRect(x0 + 22, y0 + 48, w - 44, 2); c.fillRect(x0 + 22, y0 + 111, w - 44, 2);
+    c.fillStyle = '#d8b56a'; c.fillRect(x0 + w - 26, y0 + 104, 5, 8);           // Griff
+    c.fillStyle = '#8d877d'; c.fillRect(x0 + 2, y0 + 179, w - 4, 13);            // Stufe
+    c.fillStyle = '#a7a094'; c.fillRect(x0 + 2, y0 + 179, w - 4, 3);
+  }));
+  BI_BANNER.forEach((art) => zelle('banner_' + art, 96, 192, (x0, y0, w, h) => {
+    c.fillStyle = BI_FARBE[art]; c.fillRect(x0, y0, w, h);
+    c.fillStyle = 'rgba(255,255,255,0.85)';
+    if (art === 'ZENTRUM') {                      // drei Tuerme
+      c.fillRect(x0 + 24, y0 + 60, 12, 56); c.fillRect(x0 + 42, y0 + 34, 13, 82); c.fillRect(x0 + 61, y0 + 50, 11, 66);
+      c.fillRect(x0 + 18, y0 + 116, 60, 4);
+    } else if (art === 'GESCHAEFT') {             // Markise ueber einem Schaufenster
+      c.beginPath(); c.moveTo(x0 + 18, y0 + 52); c.lineTo(x0 + 78, y0 + 52); c.lineTo(x0 + 70, y0 + 72); c.lineTo(x0 + 26, y0 + 72); c.fill();
+      c.fillRect(x0 + 26, y0 + 78, 44, 36);
+      c.fillStyle = BI_FARBE[art]; c.fillRect(x0 + 32, y0 + 84, 32, 24);
+    } else {                                       // Wellen
+      c.lineWidth = 5; c.strokeStyle = 'rgba(255,255,255,0.85)';
+      for (let k = 0; k < 3; k++) {
+        c.beginPath();
+        for (let s = 0; s <= 60; s += 3) { const px = x0 + 18 + s, py = y0 + 58 + k * 20 + Math.sin(s / 60 * Math.PI * 2) * 6; if (s) c.lineTo(px, py); else c.moveTo(px, py); }
+        c.stroke();
+      }
+    }
+    text(art === 'UFER' ? 'Ufer' : BI_NAME[art].split(/(?=viertel)/)[0], x0 + w / 2, y0 + 150, w - 14, 22, '#ffffff', true);
+    if (art === 'GESCHAEFT') text('viertel', x0 + w / 2, y0 + 172, w - 14, 18, '#ffffff', true);
+    if (art === 'UFER') text('promenade', x0 + w / 2, y0 + 172, w - 14, 16, '#ffffff', true);
+    c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(x0, y0, w, 6); c.fillRect(x0, y0 + h - 6, w, 6);
+  }));
+  /* Schaufenster: Rahmen, Glas, ein Laden dahinter (drei Arten). */
+  for (let k = 0; k < 3; k++) zelle('fenster' + k, 192, 96, (x0, y0, w, h) => {
+    c.fillStyle = '#21262b'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = '#3a4a52'; c.fillRect(x0 + 5, y0 + 5, w - 10, h - 10);
+    c.fillStyle = ['#a48a66', '#8f8074', '#9b8b6e'][k];      // gedeckte Ware, kein Leuchtgelb
+    if (k === 0) {                                // Regale
+      for (let r = 0; r < 3; r++) { c.fillRect(x0 + 14, y0 + 22 + r * 22, w - 28, 3);
+        for (let s = 0; s < 9; s++) c.fillRect(x0 + 18 + s * 18, y0 + 12 + r * 22, 9, 10); }
+    } else if (k === 1) {                         // Kleiderstaender
+      for (let s = 0; s < 5; s++) { c.fillRect(x0 + 22 + s * 32, y0 + 18, 3, 52); c.fillRect(x0 + 14 + s * 32, y0 + 26, 20, 34); }
+    } else {                                      // Tische und Theke
+      c.fillRect(x0 + 16, y0 + 58, w - 32, 6);
+      for (let s = 0; s < 4; s++) c.fillRect(x0 + 24 + s * 40, y0 + 40, 22, 18);
+      c.fillRect(x0 + 24, y0 + 18, w - 48, 4);
+    }
+    c.fillStyle = 'rgba(255,255,255,0.10)';
+    c.beginPath(); c.moveTo(x0 + 30, y0 + 5); c.lineTo(x0 + 70, y0 + 5); c.lineTo(x0 + 30, y0 + h - 5); c.lineTo(x0 + 5, y0 + h - 5); c.fill();
+    c.fillStyle = '#21262b'; c.fillRect(x0 + w / 2 - 2, y0, 4, h);
+  });
+  for (let n = 1; n <= 48; n++) zelle('nummer' + n, 48, 24, (x0, y0, w, h) => {
+    c.fillStyle = '#1d3b7a'; c.fillRect(x0, y0, w, h);
+    c.strokeStyle = '#ffffff'; c.lineWidth = 2; c.strokeRect(x0 + 2, y0 + 2, w - 4, h - 4);
+    text(String(n), x0 + w / 2, y0 + h / 2 + 1, w - 10, 18, '#ffffff', true);
+  });
+  zelle('lampe', 24, 32, (x0, y0, w, h) => {
+    c.fillStyle = '#26282b'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = '#ffe7a8'; c.fillRect(x0 + 4, y0 + 6, w - 8, h - 12);
+  });
+  zelle('stahl', 24, 24, (x0, y0, w, h) => { c.fillStyle = '#3b4046'; c.fillRect(x0, y0, w, h); });
+  /* Vorplatz vor dem Hochhaus: helle Platten mit dunklem Rand, 5,2 x 3 m */
+  zelle('vorplatz', 208, 120, (x0, y0, w, h) => {
+    c.fillStyle = '#4a4f56'; c.fillRect(x0, y0, w, h);
+    c.fillStyle = '#d9d6cf'; c.fillRect(x0 + 6, y0 + 6, w - 12, h - 12);
+    c.strokeStyle = '#b3b0a8'; c.lineWidth = 2;
+    for (let k = 1; k < 6; k++) { c.beginPath(); c.moveTo(x0 + 6 + k * (w - 12) / 6, y0 + 6); c.lineTo(x0 + 6 + k * (w - 12) / 6, y0 + h - 6); c.stroke(); }
+    for (let k = 1; k < 3; k++) { c.beginPath(); c.moveTo(x0 + 6, y0 + 6 + k * (h - 12) / 3); c.lineTo(x0 + w - 6, y0 + 6 + k * (h - 12) / 3); c.stroke(); }
+  });
+  /* Rand: die Kantenpixel jeder Zelle RAND px nach aussen (gegen Saeume
+     in den Mipmaps) - erst am Ende und aus einer Kopie. Ein drawImage des
+     Atlas auf sich selbst zwingt den Browser je Aufruf zu einem Abzug der
+     ganzen Flaeche (8 MB); vier je Zelle kosteten im Pruefstand rund 3,5 s
+     im GPU-Prozess, bis die Szene ruhig war. So sind es zwei Abzuege. */
+  const kopie = document.createElement('canvas'); kopie.width = W; kopie.height = H;
+  const k = kopie.getContext('2d');
+  k.drawImage(cv, 0, 0);
+  for (const [x0, y0, w, h] of polster) {
+    c.drawImage(kopie, x0, y0, w, 1, x0, y0 - RAND, w, RAND);
+    c.drawImage(kopie, x0, y0 + h - 1, w, 1, x0, y0 + h, w, RAND);
+  }
+  k.clearRect(0, 0, W, H); k.drawImage(cv, 0, 0);
+  for (const [x0, y0, w, h] of polster) {
+    c.drawImage(kopie, x0, y0 - RAND, 1, h + 2 * RAND, x0 - RAND, y0 - RAND, RAND, h + 2 * RAND);
+    c.drawImage(kopie, x0 + w - 1, y0 - RAND, 1, h + 2 * RAND, x0 + w, y0 - RAND, RAND, h + 2 * RAND);
+  }
+  kopie.width = 1; kopie.height = 1;
+  const tex = new THREE.CanvasTexture(cv);
+  tex.anisotropy = 4;
+  return { tex, zellen, cv };
+}
+
+/* ---- Die Strassenseiten eines Hauses ----
+   Wie neonAnHaus: eine Seite zeigt zur Strasse, wenn die naechste
+   Rasterlinie hoechstens 12 m vor ihr liegt. */
+function biSeiten(K) {
+  const naheLinie = (v, a) => {
+    const u = ((v - rasterO(a)) % PITCH + PITCH) % PITCH;
+    return u < PITCH / 2 ? -u : PITCH - u;
+  };
+  const aus = [];
+  const ax = naheLinie(K.x, 'x'), az = naheLinie(K.z, 'z');
+  if (Math.abs(ax) - K.w / 2 < 12) aus.push({ nx: Math.sign(ax) || 1, nz: 0, achse: 'x', linie: K.x + ax });
+  if (Math.abs(az) - K.d / 2 < 12) aus.push({ nx: 0, nz: Math.sign(az) || 1, achse: 'z', linie: K.z + az });
+  return aus;
+}
+
+/* ---- Wo ist die Front im Hoehenband [ya, yb] eben? ----
+   ya/yb ueber dem Gehweg. Liefert die laengste zusammenhaengende ebene
+   Strecke { l0, l1, tiefe, spanne } - l laengs der Front, von der
+   Hausmitte nach rechts (von vorn gesehen), tiefe hinter der Kiste -
+   oder null. */
+function biEben(K, s, ya, yb) {
+  const breite = s.nx ? K.d : K.w;
+  if (!K.modell) return { l0: -breite / 2, l1: breite / 2, tiefe: 0, spanne: 0, quelle: 'kiste' };
+  if (/^Turm_/.test(K.modell)) {
+    /* createTower: das Band ueber der Lobby, Vorderseite in der Kiste */
+    const art = (+K.modell.slice(5) || 0) % 4;
+    const lobby = Math.min(4.2, K.h * 0.18), band = [0.58, 1.05, 0.82, 1.12][art];
+    if (ya < lobby - band / 2 + 0.03 - 1e-6 || yb > lobby + band / 2 - 0.03 + 1e-6) return null;
+    return { l0: -(breite - 0.2) / 2 + 0.05, l1: (breite - 0.2) / 2 - 0.05, tiefe: 0, spanne: 0, quelle: 'turm' };
+  }
+  const c = K.koll, f = c && c.fassade;
+  if (!f) return null;
+  const g = f.g.seiten[s.nx + ',' + s.nz];
+  if (!g) return null;
+  const hoch = f.h * f.g.hLok;
+  const v0 = ya / hoch - f.g.vOff, v1 = yb / hoch - f.g.vOff;
+  if (v0 < 0 || v1 > 1) return null;
+  const j0 = clamp(Math.floor(v0 * FASS_NV), 0, FASS_NV - 1);
+  const j1 = clamp(Math.ceil(v1 * FASS_NV) - 1, j0, FASS_NV - 1);
+  const tm = s.nx ? f.w : f.d;
+  const lo = new Float64Array(FASS_NU), hi = new Float64Array(FASS_NU);
+  for (let i = 0; i < FASS_NU; i++) {
+    let a = Infinity, b = -Infinity;
+    for (let j = j0; j <= j1; j++) {
+      const t = g[j * FASS_NU + i];
+      if (t >= FASS_LEER) { a = NaN; break; }
+      const m = t * tm;
+      if (m < a) a = m; if (m > b) b = m;
+    }
+    lo[i] = a; hi[i] = b;
+  }
+  let best = null;
+  for (let i = 0; i < FASS_NU; i++) {
+    if (!(lo[i] <= hi[i])) continue;
+    let a = lo[i], b = hi[i], e = i;
+    while (e + 1 < FASS_NU && lo[e + 1] <= hi[e + 1] &&
+           Math.max(b, hi[e + 1]) - Math.min(a, lo[e + 1]) <= BI_EBEN) {
+      e++; a = Math.min(a, lo[e]); b = Math.max(b, hi[e]);
+    }
+    if (!best || e - i > best.e - best.i) best = { i, e, a, b };
+    i = e;
+  }
+  if (!best || best.a > BI_TIEF_MAX) return null;
+  /* Spalten -> laengs. Eine Zelle Sicherheit an jedem Ende: die Karte
+     tastet Zellmitten ab, der Rand einer Zelle kann schon tiefer liegen. */
+  const zelleB = breite / FASS_NU;
+  const ua = (best.i + 1) / FASS_NU, ub = best.e / FASS_NU;
+  if (ub <= ua) return null;
+  const sg = s.nz ? s.nz : -s.nx;
+  const la = sg * (ua - 0.5) * breite, lb = sg * (ub - 0.5) * breite;
+  return { l0: Math.min(la, lb), l1: Math.max(la, lb), tiefe: best.a, spanne: best.b - best.a,
+           quelle: 'karte', zelle: zelleB };
+}
+
+/* Die Leuchtschilder einer Hausseite als Rechtecke (laengs, hoch ueber dem Gehweg). */
+function biNeonAn(K, s) {
+  const aus = [];
+  for (const q of NEON_KISTEN) {
+    if (q.haus !== K || q.nx !== s.nx || q.nz !== s.nz) continue;
+    const quer = q.nx !== 0, breit = quer ? q.d : q.w;
+    const l = s.nz ? s.nz * (q.x0 - K.x) : -s.nx * (q.z0 - K.z);
+    aus.push({ l0: l - breit / 2, l1: l + breit / 2, y0: q.y - q.h / 2 - SLAB_H, y1: q.y + q.h / 2 - SLAB_H });
+  }
+  return aus;
+}
+/* Ist das Rechteck frei: kein Leuchtschild, nichts schon Gesetztes? */
+function biFrei(belegt, l0, l1, y0, y1, luft) {
+  const L = luft === undefined ? 0.1 : luft;
+  for (const r of belegt) if (l1 > r.l0 - L && l0 < r.l1 + L && y1 > r.y0 - L && y0 < r.y1 + L) return false;
+  return true;
+}
+/* Steht vor der Tafel ein anderes Haus? Kleine Tafel, ein paar Punkte
+   0,3 m davor in ihrer Hoehe - nicht in einem fremden Hindernis. */
+function biDavorFrei(K, s, l0, l1, y0, y1) {
+  const ebene = s.nx ? K.x + s.nx * K.w / 2 : K.z + s.nz * K.d / 2;
+  for (const l of [l0 + 0.05, (l0 + l1) / 2, l1 - 0.05]) for (const y of [y0 + 0.05, y1 - 0.05]) {
+    const px = s.nx ? ebene + s.nx * 0.3 : K.x + s.nz * l;
+    const pz = s.nx ? K.z - s.nx * l : ebene + s.nz * 0.3;
+    for (const c of collidersNear(px, pz)) {
+      if (c.klein || c === K.koll || c.bau === K.koll) continue;
+      const unten = c.y0 === undefined ? -50 : c.y0;
+      if (px > c.x0 && px < c.x1 && pz > c.z0 && pz < c.z1 && SLAB_H + y > unten && SLAB_H + y < c.h) return false;
+    }
+  }
+  return true;
+}
+
+/* ---- Geometrie: Rechtecke, je sechs Eckpunkte ---- */
+function biGeo() { return { p: [], n: [], u: [], l: [] }; }
+/* Rechteck mit Mitte (x, y, z), Normale (nx, nz) waagrecht, Breite b,
+   Hoehe h; ua/ub: genutzter Anteil der Zellbreite (Fueller nehmen den
+   Rand der Zelle, das Schaufenster schneidet statt zu strecken). */
+function biRecht(G, x, y, z, nx, nz, b, h, zl, leucht, ua, ub) {
+  const tx = nz, tz = -nx;
+  const a = ua === undefined ? 0 : ua, e = ub === undefined ? 1 : ub;
+  const u0 = zl.u0 + (zl.u1 - zl.u0) * a, u1 = zl.u0 + (zl.u1 - zl.u0) * e;
+  const ecken = [[-1, -1, u0, zl.v0], [1, -1, u1, zl.v0], [1, 1, u1, zl.v1], [-1, -1, u0, zl.v0], [1, 1, u1, zl.v1], [-1, 1, u0, zl.v1]];
+  for (const [sl, sy, uu, vv] of ecken) {
+    G.p.push(x + tx * sl * b / 2, y + sy * h / 2, z + tz * sl * b / 2);
+    G.n.push(nx, 0, nz); G.u.push(uu, vv); G.l.push(leucht ? 1 : 0);
+  }
+}
+/* Rechteck flach auf dem Boden: x0..x1, z0..z1 auf Hoehe y, die Zelle
+   laengs x (u) und z (v); ua/ub und va/vb schneiden die Zelle zu. */
+function biBoden(G, x0, x1, z0, z1, y, zl, va, vb) {
+  const v0 = zl.v0 + (zl.v1 - zl.v0) * (va === undefined ? 0 : va), v1 = zl.v0 + (zl.v1 - zl.v0) * (vb === undefined ? 1 : vb);
+  const ecken = [[x0, z1, zl.u0, v0], [x1, z1, zl.u1, v0], [x1, z0, zl.u1, v1], [x0, z1, zl.u0, v0], [x1, z0, zl.u1, v1], [x0, z0, zl.u0, v1]];
+  for (const [x, z, u, v] of ecken) { G.p.push(x, y, z); G.n.push(0, 1, 0); G.u.push(u, v); G.l.push(0); }
+}
+/* Waagrechte Flaeche (Oberseite einer Stuetze) */
+function biDeckel(G, x, y, z, b, d, zl) {
+  const ecken = [[-1, -1], [-1, 1], [1, 1], [-1, -1], [1, 1], [1, -1]];
+  for (const [sx, sz] of ecken) {
+    G.p.push(x + sx * b / 2, y, z + sz * d / 2); G.n.push(0, 1, 0);
+    G.u.push((zl.u0 + zl.u1) / 2, (zl.v0 + zl.v1) / 2); G.l.push(0);
+  }
+}
+/* Eine Stuetze / ein Halter: vier Seiten und Deckel */
+function biStab(G, x, y0, y1, z, b, d, zl) {
+  const h = y1 - y0, ym = (y0 + y1) / 2;
+  biRecht(G, x + b / 2, ym, z, 1, 0, d, h, zl, 0);
+  biRecht(G, x - b / 2, ym, z, -1, 0, d, h, zl, 0);
+  biRecht(G, x, ym, z + d / 2, 0, 1, b, h, zl, 0);
+  biRecht(G, x, ym, z - d / 2, 0, -1, b, h, zl, 0);
+  biDeckel(G, x, y1, z, b, d, zl);
+}
+
+/* Eine Tafel an eine Hausseite: l laengs, y ueber dem Gehweg (Mitte). */
+function biAnHaus(G, K, s, eb, l, y, b, h, zl, leucht, ua, ub) {
+  const ebene = s.nx ? K.x + s.nx * K.w / 2 : K.z + s.nz * K.d / 2;
+  const vor = ebene + (s.nx || s.nz) * (BI_VOR - eb.tiefe);
+  const x = s.nx ? vor : K.x + s.nz * l;
+  const z = s.nx ? K.z - s.nx * l : vor;
+  biRecht(G, x, SLAB_H + y, z, s.nx, s.nz, b, h, zl, leucht, ua, ub);
+  return { x, y: SLAB_H + y, z };
+}
+
+/* ---- Ein Element merken (fuer Pruefstand und Zaehlung) ---- */
+function biMerke(e) { e.nr = BI.liste.length; BI.liste.push(e); return e; }
+
+/* ---- Ladenschild und Schaufenster ---- */
+const BI_WORT_LETZT = new Map();     // Kante (Block, Seite) -> zuletzt gewaehltes Wort
+const BI_WORT_HAUS = new Map();      // Haus -> sein Wort (die andere Seite nimmt ein anderes)
+function biLaden(G, A, K, ki, s, art, belegt, nr, typ) {
+  const breite = s.nx ? K.d : K.w;
+  const buero = typ === 'buero';
+  const liste = buero ? BI_BUEROS.map((w, i) => i) : (BI_LADEN_JE[art] || BI_LADEN_JE.MISCHUNG);
+  /* Wortwahl am Ort; nie dasselbe Wort wie das Nachbarhaus an derselben
+     Kante oder die andere Seite desselben Hauses. */
+  const kante = Math.floor((K.x - RASTER_X0) / PITCH) + ',' + Math.floor((K.z - RASTER_Z0) / PITCH) + ',' + s.nx + ',' + s.nz + ',' + typ;
+  const verboten = [BI_WORT_LETZT.get(kante), BI_WORT_HAUS.get(K)];
+  let k = Math.floor(biHash(Math.round(K.x * 10), Math.round(K.z * 10), s.nx * 3 + s.nz, BI_H.WORT) * liste.length) % liste.length;
+  for (let n = 0; n < liste.length && verboten.indexOf(liste[k]) >= 0; n++) k = (k + 1) % liste.length;
+  const wahl = liste[k];
+  /* Das Brett: an der Kiste ueber dem Schaufenster; am Turm im Band
+     ueber der Lobby; am Modell im niedrigsten ebenen Band zwischen 2,6
+     und 5,5 m. Die Modelle sind auf die Haushoehe skaliert - ihr
+     Erdgeschoss ist mal 3, mal 5 m hoch, das Band darueber mal 0,4, mal
+     0,7 m. Deshalb drei Brett-Hoehen, die groesste, die passt. */
+  let eb = null, yb = 0, bh = buero ? BI_MASS.brettH[1] : BI_MASS.brett;
+  const kiste = !K.modell;
+  const turm = K.modell && /^Turm_/.test(K.modell);
+  if (kiste) { yb = BI_MASS.brettY[1] - bh / 2; eb = biEben(K, s, yb - bh / 2, yb + bh / 2); }
+  else if (turm) {
+    const tart = (+K.modell.slice(5) || 0) % 4;
+    const lobby = Math.min(4.2, K.h * 0.18), band = [0.58, 1.05, 0.82, 1.12][tart];
+    bh = Math.min(bh, band - 0.08);
+    yb = lobby; eb = biEben(K, s, lobby - bh / 2, lobby + bh / 2);
+  } else {
+    for (const h of (buero ? BI_MASS.brettH.slice(1) : BI_MASS.brettH)) {
+      for (let y0 = 2.6; y0 + h <= 5.5 + 1e-6 && !eb; y0 += 0.1) {
+        const e = biEben(K, s, y0, y0 + h);
+        if (e && e.l1 - e.l0 >= h * 248 / 56 + 0.5) { eb = e; yb = y0 + h / 2; bh = h; }
+      }
+      if (eb) break;
+    }
+  }
+  if (!eb) { biVerwirf('laden:nichtEben', K); return; }
+  let l0 = Math.max(eb.l0, -breite / 2 + 0.35), l1 = Math.min(eb.l1, breite / 2 - 0.35);
+  /* Leuchtschilder und Gesetztes: das Brett schrumpft von der Seite her */
+  const y0 = yb - bh / 2, y1 = yb + bh / 2;
+  for (const r of belegt) {
+    if (!(y1 > r.y0 - 0.1 && y0 < r.y1 + 0.1)) continue;
+    if (r.l1 + 0.1 <= l0 || r.l0 - 0.1 >= l1) continue;
+    if ((r.l0 + r.l1) / 2 < (l0 + l1) / 2) l0 = Math.max(l0, r.l1 + 0.1); else l1 = Math.min(l1, r.l0 - 0.1);
+  }
+  if (l1 - l0 > 7.0) { const m = (l0 + l1) / 2; l0 = m - 3.5; l1 = m + 3.5; }
+  const WORT = bh * 248 / 56;
+  if (l1 - l0 < WORT + 0.2) { biVerwirf('laden:schmal', K); return; }
+  if (!biDavorFrei(K, s, l0, l1, y0, y1)) { biVerwirf('laden:verdeckt'); return; }
+  const zl = A.zellen[(buero ? 'buero' : 'laden') + wahl];
+  const ge = biGeo();
+  BI_WORT_LETZT.set(kante, wahl); BI_WORT_HAUS.set(K, wahl);
+  /* Wort nicht immer mittig: wie echte Ladenschilder etwas versetzt */
+  const spiel = (l1 - l0) - WORT;
+  const lw = l0 + WORT / 2 + spiel * (0.25 + 0.5 * biHash(Math.round(K.x * 10), Math.round(K.z * 10), nr, BI_H.LAGE));
+  biAnHaus(ge, K, s, eb, lw, yb, WORT, bh, zl, 1);
+  const rand = zl.rand;
+  if (lw - WORT / 2 - l0 > 0.01) biAnHaus(ge, K, s, eb, (l0 + lw - WORT / 2) / 2, yb, lw - WORT / 2 - l0, bh, zl, 1, 0, rand);
+  if (l1 - (lw + WORT / 2) > 0.01) biAnHaus(ge, K, s, eb, (lw + WORT / 2 + l1) / 2, yb, l1 - lw - WORT / 2, bh, zl, 1, 0, rand);
+  belegt.push({ l0, l1, y0, y1 });
+  const e = biMerke({ art: buero ? 'buero' : 'laden', wort: buero ? BI_BUEROS[wahl] : BI_LAEDEN[wahl][0], bezirk: art, haus: ki,
+                      nx: s.nx, nz: s.nz, l0, l1, y0, y1, tiefe: eb.tiefe, spanne: eb.spanne, quelle: eb.quelle, fenster: 0,
+                      geo: ge, K });
+  /* Schaufenster nur an der Kiste (das Modell hat sein Erdgeschoss) */
+  if (!kiste || buero) return;
+  const [f0, f1] = BI_MASS.fenster, fh = f1 - f0, FB = fh * 2;
+  const g0 = l0 + 0.25, g1 = l1 - 0.25;
+  const n = Math.max(1, Math.round((g1 - g0) / FB));
+  const fb = (g1 - g0 - 0.35 * (n - 1)) / n;
+  if (fb < 1.2) return;
+  if (!biFrei(belegt, g0, g1, f0, f1, 0.05)) return;
+  const fk = Math.floor(biHash(Math.round(K.x * 10), Math.round(K.z * 10), nr, BI_H.FENSTER) * 3) % 3;
+  const fz = A.zellen['fenster' + fk];
+  for (let k = 0; k < n; k++) {
+    const lm = g0 + fb / 2 + k * (fb + 0.35);
+    const anteil = Math.min(1, fb / FB);
+    biAnHaus(ge, K, s, eb, lm, (f0 + f1) / 2, fb, fh, fz, 1, (1 - anteil) / 2, (1 + anteil) / 2);
+  }
+  belegt.push({ l0: g0, l1: g1, y0: f0, y1: f1 });
+  e.fenster = n; e.f0 = f0; e.f1 = f1; e.g0 = g0; e.g1 = g1;
+}
+
+/* ---- Hauseingang: Tuer, Leuchte, Hausnummer (Nummer spaeter) ---- */
+function biEingang(G, A, K, ki, s, art, belegt) {
+  const breite = s.nx ? K.d : K.w;
+  if (breite < 3.2) { biVerwirf('eingang:schmal'); return null; }
+  const [tb, th] = BI_MASS.tuer;
+  const spiel = breite - 2.6;
+  const l = (biHash(Math.round(K.x * 10), Math.round(K.z * 10), s.nx * 3 + s.nz, BI_H.TUER) - 0.5) * spiel * 0.8;
+  const eb = biEben(K, s, 0.02, BI_MASS.lampeY + 0.2);
+  if (!eb || l - tb / 2 - 0.4 < eb.l0 || l + tb / 2 + 0.6 > eb.l1) { biVerwirf('eingang:nichtEben'); return null; }
+  if (!biFrei(belegt, l - tb / 2 - 0.35, l + tb / 2 + 0.55, 0, th)) { biVerwirf('eingang:belegt'); return null; }
+  if (!biDavorFrei(K, s, l - tb / 2, l + tb / 2, 0.1, th)) { biVerwirf('eingang:verdeckt'); return null; }
+  const farbe = Math.floor(biHash(Math.round(K.x * 10), Math.round(K.z * 10), 7, BI_H.TUER) * BI_TUEREN.length) % BI_TUEREN.length;
+  const m = biAnHaus(G, K, s, eb, l, th / 2, tb, th, A.zellen['tuer' + farbe], 0);
+  const [lb, lh] = BI_MASS.lampe;
+  biAnHaus(G, K, s, eb, l - tb / 2 - 0.22, BI_MASS.lampeY, lb, lh, A.zellen.lampe, 1);
+  belegt.push({ l0: l - tb / 2 - 0.35, l1: l + tb / 2 + 0.55, y0: 0, y1: th });
+  return biMerke({ art: 'eingang', bezirk: art, haus: ki, nx: s.nx, nz: s.nz, l0: l - tb / 2, l1: l + tb / 2,
+                   y0: 0, y1: th, tiefe: eb.tiefe, spanne: eb.spanne, quelle: eb.quelle, x: m.x, z: m.z, l, eb });
+}
+
+/* ---- Wegweiser an der Ecke ---- */
+function biWeiserZiele(x, z, nx, nz, art) {
+  const tx = nz, tz = -nx;
+  const ziele = [];
+  const nimm = (i, zx, zz) => {
+    const dx = zx - x, dz = zz - z, d = Math.hypot(dx, dz);
+    if (d < 60) return;
+    const quer = (dx * tx + dz * tz) / d;
+    if (Math.abs(quer) < 0.45) return;
+    ziele.push({ i, d, rechts: quer > 0 });
+  };
+  if (art !== 'ZENTRUM') nimm(0, 0, 0);
+  let park = null;
+  for (const p of parks) { const d = Math.hypot(p.x - x, p.z - z); if (!park || d < park.d) park = { x: p.x, z: p.z, d }; }
+  if (park && park.d < 260) nimm(1, park.x, park.z);
+  if (x < RASTER_X1 - PITCH) nimm(2, PROM_X0 + 4, z);
+  if (Math.hypot(PROM_X0 - x, -25 - z) < 280) nimm(3, PROM_X0, -25);
+  ziele.sort((a, b) => a.d - b.d);
+  return ziele.slice(0, 2);
+}
+function biWeiser(G, A, K, ki, s, art, belegt, ende) {
+  /* ende: -1 / +1 - an welchem Ende der Front liegt die Ecke (laengs) */
+  const breite = s.nx ? K.d : K.w;
+  const B = BI_MASS.weiser;
+  const zeilenH = BI_MASS.zeile;
+  /* Erste Hoehe, in der die Front eben ist: an der Kiste 2,45 m; am
+     Modell auch ueber oder unter dem Erdgeschossband, am Turm auf dem
+     Band ueber der Lobby. Nie unter 2,2 m - darunter laeuft man hinein. */
+  let eb = null, Y0 = 0;
+  for (const y of BI_MASS.weiserYs) {
+    eb = biEben(K, s, y - 0.02, y + BI_MASS.kopf + 2 * zeilenH + 0.02);
+    if (eb) { Y0 = y; break; }
+  }
+  if (!eb) { biVerwirf('weiser:nichtEben', K); return false; }
+  /* Von der Ecke her die erste freie Stelle, hoechstens 8 m hinein */
+  const ebene = s.nx ? K.x + s.nx * K.w / 2 : K.z + s.nz * K.d / 2;
+  const lEcke = ende > 0 ? Math.min(eb.l1, breite / 2 - 0.45) - B / 2 : Math.max(eb.l0, -breite / 2 + 0.45) + B / 2;
+  let l = null, ziele = null, hoehe = 0, grund = 'weiser:nichtEben';
+  for (let w = 0; w <= 8 + 1e-6; w += 0.5) {
+    const lc = lEcke - ende * w;
+    if (lc - B / 2 < eb.l0 - 1e-6 || lc + B / 2 > eb.l1 + 1e-6) continue;
+    const px = s.nx ? ebene : K.x + s.nz * lc, pz = s.nx ? K.z - s.nx * lc : ebene;
+    const zz = biWeiserZiele(px, pz, s.nx, s.nz, art);
+    if (!zz.length) { grund = 'weiser:keinZiel'; continue; }
+    const hh = BI_MASS.kopf + zz.length * zeilenH;
+    if (!biFrei(belegt, lc - B / 2, lc + B / 2, Y0, Y0 + hh)) { grund = 'weiser:belegt'; continue; }
+    if (!biDavorFrei(K, s, lc - B / 2, lc + B / 2, Y0, Y0 + hh)) { grund = 'weiser:verdeckt'; continue; }
+    l = lc; ziele = zz; hoehe = hh; break;
+  }
+  if (l === null) { biVerwirf(grund, K); return false; }
+  const px = s.nx ? ebene : K.x + s.nz * l, pz = s.nx ? K.z - s.nx * l : ebene;
+  const oben = Y0 + hoehe;
+  const ge = biGeo();
+  biAnHaus(ge, K, s, eb, l, oben - BI_MASS.kopf / 2, B, BI_MASS.kopf, A.zellen['kopf_' + art], 0);
+  const PF = zeilenH, WB = B - PF;
+  ziele.forEach((z, k) => {
+    const y = oben - BI_MASS.kopf - zeilenH * (k + 0.5);
+    const lp = z.rechts ? l + B / 2 - PF / 2 : l - B / 2 + PF / 2;
+    const lw = z.rechts ? l - B / 2 + WB / 2 : l + B / 2 - WB / 2;
+    /* Pfeil nach rechts: dieselbe Zelle gespiegelt */
+    biAnHaus(ge, K, s, eb, lp, y, PF, zeilenH, A.zellen.pfeil, 0, z.rechts ? 1 : 0, z.rechts ? 0 : 1);
+    biAnHaus(ge, K, s, eb, lw, y, WB, zeilenH, A.zellen['ziel' + z.i], 0);
+  });
+  belegt.push({ l0: l - B / 2, l1: l + B / 2, y0: Y0, y1: oben });
+  biMerke({ art: 'wegweiser', bezirk: art, haus: ki, nx: s.nx, nz: s.nz, l0: l - B / 2, l1: l + B / 2,
+            y0: Y0, y1: oben, tiefe: eb.tiefe, spanne: eb.spanne, quelle: eb.quelle,
+            ziele: ziele.map((z) => BI_ZIELE[z.i] + (z.rechts ? ' >' : ' <')), x: px, z: pz, geo: ge, K });
+  return true;
+}
+
+/* ---- Name des Wahrzeichens ueber der Lobby ---- */
+function biMarke(G, A, K, ki, s, i, belegt) {
+  /* Die groesste Hoehe, die passt; laengs die freie Stelle, die der
+     Mitte der Front am naechsten liegt (Leuchtschilder bleiben). */
+  let eb = null, y = 0, H = 0, B = 0, l = 0, grund = 'marke:nichtEben';
+  const turm = K.modell && /^Turm_/.test(K.modell);
+  for (const h of BI_MASS.markeH) {
+    const b = h * 496 / 56;
+    const lagen = [];
+    if (turm) {
+      const art = (+K.modell.slice(5) || 0) % 4;
+      const lobby = Math.min(4.2, K.h * 0.18), band = [0.58, 1.05, 0.82, 1.12][art];
+      for (let yc = lobby - band / 2 + 0.04 + h / 2; yc + h / 2 <= lobby + band / 2 - 0.04 + 1e-6; yc += 0.05) lagen.push(yc);
+    } else for (let y0 = 2.8; y0 + h <= 6.0 + 1e-6; y0 += 0.1) lagen.push(y0 + h / 2);
+    for (const yc of lagen) {
+      const e = biEben(K, s, yc - h / 2, yc + h / 2);
+      if (!e || e.l1 - e.l0 < b + 0.1) continue;
+      const kand = [];
+      for (let lc = e.l0 + b / 2 + 0.05; lc <= e.l1 - b / 2 - 0.05 + 1e-6; lc += 0.25) kand.push(lc);
+      kand.sort((p, q) => Math.abs(p - (e.l0 + e.l1) / 2) - Math.abs(q - (e.l0 + e.l1) / 2));
+      for (const lc of kand) {
+        if (!biFrei(belegt, lc - b / 2, lc + b / 2, yc - h / 2, yc + h / 2)) { grund = 'marke:neon'; continue; }
+        if (!biDavorFrei(K, s, lc - b / 2, lc + b / 2, yc - h / 2, yc + h / 2)) { grund = 'marke:verdeckt'; continue; }
+        eb = e; y = yc; H = h; B = b; l = lc; break;
+      }
+      if (eb) break;
+    }
+    if (eb) break;
+  }
+  if (!eb) { biVerwirf(grund, K); return false; }
+  const ge = biGeo();
+  biAnHaus(ge, K, s, eb, l, y, B, H, A.zellen['marke' + i], 1);
+  belegt.push({ l0: l - B / 2, l1: l + B / 2, y0: y - H / 2, y1: y + H / 2 });
+  biMerke({ art: 'wahrzeichen', name: BI_WAHRZEICHEN[i], bezirk: K.art || stadtteilAn(K.x, K.z), haus: ki, nx: s.nx, nz: s.nz,
+            l0: l - B / 2, l1: l + B / 2, y0: y - H / 2, y1: y + H / 2, tiefe: eb.tiefe, spanne: eb.spanne, quelle: eb.quelle,
+            geo: ge, K });
+  return true;
+}
+
+/* ---- Banner an einer vorhandenen Laterne ----
+   Der Ausleger zeigt zur Fahrbahn (moebelOrt: lokal x -> (cos d, -sin d)).
+   Das Banner haengt auf der anderen Seite des Masts, in der Ebene des
+   Auslegers - wer die Strasse entlang geht, sieht es von vorn. */
+function biBanner(G, A, L, art, li) {
+  const [x, z, d, fuss] = L;
+  const ax = Math.cos(d), az = -Math.sin(d);
+  const nx = Math.sin(d), nz = Math.cos(d);
+  const [bb, bh] = BI_MASS.banner;
+  const ab = BI_MASS.bannerAb + bb / 2;
+  const mx = x - ax * ab, mz = z - az * ab, my = fuss + BI_MASS.bannerY + bh / 2;
+  /* Freiraum: kein Haus, kein festes Hindernis im Bannerkasten */
+  const k = { x0: Math.min(x, x - ax * (ab + bb / 2)) - 0.05, x1: Math.max(x, x - ax * (ab + bb / 2)) + 0.05,
+              z0: Math.min(z, z - az * (ab + bb / 2)) - 0.05, z1: Math.max(z, z - az * (ab + bb / 2)) + 0.05 };
+  for (const c of collidersNear(mx, mz)) {
+    if (c.klein) continue;
+    const unten = c.y0 === undefined ? -50 : c.y0;
+    if (k.x1 > c.x0 && k.x0 < c.x1 && k.z1 > c.z0 && k.z0 < c.z1 && my + bh / 2 > unten && my - bh / 2 < c.h) {
+      biVerwirf('banner:hindernis'); return false;
+    }
+  }
+  /* Baeume, neue und vorhandene (SD.baumRaster): Krone ab rund 2,6 m */
+  const kb = { x0: mx - 2.2, x1: mx + 2.2, z0: mz - 2.2, z1: mz + 2.2 };
+  for (const t of sdNahe(SD.baumRaster, kb, 1)) {
+    if (Math.hypot(t.x - mx, t.z - mz) < 2.2) { biVerwirf('banner:baum'); return false; }
+  }
+  const zl = A.zellen['banner_' + art];
+  biRecht(G, mx, my, mz, nx, nz, bb, bh, zl, 0);
+  biRecht(G, mx, my, mz, -nx, -nz, bb, bh, zl, 0);
+  /* zwei Halter vom Mast zur Aussenkante */
+  const st = A.zellen.stahl;
+  for (const hy of [my + bh / 2 + 0.03, my - bh / 2 - 0.03]) {
+    const hx = x - ax * (ab + bb / 2) / 2, hz = z - az * (ab + bb / 2) / 2;
+    const lang = ab + bb / 2;
+    biStab(G, hx, hy - 0.015, hy + 0.015, hz, Math.abs(ax) * lang + 0.03, Math.abs(az) * lang + 0.03, st);
+  }
+  biMerke({ art: 'banner', bezirk: art, laterne: li, x: mx, y: my, z: mz, nx, nz, b: bb, h: bh,
+            y0: my - bh / 2, y1: my + bh / 2, kasten: k });
+  return true;
+}
+
+/* ---- Parkportal ueber einem Parkweg ----
+   Am Parkrand liegt der Gehweg-Ring 1,3 m innen (Knoten "weg" und das
+   Parktor auf der Wegachse), dazu Stehplaetze 0,45 m innen. Das Portal
+   steht deshalb ganz aussen, zwei duenne Stuetzen neben dem Weg, das
+   Schild ueber Kopfhoehe von Stuetze zu Stuetze. Gesucht wird von aussen
+   nach innen und von schmal nach breit; was nicht frei ist, entfaellt. */
+function biPortal(G, A, pk, pi, arm) {
+  const [ax, az] = arm;
+  const qx = -az, qz = ax;
+  const M = BI_MASS.portal;
+  const half = pk.s / 2;
+  let grund = 'portal:keinPlatz';
+  for (const ein of M.ein) {
+    for (const quer of M.quer) {
+      const mx = pk.x + ax * (half - ein), mz = pk.z + az * (half - ein);
+      const stuetzen = [-1, 1].map((sq) => ({ x: mx + qx * sq * quer, z: mz + qz * sq * quer }));
+      let g = null;
+      for (const p of stuetzen) {
+        const k = { x0: p.x - M.stuetze / 2, x1: p.x + M.stuetze / 2, z0: p.z - M.stuetze / 2, z1: p.z + M.stuetze / 2 };
+        if (Math.abs(groundY(p.x, p.z, 2) - SLAB_H) > 0.03) { g = 'boden'; break; }
+        for (const e of sdNahe(SD.raster, k, 3)) if (sdUeber(k, e.sicht, 0.3)) { g = 'detail'; break; }
+        if (g) break;
+        if (SD.bestand) for (const b of sdNahe(SD.bestand.punkte, k, 3)) if (sdKastenPunkt(k, b.x, b.z) < b.r + 0.3) { g = 'bestand'; break; }
+        if (g) break;
+        for (const c of sdKollNahe(k)) if ((c.h || 0) > SLAB_H + 0.1 && sdUeber(k, c, 0.3)) { g = 'hindernis'; break; }
+        if (g) break;
+        for (const An of saAnkerNahe(p.x, p.z)) for (const P of An.plaetze) if (Math.hypot(P.x - p.x, P.z - p.z) < M.ankerLuft) g = 'anker';
+        if (g) break;
+        const netz = sdNetz(k);
+        if (Math.min(netz.knoten, netz.kante) < M.netzLuft) { g = 'netz'; break; }
+      }
+      /* Unter dem Schild: kein Baumstamm naeher als 1,6 m an der Schildlinie */
+      if (!g) {
+        const kb = { x0: mx - quer - 1.6, x1: mx + quer + 1.6, z0: mz - quer - 1.6, z1: mz + quer + 1.6 };
+        for (const e of sdNahe(SD.baumRaster, kb, 1)) {
+          const t = (e.x - mx) * qx + (e.z - mz) * qz, n = (e.x - mx) * ax + (e.z - mz) * az;
+          if (Math.abs(t) < quer + 1.6 && Math.abs(n) < 1.6) { g = 'baum'; break; }
+        }
+      }
+      if (g) { grund = 'portal:' + g; continue; }
+      const st = A.zellen.stahl;
+      for (const p of stuetzen) biStab(G, p.x, SLAB_H, SLAB_H + M.hoch, p.z, M.stuetze, M.stuetze, st);
+      const sy = SLAB_H + (M.schildY[0] + M.schildY[1]) / 2, sh = M.schildY[1] - M.schildY[0];
+      /* Das Schild reicht von Stuetze zu Stuetze; das Wort in der Mitte,
+         links und rechts derselbe Grund (Rand der Zelle) */
+      const sb = 2 * quer - M.stuetze;
+      const zl = A.zellen.park;
+      const wb = Math.min(sb, sh * 496 / 56);
+      for (const seite of [1, -1]) {
+        const ox = mx + ax * seite * 0.03, oz = mz + az * seite * 0.03, nx = ax * seite, nz = az * seite;
+        biRecht(G, ox, sy, oz, nx, nz, wb, sh, zl, 0);
+        const rest = (sb - wb) / 2;
+        if (rest > 0.01) for (const sq of [-1, 1]) {
+          biRecht(G, ox + qx * sq * (wb / 2 + rest / 2), sy, oz + qz * sq * (wb / 2 + rest / 2), nx, nz, rest, sh, zl, 0, 0, zl.rand);
+        }
+      }
+      /* Unterkante und Oberkante des Schilds */
+      const lx = Math.abs(qx) * sb + Math.abs(ax) * 0.08 + 0.01, lz = Math.abs(qz) * sb + Math.abs(az) * 0.08 + 0.01;
+      biStab(G, mx, sy - sh / 2 - 0.04, sy - sh / 2, mz, lx, lz, st);
+      biStab(G, mx, sy + sh / 2, sy + sh / 2 + 0.04, mz, lx, lz, st);
+      biMerke({ art: 'portal', bezirk: 'PARK', park: pi, x: mx, y: sy, z: mz, nx: ax, nz: az, quer,
+                stuetzen, y0: sy - sh / 2, y1: sy + sh / 2, b: sb });
+      return true;
+    }
+  }
+  biVerwirf(grund);
+  return false;
+}
+
+/* ---- Exakte Probe an den Modellen ----
+   Die Tiefenkarte tastet Zellmitten ab (rund 0,3 m breit) - eine schmale
+   Sprosse oder ein Rahmen faellt durch. Gemessen mit dem Pruefstand:
+   zwei Ladenschilder an ModernOffice_1 lagen 4,3 cm HINTER einem Rahmen,
+   an 20 Stellen fand ein Strahl hinter der Tafel keine Flaeche. Deshalb
+   je Modellhaus einmal alle Dreiecke (wie neonAnFassade): im Rechteck
+   jeder Tafel je Zelle (6 x 3) die vorderste Flaeche. Alle Zellen
+   belegt, Spanne hoechstens BI_EBEN, nichts mehr als 1 cm vor der Ebene,
+   auf der die Tafel liegt - sonst entfaellt sie. */
+function biExakt(liste) {
+  const NU = 6, NV = 3;
+  const jeHaus = new Map();
+  for (const e of liste) {
+    if (!e.geo || !e.K || !e.K.modell) continue;
+    if (!jeHaus.has(e.K)) jeHaus.set(e.K, []);
+    jeHaus.get(e.K).push(e);
+  }
+  const objekt = new Map();
+  for (const o of HAUS_MODELLE) if (o.userData.hausKiste) objekt.set(o.userData.hausKiste, o);
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
+  const pl = [0, 0, 0], py = [0, 0, 0], pd = [0, 0, 0];
+  for (const [K, els] of jeHaus) {
+    const obj = objekt.get(K);
+    if (!obj) { for (const e of els) e.weg = 'kein Modell'; continue; }
+    const ziele = els.map((e) => {
+      const quer = e.nx !== 0;
+      const a = quer ? K.z - e.nx * e.l0 : K.x + e.nz * e.l0, b = quer ? K.z - e.nx * e.l1 : K.x + e.nz * e.l1;
+      return { e, quer, l0: Math.min(a, b), l1: Math.max(a, b), y0: SLAB_H + e.y0, y1: SLAB_H + e.y1,
+               ebene: e.nx > 0 ? K.x + K.w / 2 : e.nx < 0 ? K.x - K.w / 2 : e.nz > 0 ? K.z + K.d / 2 : K.z - K.d / 2,
+               zellen: new Array(NU * NV).fill(Infinity) };
+    });
+    obj.updateMatrixWorld(true);
+    obj.traverse((k) => {
+      if (!k.isMesh || !k.geometry || !k.geometry.attributes.position) return;
+      const p = k.geometry.attributes.position, idx = k.geometry.index, n = idx ? idx.count : p.count;
+      for (let i = 0; i + 2 < n; i += 3) {
+        A.fromBufferAttribute(p, idx ? idx.getX(i) : i).applyMatrix4(k.matrixWorld);
+        B.fromBufferAttribute(p, idx ? idx.getX(i + 1) : i + 1).applyMatrix4(k.matrixWorld);
+        C.fromBufferAttribute(p, idx ? idx.getX(i + 2) : i + 2).applyMatrix4(k.matrixWorld);
+        for (const z of ziele) {
+          const v = [A, B, C];
+          let lmin = Infinity, lmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+          for (let j = 0; j < 3; j++) {
+            pl[j] = z.quer ? v[j].z : v[j].x; py[j] = v[j].y;
+            pd[j] = z.quer ? (z.ebene - v[j].x) * z.e.nx : (z.ebene - v[j].z) * z.e.nz;
+            if (pl[j] < lmin) lmin = pl[j]; if (pl[j] > lmax) lmax = pl[j];
+            if (py[j] < ymin) ymin = py[j]; if (py[j] > ymax) ymax = py[j];
+          }
+          if (lmax < z.l0 || lmin > z.l1 || ymax < z.y0 || ymin > z.y1) continue;
+          const dl = (z.l1 - z.l0) / NU, dy = (z.y1 - z.y0) / NV;
+          for (let jv = 0; jv < NV; jv++) {
+            const b0 = z.y0 + jv * dy, b1 = b0 + dy;
+            if (ymax < b0 || ymin > b1) continue;
+            for (let ju = 0; ju < NU; ju++) {
+              const a0 = z.l0 + ju * dl, a1 = a0 + dl;
+              if (lmax < a0 || lmin > a1) continue;
+              const m = neonZuschnittMin(pl, py, pd, a0, a1, b0, b1);
+              const q = jv * NU + ju;
+              if (m < z.zellen[q]) z.zellen[q] = m;
+            }
+          }
+        }
+      }
+    });
+    for (const z of ziele) {
+      let lo = Infinity, hi = -Infinity;
+      for (const m of z.zellen) { if (m < lo) lo = m; if (m > hi) hi = m; }
+      z.e.exakt = { lo: +lo.toFixed(3), hi: +hi.toFixed(3) };
+      if (!(hi < Infinity)) z.e.weg = 'Luecke';
+      else if (hi - lo > BI_EBEN + 0.005) z.e.weg = 'uneben';
+      else if (lo < z.e.tiefe - 0.01) z.e.weg = 'davor';
+      else if (hi > z.e.tiefe + 0.02) z.e.weg = 'dahinter';
+    }
+  }
+}
+
+/* ---- Alles bauen ---- */
+function biBauen() {
+  if (BI_AUS || BI.fertig || typeof document === 'undefined') return;
+  BI.fertig = true;
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const merk = ZUFALL_SEED;
+  zufallKeimSetzen(((WELT_KEIM ^ 0x5bd1e995) >>> 0) || 1);
+  try {
+    const A = biAtlas();
+    BI.atlas = A;
+    const G = biGeo();
+    const belegtJe = new Map();          // Haus|Seite -> belegte Rechtecke (Neon zuerst)
+    const belegt = (K, s) => {
+      const key = HAUS_KISTEN.indexOf(K) + '|' + s.nx + '|' + s.nz;
+      if (!belegtJe.has(key)) belegtJe.set(key, biNeonAn(K, s));
+      return belegtJe.get(key);
+    };
+    const klassenWert = { LOCAL: 0, STREET: 1, AVENUE: 2, BOULEVARD: 3 };
+    /* 1. Wahrzeichen */
+    const POIS = POI.liste.filter((p) => p.art === 'LANDMARK' && BI_WAHRZEICHEN.indexOf(p.name) >= 0);
+    for (const p of POIS) {
+      let K = null;
+      for (const q of HAUS_KISTEN) {
+        if (Math.abs(q.x - p.x) > q.w / 2 + 0.5 || Math.abs(q.z - p.z) > q.d / 2 + 0.5) continue;
+        if (!K || q.h > K.h) K = q;
+      }
+      if (!K) { biVerwirf('marke:keinHaus'); continue; }
+      const seiten = biSeiten(K).sort((a, b) => klassenWert[strasseKlasse(b.achse, b.linie)] - klassenWert[strasseKlasse(a.achse, a.linie)]);
+      let ok = false;
+      for (const s of seiten) { if (biMarke(G, A, K, HAUS_KISTEN.indexOf(K), s, BI_WAHRZEICHEN.indexOf(p.name), belegt(K, s))) { ok = true; break; } }
+      if (!ok) biVerwirf('marke:keineSeite');
+    }
+    /* 2. Wegweiser: je Block hoechstens einer, an der wichtigsten Ecke */
+    for (const T of STADTTEIL) {
+      if (!T || T.art === 'PARK') continue;
+      let beste = null;
+      for (const [ex, ez] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const kx = strasseKlasse('x', T.x + ex * PITCH / 2), kz = strasseKlasse('z', T.z + ez * PITCH / 2);
+        const nb = [stadtteilAn(T.x + ex * PITCH, T.z), stadtteilAn(T.x, T.z + ez * PITCH), stadtteilAn(T.x + ex * PITCH, T.z + ez * PITCH)];
+        const grenze = nb.some((a) => a !== T.art);
+        const wert = klassenWert[kx] + klassenWert[kz] + (grenze ? 3 : 0) + biHash(T.bi, T.bj, ex * 2 + ez, BI_H.ECKE) * 0.5;
+        if (!beste || wert > beste.wert) beste = { ex, ez, grenze, wert };
+      }
+      if (!beste.grenze && ['ZENTRUM', 'GESCHAEFT', 'UFER'].indexOf(T.art) < 0) continue;
+      /* Haeuser dieses Blocks an der Ecke: die Front laengs einer der
+         beiden Strassen, die am naechsten an die Ecke reicht. */
+      const kand = [];
+      for (const K of HAUS_KISTEN) {
+        if (Math.abs(K.x - T.x) > PITCH / 2 || Math.abs(K.z - T.z) > PITCH / 2) continue;
+        for (const s of biSeiten(K)) {
+          if (!(s.nx === beste.ex || s.nz === beste.ez)) continue;
+          const ende = s.nx ? (-s.nx * beste.ez > 0 ? 1 : -1) : (s.nz * beste.ex > 0 ? 1 : -1);
+          const eckL = s.nx ? (K.z + beste.ez * K.d / 2) : (K.x + beste.ex * K.w / 2);
+          const ziel = s.nx ? T.z + beste.ez * 19 : T.x + beste.ex * 19;
+          kand.push({ K, s, ende, abstand: Math.abs(ziel - eckL) });
+        }
+      }
+      kand.sort((a, b) => a.abstand - b.abstand);
+      let ok = false;
+      for (const k of kand.slice(0, 4)) {
+        if (k.abstand > 6) break;
+        if (biWeiser(G, A, k.K, HAUS_KISTEN.indexOf(k.K), k.s, T.art, belegt(k.K, k.s), k.ende)) { ok = true; break; }
+      }
+      if (!ok) biVerwirf('weiser:keinePlatz');
+    }
+    /* 3. Laeden und Hauseingaenge */
+    const tuerenJeKante = new Map();
+    HAUS_KISTEN.forEach((K, ki) => {
+      const art = K.art || stadtteilAn(K.x, K.z);
+      if (art === 'PARK') return;
+      biSeiten(K).forEach((s, nr) => {
+        const klasse = strasseKlasse(s.achse, s.linie);
+        const nutzung = kantenNutzung(art, klasse);
+        const hz = biHash(Math.round(K.x * 10), Math.round(K.z * 10), s.nx * 3 + s.nz, BI_H.LADEN);
+        let was = null;
+        if (nutzung === 'LADEN') was = 'laden';
+        else if (art === 'GESCHAEFT') was = hz < 0.65 ? 'laden' : 'buero';
+        else if (art === 'ZENTRUM' && nutzung === 'BUERO') was = 'buero';
+        else if (nutzung === 'GEMISCHT') was = hz < 0.3 ? 'laden' : 'eingang';
+        else if (nutzung === 'WOHNEN') was = 'eingang';
+        if (was === 'eingang' && K.modell) was = null;      // das Modell bringt sein Erdgeschoss mit
+        if (!was) return;
+        if (was === 'laden' || was === 'buero') { biLaden(G, A, K, ki, s, art, belegt(K, s), nr, was); return; }
+        const e = biEingang(G, A, K, ki, s, art, belegt(K, s));
+        if (e) {
+          const key = Math.floor((K.x - RASTER_X0) / PITCH) + ',' + Math.floor((K.z - RASTER_Z0) / PITCH) + ',' + s.nx + ',' + s.nz;
+          if (!tuerenJeKante.has(key)) tuerenJeKante.set(key, []);
+          tuerenJeKante.get(key).push({ e, K, s });
+        }
+      });
+    });
+    /* Hausnummern laengs der Kante steigend: ungerade auf Nord- und
+       Ostseiten, gerade auf Sued- und Westseiten. */
+    for (const [key, liste] of tuerenJeKante) {
+      const [bi, bj] = key.split(',').map(Number);
+      liste.sort((a, b) => (a.s.nx ? a.e.z - b.e.z : a.e.x - b.e.x));
+      const gerade = liste[0].s.nx < 0 || liste[0].s.nz < 0;
+      let n = (gerade ? 2 : 1) + 2 * Math.floor(biHash(bi, bj, liste[0].s.nx * 3 + liste[0].s.nz, BI_H.NUMMER) * 8);
+      for (const { e, K, s } of liste) {
+        if (n > 48) break;
+        const [nb, nh] = BI_MASS.nummer;
+        /* Die Nummer liegt im Feld, das der Eingang schon belegt hat
+           (rechts neben der Tuer, siehe biEingang) - dort steht nichts. */
+        const ln = e.l + BI_MASS.tuer[0] / 2 + 0.08 + nb / 2;
+        if (ln + nb / 2 <= e.eb.l1) {
+          biAnHaus(G, K, s, e.eb, ln, BI_MASS.nummerY, nb, nh, A.zellen['nummer' + n], 0);
+          e.nummer = n;
+        }
+        n += 2;
+      }
+    }
+    /* 3b. Exakte Probe an den Modellen; was besteht, kommt in die Geometrie */
+    biExakt(BI.liste);
+    for (const e of BI.liste) {
+      if (e.weg) { biVerwirf('exakt:' + e.art + ':' + e.weg, e.K); continue; }
+      if (!e.geo) continue;
+      for (const k of ['p', 'n', 'u', 'l']) for (const v of e.geo[k]) G[k].push(v);
+    }
+    BI.liste = BI.liste.filter((e) => !e.weg);
+    BI.liste.forEach((e, i) => { e.nr = i; delete e.geo; delete e.K; });
+    /* 4. Banner an den Laternen: Zentrum, Geschaeftsviertel, Ufer (dort
+       an jeder zweiten Promenadenlaterne) */
+    LATERNE_STELLEN.forEach((L, li) => {
+      const art = L[0] > RASTER_X1 ? 'UFER' : stadtteilAn(L[0], L[1]);
+      if (BI_BANNER.indexOf(art) < 0) return;
+      if (L[0] > PROM_X0 && li % 2) return;
+      biBanner(G, A, L, art, li);
+    });
+    /* 5a. Vorplatz vor dem Eingang jedes Hochhauses im Zentrum
+       (createTower: die Tuer liegt mittig in der +z-Seite). Flach im
+       Belag, 4 mm darueber - nur, wo davor Gehweg ist: kein Zebrastreifen,
+       kein Schacht, keine Fahrbahn; mindestens 1,5 m tief. */
+    for (const K of HAUS_KISTEN) {
+      if (!K.modell || !/^Turm_/.test(K.modell)) continue;
+      const art = K.art || stadtteilAn(K.x, K.z);
+      if (art !== 'ZENTRUM') continue;
+      const B = Math.min(5.2, K.w - 0.6), x0 = K.x - B / 2, x1 = K.x + B / 2, z0 = K.z + K.d / 2 + 0.02;
+      let tief = 0;
+      for (let t = 0.5; t <= 3.0 + 1e-6; t += 0.25) {
+        const z1 = z0 + t;
+        let ok = true;
+        for (const [px, pz] of [[x0, z1], [x1, z1], [K.x, z1], [x0, (z0 + z1) / 2], [x1, (z0 + z1) / 2]])
+          if (Math.abs(groundY(px, pz, 2) - SLAB_H) > 0.01) ok = false;
+        if (ok && aufZebra(x0, x1, z0, z1)) ok = false;
+        if (ok && SD.bestand) for (const l of SD.bestand.loecher) if (x1 > l.x0 - 0.5 && x0 < l.x1 + 0.5 && z1 > l.z0 - 0.5 && z0 < l.z1 + 0.5) ok = false;
+        if (!ok) break;
+        tief = t;
+      }
+      if (tief < 1.5) { biVerwirf('vorplatz:kurz'); continue; }
+      const zl = A.zellen.vorplatz;
+      biBoden(G, x0, x1, z0, z0 + tief, SLAB_H + 0.004, zl, 0, tief / 3.0);
+      biMerke({ art: 'vorplatz', bezirk: art, haus: HAUS_KISTEN.indexOf(K), x: K.x, z: z0 + tief / 2,
+                x0, x1, z0, z1: z0 + tief, y: SLAB_H + 0.004 });
+    }
+    /* 5. Parkportale */
+    parks.forEach((pk, pi) => {
+      for (const arm of [[1, 0], [-1, 0], [0, 1], [0, -1]]) biPortal(G, A, pk, pi, arm);
+    });
+    /* ---- Ein Mesh ---- */
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(G.p, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(G.n, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(G.u, 2));
+    geo.setAttribute('leucht', new THREE.Float32BufferAttribute(G.l, 1));
+    geo.computeBoundingSphere();
+    const mat = new THREE.MeshLambertMaterial({ map: A.tex, emissiveMap: A.tex, emissive: 0xffffff,
+                                                emissiveIntensity: 0, polygonOffset: true,
+                                                polygonOffsetFactor: 0, polygonOffsetUnits: -NEON_VERSATZ });
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = 'attribute float leucht;\nvarying float vLeucht;\n' +
+        sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vLeucht = leucht;');
+      sh.fragmentShader = 'varying float vLeucht;\n' +
+        sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance *= vLeucht;');
+    };
+    mat.customProgramCacheKey = () => 'bezirkLeucht';
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.receiveShadow = true;
+    mesh.name = 'Bezirksdetails';
+    cityGroup.add(mesh);
+    BI.mesh = mesh; BI.mat = mat;
+    BI.dreiecke = G.p.length / 9;
+    biLichtSetzen(BI.licht || 0);
+  } catch (e) {
+    BI.fehler = String(e && e.message || e);
+  }
+  zufallKeimSetzen(merk);
+  BI.ms = typeof performance !== 'undefined' ? +(performance.now() - t0).toFixed(1) : 0;
+}
+/* Nachts leuchten Schriften, Schaufenster und Tuerleuchten (updateTagNacht). */
+function biLichtSetzen(nacht) {
+  BI.licht = nacht;
+  if (BI.mat) BI.mat.emissiveIntensity = 0.95 * nacht;
+}
+
 const RUFE = ['Spider-Man!', 'Da ist er!', 'Danke!', 'Wahnsinn!', '📸'];
 
 /* ======================= Vögel =======================
@@ -44748,6 +45856,23 @@ if (window.__WEBHERO_TEST__ === true) {
     /* CITY V2 Stufe 5: die gesetzten Gebaeudemodelle selbst - nur zum
        Messen, wieviel ein einzelnes Haus an Objekten und Dreiecken kostet. */
     hausModelle() { return HAUS_MODELLE; },
+    /* CITY V2 Stufe 8A: die Bezirksdetails, so wie sie gesetzt sind -
+       fuer tools/pruef/district-identity.js. */
+    bezirksIdentitaet() {
+      return { aus: BI_AUS, fertig: BI.fertig, fehler: BI.fehler, ms: BI.ms, dreiecke: BI.dreiecke,
+               licht: BI.licht, mesh: !!BI.mesh, belag: BI_BELAG, verworfen: Object.assign({}, BI.verworfen),
+               jeModell: Object.assign({}, BI.jeModell),
+               masse: BI_MASS, eben: BI_EBEN, vor: BI_VOR,
+               liste: BI.liste.map((e) => Object.assign({}, e, { eb: undefined })) };
+    },
+    biBauen,
+    /* Die Leuchtschilder je Haus (Kiste als Index in HAUS_KISTEN) - der
+       Pruefstand haelt die neuen Tafeln dagegen. */
+    neonKisten() {
+      return NEON_KISTEN.filter((q) => q.haus).map((q) => ({ haus: HAUS_KISTEN.indexOf(q.haus), nx: q.nx, nz: q.nz,
+        x: q.x, z: q.z, x0: q.x0, z0: q.z0, y: q.y, w: q.w, h: q.h, d: q.d }));
+    },
+    bezirksMesh() { return BI.mesh; },
     /* Leuchtreklame: Kisten, auf die Modellfassade gerueckt, Montage */
     neonStand() { let tafeln = 0; for (const l of NEON_UEBER.values()) tafeln += l.length;
                   return { kisten: NEON_KISTEN.length, geruckt: NEON_STAND.geruckt, ms: NEON_STAND.ms, alt: NEON_ALT, tief: NEON_ALT ? 0.16 : NEON_TIEF,
