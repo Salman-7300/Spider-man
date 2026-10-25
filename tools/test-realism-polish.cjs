@@ -48,11 +48,19 @@ test('Windows reveal a recessed room; roof, footprint and closed world collision
     const tower = r.look.createTower(18, 90, 22, kind); tower.updateMatrixWorld(true);
     const glass = tower.getObjectByName('Glazing');
     /* Grenze war 0,3, dann 0,5. Bei 0,23 und auch bei 0,42 las sich die
-       Scheibe aus der Naehe als offenes Loch - die kletternde Figur schien
-       in einer Fensteroeffnung zu haengen (problem-3, Blocker 1). Jetzt
-       getoent mit 0,7. Durchsichtig bleiben muss die Scheibe trotzdem -
-       der Raum dahinter ist genau das, was dieser Test schuetzt. */
+       klare Scheibe aus der Naehe als offenes Loch - die kletternde Figur
+       schien in einer Fensteroeffnung zu haengen (problem-3, Blocker 1).
+       Seit Stufe 8A (Neufassung) zeigen die Bueroscheiben ihren Raum per
+       Interior Mapping (Modus 1: Raum, Licht, Jalousie, Spiegelung - im
+       Shader deckend, kein Loch mehr); klar durchsichtig ist nur noch die
+       Lobby (Modus 3), hinter der echter, eingerichteter Raum liegt. Der
+       zurueckgesetzte Kern bleibt - die echte Tiefe schuetzt dieser Test. */
     assert.ok(glass.material.transparent && glass.material.opacity < 0.8 && !glass.material.depthWrite);
+    assert.ok(glass.material.userData.innenraum, 'panes carry the interior shader');
+    const modus = glass.geometry.attributes.aIrRaum;
+    let klar = 0, raum = 0;
+    for (let i = 0; i < modus.count; i++) { if (modus.getW(i) === 3) klar++; else if (modus.getW(i) === 1) raum++; }
+    assert.ok(klar > 0 && raum > klar, 'clear lobby glass, offices as mapped rooms');
     const cols = Math.floor(17.5 / (kind === 1 ? 2.9 : 2.5)), step = 17.5 / cols;
     const x = -8.75 + (Math.floor(cols / 2) + 0.5) * step;
     const ray = new THREE.Raycaster(V(x, 5.65, 12), V(0, 0, -1));

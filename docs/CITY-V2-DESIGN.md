@@ -3181,14 +3181,16 @@ Regression).
 
 ---
 
-## 6q. Bezirksidentitaet und visuelle Orientierung (Stufe 8A)
+## 6q. Erdgeschosse, Fenster und Bezirksbild (Stufe 8A)
 
-Ziel: beim normalen Spielen erkennen, ob man im Zentrum, im
-Geschaeftsviertel, im Mischgebiet, im Wohngebiet, am Ufer oder im Park
-ist - durch die Stadt selbst, nicht durch Minimap, Anzeige oder Farbfilter.
-Bezirkseinteilung, Haeuser, Lots, Modelle, Hoehen, Strassen, Verkehr,
-Parkautos, Strassendetails, Passanten, Aufenthalte, Wege, Klettern,
-Kamera und Story bleiben, wie sie sind.
+Ziel: beim Durchlaufen eine hochwertige, glaubwuerdige, stilisierte
+Grossstadt "aus einem Guss" - die Stadtteile unterscheidbar durch
+Material, Fassadenrhythmus, Erdgeschoss, Fenster, Eingaenge und Licht,
+nicht durch Schilder, Minimap, Anzeige oder Farbfilter. Fenster duerfen
+nicht als leere Kaesten wirken. Bezirkseinteilung, Haeuser, Lots,
+Modelle, Hoehen, Strassen, Verkehr, Parkautos, Strassendetails,
+Passanten, Aufenthalte, Wege, Klettern, Kamera und Story bleiben, wie sie
+sind.
 
 ### Ausgangsstand (82607ec, Keim 4711, `tools/pruef/district-identity.js`)
 
@@ -3229,308 +3231,335 @@ in `docs/abnahme-8a/`.
 - das Gehweg-Mesh aus `buildCity` (ein Mesh, Kachel aus der Weltlage)
 - die Fassaden-Tiefenkarte der Kletterhaut (`FASS_GITTER`, gelesen wie
   `hautTiefe`), die Leuchtschilder (`NEON_KISTEN`, `neonZuschnittMin`)
-- `createTower`: das Band ueber der Lobby und die Tuer in der +z-Seite
+- `createTower` (Lobby, Geschosse, Glas) und das Band ueber der Lobby
 - vorhandene Laternen (`LATERNE_STELLEN`), Parks (`parks`), POIs
 - die Freiraumpruefungen der Strassendetails (`sdNahe`, `sdNetz`,
   `SD.baumRaster`, `SD.bestand`) und die Aufenthaltsanker (`saAnkerNahe`)
 
-### Das System: eine Gestaltung fuer die ganze Stadt
+### Neufassung nach der Human-Abnahme
 
-Jeder Stadtteil bekommt zwei bis drei Merkmale aus drei gemeinsamen
-Bausteinen - dieselbe Familie, andere Auspraegung:
+Die erste Fassung (9915ef5) wurde nicht abgenommen: billig, kuenstlich,
+flach, zu sehr ueber Textschilder ("Bistro", "Cafe", "Kanzlei",
+"Elektro"), teilweise leer und unfertig - durch die Fenster sah man leere
+Raeume. Der Bezirk wurde behauptet, nicht gebaut. Diese Fassung ersetzt
+sie ganz; der Ansatz ist umgekehrt: Qualitaet aus Material, Fassadenrhythmus,
+Tiefe, Eingaengen und kontrolliertem Glas - Text nur noch, wo er hingehoert.
 
-1. **Gehwegbelag** (`BI_BELAG`): dieselbe Plattentextur, je Stadtteil
-   Farbe und Plattenmass. Eckpunktfarbe und Kachelung im vorhandenen
-   Gehweg-Mesh, kein Zeichenaufruf mehr. Der Bordstein bleibt grau. Die
-   Grenze ist immer eine Strasse: der Belag wechselt am Bordstein.
-2. **Erdgeschoss** (flach auf der vorhandenen Fassade): Ladenschilder an
-   Ladenkanten, Bueroschilder an Buerofronten, Hauseingaenge mit
-   Hausnummer und Leuchte an Wohnkanten.
-3. **Orientierung**: Wegweiser an Bezirksgrenzen, Banner an vorhandenen
-   Laternen, Portale ueber den Parkwegen, die Namen der drei Wahrzeichen,
-   Vorplaetze vor den Hochhaeusern.
+**Audit der ersten Fassung (Strassenhoehe, Keim 4711):**
 
-| Stadtteil | Belag | Erdgeschoss | Orientierung |
+- *Schilder.* 18 + 48 + 95 + 66 + 10 Ladenschilder (16 Ladenarten),
+  57 + 5 Bueroschilder, 42 Wegweiser, 48 Banner, 7 Parkportale - fast
+  alles flache Tafeln mit einem Wort. Sie waren das Hauptmittel der
+  Bezirke und zugleich das, was billig wirkte.
+- *Leere Fenster.* Nur die Tuerme (`createTower`) hatten echtes Glas.
+  Dahinter ein drei Meter tiefer, fast leerer Raum ohne Licht, die Lobby
+  kahl; aus der Naehe ein Loch. Die Modellhaeuser zeigen Fototextur-Fenster
+  (flach, tags hellblau), die prozeduralen Haeuser ein Fensterraster bis
+  zum Boden.
+- *Schwarze Erdgeschosse.* Arkade (ModernOffice_1), Saeulenreihe
+  (PublicBuilding_1), offene Halle (Brutal_1) und Pfeilerreihe
+  (Residential_3): dahinter eine fast schwarze Rueckwand - der staerkste
+  Eindruck "leer und unfertig" beim Gehen. Die erste Fassung hatte dort
+  bewusst nichts gesetzt (keine ebene Flaeche fuer ein Schild).
+- *Flach.* Jede Tafel eine Farbe auf der Fassade, ohne Relief, ohne
+  Tiefe, ohne Licht.
+
+**Entfernt:** alle Laden- und Bueroschilder, Wegweiser, Banner und
+Parkportale - der Text-Atlas schrumpft von 1024 x 2048 auf 1024 x 512.
+**Behalten:** die Hausnummern (Emailschild, jetzt neben echten
+Hauseingaengen), die Namen der drei Wahrzeichen (Metallbuchstaben ohne
+Grund auf dem Lobbyband), die 39 Vorplaetze vor den Hochhaeusern und der
+Belag je Stadtteil.
+
+### Das System
+
+**1. Fenster mit Innenraum (`city-visuals.js`, `innenraumPatch`).** Ein
+Zusatz fuer Lambert- und Phong-Materialien (`onBeforeCompile`): je
+Scheibe ein Raum im Fragment-Shader (Interior Mapping) - Rueckwand,
+Seitenwaende, Boden, Decke mit Leuchten, dazu Moebelkarten in festen
+Tiefen (Schreibtisch mit Bildschirm, Stuhl, Schrank, Pflanze; Theke;
+Regale, Puppen, Staender; Sofa und Lampe; Cafetische), vorn Jalousie
+(Buero) oder Vorhang (Wohnung), darueber Fresnel-Spiegelung von Himmel,
+Gegenueber und Strasse. Raumarten: Buero, Lobby, Laden, Wohnung, Cafe;
+Ladenwaende je Laden warmgrau, dunkel oder hell. Ob Licht brennt,
+entscheidet ein ganzzahliger Hash je Scheibe (Quote je Raumart); am Tag
+gedaempft gegen draussen, nachts an oder aus, hinten dunkler.
+`setzeInnenraumLicht` (aus `updateTagNacht`) liefert Nachtanteil und
+Himmelfarbe - ein Uniform-Paar fuer alle Materialien. Modi je Eckpunkt
+(`aIrRaum.w`): 0 Flaeche (Material des Sockels), 1 Scheibe mit Raum,
+2 Tuernische (Laibung, Tuerblatt mit Glas, Oberlicht, Griff, Downlight),
+3 klares Glas (echter Raum dahinter). Oberlichter: dunkel getoentes Glas
+mit Schimmer von innen. Keine zusaetzliche Geometrie fuer die Raeume,
+keine Textur.
+
+**2. Hochhaeuser (`createTower`).** Die Bueroscheiben zeigen ihre Raeume
+(Modus 1) - jede Scheibe ein eigener Raum, Licht an oder aus, Jalousie
+oder nicht; das Loch ist weg. Die Lobby bleibt echter Raum hinter klarem
+Glas (Modus 3) und ist eingerichtet: beleuchtete Steinwand am Kern,
+Lichtbaender unter der Decke, Pflanzen in Toepfen, vorn Empfangstheke
+und Portal (dunkle Laibung und Sturz um die Tuer), an den anderen
+Seiten Sitzgruppen. Steinsockel (0,45 m) je Turmstil, Pfeiler beginnen
+ueber ihm. Raumlicht je Stil (kuehl, warm). Alles in der Kiste: die
+Kollision bleibt die geschlossene Huelle, Grundriss und Dach exakt wie
+vorher (`tools/test-city-polish.cjs`, `test-realism-polish.cjs`).
+
+**3. Erdgeschosse an jeder Strassenseite (`biSockel`).** Flach auf der
+Fassade (1,5 cm davor, exakt geprueft), gebaut aus Spalten von unten
+nach oben ohne Ueberdeckung - kein Flimmern. Je Stadtteil und
+Kantennutzung ein Programm:
+
+| Programm | Aufbau |
+|---|---|
+| Buero (Zentrum, Geschaeft) | Pfeiler im Takt der Bucht, Sockelstein, Glasfelder mit Bueros, in der Mitte das Portal: Lobby hinter Glas, Tuer in tiefer Granitnische, Blende |
+| Flagship (Zentrum, Ladenkante) | breite Pfeiler, hohe Schaufenster, Metallrahmen in Bronze/Graphit |
+| Laden (Geschaeft, Laden-Kanten) | je Laden ein Rahmen in eigener gedeckter Farbe (Graphit, Tannengruen, Ochsenblut, Marine, Bronze, Elfenbein), Sockelbrett, Schaufenster mit Sprosse, Tuer in der Nische, Oberlicht, Blende |
+| Gemischt (Mischung) | kleiner Laden, Hauseingang, Fenster mit Buero oder Wohnung - im Wechsel |
+| Wohnen (Wohn, Ufer, Mischung) | Sockel (Klinker/Kalk), Putz, Fensterachsen mit Sims und Sturz, Hauseingang in der Nische mit Nummer und Leuchte, Gurtgesims oben |
+| Cafe (Ufer) | weite Glasfelder (6 m), helle Rahmen, Cafe-Raeume |
+
+Auf den Downtown-Modellen (dunkle Glas- und Betonfassaden) laufen Putz-
+und Kalkprogramme in gedeckten Toenen (gleiches Material, 62 %
+Helligkeit) - heller Putz stand dort wie ein vorgestellter Kasten.
+
+**4. Einsaetze in die Oeffnungen der Modelle (`biEinsaetze`).** Die
+Tiefenkarte der Kletterhaut (`FASS_GITTER`) kennt die Rueckwaende hinter
+Arkade, Saeulen, Halle und Pfeilern. Je Hausseite werden im Erdgeschoss
+(bis 5,5 m) Rechtecke gleicher Tiefe gesucht (Spanne 12 cm fuer
+Sprossen, mindestens 8 cm hinter der vordersten Ebene, ab Boden;
+mindestens 1,0 m breit, zwischen hohen Saeulen 0,5 m; tiefe Hallenwaende
+ab 1,8 m Hoehe). In jedes kommt ein Einsatz: Schaufenster, Lobby, Buero,
+Cafe oder Wohnung mit Raum dahinter, je nach Stadtteil und Kante, ab
+2,8 m Breite mit Tuer in dunkler Laibung; in schmalen Schlitzen ein Flur
+(kein Vorhang, der als heller Streifen leuchten wuerde). Rahmen gedeckt
+(Graphit, Bronze, Warmgrau). Die exakte Probe gegen die Dreiecke des
+Modells entscheidet: liegt etwas bis 15 cm davor (Sprosse, Rahmen), rueckt
+der Einsatz vor es; ragen Saeulen weiter vor, wird er an ihnen geteilt.
+Faellt ein Sockel in der Probe durch, bekommen die Oeffnungen, die fuer
+ihn ausgespart waren, doch noch ihre Einsaetze. Die Pfeiler der Modelle
+bleiben, wie sie sind; der Einsatz liegt flach auf der Rueckwand.
+
+**5. Boden, Nummer, Wahrzeichen.** Belag je Stadtteil wie in der ersten
+Fassung (Farbe und Plattenmass im vorhandenen Gehweg-Mesh), Geschaeft und
+Wohnen etwas gedeckter. Hausnummern laengs der Kante steigend rechts
+neben der Tuer, darueber die Leuchte. Die Namen der Wahrzeichen (0,34 m,
+unverzerrt 2,55 m breit) nehmen die freie Stelle des Lobbybands, die der
+Mitte am naechsten liegt, und weichen Leuchtschildern aus.
+
+### Die Stadtteile
+
+| Stadtteil | Material und Rhythmus | Fenster und Eingang | Licht |
 |---|---|---|---|
-| ZENTRUM | dunkler Granit, Grossplatten 6 x 3 m | Bueroschilder (Hotel, Kanzlei, Verlag ...) am Band ueber der Lobby | Banner an den Laternen, Namen der Wahrzeichen, helle Vorplaetze vor den Hochhaeusern |
-| GESCHAEFT | Sandstein, 3 m | Ladenschilder an fast jeder Front (16 Ladenarten) | Banner an den Laternen |
-| MISCHUNG | Betonplatte wie bisher (die Mitte) | Laeden und Hauseingaenge gemischt, je Kante | Wegweiser an den Grenzen |
-| WOHN | Klinker, 1,6 m | Hauseingaenge mit Hausnummer und Leuchte | - (ruhig) |
-| UFER | heller Uferstein, 5 m | Hauseingaenge an Wohnkanten | Banner an den Promenadenlaternen |
-| PARK | - (Rasen) | - | Portal mit Schild ueber jedem Parkweg |
-
-Die Namen auf den Schildern stammen aus der Bezirkslogik (Zentrum,
-Geschaeftsviertel, Mischgebiet, Wohngebiet, Ufer) und den vorhandenen
-Orten (Stadtpark, Flussbruecke, Uferpromenade, Stadtkrone, Nordturm,
-Bankhaus). Keine Strassennamen; Laeden und Bueros tragen nur ihre Art,
-keine Marke. Farben: gedeckte Gruende, helle Schrift - eine Familie.
+| ZENTRUM | Granit dunkel, Bronze, Pfeiler 0,4 m, Bucht 3,1 m; Tuerme mit Steinsockel | Bueros mit Jalousie, Portal mit Lobby in der Mitte, tiefe Granitnische; Flagship-Schaufenster an Ladenkanten; Vorplaetze, Namen der Wahrzeichen | kuehl |
+| GESCHAEFT | Travertin, Metallrahmen, Bucht 3,0 m, hohe Blende | dichte Ladenzeilen, je Laden eigene Rahmenfarbe, Schaufenster mit Ware und Puppen, Oberlicht | warm |
+| MISCHUNG | Beton, Putz, schmale Pfeiler, Bucht 2,6 m | Laden, Hauseingang, Buero oder Wohnung im Wechsel - Alltag, keine Ladenstrasse | neutral |
+| WOHN | Klinkersockel, Putz in sechs Toenen, weisse Rahmen, Gurtgesims | Wohnfenster mit Sims, Sturz und Vorhang; Hauseingaenge mit Nummer und Leuchte; Ecklaeden an der Avenue | warm, gelblich |
+| UFER | Kalkstein, helle Rahmen, weite Bucht 4,0 m | Wohnfenster, Cafes mit weiten Glasfeldern | hell, warm |
+| PARK | - | nichts Neues | - |
 
 ### Wie es gebaut ist
 
-- **Ein Zeichenaufruf.** Alle Tafeln, Banner, Portale und Vorplaetze in
-  einer Geometrie, ein Material (Lambert), eine Textur: ein Atlas
-  1024 x 2048, im Spiel gezeichnet (Canvas), nichts geladen. Nachts
-  leuchten nur Laden- und Bueroschilder, Schaufenster, Tuerleuchten und
-  die Wahrzeichen (emissiveMap ist der Atlas, der Anteil kommt aus einem
-  Eckpunktattribut; `updateTagNacht`). Kein Blending, keine Sortierung;
-  derselbe Tiefenversatz wie die Leuchtschilder (`NEON_VERSATZ`).
-- **Flach.** Jede Tafel liegt 1,5 cm vor der sichtbaren Flaeche. Am
-  prozeduralen Haus ist das die Kiste. Am Modell nur dort, wo die
-  Tiefenkarte im ganzen Rechteck eine Ebene zeigt (Spanne <= 2 cm, nicht
-  tiefer als 0,6 m) - und danach eine **exakte Probe** gegen die Dreiecke
-  des Modells besteht (je Tafel 6 x 3 Zellen: alle belegt, Spanne <=
-  2,5 cm, nichts mehr als 1 cm davor). Die Probe kam nach der ersten
-  Pruefstandsmessung dazu: die Karte tastet Zellmitten ab (rund 0,3 m),
-  zwei Ladenschilder an ModernOffice_1 lagen 4,3 cm hinter einem
-  schmalen Rahmen, an 20 Stellen fand ein Strahl hinter der Tafel keine
-  Flaeche. Am Turm das Band ueber der Lobby (es liegt in der Kiste).
-  Vor Arkade (ModernOffice_1), Saeulen (PublicBuilding_1) und offener
-  Halle (Brutal_1) steht deshalb kein Schild - dort fehlt die Flaeche.
-- **Kein Hindernis.** Nichts Neues hat eine Kollision. Ein neues
-  Hindernis aenderte `gehPlatzFrei` - und damit Ereignisorte, Wege und
-  Missionen. Das Parkportal steht auf zwei 10-cm-Stuetzen neben dem Weg,
-  das Schild ueber Kopfhoehe (2,78 bis 3,28 m) - wie Laterne und
-  Ampelmast. Klettern, Kamera, Top-out und Neon-Overlay sehen keine
-  einzige neue Flaeche.
+- **Ein Zeichenaufruf** fuer alle Erdgeschosse, Einsaetze, Nummern,
+  Wahrzeichen und Vorplaetze: eine Geometrie, ein Lambert-Material mit
+  `innenraumPatch`, der kleine Atlas. Die Flaechen (Granit, Kalk,
+  Travertin, Metall, Putz, Klinker, Holz, Beton, Lack) entstehen im Shader
+  aus Weltlage und Farbe (`BI_GLSL_FLAECHE`), mit der Pixelgroesse weich -
+  in der Ferne die Mittelfarbe, kein Flimmern. Die Tuerme brauchen keinen
+  Aufruf mehr als vorher (das Glas war schon ein Mesh).
+- **Flach und exakt.** Sockel nur auf ebener Flaeche (Tiefenkarte, dann
+  exakte Probe gegen die Dreiecke des Modells: alle Zellen belegt, Spanne
+  hoechstens 2,5 cm, nichts mehr als 1 cm davor). Einsatz auf der
+  Rueckwand der Oeffnung (siehe 4). Derselbe Tiefenversatz wie die
+  Leuchtschilder (`NEON_VERSATZ`).
+- **Kein Hindernis.** Nichts Neues hat eine Kollision; Klettern, Kamera,
+  Top-out und Neon-Overlay sehen keine neue Flaeche. Die Raeume sind
+  Shader, keine Geometrie.
 - **Kein Stadtzufall.** Jede Entscheidung aus `biHash` (Weltkeim, Ort,
-  Art). Das Anlegen der THREE-Objekte zieht ueber die uuid Zufall - alles
-  laeuft in einem eigenen Strom, der Stadtstrom wird danach
-  zurueckgesetzt. Gebaut wird einmal, am Ende von `setzeHausModelle`
-  (die Tiefenkarten stehen erst dann); fehlen die Modelle, auf den
-  Kisten.
-- **Leuchtschilder bleiben.** Wo eines haengt, weicht die neue Tafel aus
-  (Brett schrumpft, Wahrzeichen und Wegweiser rutschen laengs) oder
-  entfaellt.
-- **Keine Wiederholung.** Dasselbe Ladenwort nie an zwei Nachbarhaeusern
-  einer Kante und nie an beiden Seiten eines Eckhauses; Tuerfarbe aus
-  vier, Hausnummern laengs der Kante steigend (ungerade Nord/Ost, gerade
-  Sued/West).
-- Pruefschalter `__WEBHERO_OHNE_8A`: alles wie vor 8A.
+  Art), die Hashes im Shader ganzzahlig je Scheibe; gebaut in einem
+  eigenen Strom, der Stadtstrom wird danach zurueckgesetzt. Die Tuerme
+  bekommen ihren Keim aus der Lage (`createTower(..., seed)`), dieselbe
+  Zahl THREE-Objekte wie vorher.
+- **Leuchtschilder bleiben.** Sockel kuerzen sich oder gehen unter das
+  Schild; ein Einsatz darf hinter einem Schild liegen, das mindestens
+  6 cm vor ihm endet (Schild vor zurueckliegendem Schaufenster).
+- Pruefschalter `__WEBHERO_OHNE_8A`: Erdgeschosse und Belag wie vor 8A.
 
-### Was steht (Keim 4711)
+### Korrekturrunden der Neufassung (je mit Befund)
 
-| Stadtteil | Laden | Buero | Eingang | Wegweiser | Banner | Portal | Wahrzeichen | Vorplatz |
-|---|---|---|---|---|---|---|---|---|
-| ZENTRUM | 18 | 57 | 0 | 4 | 15 | 0 | 3 | 39 |
-| GESCHAEFT | 48 | 5 | 0 | 3 | 6 | 0 | 0 | 0 |
-| MISCHUNG | 95 | 0 | 40 | 18 | 0 | 0 | 0 | 0 |
-| WOHN | 66 | 0 | 103 | 10 | 0 | 0 | 0 | 0 |
-| UFER | 10 | 0 | 16 | 7 | 27 | 0 | 0 | 0 |
-| PARK | 0 | 0 | 0 | 0 | 0 | 7 | 0 | 0 |
+1. *Fenster grau, Nischen mit weissen Saeulen* auf dem Erdgeschoss-
+   Material: Lambert bekommt das Uniform `cameraPosition` nicht - die
+   Blickrichtung war falsch. Befund ueber eine Testfarbe der Strahl-
+   richtung; jetzt aus `viewMatrix`.
+2. *Pixelrauschen in den Scheiben:* der Hash je Scheibe wurde ueber das
+   Dreieck interpoliert (Abweichung 1e-4), `sin` machte daraus je Pixel
+   einen anderen Raum. Keime ganzzahlig, im Shader gerundet.
+3. *Grundriss-Test rot:* Sockel und Portal des Turms ragten 6 mm aus der
+   Kiste. Sockel buendig, Portal 4 mm zurueck.
+4. *Einsaetze fehlten* an Residential_3 (Sprossen: 12 cm Spanne), Brutal_1
+   (Hallenwand: 1,8 m Hoehe), PublicBuilding_1 (Felder 0,7 m: Mindestbreite
+   0,5 m bei hohen Feldern, halbe Zelle Rand) und ModernOffice_1 (Arkade:
+   vorruecken und teilen nach der exakten Probe).
+5. *ModernOffice_1, Arkade weiter schwarz:* der Sockel derselben Seite
+   sparte die Oeffnung aus und fiel danach in der exakten Probe durch -
+   beides weg. Jetzt nachgeholt (8 Seiten).
+6. *Oberlichter, Ladenraeume, Putz auf Downtown:* helle Bloecke ueber den
+   Tueren -> dunkles Glas; Ladenwaende weiss -> je Laden drei Toene; heller
+   Putz auf dunklen Modellen -> 62 %; Elfenbein-Rahmen in Modelloeffnungen
+   -> nur gedeckte Rahmen; Buerojalousien bis 95 % geschlossen und hell
+   -> hoechstens 60 % und gedeckt; Laeden nachts flach hell -> 0,45 und
+   hinten dunkler; Oberlichter nachts als Leuchtkaesten -> gedaempfter
+   Schein.
+7. *Wahrzeichen fehlten (3 x keineSeite):* gesucht wurde bei 3,0 bis
+   3,6 m, das Lobbyband liegt bei 3,9 bis 4,5 m. Danach 23 harte Fehler im
+   Pruefstand (Schrift ueber einem Leuchtschild, ohne Tiefe) -> Schrift
+   weicht aus, traegt ihre Tiefe; 0 Fehler.
 
-Zusammen 548 Elemente, 4808 Dreiecke. Orientierungselemente (Wegweiser,
-Banner, Portal, Wahrzeichen): Zentrum 22, Geschaeft 9, Mischung 18,
-Wohnen 10, Ufer 34, Park 7. Laeden im Wohngebiet: die Avenue x = -275
-laeuft durch das Wohngebiet, ihre Kanten sind Ladenkanten
-(`kantenNutzung`) - der Laden an der Ecke, die Wohnstrasse dahinter mit
-Hauseingaengen.
+Nicht gebaut: Markisen und Nasenschilder (stehen vor der Fassade - die
+Figur klettert hindurch), Bezirksfarbe an Modellfassaden (Modellmaterialien
+je Bezirk kopieren), freistehende Moebel mit Hindernis.
 
-Verworfen (nicht gesetzt, weil die Bedingung nicht erfuellt war):
-Ladenschild 110 x keine ebene Flaeche (PublicBuilding_1 46, Brutal_1 32,
-ModernOffice_1 6 ...), 25 x zu schmal nach Leuchtschild; Wegweiser 59 x
-keine Ebene, 55 Bloecke ohne freie Ecke (im Zentrum stehen die Tuerme
-frei, kein Haus reicht an die Ecke); exakte Probe 3 (zwei Ladenschilder,
-ein Wegweiser); ein Parkportal (Gehnetz zu nah). Sitzplaetze, Anker und
-Gehnetz wurden fuer kein Portal verschoben.
+### Was steht (Keim 4711, `district-identity.js`)
+
+| Stadtteil | Sockel | Einsaetze | Nummern | Wahrzeichen | Vorplaetze | Scheiben | Eingaenge | Laeden | Frontmeter |
+|---|---|---|---|---|---|---|---|---|---|
+| ZENTRUM | 16 | 90 | 0 | 3 | 39 | 128 | 33 | 16 | 320 |
+| GESCHAEFT | 12 | 149 | 0 | 0 | 0 | 175 | 26 | 169 | 336 |
+| MISCHUNG | 127 | 555 | 39 | 0 | 0 | 788 | 204 | 507 | 1890 |
+| WOHN | 164 | 232 | 134 | 0 | 0 | 568 | 196 | 109 | 1859 |
+| UFER | 41 | 231 | 37 | 0 | 0 | 264 | 51 | 40 | 712 |
+| PARK | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+Sockelprogramme: Zentrum Buero 12 / Flagship 4; Geschaeft Laden 10 /
+Buero 2; Mischung gemischt 89 / Laden 30 / Wohnen 8; Wohnen Wohnzeile
+114 / Ecklaeden 50; Ufer Wohnen 38 / Cafe 3. Flaeche im Mesh:
+10 306 m2 Material, 8 609 m2 Scheibe mit Raum, 310 m2 Oberlicht,
+1 381 m2 Tuernische. 78 416 Dreiecke. Die Tuerme (im Zentrum 39) sind
+nicht mitgezaehlt - ihre Scheiben gehoeren zu `createTower`.
+
+Verworfen (Bedingung nicht erfuellt): Sockel 423 x keine ebene Front am
+Modell (die Einsaetze uebernehmen dort, wo Oeffnungen sind), 3 x
+Leuchtschild, 8 x in der exakten Probe uneben; Einsatz 2 x zu klein;
+232 Einsaetze wurden nach der exakten Probe vorgerueckt oder geteilt und
+neu gesetzt (gezaehlt als `exakt:davor:einsatz:ersetzt`), keiner ging
+dabei verloren.
 
 ### Pruefstand (`tools/pruef/district-identity.js`)
 
-Bestand je Stadtteil, die neuen Details und ihre harten Fehler, der
-Welt-Fingerabdruck. Hart (Soll 0, gemessen 0): Tafel ausserhalb der
-Hausfront, ueber einem Leuchtschild, im Nachbarhaus, mehrfach je Front
-oder ueberlappend, schwebend oder steckend (je Tafel fuenf Strahlen von
-1 m davor auf die gezeichnete Geometrie: 2515 Strahlen, Tafel bis Flaeche
-0,008 bis 0,031 m, Soll 0 bis 0,035), keine Flaeche dahinter; Banner zu
-tief, ohne Laterne, schwebend oder im Hindernis; Portalstuetze nicht auf
-dem Boden, an einem Anker, Detail oder POI; Vorplatz nicht auf dem
-Gehweg, auf einem Ueberweg, ueber einem Schacht. Neue Hindernisse 0.
-Kleinste Schrift: Wegweiser-Zeile 0,20 m, Laden- und Bueroschild 0,38 m,
-Wahrzeichen 0,36 m, Portal 0,50 m, Banner-Name rund 0,09 m.
-Gleiches Ladenwort an benachbarten Haeusern: 4 (weich, keine Kante).
-
-### Bezirksgrenzen
-
-Die Einteilung ist unveraendert, der Uebergang liegt an der Strasse:
-Belag und Erdgeschoss wechseln am Bordstein der Querstrasse, nicht an
-einer unsichtbaren Linie. Wegweiser stehen bevorzugt an Ecken, an denen
-der Block gegenueber zu einem anderen Stadtteil gehoert. Die drei festen
-Grenzbilder: Zentrum -> Mischung (Banner "Zentrum" an der letzten
-Zentrumslaterne), Geschaeft -> Wohnen (Bueroschild auf der
-Geschaeftsseite, gegenueber Klinker und Hauseingang), Mischung -> Ufer
-(Hauseingang, heller Belag erst jenseits der Strasse).
+Bestand je Stadtteil wie in der ersten Fassung, dazu die neuen
+Erdgeschosse mit ihren harten Fehlern (Soll 0, gemessen 0): ausserhalb
+der Hausfront, ueber einem Leuchtschild, im Nachbarhaus, im Park,
+mehrfacher Sockel oder Ueberlappung je Front, schwebend oder steckend
+(je Flaeche sieben Strahlen von 1 m davor auf die gezeichnete Geometrie
+des eigenen Hauses: 11 550 Strahlen; Sockel bis Flaeche 0,010 bis
+0,019 m, Nummer 0,014 bis 0,023 m, Wahrzeichen 0,015 m, Einsatz 0,005 bis
+0,184 m - beim Einsatz darf die Oeffnung dahinter tiefer sein, aber
+nichts davor liegen), keine Flaeche dahinter; Vorplatz nicht auf dem
+Gehweg, auf einem Ueberweg oder ueber einem Schacht. Neue Hindernisse 0.
+Kleinste Schrift: Hausnummer 0,19 m, Wahrzeichen 0,34 m.
+Welt-Fingerabdruck gegen 82607ec: 26 von 26 gleich.
 
 ### Leistung und Ladezeit
 
 `stadt-leistung.js` (Keim 4711, 300 Aufnahmen, Median / Maximum der
-Zeichenaufrufe):
+Zeichenaufrufe); drei Laeufe der Neufassung Zeile fuer Zeile gleich:
 
 | | Strasse | Dach | Luft | gesamt | Dreiecke (Median gesamt) |
 |---|---|---|---|---|---|
 | 82607ec | 753,5 / 2597 | 768 / 2593 | 859,5 / 1874 | 794 | 3 401 482 |
-| 8A | 754,5 / 2598 | 769 / 2594 | 860,5 / 1875 | 795 | 3 406 290 |
+| 8A erste Fassung (9915ef5) | 754,5 / 2598 | 769 / 2594 | 860,5 / 1875 | 795 | 3 406 290 |
+| 8A Neufassung | 746 / 2596 | 757,5 / 2589 | 861 / 1878 | 792 | 3 470 894 |
 
-Ueberall genau ein Aufruf mehr (das eine Mesh), Grenze < 899 gehalten.
-Fuenf von sechs Laeufen mit 8A gleich bis auf die letzte Stelle, einer
-mit Luft 860 / 1872 (Ladestreuung, wiederholt: wieder 860,5 / 1875).
-Szene: Objekte 20 141 -> 20 142, Meshes 8281 -> 8282, Materialien
-2346 -> 2347, Texturen 323 -> 324, Geometrien 2064 -> 2065, Programme
-37 -> 38. Hindernisse +0. Bauzeit 0,17 bis 0,23 s (einmal, im Rueckruf
-der Hausmodelle). Texturspeicher des Atlas 8 MB, mit Mipmaps rund 11 MB.
+Grenze < 899 gehalten, Zeichenaufrufe gleich oder weniger (im Median 3
+weniger als die erste Fassung, nicht weiter aufgeschluesselt). Dreiecke
++1,9 % (Erdgeschosse 78 416 statt 4 808 Dreiecke, Lobbymoebel). Szene:
+Objekte 20 142, Meshes 8282, Materialien 2347, Texturen 324 - wie die
+erste Fassung; Programme 38 -> 39. Ein vierter Lauf, waehrend eine Probe
+parallel lief, fand die Szene noch nicht vollstaendig (20 131 Objekte) und
+zaehlt nicht.
 
-`ladezeit.js` (Median, Laeufe abwechselnd mit 82607ec):
+**Bauzeit** der Erdgeschosse (einmal, im Rueckruf der Hausmodelle):
+0,59 bis 0,67 s auf ruhiger Maschine (erste Fassung 0,17 bis 0,23 s).
+Je Schritt: Rechtecksuche in den Oeffnungen 0,15 s, exakte Probe
+0,19 s, Sockel 0,07 s, Einsatzgeometrie 0,06 s, Anhaengen 0,09 s, Mesh
+0,04 s (`bezirksIdentitaet().zeiten`, vom Pruefstand mit ausgegeben).
+Zuerst waren es rund 0,75 s; drei Aenderungen ohne Einfluss auf das
+Ergebnis - die exakte Probe laeuft nur noch ueber die Dreiecke in der
+Hoehe der Ziele (je Geometrie einmal nach Hoehe geordnet), die
+Rechtecksuche ueberspringt Schichten mit zu wenigen Zellen und bricht ab,
+sobald ein Feld zu niedrig wird, das Anhaengen geht stueckweise. Geprueft
+bitgleich: Pruefsumme ueber alle sieben Attribute des Meshes und die
+ganze Liste vor und nach jeder Aenderung.
+
+`ladezeit.js`, je drei Laeufe abwechselnd auf ruhiger Maschine (Median):
 
 | Sekunden ab Navigation | T1 letzte Datei | T2 Stadt steht | T5 erstes volles Bild | T6 Szene ruhig |
 |---|---|---|---|---|
-| 82607ec (8 Laeufe) | 15,5 | 16,2 | 21,4 | 32,8 |
-| 8A, erste Fassung (5) | 16,2 | 17,2 | 22,3 | 37,1 |
-| 8A, endgueltig (3) | 15,5 | 16,5 | 21,7 | 33,9 |
+| 8A erste Fassung (9915ef5) | 14,8 | 15,8 | 21,1 | 33,2 |
+| 8A Neufassung | 15,2 | 16,6 | 21,4 | 32,1 |
+| Versuch: Neufassung ohne Turm-Innenraum | 15,2 | 16,6 | 21,4 | 32,7 |
 
-**Befund und Korrektur.** Die erste Fassung brauchte bis T6 gut 4 s
-mehr - weit mehr als die 0,2 s Bauzeit. Mit dem Pruefschalter
-`__WEBHERO_OHNE_8A` verschwand der Unterschied (32,0 s). Die Bilder
-selbst dauerten gleich lang; was fehlte, war eine Luecke von 3,5 s
-zwischen zwei Bildern - der GPU-Prozess (SwiftShader) war beschaeftigt.
-Versuche an einer Kopie, je zwei Laeufe: Mesh gebaut, aber nicht
-gezeichnet -> weiter langsam; Gehweg ohne Eckpunktfarben -> weiter
-langsam; Atlas als Software-Canvas -> Luecke weg, dafuer 1,4 s mehr im
-Hauptfaden. Teuer war also das Zeichnen des Atlas: fuer den 4-px-Rand
-jeder Zelle (gegen Saeume in den Mipmaps) kopierte `drawImage` den
-Atlas viermal je Zelle auf sich selbst, und jede solche Kopie zwingt den
-Browser zu einem Abzug der ganzen 8-MB-Flaeche. Jetzt werden die Raender
-am Ende aus einer Kopie gezogen - zwei Abzuege statt vier je Zelle. Der
-Atlas ist im Inneren aller Zellen pixelgleich; in den Randstreifen
-einiger kleiner Zellen (Hausnummern, Schaufensterware) weichen 44 548
-Pixel um hoechstens 4/255 ab. Danach Fingerabdruck 26/26, harte Fehler
-0, `node --test` 170/170. Vergleichsblaetter und Nahaufnahmen in
-`docs/abnahme-8a/` sind mit dem korrigierten Stand aufgenommen. Gegen die
-Aufnahmen davor weichen die 24 festen Bilder an 907 von 12,4 Millionen
-Pixeln ab - an kleinen Tafeln wie den Hausnummern, wo die Mipmaps den
-Rand mitnehmen, einzelne Pixel bis 33/255; zwei Laeufe des korrigierten
-Stands untereinander an 4 Pixeln. Das Video ist vor der Korrektur
-aufgenommen.
+T6 unveraendert (Einzellaeufe neu 31,5 bis 33,9 s, 9915ef5 32,5 bis
+34,0 s); T1 -> T2 im Mittel 0,4 s laenger - die Bauzeit. Der Versuch
+ohne Innenraum-Shader an den Tuermen zeigt: die Raeume im Glas kosten
+keine messbare Ladezeit. Eine erste Messung (je zwei Laeufe, direkt nach
+dem Parallelbetrieb aller Pruefstaende) hatte T6 um 2 bis 5 s hoeher
+gezeigt - auf ruhiger Maschine und abwechselnd wiederholt nicht mehr.
 
-### Determinismus und Welt-Fingerabdruck
+### Determinismus
 
 `district-identity.js vergleich=<82607ec>`: 26 von 26 Werten gleich -
-Bezirke, Haeuser und Lots, Modelle und Fassadentexturen, die MENGE der
+Bezirke, Haeuser und Lots, Modelle und Fassadentexturen, die Menge der
 Hindernisse, POIs, Strassendetails, Aufenthaltsanker, Laternen,
 Gehnetz, Leuchtschilder, Missionen; nach dem Laden und nach 20 s
-Spielzeit Parkautos, fahrende Wagen (45), Passanten samt Look und Anker
-(88), Gegner. Die festen Bilder bestaetigen es unabhaengig: alle 24
-Aufnahmen haben genau 1 Zeichenaufruf und 4808 Dreiecke mehr als
-82607ec, alles andere - auch jeder Wagen und jeder Passant - steht an
-derselben Stelle.
-
-Ein Befund: die REIHENFOLGE, in der Hindernisse eingetragen werden,
-wechselt zwischen Laeufen. haeuser.glb, stadtmoebel.glb und
-bahnhofmoebel.glb tragen beim Laden Hindernisse nach; welche Datei zuerst
-fertig ist, haengt am Laden - die rund 0,2 s Bauzeit von 8A im Rueckruf
-der Haeuser verschieben das. Zwei Laeufe von 82607ec hatten dieselbe
-Reihenfolge, vier Laeufe mit 8A zweimal eine andere; die Menge war jedes
-Mal gleich. Dieselbe Art Laderennen ist schon fuer den Passanten-Eintrag
-von `szene.js` beschrieben (6p). Der Pruefstand fuehrt die Reihenfolge
-deshalb getrennt (`kolliderFolge`, nur Hinweis).
-
-### Erkennbarkeit (Teil 16)
-
-Bewertet an den zwoelf festen Strassenaufnahmen (je Stadtteil zwei, mit
-der Spielkamera), vorher gegen nachher, nach dem, was man sieht - nicht
-nach dem, was auf den Schildern steht:
-
-| Stadtteil | vorher | nachher | woran (ohne Schildtext) |
-|---|---|---|---|
-| ZENTRUM | B | **B** | Tuerme im Hintergrund wie vorher; neu der dunkle Granit in 6 x 3 m. Die Bueroschilder sitzen hoch auf dem Lobbyband, die Vorplaetze liegen in beiden Bildern ausserhalb des Blicks |
-| GESCHAEFT | C | **A** | Sandsteinbelag, Ladenschild ueber dem Schaufenster (G-A1), Glasfronten in Sandstein (G-A2) |
-| MISCHUNG | C | **B** | grauer Beton wie bisher, dazu ein Laden (Apotheke) und Hauseingaenge - erkennbar vor allem im Gegensatz zu den Nachbarn, fuer sich allein unauffaellig (so gewollt: die Mitte) |
-| WOHN | C | **A** | Klinkerbelag in beiden Bildern; Hauseingang mit Hausnummer und Leuchte, gruene Tuer gegenueber, Laden nur an der Avenue-Ecke |
-| UFER | B | **A** | Promenade mit Wasser wie vorher, neu das Banner "Ufer" an der Laterne; an der Uferstrasse (U-A2) nur der helle Belag - dort eher B |
-| PARK | A | **A** | Rasen und Baeume wie vorher; neu das Portal ueber dem Weg (P-A2); vom Gehweg am Parkrand (P-A1) unveraendert |
-
-Kein Stadtteil bleibt C oder D. Das Blatt `8a-blindtest-nachher.jpg`
-zeigt die zwoelf Aufnahmen ohne Namen in gemischter Reihenfolge (Schluessel
-im README), `8a-blindtest-vorher.jpg` dieselben vorher. Die endgueltige
-aesthetische Abnahme liegt beim Menschen.
-
-### Korrekturrunden
-
-1. Ladenschilder an den Modellen: nur 30 im Geschaeftsviertel - das
-   ebene Band ueber dem Erdgeschoss ist bei Residential_3 nur 0,33 bis
-   0,6 m hoch und liegt je nach Haushoehe bei 3 bis 5 m. Jetzt drei
-   Brett-Hoehen (0,55 / 0,45 / 0,38 m) bis 5,5 m: 48. Parkportale 1 von 8
-   (Gehnetz-Ring 1,3 m innen, Stehplaetze 0,45 m innen) -> ganz aussen,
-   breiter, Schild von Stuetze zu Stuetze: 7 von 8. Wahrzeichen 1 von 3
-   (Leuchtschild auf dem Lobbyband) -> rutscht laengs und wird kleiner:
-   3 von 3. Banner 0,45 x 0,9 -> 0,6 x 1,2 m, Wegweiser 0,92 -> 1,1 m
-   breit (im Bild zu klein). Schaufensterware vom Leuchtgelb auf gedeckte
-   Toene. Das Zentrum blieb auf Strassenhoehe zu nah am Vorher: der helle
-   Granit (fast weiss) war kaum vom Bestand zu unterscheiden -> dunkler,
-   kuehler Granit und Bueroschilder an den Buerofronten.
-2. Nur das Zentrum: Grossplatten 6 x 3 m statt 6 x 6 m und ein heller
-   Vorplatz vor dem Eingang jedes Hochhauses (39). Danach keine weitere
-   Aenderung.
-
-Zurueckgenommen bzw. gar nicht erst gebaut: Markisen und Nasenschilder
-(stehen vor der Fassade - die Figur klettert hindurch), freistehende
-Stelen und Parkpfeiler mit Hindernis (aendern `gehPlatzFrei`, also
-Ereignisorte und Wege), Bezirksfarbe an Fassaden (Modellmaterialien je
-Bezirk kopieren - verboten), Strassennamen (gibt es nicht).
+Spielzeit Parkautos, fahrende Wagen, Passanten samt Look und Anker,
+Gegner. Die Reihenfolge der Hindernisse (`kolliderFolge`) war in diesen
+Laeufen gleich; sie haengt weiter am Laden (siehe erste Fassung).
 
 ### Regression
 
-Gegen 82607ec, Keim 4711, Laeufe mit 8A in der ersten Fassung - die
-Atlas-Korrektur aendert nur Pixel im Atlas, keine Geometrie und keinen
-Ablauf (danach erneut: Fingerabdruck, harte Fehler, `node --test`).
+Gegen die erste Fassung (9915ef5), Keim 4711:
 
-- `node --test` 170/170.
-- `stadtraster.js`: alles unveraendert. `parkautos.js`: 300 gesetzt,
-  keine Befunde - beide Zeile fuer Zeile wie 7B.
-- `kernsysteme.js`: Story Akt 1 8 Missionen, 8 gestartet, 8 sauber
-  beendet; Seitenfehler 0, npc- und enemyStaticPenetration 0,
-  Stadtmoebel 19 / 2884, Aktivitaetenleck 0. Einsatzzaehler und
-  playerNpcOverlap streuen von Lauf zu Lauf (Laderennen). Je zwei Laeufe
-  auf ruhiger Maschine: ein 82607ec-Lauf und beide 8A-Laeufe Zeile fuer
-  Zeile gleich (darin playerNpcOverlap 7 - also auch auf 82607ec), der
-  zweite 82607ec-Lauf anders.
+- `node --test` 170/170. `test-realism-polish.cjs`: Kommentar
+  angepasst und zwei Zusicherungen dazu - die Scheiben tragen den
+  Innenraum-Shader, die Lobby ist klares Glas (Modus 3), die Bueros Raeume
+  (Modus 1); die echte Tiefe hinter der Scheibe bleibt gesichert.
+- `stadtraster.js`, `parkautos.js`: Zeile fuer Zeile gleich.
+- Problem-2: Naht 221 / 221 / 221, Aussenecke 150 / 150 (die bekannten
+  42 Faelle); Innenklettern isoliert 108 Laeufe, 0 angeklebt, 0
+  ungueltig; MO1 (`kletterproxy.js`) Brust / Becken / Koerper / Loch 0,
+  playerCutsFacade 0; `kletterstetigkeit.js`; FlatFacade-Top-out 13 / 13,
+  Kontrolle 8 / 8, postTopOutUnexpectedDisplacement 0,000 m; Brutal-Halle
+  gehen 30 / 30, rennen 30 / 30, invisibleCollision 0; Neon-Bahnen (27):
+  Brust / Becken / Knie hinter 0, Schnitt 0 - alles Zeile fuer Zeile gleich
+  (bis auf Messdauern).
+- Innenklettern im Weltlauf (Echtzeit, Ereignisse und Gefahren aktiv):
+  unter Volllast 5 ungueltige Faelle ("Treffer im Lauf"); auf ruhiger
+  Maschine wiederholt: Neufassung 2 und 0, 9915ef5 2 und 2 - Streuung des
+  Echtzeitlaufs. Harte Befunde in keinem Lauf.
+- `street-details.js`, `street-life.js`, `street-life-activities.js`:
+  Zeile fuer Zeile gleich (bis auf Messdauern).
+- `npc-wege.js`: A 2 / B 0 / C 0 / D 87 / E 83 (erste Fassung A 0 / B 1 /
+  C 0 / D 79 / E 84, 82607ec A 2 / B 1 / C 1 / D 85 / E 75). Die zwei
+  A-Faelle sind fliehende Passanten im Haus - die bekannte Fehlerart;
+  8A aendert kein Hindernis.
+- `kernsysteme.js`: Zeile fuer Zeile wie 9915ef5 in derselben Stunde
+  (Story Akt 1: 8 Missionen, 8 sauber beendet; Seitenfehler 0, npc- und
+  enemyStaticPenetration 0, playerNpcOverlap 7).
 - `freigang.js`: 572 gestreift, 0 gesperrt, kleinste Gehbreite 1,60 m -
-  Zeile fuer Zeile wie ein 82607ec-Lauf derselben Stunde.
-- Problem-2: Naht 221 / 221 / 221, Aussenecke 150 / 150 (mit den
-  bekannten 42 STECKT, wie 7B); Innenklettern isoliert und in der Welt
-  108 Laeufe, 0 angeklebt, 0 ungueltig, aussen 89 von 92 - wie bei der
-  7B-Abnahme; MO1 (`kletterproxy.js`) alle Laeufe Brust / Becken /
-  Koerper / Loch 0, playerCutsFacade 0; Fremdhaus beim Klettern 0
-  (`kletterstetigkeit.js`); FlatFacade-Top-out 13 / 13, Kontrolle 8 / 8,
-  postTopOutUnexpectedDisplacement 0,000 m; Brutal-Halle gehen 30 / 30,
-  rennen 30 / 30, invisibleCollision 0; Neon-Bahnen (27): Brust / Becken
-  / Knie hinter 0, Schnitt 0 - alles Zeile fuer Zeile wie 7B.
-- Stufe 7: `street-life.js` Zeile fuer Zeile wie 7B (88 Passanten, 60
-  Strasse / 28 U-Bahn, Culling, harte Geometriefehler 0);
-  `street-life-activities.js` Zeile fuer Zeile wie 7B bis auf die
-  Messdauer in ms (737 Anker, Anteil 0,35 in der Mischung M1, 8
-  Gespraeche, Sitzen 38 ohne Fehler, Gefahrabbruch, Culling-Kugel 8 von
-  8, harte Fehler 0).
-- `street-details.js`: bestanden (0), Gehnetz 30 Inseln / 1492 wie vorher.
-- `npc-wege.js`: 8A A 0 / B 1 / C 0 / D 79 / E 84, 82607ec in derselben
-  Stunde A 2 / B 1 / C 1 / D 85 / E 75. Streut von Lauf zu Lauf;
-  dieselben Fehlerarten (Flucht ins Haus, unter die Bodenflaeche)
-  zeigt auch 82607ec. B bei 8A ist die bekannte Brueckenroute
-  (263 / -17 -> 342 / -38).
-- `district-identity.js`: harte Fehler 0, Fingerabdruck 26 / 26.
-
-Weiter offen und nicht Teil von 8A: fliehende Passanten durch den
-stehenden Helden, Fliehende unter der Bodenflaeche an der
-Brueckenroute, der weisse Promenadenbelag, das Bushaeuschen.
+  wie 9915ef5; der Spielzaehler "auf Fahrbahn" 4 (9915ef5 in derselben
+  Stunde 3, fruehere Laeufe beider Staende 4).
+- `district-identity.js`: harte Fehler 0, Fingerabdruck 26 / 26, neue
+  Hindernisse 0.
 
 ### Grenzen
 
-- Das Zentrum traegt seine Identitaet weiter vor allem ueber die Tuerme;
-  auf Strassenhoehe hilft der dunkle Granit, die Schilder sitzen hoch
-  (Lobbyband 3,9 bis 4,5 m) und die Vorplaetze liegen an der +z-Seite
-  der Tuerme - nicht immer an der Strasse, an der man geht.
-- Ein Drittel der Modellfronten hat ueber dem Erdgeschoss keine ebene
-  Flaeche (Saeulen, Arkade, offene Halle) und bleibt ohne Schild.
+- Die Modellfassaden oberhalb des Erdgeschosses bleiben Fototextur;
+  Innenraeume gibt es dort nicht (nur Tuerme und Erdgeschosse).
+- Ein Teil der Oeffnungen hat keine zur Front parallele Rueckwand
+  (schraege Halle am PublicBuilding_1, Saeulenfuesse, Treppen) - dort
+  bleibt es dunkel.
 - Die Leuchtschilder bleiben, wie sie sind - auch im Wohngebiet.
-- Banner-Namen sind klein (rund 9 cm Schrift) - lesbar erst aus wenigen
-  Metern; das Motiv (Tuerme, Markise, Wellen) und die Farbe tragen.
+- Die Raeume sind Shader: aus sehr spitzem Winkel und bei sehr breiten
+  Scheiben wiederholen sie sich erkennbar; die Moebel sind Karten.
 - Nicht 8A und weiter offen: fliehende Passanten laufen durch den Helden,
   Fliehende kurz unter der Bodenflaeche an der Brueckenroute, der weisse
   Promenadenbelag in einem Teil der Bilder, das Bushaeuschen.

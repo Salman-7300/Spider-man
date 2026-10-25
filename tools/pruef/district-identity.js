@@ -1,4 +1,4 @@
-/* CITY V2, Stufe 8A: Bezirksidentitaet und visuelle Orientierung.
+/* CITY V2, Stufe 8A: Bezirksidentitaet ueber die Erdgeschosse.
 
    Drei Teile, alle aus dem laufenden Spiel gelesen:
 
@@ -8,20 +8,21 @@
       Kantennutzung, Leuchtschilder, Strassendetails, Laternen,
       Ampeln, Baenke, POIs, U-Bahn, Altbauhaeuser, Aufenthaltsanker.
 
-   2. DIE NEUEN DETAILS (Stufe 8A, __dbg.bezirksIdentitaet): Zahl und Art
-      je Stadtteil und die harten Platzierungsfehler, Soll ueberall 0:
-        - flaches Fassadendetail: Rueckseite nicht auf der sichtbaren
-          Wand (schwebt) oder in ihr (steckt), Wand hinter der Flaeche
-          nicht eben, ausserhalb der Hausfront, in einem Nachbarhaus,
-          ueber einem Leuchtschild
-        - bodenstehendes Detail: nicht auf Gehwegboden, im Hindernis,
-          Gehweg nach innen unter 1,8 m, Zebrastreifen, U-Bahn-Abgang,
-          Haustuer, POI, Sitz- und Aufenthaltsplatz, Gehnetz
-        - Mastdetail: Mast fehlt, Tafel im Mast oder im Haus, ueber der
-          Fahrbahn unter Fahrzeughoehe
-        - neue Hindernisse (Soll 0 - alles Neue ist flach oder haengt
-          an Vorhandenem)
-      und die Lesbarkeit: kleinste Schrifthoehe je Tafelart.
+   2. DIE NEUEN ERDGESCHOSSE (Stufe 8A, __dbg.bezirksIdentitaet): Sockel,
+      Einsaetze in den Oeffnungen der Modelle, Hausnummern, Wahrzeichen,
+      Vorplaetze - Zahl je Stadtteil und Programm, Scheiben, Eingaenge,
+      Laeden, Frontmeter, Flaeche je Art (Raum, Nische, Flaeche) und die
+      harten Platzierungsfehler, Soll ueberall 0:
+        - Sockel und Wahrzeichen nicht auf der sichtbaren Wand (schwebt,
+          mehr als 3,5 cm davor) oder in ihr (steckt)
+        - Einsatz: irgendetwas vor ihm (steckt) oder ein Loch dahinter
+          (mehr als 1 m frei)
+        - ausserhalb der Hausfront, in einem Nachbarhaus, ueber einem
+          Leuchtschild, zwei Flaechen uebereinander, im Park
+        - Vorplatz nicht auf dem Gehweg, auf einem Ueberweg, ueber einem
+          Schacht
+        - neue Hindernisse (Soll 0 - alles Neue ist flach)
+      und die Lesbarkeit: kleinste Schrifthoehe (Nummer, Wahrzeichen).
 
    3. WELT-FINGERABDRUCK: Bezirkszuordnung, Haeuser und Lots, Modelle,
       Fassadentexturen, Hindernisse, Parkautos, fahrende Wagen,
@@ -200,14 +201,13 @@ function finger(s) {
       B.farben = Object.fromEntries(Object.entries(B.farben).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, Math.round(v / ges * 100)]));
     }
 
-    /* ---- 2. Neue Details (Stufe 8A) ---- */
+    /* ---- 2. Neue Details (Stufe 8A): Sockel, Einsaetze, Nummern, Wahrzeichen, Vorplaetze ---- */
     const BI = d.bezirksIdentitaet ? d.bezirksIdentitaet() : null;
     let pruef = null;
     if (BI && BI.liste) {
       const F = {};                                   // harte Fehler: Art -> Zahl
       const fehl = (k, e, info) => { F[k] = (F[k] || 0) + 1; if (!pruef.beispiele[k]) pruef.beispiele[k] = Object.assign({ nr: e.nr, art: e.art, bezirk: e.bezirk }, info || {}); };
-      pruef = { beispiele: {}, zahlen: {}, orientierung: {}, schrift: {}, vorstand: 0, abstandMax: 0, abstandMin: Infinity,
-                strahlen: 0, ohneTreffer: 0, jeFront: 0, gleichesWortNachbar: 0, fronten: 0 };
+      pruef = { beispiele: {}, zahlen: {}, programme: {}, summen: {}, schrift: {}, abstand: {}, strahlen: 0, fronten: 0, flaeche: {} };
       const NEON = d.neonKisten();
       const meshe = new Map();                        // Haus -> sichtbare Geometrie zum Abtasten
       /* Modell -> Index des Hauses (hausKisten() liefert Kopien) */
@@ -222,56 +222,73 @@ function finger(s) {
       const ray = new THREE.Raycaster();
       const dir = new THREE.Vector3(), org = new THREE.Vector3();
       const KO = K;
-      const kistenRoh = d.hausKistenRoh ? d.hausKistenRoh() : null;
       const koll = (h) => d.colliders.find((q) => q.bau === q && Math.abs((q.x0 + q.x1) / 2 - h.x) < 0.01 &&
                                                   Math.abs((q.z0 + q.z1) / 2 - h.z) < 0.01 && Math.abs(q.h - (0.25 + h.h)) < 0.05);
-      const zaehl = (e) => { const k = e.bezirk + ':' + e.art; pruef.zahlen[k] = (pruef.zahlen[k] || 0) + 1; };
+      const zaehl = (e) => {
+        const k = e.bezirk + ':' + e.art; pruef.zahlen[k] = (pruef.zahlen[k] || 0) + 1;
+        if (e.programm) { const kp = e.bezirk + ':' + e.programm; pruef.programme[kp] = (pruef.programme[kp] || 0) + 1; }
+        const S = pruef.summen[e.bezirk] || (pruef.summen[e.bezirk] = { scheiben: 0, eingaenge: 0, laeden: 0, nummern: 0, frontMeter: 0 });
+        S.scheiben += e.scheiben || 0; S.eingaenge += e.eingaenge || 0; S.laeden += e.laeden || 0;
+        if (e.art === 'nummer') S.nummern++;
+        if (e.art === 'sockel' || e.art === 'einsatz') S.frontMeter += e.l1 - e.l0;
+      };
+      const merkAbstand = (art, ab) => {
+        const A2 = pruef.abstand[art] || (pruef.abstand[art] = { min: Infinity, max: -Infinity });
+        if (ab < A2.min) A2.min = ab; if (ab > A2.max) A2.max = ab;
+      };
       const jeFront = new Map();
       for (const e of BI.liste) {
         zaehl(e);
-        if (['wegweiser', 'banner', 'portal', 'wahrzeichen'].indexOf(e.art) >= 0)
-          pruef.orientierung[e.bezirk] = (pruef.orientierung[e.bezirk] || 0) + 1;
-        if (e.haus !== undefined && e.art !== 'banner' && e.art !== 'portal' && e.art !== 'vorplatz') {
+        if (e.haus !== undefined && e.art !== 'vorplatz') {
           const H = KO[e.haus];
           const breite = e.nx ? H.d : H.w;
           const fk = e.haus + '|' + e.nx + '|' + e.nz;
           if (!jeFront.has(fk)) jeFront.set(fk, []);
           jeFront.get(fk).push(e);
+          if (e.bezirk === 'PARK') fehl('imPark', e);
           /* in der Hausfront */
           if (e.l0 < -breite / 2 - 1e-3 || e.l1 > breite / 2 + 1e-3 || e.y0 < -1e-3 || e.y1 > H.h - 0.5) fehl('ausserhalbFront', e, { l0: e.l0, l1: e.l1, breite });
-          /* Leuchtschild ueberdeckt? */
-          for (const q of NEON) {
+          /* Leuchtschild ueberdeckt? (Nummer und Leuchte liegen auf dem Sockel;
+             ein Einsatz darf hinter einem Schild liegen, wenn dessen
+             Rueckseite mindestens 6 cm vor ihm endet) */
+          if (e.art !== 'nummer') for (const q of NEON) {
             if (q.haus !== e.haus || q.nx !== e.nx || q.nz !== e.nz) continue;
             const quer = q.nx !== 0, breitQ = quer ? q.d : q.w;
+            const sgQ = q.nx || q.nz, ebeneQ = quer ? H.x + q.nx * H.w / 2 : H.z + q.nz * H.d / 2;
+            const tiefQ = (ebeneQ - ((quer ? q.x : q.z) - sgQ * (quer ? q.w : q.d) / 2)) * sgQ;
+            if (e.art === 'einsatz' && tiefQ < e.tiefe - 0.06) continue;
             const l = e.nz ? e.nz * (q.x0 - H.x) : -e.nx * (q.z0 - H.z);
             const ny0 = q.y - q.h / 2 - 0.25, ny1 = q.y + q.h / 2 - 0.25;
             if (e.l1 > l - breitQ / 2 && e.l0 < l + breitQ / 2 && e.y1 > ny0 && e.y0 < ny1) fehl('ueberNeon', e, { neonY: [ny0, ny1] });
           }
-          /* Abtasten: von 1 m vor der Tafel senkrecht auf die Front - die
-             erste sichtbare Flaeche des EIGENEN Hauses muss 1,5 cm hinter
-             der Tafel liegen (+-2 cm); ein fremdes Haus davor ist ein
-             Schnitt mit dem Nachbarn. */
+          /* Abtasten: von 1 m vor der Flaeche senkrecht auf die Front - die
+             erste sichtbare Flaeche des EIGENEN Hauses (ohne die neuen
+             Details) liegt beim Sockel und Wahrzeichen 1,5 cm dahinter
+             (+-2 cm), bei der Nummer 1,9 cm; beim Einsatz darf die
+             Oeffnung dahinter tiefer sein (Glas hinter Sprossen, Rueckwand),
+             aber nichts darf VOR ihm liegen. */
           const ebene = e.nx ? H.x + e.nx * H.w / 2 : H.z + e.nz * H.d / 2;
-          const tafel = ebene + (e.nx || e.nz) * (BI.vor - e.tiefe);
-          const ziele = [];
+          const vor = BI.vor + (e.art === 'nummer' ? 0.004 : 0);
+          const tafel = ebene + (e.nx || e.nz) * (vor - e.tiefe);
           const eigen = meshe.get(e.haus) || null;
-          for (const [fl, fy] of [[0.5, 0.5], [0.1, 0.2], [0.9, 0.2], [0.1, 0.8], [0.9, 0.8]]) {
+          const punkte = e.art === 'nummer' ? [[0.5, 0.2]] : [[0.5, 0.5], [0.1, 0.2], [0.9, 0.2], [0.1, 0.8], [0.9, 0.8], [0.3, 0.5], [0.7, 0.5]];
+          for (const [fl, fy] of punkte) {
             const l = e.l0 + (e.l1 - e.l0) * fl, y = 0.25 + e.y0 + (e.y1 - e.y0) * fy;
             const px = e.nx ? tafel : H.x + e.nz * l, pz = e.nx ? H.z - e.nx * l : tafel;
             org.set(px + e.nx * 1.0, y, pz + e.nz * 1.0); dir.set(-e.nx, 0, -e.nz);
-            ray.set(org, dir); ray.near = 0; ray.far = 2.5;
+            ray.set(org, dir); ray.near = 0; ray.far = 8;
             const kand = [];
             if (H.modell && eigen) kand.push(eigen); else for (const m of prod) kand.push(m);
-            const treffer = ray.intersectObjects(kand, true).filter((t) => !t.object.userData || t.object.name !== 'Bezirksdetails');
+            const treffer = ray.intersectObjects(kand, true).filter((t) => t.object.name !== 'Bezirksdetails');
             pruef.strahlen++;
-            if (!treffer.length) { pruef.ohneTreffer++; fehl('keineFlaecheDahinter', e, { l, y }); continue; }
-            const ab = treffer[0].distance - 1.0;      // Tafel -> sichtbare Flaeche
-            if (ab > pruef.abstandMax) pruef.abstandMax = ab;
-            if (ab < pruef.abstandMin) pruef.abstandMin = ab;
-            if (ab > 0.035) fehl('schwebt', e, { abstand: +ab.toFixed(3), l: +l.toFixed(2), y: +y.toFixed(2), modell: H.modell });
+            if (!treffer.length) { fehl('keineFlaecheDahinter', e, { l, y }); continue; }
+            const ab = treffer[0].distance - 1.0;      // Flaeche des Details -> sichtbare Flaeche
+            merkAbstand(e.art, ab);
             if (ab < -0.005) fehl('steckt', e, { abstand: +ab.toFixed(3), l: +l.toFixed(2), y: +y.toFixed(2), modell: H.modell });
+            else if (e.art !== 'einsatz' && ab > 0.035) fehl('schwebt', e, { abstand: +ab.toFixed(3), l: +l.toFixed(2), y: +y.toFixed(2), modell: H.modell });
+            else if (e.art === 'einsatz' && ab > 1.0) fehl('einsatzVorLoch', e, { abstand: +ab.toFixed(3), modell: H.modell });
           }
-          /* fremdes Hindernis vor der Tafel (bis 0,5 m) */
+          /* fremdes Hindernis vor der Flaeche (bis 0,5 m) */
           for (const fl of [0.1, 0.5, 0.9]) for (const fy of [0.2, 0.8]) {
             const l = e.l0 + (e.l1 - e.l0) * fl, y = 0.25 + e.y0 + (e.y1 - e.y0) * fy;
             const px = e.nx ? ebene + e.nx * 0.25 : H.x + e.nz * l, pz = e.nx ? H.z - e.nx * l : ebene + e.nz * 0.25;
@@ -282,21 +299,10 @@ function finger(s) {
               if (px > c.x0 && px < c.x1 && pz > c.z0 && pz < c.z1 && y > unten && y < c.h) { fehl('inNachbarhaus', e, { kollId: c.id }); break; }
             }
           }
-          /* Schrift: kleinste Zeilenhoehe je Art */
-          const sh = e.art === 'wegweiser' ? BI.masse.zeile : e.y1 - e.y0;
-          if (e.art !== 'eingang' && (pruef.schrift[e.art] === undefined || sh < pruef.schrift[e.art])) pruef.schrift[e.art] = +sh.toFixed(3);
-        } else if (e.art === 'banner') {
-          if (e.y0 < 2.3) fehl('bannerZuTief', e, { y0: e.y0 });
-          const L = d.laterneStellen()[e.laterne];
-          if (!L) fehl('bannerOhneLaterne', e);
-          else if (Math.hypot(L[0] - e.x, L[1] - e.z) > BI.masse.bannerAb + BI.masse.banner[0] / 2 + 0.01) fehl('bannerSchwebt', e);
-          const k = e.kasten;
-          for (const c of d.colliderNah(e.x, e.z)) {
-            if (c.klein) continue;
-            const unten = c.y0 === undefined ? -50 : c.y0;
-            if (k.x1 > c.x0 && k.x0 < c.x1 && k.z1 > c.z0 && k.z0 < c.z1 && e.y1 > unten && e.y0 < c.h) { fehl('bannerImHindernis', e, { kollId: c.id }); break; }
+          if (e.art === 'nummer' || e.art === 'marke') {
+            const sh = e.art === 'nummer' ? BI.masse.nummer[1] : e.y1 - e.y0;
+            if (pruef.schrift[e.art] === undefined || sh < pruef.schrift[e.art]) pruef.schrift[e.art] = +sh.toFixed(3);
           }
-          pruef.schrift.banner = Math.min(pruef.schrift.banner || 9, 0.09);
         } else if (e.art === 'vorplatz') {
           /* flach im Belag: ueberall Gehweg darunter, kein Ueberweg, kein Schacht */
           for (const [px, pz] of [[e.x0, e.z0], [e.x1, e.z0], [e.x0, e.z1], [e.x1, e.z1], [(e.x0 + e.x1) / 2, (e.z0 + e.z1) / 2]])
@@ -304,39 +310,34 @@ function finger(s) {
           if (d.aufZebra(e.x0, e.x1, e.z0, e.z1)) fehl('vorplatzAufZebra', e);
           for (const l of d.ubLoecher()) if (e.x1 > l.x0 && e.x0 < l.x1 && e.z1 > l.z0 && e.z0 < l.z1) fehl('vorplatzUeberSchacht', e);
           if (Math.abs(e.y - 0.254) > 0.002) fehl('vorplatzHoehe', e, { y: e.y });
-        } else if (e.art === 'portal') {
-          if (e.y0 < 2.6) fehl('portalZuTief', e);
-          for (const p of e.stuetzen) {
-            if (Math.abs(d.groundYAt(p.x, p.z) - 0.25) > 0.03) fehl('stuetzeNichtAufBoden', e, p);
-            for (const A2 of AUF.anker) for (const P of A2.plaetze) if (Math.hypot(P.x - p.x, P.z - p.z) < 0.7) fehl('stuetzeAmAnker', e, { anker: A2.id });
-            for (const s of d.strassenDetails()) if (Math.abs(s.x - p.x) < s.r + 0.2 && Math.abs(s.z - p.z) < s.r + 0.2) fehl('stuetzeAmDetail', e, { sd: s.nr });
-            for (const q of POIS) if (Math.abs(q.y - 0.3) < 3 && Math.hypot(q.x - p.x, q.z - p.z) < 3) fehl('stuetzeAmPoi', e);
-          }
-          pruef.schrift.portal = +(e.y1 - e.y0).toFixed(3);
         }
       }
-      /* je Front hoechstens ein Laden, ein Eingang, ein Wegweiser; keine
-         zwei Rechtecke uebereinander */
+      /* je Front: keine zwei Flaechen uebereinander (die Nummer liegt auf
+         ihrem Sockel und zaehlt nicht), hoechstens ein Sockel */
       for (const [, l] of jeFront) {
         pruef.fronten++;
-        const art = {};
-        for (const e of l) art[e.art] = (art[e.art] || 0) + 1;
-        if (Object.values(art).some((n) => n > 1)) fehl('mehrfachAnFront', l[0], art);
-        for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) {
-          const a = l[i], b2 = l[j];
-          const yA = [a.y0, a.y1], yB = [b2.y0, b2.y1];
-          if (a.art === 'laden' && a.fenster) yA[0] = Math.min(yA[0], a.f0);
-          if (b2.art === 'laden' && b2.fenster) yB[0] = Math.min(yB[0], b2.f0);
-          if (a.l1 > b2.l0 + 1e-3 && a.l0 < b2.l1 - 1e-3 && yA[1] > yB[0] + 1e-3 && yA[0] < yB[1] - 1e-3) fehl('ueberlappung', a, { mit: b2.nr });
+        if (l.filter((e) => e.art === 'sockel').length > 1) fehl('mehrfachSockel', l[0]);
+        const flaechen = l.filter((e) => e.art !== 'nummer');
+        for (let i = 0; i < flaechen.length; i++) for (let j = i + 1; j < flaechen.length; j++) {
+          const a = flaechen[i], b2 = flaechen[j];
+          if (a.l1 > b2.l0 + 1e-3 && a.l0 < b2.l1 - 1e-3 && a.y1 > b2.y0 + 1e-3 && a.y0 < b2.y1 - 1e-3) fehl('ueberlappung', a, { mit: b2.nr });
         }
       }
-      /* gleiches Ladenwort an zwei Nachbarhaeusern derselben Zeile */
-      const laeden = BI.liste.filter((e) => e.art === 'laden');
-      for (const a of laeden) for (const b2 of laeden) {
-        if (b2.nr <= a.nr || a.nx !== b2.nx || a.nz !== b2.nz || a.wort !== b2.wort) continue;
-        const A2 = KO[a.haus], B2 = KO[b2.haus];
-        if (A2.zeile && A2.zeile === B2.zeile && Math.hypot(A2.x - B2.x, A2.z - B2.z) < (A2.w + B2.w + A2.d + B2.d) / 2 + 0.5) pruef.gleichesWortNachbar++;
+      /* die Flaeche des Meshes je Modus: Glas (Raum), Nische, Flaeche */
+      const g = d.bezirksMesh() && d.bezirksMesh().geometry;
+      if (g) {
+        const P = g.attributes.position, R = g.attributes.aIrRaum;
+        const a = new THREE.Vector3(), b3 = new THREE.Vector3(), c3 = new THREE.Vector3();
+        for (let i = 0; i < P.count; i += 3) {
+          a.fromBufferAttribute(P, i); b3.fromBufferAttribute(P, i + 1); c3.fromBufferAttribute(P, i + 2);
+          const fl = b3.sub(a).cross(c3.sub(a)).length() / 2;
+          const k = ['flaeche', 'raum', 'nische', 'klar'][R.getW(i)] + (R.getW(i) === 1 && R.getZ(i) === 5 ? ':milchglas' : '');
+          pruef.flaeche[k] = (pruef.flaeche[k] || 0) + fl;
+        }
+        for (const k of Object.keys(pruef.flaeche)) pruef.flaeche[k] = Math.round(pruef.flaeche[k]);
       }
+      for (const A2 of Object.values(pruef.abstand)) { A2.min = +A2.min.toFixed(3); A2.max = +A2.max.toFixed(3); }
+      for (const S of Object.values(pruef.summen)) S.frontMeter = Math.round(S.frontMeter);
       pruef.fehler = F;
       pruef.hart = Object.values(F).reduce((s2, v) => s2 + v, 0);
     }
@@ -408,14 +409,21 @@ function finger(s) {
   let fehler = 0;
   if (roh.pruef) {
     const P = roh.pruef;
-    console.log('\nNEUE DETAILS (Stufe 8A): Bauzeit ' + roh.BI.ms + ' ms, ' + roh.BI.dreiecke + ' Dreiecke, Fehler im Bau: ' + roh.BI.fehler);
-    console.log('Stadtteil   ' + ['laden', 'buero', 'eingang', 'wegweiser', 'banner', 'portal', 'wahrzeichen', 'vorplatz'].map((k) => k.padStart(12)).join(''));
-    for (const a of ARTEN) console.log(a.padEnd(11) + ' ' + ['laden', 'buero', 'eingang', 'wegweiser', 'banner', 'portal', 'wahrzeichen', 'vorplatz'].map((k) => String(P.zahlen[a + ':' + k] || 0).padStart(12)).join(''));
-    console.log('Orientierungselemente je Stadtteil ' + JSON.stringify(P.orientierung));
+    console.log('\nNEUE ERDGESCHOSSE (Stufe 8A): Bauzeit ' + roh.BI.ms + ' ms, ' + roh.BI.dreiecke + ' Dreiecke, Fehler im Bau: ' + roh.BI.fehler);
+    if (roh.BI.zeiten) console.log('Bauzeit je Schritt (ms) ' + JSON.stringify(roh.BI.zeiten));
+    const SP = ['sockel', 'einsatz', 'nummer', 'marke', 'vorplatz'];
+    console.log('Stadtteil   ' + SP.map((k) => k.padStart(10)).join('') + '   Scheiben Eingaenge Laeden  Frontmeter');
+    for (const a of ARTEN) {
+      const S = P.summen[a] || { scheiben: 0, eingaenge: 0, laeden: 0, frontMeter: 0 };
+      console.log(a.padEnd(11) + ' ' + SP.map((k) => String(P.zahlen[a + ':' + k] || 0).padStart(10)).join('') +
+        String(S.scheiben).padStart(11) + String(S.eingaenge).padStart(10) + String(S.laeden).padStart(7) + String(S.frontMeter).padStart(12));
+    }
+    console.log('Sockelprogramme ' + JSON.stringify(P.programme));
+    console.log('Flaeche je Art (m2) ' + JSON.stringify(P.flaeche));
     console.log('Belag ' + JSON.stringify(Object.fromEntries(Object.entries(roh.BI.belag).map(([k, v]) => [k, '#' + v.farbe.toString(16) + ' / ' + v.kachel + ' m']))));
     console.log('verworfen ' + JSON.stringify(roh.BI.verworfen));
-    console.log('Abtastung: ' + P.strahlen + ' Strahlen, Tafel->Flaeche ' + P.abstandMin.toFixed(3) + ' bis ' + P.abstandMax.toFixed(3) + ' m');
-    console.log('kleinste Schrifthoehe (Zeile/Tafel, m) ' + JSON.stringify(P.schrift) + '   gleiches Ladenwort an Nachbarhaeusern ' + P.gleichesWortNachbar);
+    console.log('Abtastung: ' + P.strahlen + ' Strahlen, Detail->Flaeche je Art (m) ' + JSON.stringify(P.abstand));
+    console.log('kleinste Schrifthoehe (m) ' + JSON.stringify(P.schrift) + '   Fronten ' + P.fronten);
     console.log('HARTE FEHLER ' + P.hart + ' ' + JSON.stringify(P.fehler));
     for (const [k, v] of Object.entries(P.beispiele)) console.log('  ' + k + ': ' + JSON.stringify(v));
     if (P.hart) fehler++;

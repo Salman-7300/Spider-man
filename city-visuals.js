@@ -29,6 +29,12 @@
     fassadenGlas: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 110, specular: 0xd8e6ee,
       transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }),
     trim: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 32, specular: 0x596370 }),
+    /* Die Scheiben der Hochhaeuser seit CITY V2 Stufe 8A: die Geschosse
+       zeigen ihren Raum im Glas (innenraumPatch, Modus 1), die Lobby ist
+       klares Glas vor dem echten, eingerichteten Raum (Modus 3). Deckkraft
+       0,42 gilt fuer das klare Glas; die Raumscheiben decken im Shader. */
+    innenGlas: new THREE.MeshPhongMaterial({ color: 0x0a0c0e, shininess: 110, specular: 0xd8e6ee,
+      transparent: true, opacity: 0.42, depthWrite: false, side: THREE.FrontSide }),
     windows: new THREE.MeshPhongMaterial({ color: 0x718b99, transparent: true,
       opacity: 0.25, depthWrite: false, shininess: 45 }),
     light: new THREE.MeshBasicMaterial({ vertexColors: true }),
@@ -123,16 +129,471 @@
     }
   }
 
+  /* ---- Innenraum hinter dem Glas (CITY V2, Stufe 8A) ----
+     Eine Scheibe zeigt einen Raum, ohne dass dafuer Geometrie entsteht:
+     der Blickstrahl laeuft im Fragment durch einen Kasten (Breite und Hoehe
+     der Scheibe, Tiefe D, Boden und Decke je Geschoss) und trifft Rueckwand,
+     Seitenwand, Boden oder Decke; davor stehen Moebel als Ebenen in fester
+     Tiefe (Schreibtischreihe, Theke, Regal, Sofa, Vorhang, Jalousie). Die
+     Parallaxe stimmt also - der Raum hat Tiefe, aus jedem Blickwinkel.
+     Je Scheibe ein Hash (Raumart, Licht an oder aus, Jalousie, Moebel),
+     nichts aus dem Stadtzufall.
+     Eckpunktdaten (je Scheibe gleich, nur aIrLokal laeuft ueber die Flaeche):
+       aIrLokal  Ort auf der Scheibe in Metern (u nach rechts, von aussen
+                 gesehen = cross(oben, Normale); v nach oben)
+       aIrMass   Breite, Hoehe, Raumtiefe, Hash
+       aIrRaum   Boden und Decke relativ zur Scheibenunterkante, Stil, Modus
+       aIrLicht  Farbe des Raumlichts (Tuerfarbe bei der Nische)
+     Modus: 1 Raum, 2 Eingangsnische, 3 klares Glas (echter Raum dahinter,
+     nur Spiegelung), 0 keine Scheibe (Flaeche - das macht der Aufrufer).
+     Stil (Raum): 0 Buero, 1 Lobby, 2 Laden, 3 Wohnung, 4 Cafe.
+     Stil (Nische): Laibung 0 dunkler Granit, 1 heller Stein, 2 Klinker,
+     3 Putz.
+     uIrNacht 0 (Tag) bis 1 (Nacht), uIrHimmel die Himmelsfarbe - beides
+     setzt das Spiel je Bild (setzeInnenraumLicht). */
+  const IR_UNIFORMS = { uIrNacht: { value: 0 }, uIrHimmel: { value: new THREE.Color(0x9fc4e8) } };
+  const IR_VERT_KOPF = [
+    'attribute vec2 aIrLokal;', 'attribute vec4 aIrMass;', 'attribute vec4 aIrRaum;', 'attribute vec3 aIrLicht;',
+    'varying vec2 vIrLokal;', 'varying vec4 vIrMass;', 'varying vec4 vIrRaum;', 'varying vec3 vIrLicht;', 'varying vec3 vIrStrahl;',
+  ].join('\n') + '\n';
+  const IR_VERT_RUMPF = `
+  {
+    vec4 irW = modelMatrix * vec4( transformed, 1.0 );
+    vec3 irN = normalize( mat3( modelMatrix ) * objectNormal );
+    vec3 irX = cross( vec3( 0.0, 1.0, 0.0 ), irN );
+    vec3 irT = length( irX ) > 1e-4 ? normalize( irX ) : vec3( 1.0, 0.0, 0.0 );
+    /* Kameraort aus der Ansichtsmatrix: three.js laedt cameraPosition nur
+       fuer Phong/Standard - beim Lambert der Erdgeschosse stand dort ein
+       alter Wert, und der Blick lief schief durch den Raum. */
+    mat3 irR = mat3( viewMatrix );
+    vec3 irKam = -vec3( dot( irR[ 0 ], viewMatrix[ 3 ].xyz ), dot( irR[ 1 ], viewMatrix[ 3 ].xyz ), dot( irR[ 2 ], viewMatrix[ 3 ].xyz ) );
+    vec3 irV = irW.xyz - irKam;
+    vIrStrahl = vec3( dot( irV, irT ), irV.y, -dot( irV, irN ) );
+    vIrLokal = aIrLokal; vIrMass = aIrMass; vIrRaum = aIrRaum; vIrLicht = aIrLicht;
+  }
+`;
+  const IR_FRAG_KOPF = `
+uniform float uIrNacht;
+uniform vec3 uIrHimmel;
+varying vec2 vIrLokal;
+varying vec4 vIrMass;
+varying vec4 vIrRaum;
+varying vec3 vIrLicht;
+varying vec3 vIrStrahl;
+float irH( float n ) { return fract( sin( mod( n, 1000.0 ) * 12.9898 + 4.1414 ) * 43758.5453 ); }
+float irR( vec2 p, vec2 a, vec2 b, float w ) {
+  vec2 s = smoothstep( a - w, a + w, p ) * ( 1.0 - smoothstep( b - w, b + w, p ) );
+  return s.x * s.y;
+}
+float irK( vec2 p, vec2 c, float r, float w ) { return 1.0 - smoothstep( r - w, r + w, length( p - c ) ); }
+float irKantenW() {
+#if __VERSION__ >= 300
+  return clamp( 0.7 * length( fwidth( vIrLokal ) ), 0.006, 0.25 );
+#else
+  return 0.015;
+#endif
+}
+/* Spiegelung: Himmel oben, gegenueberliegende Haeuser als dunkles Band
+   am Horizont, Strasse unten. */
+vec3 irSpiegel( vec3 rn ) {
+  vec3 himmel = uIrHimmel;
+  vec3 zenit = himmel * vec3( 0.78, 0.88, 1.06 );
+  vec3 haeuser = himmel * 0.32 + vec3( 0.035 );
+  vec3 strasse = vec3( 0.14, 0.15, 0.16 ) * ( 1.0 - 0.75 * uIrNacht );
+  float y = rn.y;
+  vec3 oben = mix( haeuser, mix( himmel, zenit, smoothstep( 0.3, 0.9, y ) ), smoothstep( 0.05, 0.4, y ) );
+  vec3 unten = mix( haeuser, strasse, smoothstep( 0.0, 0.35, -y ) );
+  return y > 0.0 ? oben : unten;
+}
+/* Ein Raum: Rueckgabe Farbe (schon mit Raumlicht), tief = Tiefe des Treffers */
+vec3 irRaum( vec3 r, vec2 p, vec4 m, vec4 q, vec3 licht, float w ) {
+  /* Hash ganzzahlig runden: interpoliert wackelt er um 1e-4, und sin()
+     macht daraus sonst je Pixel einen anderen Raum (Rauschen). */
+  float W = m.x, H = m.y, D = max( m.z, 0.3 ), s = floor( m.w + 0.5 );
+  float yB = q.x, yD = q.y, stil = floor( q.z + 0.5 );
+  float rz = max( r.z, 1e-4 );
+  float quote = stil < 0.5 ? 0.64 : ( stil < 1.5 ? 1.0 : ( stil < 2.5 ? 0.93 : ( stil < 3.5 ? 0.6 : 0.88 ) ) );
+  float an = step( irH( s * 3.7 + 1.3 ), quote );
+  float tag = 1.0 - uIrNacht;
+  /* Kasten */
+  float tx = r.x > 1e-4 ? ( W - p.x ) / r.x : ( r.x < -1e-4 ? -p.x / r.x : 1e6 );
+  float ty = r.y > 1e-4 ? ( yD - p.y ) / r.y : ( r.y < -1e-4 ? ( yB - p.y ) / r.y : 1e6 );
+  float tz = D / rz;
+  float t = min( tz, min( tx, ty ) );
+  vec3 h = vec3( p, 0.0 ) + r * t;
+  float hb = h.y - yB, RH = yD - yB;
+  float tief = h.z / D;
+  vec3 c = vec3( 0.7 );
+  vec3 e = vec3( 0.0 );
+  vec3 wand, boden, decke;
+  if ( stil < 0.5 ) { wand = vec3( 0.70, 0.71, 0.72 ); boden = vec3( 0.20, 0.21, 0.23 ); decke = vec3( 0.80 ); }
+  else if ( stil < 1.5 ) { wand = vec3( 0.74, 0.70, 0.63 ); boden = vec3( 0.52, 0.50, 0.47 ); decke = vec3( 0.86, 0.85, 0.83 ); }
+  else if ( stil < 2.5 ) {
+    /* Laeden: je Laden eine eigene Wand - warmgrau, dunkel oder hell */
+    float lw = irH( s * 4.13 + 2.9 );
+    wand = lw < 0.4 ? vec3( 0.62, 0.58, 0.53 ) : ( lw < 0.7 ? vec3( 0.30, 0.29, 0.28 ) : vec3( 0.74, 0.71, 0.66 ) );
+    boden = vec3( 0.58, 0.47, 0.36 ); decke = vec3( 0.80, 0.79, 0.77 );
+  }
+  else if ( stil < 3.5 ) { wand = vec3( 0.80, 0.73, 0.62 ); boden = vec3( 0.44, 0.32, 0.23 ); decke = vec3( 0.88, 0.86, 0.82 ); }
+  else { wand = vec3( 0.58, 0.46, 0.36 ); boden = vec3( 0.52, 0.48, 0.43 ); decke = vec3( 0.28, 0.25, 0.23 ); }
+  float variante = irH( s * 1.91 + 7.0 );
+  if ( tz <= tx && tz <= ty ) {
+    /* Rueckwand */
+    vec2 k = vec2( h.x, hb );
+    c = wand;
+    if ( stil < 0.5 ) {
+      c *= 0.94 + 0.06 * step( 0.04, fract( k.x / 1.25 ) );
+      float bild = irR( k, vec2( W * 0.3, 1.05 ), vec2( W * 0.7, 1.75 ), w );
+      c = mix( c, variante < 0.5 ? vec3( 0.93, 0.94, 0.95 ) : vec3( 0.25, 0.32, 0.38 ), bild * step( 0.35, variante ) );
+    } else if ( stil < 1.5 ) {
+      c *= 0.92 + 0.08 * step( 0.03, fract( k.x / 1.5 ) );
+      float feld = irR( k, vec2( W * 0.22, 0.6 ), vec2( W * 0.78, RH - 0.7 ), w );
+      c = mix( c, vec3( 0.88, 0.83, 0.74 ), feld );
+      e += feld * vec3( 1.0, 0.9, 0.75 ) * 0.35;
+    } else if ( stil < 2.5 ) {
+      for ( int i = 0; i < 5; i++ ) {
+        float fy = 0.42 + float( i ) * 0.4;
+        float brett = irR( k, vec2( 0.0, fy ), vec2( W, fy + 0.035 ), w );
+        float zelle = floor( k.x / 0.26 );
+        float hoch = 0.12 + 0.2 * irH( zelle * 3.1 + float( i ) * 7.7 + s );
+        vec3 ware = mix( vec3( 0.72, 0.68, 0.6 ), vec3( 0.42, 0.47, 0.52 ), irH( zelle + float( i ) * 13.0 + s * 2.0 ) );
+        ware = mix( ware, vec3( 0.55, 0.36, 0.3 ), step( 0.82, irH( zelle * 5.0 + float( i ) + s ) ) );
+        float stueck = irR( vec2( fract( k.x / 0.26 ), k.y ), vec2( 0.12, fy + 0.035 ), vec2( 0.88, fy + 0.035 + hoch ), w / 0.26 );
+        if ( k.y < 2.15 ) c = mix( mix( c, ware, stueck ), vec3( 0.3, 0.24, 0.19 ), brett );
+      }
+    } else if ( stil < 3.5 ) {
+      float bild = irR( k, vec2( W * 0.35, 1.3 ), vec2( W * 0.65, 1.8 ), w );
+      c = mix( c, vec3( 0.22, 0.2, 0.18 ), bild );
+      c = mix( c, vec3( 0.62, 0.55, 0.46 ), irR( k, vec2( W * 0.38, 1.36 ), vec2( W * 0.62, 1.74 ), w ) );
+    } else {
+      c = mix( c, vec3( 0.38, 0.26, 0.18 ), step( k.y, 1.0 ) );
+      float flaschen = step( 1.5, k.y ) * step( k.y, 2.1 ) * step( 0.55, fract( k.x / 0.12 ) );
+      c = mix( c, vec3( 0.32, 0.4, 0.3 ), flaschen * step( 0.3, variante ) );
+    }
+  } else if ( tx <= ty ) {
+    /* Seitenwand */
+    c = wand * 0.86;
+    if ( stil > 3.5 ) c = mix( c, vec3( 0.38, 0.26, 0.18 ), step( hb, 1.0 ) );
+  } else if ( r.y < 0.0 ) {
+    /* Boden */
+    c = boden;
+    vec2 f = vec2( h.x, h.z );
+    if ( stil > 0.5 && stil < 1.5 ) c *= 0.9 + 0.1 * step( 0.03, fract( f.x / 1.2 ) ) * step( 0.03, fract( f.y / 1.2 ) );
+    if ( stil > 1.5 && stil < 3.5 ) c *= 0.92 + 0.08 * step( 0.5, fract( f.x / 0.18 ) );
+  } else {
+    /* Decke mit Leuchten */
+    c = decke;
+    vec2 f = vec2( h.x, h.z );
+    float lampe = 0.0;
+    if ( stil < 0.5 ) lampe = irR( fract( f / vec2( 1.25, 1.2 ) ), vec2( 0.22, 0.25 ), vec2( 0.78, 0.75 ), w );
+    else if ( stil < 1.5 ) lampe = irK( fract( f / 1.5 ), vec2( 0.5 ), 0.12, w / 1.5 );
+    else if ( stil < 2.5 ) lampe = irK( fract( f / 0.9 ), vec2( 0.5 ), 0.08, w / 0.9 );
+    else if ( stil < 3.5 ) lampe = irK( f, vec2( W * 0.5, D * 0.5 ), 0.22, w );
+    else lampe = irK( fract( f / vec2( 1.3, 1.1 ) ), vec2( 0.5 ), 0.16, w / 1.2 );
+    c = mix( c, vec3( 1.0 ), lampe );
+    e += lampe * licht * ( 0.22 + 0.55 * an * ( 0.4 + 0.6 * uIrNacht ) );
+  }
+  /* Moebel: Ebenen von hinten nach vorn, weich ueberblendet */
+  float zk; vec2 k; float a;
+  if ( stil < 0.5 ) {
+    bool besprechung = variante < 0.22;
+    zk = clamp( D * 0.78, 1.2, D - 0.15 );
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float schrank = irR( k, vec2( W * irH( s + 2.0 ) * 0.4, 0.0 ), vec2( W * ( 0.55 + 0.4 * irH( s + 3.0 ) ), 1.05 ), w );
+      float pflanze = irK( k, vec2( W * ( 0.15 + 0.7 * irH( s + 4.0 ) ), 1.25 ), 0.32, w );
+      float topf = irR( k, vec2( W * ( 0.15 + 0.7 * irH( s + 4.0 ) ) - 0.18, 0.0 ), vec2( W * ( 0.15 + 0.7 * irH( s + 4.0 ) ) + 0.18, 0.5 ), w );
+      c = mix( c, vec3( 0.62, 0.6, 0.57 ), schrank * step( 0.4, irH( s + 5.0 ) ) );
+      c = mix( c, vec3( 0.25, 0.38, 0.24 ), clamp( pflanze, 0.0, 1.0 ) * step( 0.55, irH( s + 6.0 ) ) );
+      c = mix( c, vec3( 0.2, 0.2, 0.21 ), topf * step( 0.55, irH( s + 6.0 ) ) );
+    }
+    zk = clamp( D * 0.42, 0.8, D - 0.6 );
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      if ( besprechung ) {
+        float tisch = irR( k, vec2( W * 0.12, 0.7 ), vec2( W * 0.88, 0.76 ), w );
+        float bein = irR( k, vec2( W * 0.48, 0.0 ), vec2( W * 0.52, 0.72 ), w );
+        c = mix( c, vec3( 0.36, 0.27, 0.2 ), max( tisch, bein ) );
+      } else {
+        float raster = 1.6, x0 = mod( k.x + raster * irH( s + 8.0 ), raster );
+        float platte = irR( vec2( x0, k.y ), vec2( 0.08, 0.71 ), vec2( 1.48, 0.76 ), w );
+        float wange = irR( vec2( x0, k.y ), vec2( 0.1, 0.0 ), vec2( 0.16, 0.71 ), w ) + irR( vec2( x0, k.y ), vec2( 1.4, 0.0 ), vec2( 1.46, 0.71 ), w );
+        float schirm = irR( vec2( x0, k.y ), vec2( 0.52, 0.82 ), vec2( 1.04, 1.16 ), w );
+        float fuss = irR( vec2( x0, k.y ), vec2( 0.76, 0.76 ), vec2( 0.8, 0.82 ), w );
+        c = mix( c, vec3( 0.86, 0.85, 0.82 ), platte );
+        c = mix( c, vec3( 0.3, 0.31, 0.33 ), clamp( wange + fuss, 0.0, 1.0 ) );
+        c = mix( c, vec3( 0.06, 0.07, 0.08 ), schirm );
+        e += schirm * vec3( 0.25, 0.35, 0.5 ) * ( 0.15 + 0.6 * an * uIrNacht );
+      }
+    }
+    zk = max( 0.35, clamp( D * 0.42, 0.8, D - 0.6 ) - 0.5 );
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float raster = 1.6, x0 = mod( k.x + raster * irH( s + 8.0 ) + 0.18, raster );
+      float lehne = irR( vec2( x0, k.y ), vec2( 0.62, 0.5 ), vec2( 1.06, 1.02 ), w );
+      float sitz = irR( vec2( x0, k.y ), vec2( 0.6, 0.44 ), vec2( 1.08, 0.5 ), w );
+      float bein = irR( vec2( x0, k.y ), vec2( 0.82, 0.05 ), vec2( 0.86, 0.44 ), w );
+      c = mix( c, vec3( 0.11, 0.12, 0.13 ), clamp( lehne + sitz + bein, 0.0, 1.0 ) * step( 0.25, irH( s + 9.0 ) ) );
+    }
+  } else if ( stil < 1.5 ) {
+    zk = D * 0.55;
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float theke = irR( k, vec2( W * 0.22, 0.0 ), vec2( W * 0.78, 1.08 ), w );
+      float kante = irR( k, vec2( W * 0.21, 1.03 ), vec2( W * 0.79, 1.1 ), w );
+      c = mix( c, vec3( 0.82, 0.79, 0.73 ), theke );
+      c = mix( c, vec3( 0.95, 0.94, 0.9 ), kante );
+      float topf = irR( k, vec2( W * 0.06, 0.0 ), vec2( W * 0.06 + 0.5, 0.55 ), w );
+      float blatt = irK( k, vec2( W * 0.06 + 0.25, 1.15 ), 0.5, w );
+      c = mix( c, vec3( 0.22, 0.34, 0.22 ), blatt * step( 0.3, variante ) );
+      c = mix( c, vec3( 0.16, 0.16, 0.17 ), topf * step( 0.3, variante ) );
+    }
+    zk = D * 0.3;
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float pendel = irK( vec2( fract( k.x / 1.4 ) * 1.4, k.y ), vec2( 0.7, RH - 1.0 ), 0.13, w );
+      c = mix( c, vec3( 1.0, 0.95, 0.85 ), pendel );
+      e += pendel * licht * 1.4;
+    }
+  } else if ( stil < 2.5 ) {
+    zk = D * 0.45;
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float art = irH( s + 11.0 );
+      if ( art < 0.4 ) {
+        float x0 = mod( k.x + 0.3, 1.1 );
+        float rumpf = irK( vec2( x0, k.y * 0.55 ), vec2( 0.55, 1.22 * 0.55 ), 0.19, w );
+        float kopf = irK( vec2( x0, k.y ), vec2( 0.55, 1.68 ), 0.1, w );
+        float bein = irR( vec2( x0, k.y ), vec2( 0.47, 0.12 ), vec2( 0.63, 0.92 ), w );
+        float sockel = irR( vec2( x0, k.y ), vec2( 0.35, 0.0 ), vec2( 0.75, 0.12 ), w );
+        vec3 stoff = mix( vec3( 0.18, 0.2, 0.24 ), vec3( 0.62, 0.52, 0.42 ), irH( floor( ( k.x + 0.3 ) / 1.1 ) + s ) );
+        c = mix( c, stoff, clamp( rumpf + bein, 0.0, 1.0 ) );
+        c = mix( c, vec3( 0.88, 0.86, 0.82 ), max( kopf, sockel ) );
+      } else if ( art < 0.75 ) {
+        float stange = irR( k, vec2( 0.2, 1.48 ), vec2( W - 0.2, 1.52 ), w );
+        float zelle = floor( k.x / 0.11 );
+        float kleid = irR( k, vec2( 0.2, 0.62 + 0.25 * irH( zelle + s ) ), vec2( W - 0.2, 1.48 ), w ) * step( 0.25, fract( k.x / 0.11 ) );
+        vec3 stoff = mix( vec3( 0.2, 0.22, 0.27 ), vec3( 0.7, 0.64, 0.56 ), irH( zelle * 1.7 + s ) );
+        c = mix( mix( c, stoff, kleid ), vec3( 0.75 ), stange );
+      } else {
+        float podest = irR( k, vec2( W * 0.15, 0.0 ), vec2( W * 0.85, 0.8 ), w );
+        float stueck = irR( vec2( fract( k.x / 0.45 ), k.y ), vec2( 0.25, 0.8 ), vec2( 0.75, 1.0 + 0.2 * irH( floor( k.x / 0.45 ) + s ) ), w / 0.45 ) * step( 0.8, k.y );
+        c = mix( c, vec3( 0.9, 0.89, 0.86 ), podest );
+        c = mix( c, vec3( 0.36, 0.3, 0.26 ), stueck * step( k.x, W * 0.85 ) * step( W * 0.15, k.x ) );
+      }
+    }
+  } else if ( stil < 3.5 ) {
+    zk = D * 0.55;
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float sofa = irR( k, vec2( W * 0.1, 0.0 ), vec2( W * 0.72, 0.82 ), w + 0.03 );
+      float lampe = irR( k, vec2( W * 0.84 - 0.015, 0.0 ), vec2( W * 0.84 + 0.015, 1.4 ), w );
+      float schirm = irR( k, vec2( W * 0.84 - 0.17, 1.38 ), vec2( W * 0.84 + 0.17, 1.66 ), w );
+      vec3 stoff = mix( vec3( 0.36, 0.38, 0.34 ), vec3( 0.52, 0.36, 0.3 ), variante );
+      c = mix( c, stoff, sofa );
+      c = mix( c, vec3( 0.25 ), lampe );
+      c = mix( c, vec3( 0.95, 0.88, 0.72 ), schirm );
+      e += schirm * licht * ( 0.2 + 1.4 * an * uIrNacht );
+    }
+  } else {
+    zk = D * 0.8;
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float theke = irR( k, vec2( 0.0, 0.0 ), vec2( W, 1.05 ), w );
+      float maschine = irR( k, vec2( W * 0.6, 1.05 ), vec2( W * 0.6 + 0.55, 1.5 ), w );
+      c = mix( c, vec3( 0.3, 0.2, 0.14 ), theke );
+      c = mix( c, vec3( 0.62, 0.62, 0.6 ), maschine );
+    }
+    zk = D * 0.42;
+    if ( zk / rz < t ) {
+      k = vec2( p.x + r.x * zk / rz, p.y + r.y * zk / rz - yB );
+      float x0 = mod( k.x + 0.2, 1.5 );
+      float platte = irR( vec2( x0, k.y ), vec2( 0.4, 0.72 ), vec2( 1.1, 0.76 ), w );
+      float fuss = irR( vec2( x0, k.y ), vec2( 0.73, 0.0 ), vec2( 0.77, 0.72 ), w );
+      float stuhl = irR( vec2( x0, k.y ), vec2( 1.18, 0.0 ), vec2( 1.22, 0.9 ), w ) + irR( vec2( x0, k.y ), vec2( 1.1, 0.44 ), vec2( 1.42, 0.48 ), w );
+      c = mix( c, vec3( 0.86, 0.84, 0.8 ), platte );
+      c = mix( c, vec3( 0.18, 0.17, 0.16 ), clamp( fuss + stuhl, 0.0, 1.0 ) );
+      float kugel = irK( vec2( fract( k.x / 1.5 ) * 1.5, k.y ), vec2( 0.75, RH - 0.75 ), 0.14, w );
+      c = mix( c, vec3( 1.0, 0.9, 0.72 ), kugel );
+      e += kugel * licht * 1.3;
+    }
+  }
+  /* Licht im Raum: am Tag gedaempft gegen draussen, nachts an oder aus */
+  float innenTag = stil > 1.5 && stil < 2.5 ? 0.72 : ( stil > 0.5 && stil < 1.5 ? 0.75 : ( stil > 3.5 ? 0.62 : 0.5 ) );
+  float nachtL = stil > 1.5 && stil < 2.5 ? 0.45 : 0.55;
+  float L = mix( an * nachtL + ( 1.0 - an ) * 0.025, innenTag * ( 0.5 + 0.5 * an ), tag );
+  /* hinten dunkler - am Tag gegen das Licht von draussen, nachts weg von den Deckenleuchten */
+  L *= 1.0 - mix( 0.25, 0.3, tag ) * clamp( tief, 0.0, 1.0 );
+  vec3 lf = mix( licht, vec3( 1.0 ), tag * 0.6 );
+  vec3 farbe = c * L * lf + e * ( an + 0.25 * tag );
+  /* Sichtschutz an der Scheibe: Jalousie (Buero) oder Vorhang (Wohnung) */
+  zk = 0.05;
+  float yWin = p.y + r.y * zk / rz;
+  float xWin = p.x + r.x * zk / rz;
+  if ( stil < 0.5 ) {
+    float anteil = step( irH( s * 5.3 + 2.0 ), 0.34 ) * ( 0.15 + 0.45 * irH( s * 2.9 ) );
+    float jal = smoothstep( H * ( 1.0 - anteil ) - w, H * ( 1.0 - anteil ) + w, yWin ) * step( 0.01, anteil );
+    vec3 lamelle = vec3( 0.62, 0.61, 0.58 ) * ( 0.86 + 0.14 * step( 0.5, fract( yWin * 15.0 ) ) );
+    farbe = mix( farbe, lamelle * mix( an * 0.9 + 0.06, 0.8, tag ), jal );
+  } else if ( stil > 2.5 && stil < 3.5 ) {
+    float links = W * ( 0.18 + 0.2 * irH( s * 4.1 ) ), rechts = W * ( 1.0 - 0.18 - 0.2 * irH( s * 6.7 ) );
+    float bahn = max( 1.0 - smoothstep( links - w, links + w, xWin ), smoothstep( rechts - w, rechts + w, xWin ) );
+    vec3 stoff = mix( vec3( 0.86, 0.82, 0.74 ), vec3( 0.55, 0.42, 0.36 ), step( 0.6, irH( s * 8.3 ) ) ) * ( 0.86 + 0.14 * sin( xWin * 26.0 ) );
+    float glimm = an * uIrNacht;
+    farbe = mix( farbe, stoff * mix( 0.06 + 0.9 * glimm, 0.82, tag ) + stoff * licht * glimm * 0.35, bahn );
+    farbe = mix( farbe, vec3( 0.9, 0.88, 0.84 ) * mix( 0.05 + 0.8 * glimm, 0.85, tag ), 0.22 * step( 0.45, irH( s * 9.1 ) ) );
+  }
+  return farbe;
+}
+/* Eingangsnische: Laibung, Decke mit Downlight, Tuer mit Glas und Griff */
+vec3 irNische( vec3 r, vec2 p, vec4 m, vec4 q, vec3 tuer, float w ) {
+  float W = m.x, H = m.y, D = max( m.z, 0.15 );
+  float stil = floor( q.z + 0.5 );
+  float rz = max( r.z, 1e-4 );
+  float tx = r.x > 1e-4 ? ( W - p.x ) / r.x : ( r.x < -1e-4 ? -p.x / r.x : 1e6 );
+  float ty = r.y > 1e-4 ? ( H - p.y ) / r.y : ( r.y < -1e-4 ? -p.y / r.y : 1e6 );
+  float tz = D / rz;
+  float t = min( tz, min( tx, ty ) );
+  vec3 h = vec3( p, 0.0 ) + r * t;
+  vec3 laibung = stil < 0.5 ? vec3( 0.16, 0.165, 0.17 ) : ( stil < 1.5 ? vec3( 0.74, 0.71, 0.64 ) : ( stil < 2.5 ? vec3( 0.42, 0.26, 0.2 ) : vec3( 0.78, 0.74, 0.66 ) ) );
+  float tag = 1.0 - uIrNacht;
+  vec3 c; vec3 e = vec3( 0.0 );
+  float licht = 0.0;
+  if ( tz <= tx && tz <= ty ) {
+    vec2 k = vec2( h.x, h.y );
+    float th = min( H - 0.12, 2.36 );
+    float blatt = irR( k, vec2( W * 0.06, 0.0 ), vec2( W * 0.94, th ), w );
+    float glas = irR( k, vec2( W * 0.2, 0.95 ), vec2( W * 0.8, th - 0.2 ), w );
+    float oben = irR( k, vec2( W * 0.06, th + 0.08 ), vec2( W * 0.94, H - 0.04 ), w );
+    float griff = irR( k, vec2( W * 0.74, 0.9 ), vec2( W * 0.77, 1.3 ), w );
+    float mitte = W > 1.6 ? irR( k, vec2( W * 0.495, 0.0 ), vec2( W * 0.505, th ), w ) : 0.0;
+    c = laibung * 0.8;
+    c = mix( c, tuer, blatt );
+    vec3 drin = mix( vec3( 0.05, 0.06, 0.07 ), vec3( 1.0, 0.86, 0.62 ) * 0.9, uIrNacht * step( 0.3, irH( floor( m.w + 0.5 ) * 3.3 ) ) );
+    vec3 gl = mix( drin, irSpiegel( normalize( r ) ), 0.35 * tag );
+    c = mix( c, gl, max( glas, oben ) );
+    c = mix( c, vec3( 0.75, 0.73, 0.68 ), max( griff, mitte * 0.7 ) );
+    e += max( glas, oben ) * drin * uIrNacht * 0.6;
+  } else if ( tx <= ty ) {
+    c = laibung * ( 0.72 + 0.18 * ( 1.0 - h.z / D ) );
+  } else if ( r.y < 0.0 ) {
+    c = laibung * 0.9;
+  } else {
+    c = laibung * 0.62;
+    float spot = irK( vec2( h.x, h.z ), vec2( W * 0.5, D * 0.5 ), 0.07, w );
+    c = mix( c, vec3( 1.0 ), spot );
+    e += spot * vec3( 1.0, 0.85, 0.62 ) * ( 0.3 + 1.5 * uIrNacht );
+  }
+  /* Lichtkegel des Downlights nachts auf Tuer und Laibung */
+  float kegel = exp( -pow( ( h.y - H ) / ( H * 0.75 ), 2.0 ) ) * uIrNacht;
+  float L = mix( 0.05 + 0.9 * kegel, 0.62, tag );
+  return c * L * mix( vec3( 1.0, 0.82, 0.6 ), vec3( 1.0 ), tag ) + e;
+}
+/* Eine Scheibe: setzt Deckkraft, liefert die Farbe als Eigenleuchten */
+vec3 irScheibe( inout float alpha ) {
+  vec3 r = vIrStrahl;
+  vec3 rn = normalize( r );
+  float w = irKantenW();
+  float modus = floor( vIrRaum.w + 0.5 );
+  float cosT = clamp( rn.z, 0.0, 1.0 );
+  float fres = 0.04 + 0.62 * pow( 1.0 - cosT, 5.0 );
+  vec3 spiegel = irSpiegel( rn );
+  float tag = 1.0 - uIrNacht;
+  if ( modus > 2.5 ) {
+    alpha = clamp( 0.24 + fres * 1.1 + 0.08 * tag, 0.0, 0.92 );
+    return spiegel * ( 0.55 + 0.45 * tag ) / max( alpha, 0.2 ) * ( fres + 0.1 * tag );
+  }
+  alpha = 1.0;
+  if ( modus > 1.5 ) return irNische( r, vIrLokal, vIrMass, vIrRaum, vIrLicht, w );
+  /* Stil 5: Milchglas (Oberlichter) - weich, nachts warm von innen */
+  if ( floor( vIrRaum.z + 0.5 ) > 4.5 ) {
+    float an = step( irH( floor( vIrMass.w + 0.5 ) * 2.3 + 0.7 ), 0.7 );
+    /* dunkel getoent wie das Glas der Schaufenster, mit Schimmer von innen */
+    vec3 milch = mix( vec3( 0.10, 0.105, 0.11 ), vec3( 0.17, 0.175, 0.18 ), vIrLokal.y / max( vIrMass.y, 0.1 ) );
+    milch += an * vIrLicht * 0.05;
+    vec3 tagFarbe = mix( milch, spiegel, 0.1 + 0.55 * fres );
+    /* nachts ein gedaempfter Schein, kein Leuchtkasten */
+    vec3 nachtFarbe = mix( vec3( 0.03 ), vIrLicht * 0.3, an );
+    return mix( tagFarbe, nachtFarbe, uIrNacht );
+  }
+  vec3 innen = irRaum( r, vIrLokal, vIrMass, vIrRaum, vIrLicht, w );
+  float spiegelAnteil = fres * ( 1.0 - 0.55 * uIrNacht ) + 0.14 * tag;
+  return mix( innen * vec3( 0.92, 0.95, 0.97 ), spiegel, clamp( spiegelAnteil, 0.0, 0.9 ) );
+}
+`;
+  /* Einem Material den Innenraum geben. extra.fragKopf (GLSL vor main)
+     und extra.flaeche (GLSL fuer Modus 0, darf diffuseColor setzen) sind
+     fuer das Spiel - die Flaechen der Erdgeschosse im selben Aufruf. */
+  function innenraumPatch(material, key, extra) {
+    const ex = extra || {};
+    material.onBeforeCompile = (sh) => {
+      sh.uniforms.uIrNacht = IR_UNIFORMS.uIrNacht;
+      sh.uniforms.uIrHimmel = IR_UNIFORMS.uIrHimmel;
+      sh.vertexShader = IR_VERT_KOPF + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n' + IR_VERT_RUMPF);
+      sh.fragmentShader = IR_FRAG_KOPF + (ex.fragKopf || '') + sh.fragmentShader
+        .replace('#include <color_fragment>', `#include <color_fragment>
+  vec3 irEmit = vec3( 0.0 );
+  if ( vIrRaum.w > 0.5 ) {
+    float irA = 1.0;
+    irEmit = irScheibe( irA );
+    diffuseColor.rgb = vec3( 0.025, 0.028, 0.03 );
+    diffuseColor.a = irA;
+  }` + (ex.flaeche ? ' else {\n' + ex.flaeche + '\n  }' : ''))
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += irEmit;');
+    };
+    material.customProgramCacheKey = () => 'innenraum-' + key;
+    material.userData.innenraum = true;
+    return material;
+  }
+  /* Je Bild aus dem Spiel: nacht 0..1, himmel die Hintergrundfarbe. */
+  function setzeInnenraumLicht(nacht, himmel) {
+    IR_UNIFORMS.uIrNacht.value = nacht;
+    if (himmel) IR_UNIFORMS.uIrHimmel.value.copy(himmel);
+  }
+  /* Eine Scheibe mit Raum in einen Stapel: Mittelpunkt (x, y, z), Drehung
+     ry wie Batch.panel (Normale nach +z, gedreht), Breite b, Hoehe h.
+     raum = { D, yB, yD, stil, modus, seed, licht: [r, g, b] }. */
+  function fensterInStapel(f, b, h, x, y, z, ry, raum) {
+    const nx = Math.sin(ry), nz = Math.cos(ry);
+    const tx = nz, tz = -nx;                     // cross(oben, Normale)
+    const ecken = [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]];
+    for (const [a, c] of ecken) {
+      const u = a * b, v = c * h;
+      f.p.push(x + tx * (u - b / 2), y + (v - h / 2), z + tz * (u - b / 2));
+      f.n.push(nx, 0, nz);
+      f.lo.push(u, v);
+      f.ma.push(b, h, raum.D, raum.seed);
+      f.ra.push(raum.yB, raum.yD, raum.stil, raum.modus);
+      const L = raum.licht || [1, 1, 1];
+      f.li.push(L[0], L[1], L[2]);
+    }
+  }
+  function fensterStapel() { return { p: [], n: [], lo: [], ma: [], ra: [], li: [] }; }
+  function fensterGeometrie(f) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(f.p, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(f.n, 3));
+    g.setAttribute('aIrLokal', new THREE.Float32BufferAttribute(f.lo, 2));
+    g.setAttribute('aIrMass', new THREE.Float32BufferAttribute(f.ma, 4));
+    g.setAttribute('aIrRaum', new THREE.Float32BufferAttribute(f.ra, 4));
+    g.setAttribute('aIrLicht', new THREE.Float32BufferAttribute(f.li, 3));
+    g.computeBoundingBox(); g.computeBoundingSphere();
+    return g;
+  }
+
   const TOWERS = [
     { name: 'Glasraster', wall: 0x233c48, trim: 0xa4b4bc, glass: [0x426876, 0x527f8d, 0x315967, 0x69929b] },
     { name: 'Kalkstein', wall: 0xb8b5a8, trim: 0xd8d3c5, glass: [0x294c5c, 0x365f6b, 0x254453, 0x526d72] },
     { name: 'Backstein & Kupfer', wall: 0x735449, trim: 0xb28561, glass: [0x365e65, 0x45717a, 0x254c57, 0x62858a] },
     { name: 'Silberband', wall: 0x526069, trim: 0xc8cdd0, glass: [0x46687f, 0x627f91, 0x365b73, 0x8199a4] },
   ];
-  function createTower(w, h, d, variant = 0) {
+  innenraumPatch(materials.innenGlas, 'turm');
+  /* Lobby-Pflanze: ein grober Busch ueber dem Topf (einmal erzeugt). */
+  const busch = new THREE.IcosahedronGeometry(0.46, 0).toNonIndexed();
+  function createTower(w, h, d, variant = 0, seed = 0) {
     if (![w, h, d].every(Number.isFinite) || Math.min(w, h, d) <= 0) throw new Error('Invalid tower dimensions');
     const kind = ((variant % TOWERS.length) + TOWERS.length) % TOWERS.length, style = TOWERS[kind];
-    const solid = new Batch(), glazing = new Batch(), rooms = new Batch(), lamps = new Batch();
+    const solid = new Batch(), glazing = fensterStapel(), rooms = new Batch(), lamps = new Batch();
     const group = new THREE.Group();
     const lobby = Math.min(4.2, h * 0.18), floors = Math.max(1, Math.floor((h - lobby) / 3.15));
     const rise = (h - lobby - 0.36) / floors;
@@ -146,14 +607,24 @@
       const y = lobby + floor * rise;
       solid.box(w - 0.08, 0.16, d - 0.08, 0, y + 0.08, 0, 0xa6a59c);
     }
+    /* CITY V2 Stufe 8A: Sockel, Portal, Raumlicht und Lobby je Turmstil.
+       Die Geschosse zeigen ihre Bueros im Glas (innenraumPatch) - jede
+       Scheibe ein eigener Raum mit Licht an oder aus, Jalousie oder nicht.
+       Die Lobby bleibt echter Raum hinter klarem Glas und ist eingerichtet. */
+    const sockel = [0x2a2d31, 0x8a8478, 0x382e2a, 0x2c3236][kind];
+    const portal = [0x1d2023, 0x4a463f, 0x2a211c, 0x23282c][kind];
+    const wandStein = [0xcfc7b8, 0xe0d8c6, 0xc9b7a2, 0xd3d2cd][kind];
+    const licht = [[0.92, 0.97, 1.06], [1.0, 0.96, 0.88], [1.0, 0.92, 0.8], [0.95, 0.98, 1.05]][kind];
+    const turmHash = Math.floor(Math.abs(seed) * 0.6180339 + w * 1.37 + h * 0.71 + d * 2.03 + kind * 5.1) % 997;
+    const doorW = Math.min(2.25, Math.max(w, d) * 0.24);
     for (let face = 0; face < 4; face++) {
       const width = face % 2 ? d : w, depth = face % 2 ? w : d, ry = face * Math.PI / 2;
       const local = (x, z) => [Math.cos(ry) * x + Math.sin(ry) * z, -Math.sin(ry) * x + Math.cos(ry) * z];
       const bar = (bw, bh, bd, x, y, inset, color) => {
         const [px, pz] = local(x, depth / 2 - inset); solid.box(bw, bh, bd, px, y, pz, color, ry);
       };
-      const window = (bw, bh, x, y, color, inset = 0.015) => {
-        const [px, pz] = local(x, depth / 2 - inset); glazing.panel(bw, bh, px, y, pz, color, ry);
+      const scheibe = (bw, bh, x, y, raum) => {
+        const [px, pz] = local(x, depth / 2 - 0.015); fensterInStapel(glazing, bw, bh, px, y, pz, ry, raum);
       };
       const inside = (batch, bw, bh, bd, x, y, inset, color) => {
         const [px, pz] = local(x, depth / 2 - inset); batch.box(bw, bh, bd, px, y, pz, color, ry);
@@ -164,42 +635,21 @@
       const band = [0.58, 1.05, 0.82, 1.12][kind];
       for (let col = 0; col < cols; col++) {
         const x = -width / 2 + 0.25 + (col + 0.5) * step;
-        window(step - column, lobby - 0.18, x, lobby / 2, style.glass[(col + face) % style.glass.length]);
+        scheibe(step - column, lobby - 0.18, x, lobby / 2,
+          { D: roomDepth, yB: -0.09, yD: lobby - 0.09, stil: 1, modus: 3, seed: (turmHash + face * 31 + col) % 997, licht });
         for (let floor = 0; floor < floors; floor++) {
           const base = lobby + floor * rise, y = base + rise / 2;
-          const seed = floor * 11 + col * 7 + face * 3 + kind * 17;
-          window(step - column, rise - band, x, y, style.glass[seed % style.glass.length]);
-          // Some offices have blinds. Others reveal desks, chairs and
-          // monitors; no furniture or luminous panel sits on the glass.
-          if (seed % 9 === 0) {
-            inside(rooms, step - column - 0.08, rise * 0.28, 0.018, x,
-              base + rise * 0.79, 0.13, 0xb9b7aa);
-          }
-          if (seed % 12 === 0) {
-            const deskDepth = Math.min(roomDepth - 0.55, 1.55);
-            inside(rooms, Math.min(step * 0.65, 1.45), 0.07, 0.68, x, base + 0.88, deskDepth, 0x9c8262);
-            for (const sx of [-1, 1]) inside(rooms, 0.055, 0.67, 0.5,
-              x + sx * Math.min(step * 0.24, 0.54), base + 0.51, deskDepth, 0x495258);
-            inside(rooms, 0.49, 0.31, 0.05, x, base + 1.09, deskDepth + 0.13, 0x26333c);
-            inside(rooms, 0.43, 0.37, 0.06, x, base + 0.75, deskDepth - 0.48, 0x4c6269);
-          }
-          if (seed % 5 === 0) {
-            const half = Math.min(step - 0.3, 1.1) / 2, z = depth / 2 - roomDepth * 0.52;
-            const corners = [[x - half, z - 0.21], [x + half, z - 0.21],
-              [x + half, z + 0.21], [x - half, z + 0.21]].map(([px, pz]) => {
-                const p = local(px, pz); return [p[0], base + rise - 0.1, p[1]];
-              });
-            lamps.quad(...corners, seed % 2 ? 0xeadcc2 : 0xd2e3e5);
-          }
-          if (col > 0 && col % 3 === 0) inside(solid, 0.07, rise - 0.16,
-            roomDepth - 0.13, x - step / 2, y + 0.08, roomDepth / 2 + 0.065, 0xaba89c);
+          scheibe(step - column, rise - band, x, y, {
+            D: roomDepth - 0.08, yB: 0.16 - band / 2, yD: rise - band / 2 - 0.1, stil: 0, modus: 1,
+            seed: (turmHash * 3 + floor * 11 + col * 7 + face * 3 + kind * 17) % 997, licht });
         }
       }
       // Columns and floor bands have depth, but stay inside the existing collision box.
+      // Columns start on the plinth, so the two never share a plane.
       for (let col = 0; col <= cols; col++) {
         const x = -width / 2 + 0.25 + col * step;
         bar(col === 0 || col === cols ? Math.min(0.5, column) : column,
-          h - 0.22, 0.18, x, (h - 0.22) / 2, 0.09, kind === 1 || kind === 2 ? style.wall : style.trim);
+          h - 0.67, 0.18, x, 0.45 + (h - 0.67) / 2, 0.09, kind === 1 || kind === 2 ? style.wall : style.trim);
       }
       for (let floor = 0; floor <= floors; floor++) {
         const y = lobby + floor * rise;
@@ -207,18 +657,43 @@
           0.16, 0, y, 0.08, kind === 1 || kind === 2 ? style.wall : style.trim);
       }
       bar(width, 0.16, 0.12, 0, h - 0.25, 0.06, style.trim);
-      bar(width, 0.18, 0.12, 0, 0.09, 0.06, style.trim);
-      // A narrow recessed double door makes the ground floor readable at street level.
+      // Stone plinth instead of the thin base trim: the lobby stands on it.
+      bar(width, 0.45, 0.12, 0, 0.225, 0.06, sockel);
+      /* Lobby: beleuchtete Steinwand am Kern, Lichtbaender unter der
+         Decke, Pflanzen; vorn Empfang und Portal, an den anderen Seiten
+         Sitzgruppen. Alles innerhalb der Kiste, nichts beruehrt das Glas. */
+      const kern = width - roomDepth * 2;
+      if (kern > 1.2) {
+        inside(rooms, kern * 0.72, lobby - 1.05, 0.05, 0, 0.12 + (lobby - 1.05) / 2 + 0.35, roomDepth - 0.025, wandStein);
+        inside(lamps, kern * 0.72, 0.04, 0.03, 0, lobby - 0.42, roomDepth - 0.06, 0xfff0d6);
+      }
+      inside(lamps, width - 1.0, 0.02, 0.1, 0, lobby - 0.03, roomDepth * 0.45, 0xf6f2ea);
+      for (const sx of [-1, 1]) {
+        const px = sx * (width / 2 - 0.85);
+        if (Math.abs(px) < 1.2) continue;
+        inside(rooms, 0.55, 0.6, 0.55, px, 0.42, roomDepth * 0.5, 0x2b2e31);
+        const [bx, bz] = local(px, depth / 2 - roomDepth * 0.5);
+        rooms.geometry(busch, 0x47603e, new THREE.Matrix4().makeTranslation(bx, 1.2, bz));
+      }
       if (face === 0) {
-        window(Math.min(2.25, width * 0.24), lobby - 0.65, 0, (lobby - 0.65) / 2, 0xb9d1d4, 0.008);
-        bar(0.07, lobby - 0.65, 0.1, 0, (lobby - 0.65) / 2, 0.05, style.trim);
-        inside(rooms, Math.min(width * 0.3, 3.5), 0.92, 0.7, 0, 0.58, roomDepth - 0.5, 0x776f61);
+        inside(rooms, Math.min(3.2, width * 0.3), 1.0, 0.7, 0, 0.62, roomDepth * 0.58, 0xd6cec0);
+        inside(rooms, Math.min(3.3, width * 0.31), 0.05, 0.76, 0, 1.145, roomDepth * 0.58, 0xf0ece4);
+        // Portal: dark jambs and lintel around the door; the door is the lobby glass.
+        // 4 mm behind the column face and below the floor band: no shared plane.
+        const sturz = lobby - band / 2 - 0.18;
+        for (const sx of [-1, 1]) bar(0.2, sturz - 0.16 - 0.45, 0.14, sx * (doorW / 2 + 0.1), 0.45 + (sturz - 0.16 - 0.45) / 2, 0.074, portal);
+        bar(doorW + 0.4, 0.32, 0.14, 0, sturz, 0.074, portal);
+        bar(0.05, sturz - 0.16 - 0.45, 0.038, 0, 0.45 + (sturz - 0.16 - 0.45) / 2, 0.031, portal);
+      } else if (width > 5) {
+        for (const sx of [-1, 1]) inside(rooms, Math.min(1.8, width * 0.18), 0.42, 0.7, sx * width * 0.2, 0.33, roomDepth * 0.55, 0x34383d);
+        inside(rooms, 0.8, 0.36, 0.6, 0, 0.3, roomDepth * 0.55, 0x6b5a48);
       }
     }
     const interior = new THREE.LOD(); interior.name = 'OfficeDetails';
     interior.addLevel(rooms.mesh(materials.stone, 'OfficeFurniture'), 0);
     interior.addLevel(new THREE.Group(), 150);
-    const panes = glazing.mesh(materials.fassadenGlas, 'Glazing'); panes.castShadow = false; panes.renderOrder = 2;
+    const panes = new THREE.Mesh(fensterGeometrie(glazing), materials.innenGlas);
+    panes.name = 'Glazing'; panes.castShadow = false; panes.receiveShadow = true; panes.renderOrder = 2;
     group.add(solid.mesh(materials.stone, 'Structure'), panes, lamps.mesh(materials.light, 'OfficeLights'), interior);
     group.name = 'WEB_HERO_Hochhaus_' + style.name;
     group.userData = { visualKind: 'tower', variant: kind, floors: floors + 1, roofHeight: h,
@@ -983,7 +1458,7 @@
     return true;
   }
 
-  return { enabled, setzeFassadenTextur, createTower, createCar, updateCar, finishUtilityVehicle, createAmbulance, createBus, createTree, createPark, createHelicopterShell,
+  return { enabled, setzeFassadenTextur, createTower, innenraumPatch, setzeInnenraumLicht, fensterStapel, fensterInStapel, fensterGeometrie, createCar, updateCar, finishUtilityVehicle, createAmbulance, createBus, createTree, createPark, createHelicopterShell,
     trainDetails, updateTrain, dressCivilian, dressEnemy,
     towerStyles: TOWERS.map(t => t.name), carStyles: ['Fastback', 'Crossover', 'Sportkombi'],
     civilianStyles: OUTFITS.map(o => o.name), enemyStyles: Object.keys(ENEMIES) };
