@@ -64,11 +64,23 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `flucht-ueberlappung-auswertung.js` | Auswertung dazu (`<ordner>` mit `ref-<keim>.json`/`neu-<keim>.json`): Summen, exakter bedingter Binomialtest, Ratenverhältnis mit 95-%-Grenzen, Vorzeichentest je Episode, Entscheidung nach dem Plan in `docs/abnahme-7b/` |
 | `district-identity.js` | CITY V2 Stufe 8A: Bestand je Stadtteil (Häuser, Höhen, Modell/prozedural, Modelle, Fassadenfarbe aus den Materialien, Kantennutzung, Leuchtschilder, Straßendetails, Laternen, Ampeln, Bänke, POIs, U-Bahn, Altbau, Anker); die neuen Erdgeschosse je Stadtteil und Art (Sockel mit Programm, Einsätze in den Modellöffnungen, Hausnummern, Wahrzeichen-Namen, Vorplätze; Scheiben, Eingänge, Läden, Frontmeter, Fläche je Shader-Modus: Fläche, Raum, Milchglas, Nische) mit den harten Fehlern (außerhalb der Front, über einem Leuchtschild – ein Einsatz darf hinter einem Schild liegen, das mindestens 6 cm vor ihm endet –, im Nachbarhaus, im Park, mehrfacher Sockel oder Überlappung je Front, schwebend/steckend – je Fläche sieben Strahlen auf die gezeichnete Geometrie des eigenen Hauses, beim Einsatz darf die Öffnung dahinter tiefer sein, aber nichts davor liegen –, Vorplatz nicht auf dem Gehweg, auf einem Überweg oder über einem Schacht), neue Hindernisse; Welt-Fingerabdruck (Bezirke, Häuser, Modelle, Hindernisse als Menge, Parkautos, Wagen, Passanten mit Look, Gegner, POIs, Straßendetails, Anker, Missionen; nach dem Laden und nach 20 s), mit `vergleich=<json>` gegen einen anderen Stand; Exit 1 bei hartem Fehler oder Abweichung |
 | `district-bilder.js` | CITY V2 Stufe 8A: feste Bezirksbilder – je Stadtteil zwei Straßenaufnahmen mit der echten Spielkamera und eine Luftansicht, drei Bezirksgrenzen, Dämmerung, Nacht, Regen; Wagen und Passanten bleiben (eingefroren, gleicher Ablauf), Zeichenaufrufe und Dreiecke je Bild; `nur=name,name` (Teillauf: andere Wagen und Passanten als im vollen Lauf – vergleichbar sind nur volle Läufe) |
+| `verkehr-dichte.js` | CITY V2 Stufe 4, erweitert in Stufe 8B: fahrende Wagen bei fester Tageszeit 0,33 (alle unterwegs) – gleichzeitig aktiv, sichtbar in 50/100/150 m, Anteil je Straßenklasse und (8B) je Stadtteil mit Dichte = Anteil der Wagen geteilt durch Anteil der Straßenlänge (Brücke und Ostufer eigens), Brücke, Kosten, harte Fehler (neben der Fahrbahn, im Wasser, Ortssprung, Geisterfahrer; Soll 0) und verrauschte Zusatzwerte (ineinander, langes Stehen); `node verkehr-dichte.js [autos] [sekunden] [läufe]` |
+| `verkehr-bilder.js` | CITY V2 Stufe 8B: Verkehr vorher/nachher – nach 90 s Spielzeit an neun festen Ansichten (Boulevard, Avenue, Zentrum, Geschäftsviertel, Wohnstraße, Luft) 60 Proben im Sekundenabstand: fahrende Wagen, die wirklich zu sehen sind (Bildkegel, bis 150 m, Sichtlinie gegen Häuser über 3 × 3 m und 4 m Höhe), dazu je Ansicht drei Bilder im Abstand von 8 s; `wurzel=<Spielordner>` misst einen anderen Stand mit dessen `basis.js` |
+| `fassaden-familien.js` | CITY V2 Stufe 8B: Fassaden vorher/nachher mit fester Hausauswahl – `liste` wählt im aktuellen Stand je Haustyp × Stadtteil × Erdgeschoss-Programm Häuser und hält zwei Kamerapunkte fest (13 m / 7 m seitlich und 9 m / 12 m seitlich, Augenhöhe), `bilder` rendert sie in einem beliebigen Stand (`wurzel=`), Wagen und Passanten ausgeblendet |
 | `district-video.js` | CITY V2 Stufe 8A: Gameplay-Video durch die sechs Stadtteile (Gehen mit Alt+W, normale Spielkamera, Echtzeit 15 Bilder/s) und zwei erhöhte Abschnitte (Dachkante, Spielkamera dreht); `nur=<abschnitt>` |
 
 Aufruf jeweils aus diesem Ordner, z. B.
 
     node fuss-rutschen.js 0.03
+
+Zwei Schalter aus Stufe 8B gelten für jeden Prüfstand, der `basis.js`
+benutzt – über die Umgebung, ohne `game.js` zu ändern:
+
+    ZUSATZVERKEHR=0 node stadt-leistung.js      # ohne die 35 zusätzlichen Wagen
+    OHNE_PARKSTREIFEN=1 node stadt-leistung.js  # Parken wie vor 8B (300 Wagen, keine Markierung)
+
+Beide zusammen messen den Stand vor 8B mit dem Code von 8B (bis auf die
+Fassaden, die Abbiegewahl und die Hinderniserkennung unter der Straße).
 
 Die Laufzeiten reichen von einer Minute (`bruecke-gehen`) bis zu einer
 knappen halben Stunde (`verkehr-stunde`).

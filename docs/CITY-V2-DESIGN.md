@@ -222,6 +222,10 @@ irgendwo ein Wagen kuenstlich hingesetzt wird.
 | AVENUE | 2,6 | 0,09 |
 | BOULEVARD | 3,4 | 0,05 |
 
+Seit Stufe 8B (Abschnitt 6r) waehlt der normale Verkehr an jeder Kreuzung
+gewichtet nach Klasse und Bezirk der Zielstrasse (`kreuzungsWahl`); die
+Abbiegechance gilt nur noch fuer das Fluchtauto und fuer den Rand.
+
 Anteil aller Wagenproben je Klasse, gemessen bei 26 Fahrzeugen:
 
 | Klasse | vorher | nachher |
@@ -3563,6 +3567,325 @@ Gegen die erste Fassung (9915ef5), Keim 4711:
 - Nicht 8A und weiter offen: fliehende Passanten laufen durch den Helden,
   Fliehende kurz unter der Bodenflaeche an der Brueckenroute, der weisse
   Promenadenbelag in einem Teil der Bilder, das Bushaeuschen.
+
+---
+
+## 6r. Durchgestaltete Baukoerper, mehr Verkehr, Parkstreifen (Stufe 8B)
+
+Drei Auftraege nach der Abnahme von 8A: (A) "Das untere Teil ist gut.
+Der Rest vom Gebaeude soll dann auch so aussehen" - ein Gebaeude, eine
+architektonische Familie; (B) sichtbar mehr fahrende Wagen, nach
+Strassenklasse und Bezirk verteilt; (C) eine glaubwuerdige Parklogik mit
+erkennbaren Stellplaetzen. Bilder: `docs/abnahme-8b/`.
+
+### A. Ein Gebaeude, eine Familie
+
+**Der Problemfall.** Ueber den neuen Erdgeschossen (Putz, Klinkersockel,
+Wohnfenster, Haustuer) lief bei den prozeduralen Haeusern weiter die alte
+Rastertextur: Achsen von rund 1 m und "Geschosse" von 0,75 m - ein
+Buerogitter ueber einem Wohnhaus, an den Seiten ebenso. Bei den Modellen
+umgekehrt: unter Ziegelhaeusern (Brownstone) stand ein Wohnputz-Sockel,
+unter Buero- und Betonbauten Wohnfenster mit Hausnummer.
+
+**Prozedurale Haeuser (212).** Jedes bekommt beim Bau eine Familie aus
+seinem Bezirk und eine Putzfarbe aus einem eigenen Hash (Weltkeim,
+Hausnummer - kein Zug aus dem Stadtzufall):
+
+| Familie | Bezirk | Haeuser | Achse | Erdgeschoss | Geschoss | Fenster | Rahmen / Sims / Sockel |
+|---|---|---|---|---|---|---|---|
+| Wohnhaus | Wohnen | 114 | 2,3 m | 3,9 m | ~3,0 m | 1,25 x 1,5 m, Sprosse | weiss / Kalk / Klinker |
+| Stadthaus | Mischung | 81 | 2,6 m | 4,2 m | ~3,2 m | 1,4 x 1,7 m, ohne Sturz | dunkel / Beton / Beton |
+| Uferhaus | Ufer | 17 | 2,8 m | 4,0 m | ~3,1 m | Fenstertuer 1,15 x 2,15 m, Bruestungsstab | hell / hell / Kalk |
+
+Die Fassade zeichnet der Shader der vorhandenen Wandmaterialien
+(`HF_GLSL_KOPF`, ueber `CITY_LOOK.innenraumPatch`): Sockelband, das
+Erdgeschoss bis zur Familienhoehe, darueber gleich hohe Obergeschosse bis
+zur Attika (1,75 m glatter Putz unter der Krone, Gesims mit
+Schattenfuge), ein Gurtgesims ueber dem Erdgeschoss. Die Fenster stehen
+auf denselben Achsen wie Fenster und Tuer im Erdgeschoss (`hfAchsen`,
+Achszahl = Frontbreite / Achsbreite gerundet), mit Sims und Sturz, Rahmen
+7 cm und Raum dahinter (Interior Mapping wie die Erdgeschosse, nachts
+einzelne Fenster hell). Alle vier Wandseiten tragen die Fassade - auch
+die sichtbaren Seiten. Die Krone (`schmueckeHaus`) uebernimmt Sims- und
+Putzton. Keine neue Geometrie, kein neuer Zeichenaufruf.
+
+Das Erdgeschoss (`biSockelFamilie`) nimmt Farbe, Hoehe und Achsen der
+Familie: die Wohnzeile setzt Fenster und Haustuer auf die Achsen
+(`biWohnzeileAchsen`), Laeden fuellen Buchten zu zwei Achsen, deren
+Pfeiler auf den Achsgrenzen stehen (`biLadenzeile` mit `grenzen`).
+Erdgeschoss-Programme danach: Wohnhaus wohnen 103 / laden 45, Stadthaus
+gemischt 52 / laden 21 / wohnen 5, Uferhaus wohnen 16 / cafe 1.
+
+**Modellhaeuser.** Die Obergeschosse der Modelle lassen sich nicht
+umbauen - also folgt ihnen das Erdgeschoss (`BI_MODELL_FAMILIE`, im
+Wohn-, Misch- und Ufergebiet): unter Ziegelhaeusern (alle Brownstone,
+Residential_3; 65 Haeuser) Ziegel in der mittleren Fassadenfarbe des
+Modells mit Granitsockel und hellem Werkstein, Laeden mit
+Ziegelpfeilern; unter Glas-, Platten- und Betonbauten (ModernOffice,
+Brutal, PublicBuilding; 140 Haeuser) Buero- oder Ladenfronten in deren
+Toenen statt Wohnputz mit Hausnummer. Zentrum und Geschaeftsviertel
+behalten ihre Buero- und Ladenfronten aus 8A.
+
+**Wie aehnliche Faelle gefunden wurden:** nicht von Hand. Jedes
+prozedurale Haus im Wohn-, Misch- und Ufergebiet ist eine Familie (212
+von 212); jedes Modell wird ueber seinen Namen einer Modellfamilie
+zugeordnet (205 Modelle in diesen drei Bezirken, 18 ohne Familie - andere
+Modelltypen, unveraendert). Zentrum, Geschaeftsviertel, Tuerme und Park
+sind nicht angefasst.
+
+Bilder (gleiche Kamera, Stand aa04428 gegen jetzt): `8b-fassaden-*.jpg`,
+erzeugt mit `tools/pruef/fassaden-familien.js` (Hausauswahl einmal
+festgehalten, dann in beiden Staenden gerendert).
+
+`district-identity.js`: harte Fehler 0, neue Hindernisse 0; die
+Erdgeschosse je Stadtteil bleiben in Zahl und Frontmetern wie in 8A
+(Wohnen 164 Sockel, Mischung 127, Ufer 41); Scheiben im Mischgebiet 788 ->
+846, Ufer 264 -> 334 (die neuen Programme der Familien und Modelle).
+
+### B. Mehr Verkehr
+
+**Vorher** (aa04428, `verkehr-dichte.js`, 3 x 300 s, Tageszeit 0,33):
+
+| Groesse | vorher (45 Wagen) | nachher (80 Wagen) |
+|---|---|---|
+| gleichzeitig unterwegs (Tageszeit 0,33) | 45 | 80 |
+| sichtbar in 100 m / 150 m | 2 / 7 | 7 / 15 |
+| Boulevard / Avenue / Strasse / Nebenstrasse | 5,1 / 10,4 / 32,6 / 53,4 % | 15,0 / 24,5 / 44,3 / 17,9 % |
+| Dichte Zentrum / Geschaeft | 0,56 / 0,85 | 1,22 / 1,11 |
+| Dichte Mischung / Wohnen | 0,95 / 1,34 | 0,96 / 0,86 |
+| Dichte Ufer / Park | 1,67 / 0,18 | 0,97 / 0,75 |
+| Brueckendurchfahrten je Minute | 1,6 | 3,0 |
+| harte Fehler (neben Fahrbahn, Wasser, Ortssprung, Geisterfahrer) | 0 | 0 |
+| langes Stehen (Proben ueber 12 s) / laengstes Stehen | 903 / 61,8 s | 722 / 61 s |
+| ineinander < 2,5 m: gesamt / gleiche Spur / kreuzend | 15 / 15 / 0 | 45 / 14 / 29 |
+
+Dichte = Anteil der Wagenproben geteilt durch Anteil der Strassenlaenge
+(1 = Mittel), Bruecke und Ostufer ausgenommen. Die Strassenlaenge im
+Raster: 12,05 km (Nebenstrasse 1,55, Strasse 7,35, Avenue 2,1, Boulevard
+1,05), 30,4 km Fahrspur. "Kreuzend" sind Wagen, die sich auf einer
+Kreuzung kurz naeher als 2,5 m kommen - laengstes Paar 1 s (zwei Laeufe
+mit einer Paar-Probe: 30 / 40 Proben je 300 s; vorher 7 / 43 Proben,
+laengstes Paar 5 s).
+
+Zwei Aenderungen:
+
+1. **Zusatzverkehr** (`spawnZusatzVerkehr`): 35 Wagen mehr im Umlauf (45
+   -> 80; am Tag 78 Prozent unterwegs: 35 -> 62). Start nach
+   Strassenklasse (wie bisher) und Bezirk (`VERKEHR_BEZIRK`), kein Start
+   naeher als 15 m an einem anderen Wagen derselben Spur. Eigener
+   Zufallsstrom, als Letztes im Aufbau - direkt nach den 45 Wagen der Welt
+   hatte der Wagen-Cache die spaeteren Parkautos veraendert (gemessen).
+2. **Kreuzungswahl** (`kreuzungsWahl`): geradeaus, links, rechts gewichtet
+   nach Klasse der Zielstrasse mal Bezirk des naechsten halben Blocks;
+   Stuecke, die in eine Randstrasse muenden, mal `VERKEHR_RAND` 0,4;
+   Querstrassen, die am Rand gleich enden, nie (ausser der Bruecke).
+   Vorher bog ein Wagen nach der eigenen Klasse ab und dann zu gleichen
+   Teilen links oder rechts - die Randstrassen (13 Prozent der
+   Strassenlaenge) sammelten so die Haelfte aller Wagen. Fluchtauto und
+   Einsatzwagen fahren wie vorher.
+
+Die Bezirksgewichte sind in vier Kandidaten gemessen (je 3 x 300 s):
+
+| Kandidat | Zentrum | Geschaeft | Mischung | Wohnen | Ufer | Park |
+|---|---|---|---|---|---|---|
+| Gewichte 1 / 0,95 / 0,75 / 0,4 / 0,6 / 0,5 | 1,07 | 1,02 | 0,93 | 0,99 | (Bruecke mitgezaehlt) | 0,61 |
+| Wohnen 0,25, Mischung 0,7, Ufer 0,5 | 1,12 | 1,01 | 1,02 | 0,95 | 1,04 | 0,67 |
+| dazu Randdaempfung 0,4 | 1,07 | 1,01 | 1,09 | 0,85 | 0,74 | 0,89 |
+| **dazu Mischung 0,55** | **1,36** | **1,25** | **0,94** | **0,73** | **0,94** | **0,60** |
+
+**Zwei alte Fehler, die der dichtere Verkehr sichtbar machte** (beide
+mit Probe gefunden, beide im Stand vor 8B schon da):
+
+1. Die Hinderniserkennung der Wagen nahm jede Person unter 2,2 m Hoehe -
+   auch die Fahrgaeste auf dem U-Bahnsteig 9 m unter dem Boulevard. Ein
+   Wagen hielt dort dauerhaft, die Spur dahinter staute sich (in allen
+   drei Keimen derselbe Wagen, 4 m vor dem Bahnsteig). Jetzt zaehlt nur,
+   wer zwischen -1,5 und 2,2 m steht.
+2. Beim Abbiegen wurde die Zielspur nicht geprueft: ein Pkw landete mitten
+   in einem Lkw, der dort fuhr, und weil die Vordermann-Regel einen um
+   mehr als 3 m ueberlappenden Wagen fuer "hinten" hielt, fuhren beide 30 s
+   ineinander weiter. Jetzt geht es geradeaus, wenn die Stelle belegt ist,
+   und der hintere von zwei ueberlappenden Wagen haelt, bis sie getrennt
+   sind. Gemessen mit 80
+   Wagen (Keim 4711, 300 s): Paar-Proben unter 2,5 m 168 -> 29, laengstes
+   Paar 16,5 s (in einem zweiten Lauf 32 s) -> 0,75 s.
+
+**Was man sieht** (`tools/pruef/verkehr-bilder.js`, nach 90 s, 60 Proben je
+Ansicht, nur Wagen im Bildkegel bis 150 m und nicht hinter einem Haus;
+Mittel, in Klammern Proben ohne einen einzigen Wagen):
+
+| Ansicht | vorher | nachher |
+|---|---|---|
+| Boulevard z = 25, Mittelstreifen | 0,65 (30) | 4,30 (0) |
+| Boulevard aus 14 m | 0,43 (34) | 3,23 (0) |
+| Avenue x = 25 aus 14 m | 0,87 (30) | 2,38 (2) |
+| Zentrum, Strasse x = -25 | 0,40 (40) | 2,13 (3) |
+| Geschaeftsviertel, Boulevard x = -125 | 0,72 (27) | 1,55 (10) |
+| Wohnstrasse z = 125 | 0,05 (57) | 0,05 (57) |
+
+Die Wohnstrasse bleibt ruhig, die Hauptachsen und das Zentrum sind es
+nicht mehr. Lange Stehzeiten (eine Standzeit-Probe mit dem Ablauf von
+verkehr-dichte.js, drei Keime je 300 s, Faelle
+ueber 20 / 40 / 80 s): vorher 6 / 3 / 1, nachher 9 / 2 / 0 - Ampeln,
+Querverkehr an der Uferstrasse und Unfall-Vorfaelle (der Wagen haelt
+absichtlich), kein Stau aus Dichte.
+
+### C. Parkstreifen und Stellplaetze
+
+Vorher: 300 geparkte Wagen "irgendwo am Bordstein", ohne Markierung;
+gleichverteilte Wahl der Bauart (an der Sammelstrasse Pkw oder Taxi, an
+der Nebenstrasse dazu Polizei) - 121 Pkw, 152 Taxis, 27 Streifenwagen.
+
+- **Stellplaetze:** jede Neben- und Sammelstrasse (LOCAL, STREET) hat
+  Parkstreifen im Raster von 7,6 m, 13 m Abstand zur Kreuzung, nicht auf
+  Ueberwegen. 962 Plaetze, auf die ein Wagen von 4,6 x 2,0 m passt.
+  Markierung dezent hellgrau (`PARK_STRICH`): kurze Querstriche an den
+  Platzgrenzen (2,2 m vom Bordstein) und eine Laengslinie zur Fahrspur,
+  ein Mesh fuer die ganze Stadt. Avenue und Boulevard haben neben den
+  Spuren keinen Platz - dort wird nicht geparkt (wie bisher).
+- **Belegung nach Bezirk der Strassenseite** (`PARK_BELEGUNG`, STREET mal
+  0,85): Wohnen 72 %, Mischung 55 %, Geschaeft 42 % (Kurzparken), Ufer
+  35 %, Zentrum 22 % (geordnet, wenig Strassenparken), am Park 12 %.
+  Ergebnis: belegt (mit den 300 alten Wagen, die bleiben) Wohnen 170 von 221
+  Plaetzen, Mischung 217 von 339, Geschaeft 38 von 71, Ufer 62 von 118,
+  Zentrum 81 von 190, am Park 7 von 23.
+- **Bauart nach Bezirk** (`PARK_MIX`): fast nur Pkw, Taxis eher im Zentrum
+  und Geschaeftsviertel, ein Streifenwagen die Ausnahme. Gezaehlt: 532
+  Pkw, 42 Taxis, 1 Streifenwagen. Die
+  300 alten Wagen bleiben auf ihren Plaetzen; ihre Bauart wird nur
+  getauscht, wenn die neue nicht groesser ist - Hindernis und Lage bleiben.
+- **Neue Wagen:** 275 im eigenen Zufallsstrom (575 geparkt). Jeder hat
+  wie die alten einen Kollisionskasten (`parkAuto`), geprueft wie die
+  alten (`parkPlatzTauglich`: Fahrbahn, Bordstein, Moebel, Hydrant,
+  Ueberweg, Einfahrt).
+- **Parkplatz oder Garage:** nicht gebaut. Die Bloecke sind bis zur
+  Bauflucht geschlossen bebaut; fuer einen Parkplatz haette ein Haus
+  weichen muessen - ein Umbau der Stadt, den der Auftrag ausschliesst.
+
+**Wie gezeichnet wird:** jeder geparkte Wagen waren rund zehn Zeichenaufrufe. Jetzt
+wird jedes Bauteil je Kachel von 80 m instanziert; die weisse Karosserie
+bekommt den Lack als Instanzfarbe. Zwei Fallen dabei: three r128 baut das
+Programm eines Materials nicht neu, wenn ein Teil mit Instanzfarbe und
+eines ohne es teilen (Absturz beim ersten Bild - jetzt eigene
+Materialkopien); und es schaltet das Wegschneiden fuer `InstancedMesh` ab
+Werk aus (jede sichtbare Kachel wurde in jedem Bild gezeichnet - jetzt mit
+eigener Huellkugel je Kachel an).
+
+### Leistung, Simulation, Ladezeit
+
+`stadt-leistung.js` (Keim 4711, 300 Aufnahmen, Median / Maximum der
+Zeichenaufrufe; zwei Laeufe 8B Zeile fuer Zeile gleich, Referenz in
+derselben Stunde):
+
+| | Strasse | Dach | Luft | gesamt | Dreiecke (Median) |
+|---|---|---|---|---|---|
+| aa04428 | 751,5 / 2601 | 761 / 2608 | 866,5 / 1895 | 799 | 3 461 836 |
+| 8B | 795,5 / 2414 | 792,5 / 2428 | 897 / 1651 | 865,5 | 3 713 374 |
+
+Tor < 899 gehalten (+8,3 %), Dreiecke +7,3 %, die Spitzen sind kleiner.
+Szene: Objekte 20 111 -> 16 194, Meshes 8264 -> 5692, Materialien 2330 ->
+1017 (die 300 Wagengruppen sind Instanzen geworden), Programme 39 -> 43.
+
+Wer kostet was - gepaart, dieselbe Szene mit und ohne (Median):
+
+| | Parkautos | fahrende Wagen |
+|---|---|---|
+| 300 Stellen von stadt-leistung, aa04428 (300 / 45) | 156,5 | 97 |
+| 300 Stellen, 8B (575 / 80) | 106,5 | 224 |
+| 36 Blicke auf Strassenhoehe, aa04428 | 258 | 138,5 |
+| 36 Blicke auf Strassenhoehe, 8B | 111 | 191,5 |
+
+Die Fassaden kosten keinen Zeichenaufruf (gleiche Meshes, anderer
+Shader).
+
+**Simulation** (ein Schritt ohne Zeichnen, 3 x 1800 Schritte nach Vorlauf,
+Median aus je sechs Bloecken): aa04428 5,4 ms, 8B 6,7 ms; 8B ohne
+Zusatzverkehr 5,1 ms, 8B ohne Parkstreifen 6,7 ms. Die Parkstreifen kosten
+also nichts, die 35 Wagen rund 1,6 ms, die neue Abbiegewahl mit den
+beiden Fehlerbehebungen nichts Messbares. Laut Profil steckt der
+Mehraufwand vor allem in der Pose der echten Fahrer (`zieleKnochen`,
+`gliedZiel`, `poseSitzen`): mit dichterem Verkehr sind die hoechstens acht
+Fahrerplaetze (`AUTO_FAHRER_MAX`) oefter belegt. `updateCars` selbst: 0,11
+-> 0,23 ms.
+
+**Ladezeit** (`ladezeit.js`, Sekunden ab Navigation, Median aus vier
+abwechselnden Laeufen, fuer die Zwischenstaende drei):
+
+| | T1 letzte Datei | T2 Stadt steht | T5 erstes volles Bild | T6 Szene ruhig | Programme |
+|---|---|---|---|---|---|
+| aa04428 | 15,3 | 16,6 | 21,5 | 33,2 | 39 |
+| nur Fassaden (Schalter) | 15,6 | 17,1 | 21,9 | 33,8 | 40 |
+| Fassaden und Parkstreifen | 16,8 | 18,3 | 23,7 | 36,6 | 43 |
+| 8B | 16,3 | 17,7 | 23,1 | 36,8 | 43 |
+
+T6 +3,6 s, davon die Parkstreifen rund 2,8 s: die drei Shaderprogramme
+der instanzierten Wagen (Instanzen mit und ohne Instanzfarbe, Sitze), die
+SwiftShader beim ersten Bild mit Parkautos uebersetzt. Fassaden und
+Zusatzverkehr liegen im Rauschen der Einzellaeufe (Spanne bis 4 s).
+
+### Determinismus
+
+`district-identity.js vergleich=<aa04428>`: 15 von 26 Werten gleich. Die
+11 anderen sind die gewollten: Hindernisse (11 006 -> 11 281, genau die
+275 neuen Parkwagen), Parkautos nach dem Laden und nach 20 s, Zahl und
+Lage der fahrenden Wagen nach dem Laden (45 -> 80), nach 20 s Wagen,
+Passanten und Gegner (die Abbiegewahl zieht andere Zufallszahlen als
+vorher; die Gegnerzahl schwankt in beiden Staenden gleich - sechs Keime,
+nach 40/80/120 s: in fuenf 12, in einem ein Ereignis mit +3 bzw. +5).
+
+Eigens geprueft (eigene Probe, beide Staende): ohne die Parkwagen
+dieselben 10 706 Hindernisse, dieselben 300 alten Parkplaetze, dieselben
+45 Wagen der Welt (Achse, Spur, Lage, Richtung, Bauart, Tempo) und
+dieselben 88 Passanten - Bit fuer Bit gleiche Pruefsummen.
+
+### Regression
+
+Gegen aa04428, Keim 4711:
+
+- `node --test` 170/170. `stadtraster.js`: alles unveraendert.
+  `parkautos.js`: 575 Wagen, Ausschlusszonen ohne Befund, engste Stelle
+  fuer einen Bus 0,03 m wie vorher.
+- Klettern: Naht, `kletterproxy.js` (MO1), `topoutlandung.js`,
+  `kletterstetigkeit.js`, Neon-Bahnen (27, Brust / Becken / Knie hinter 0,
+  Schnitt 0): Zeile fuer Zeile gleich. `brutal-halle.js teil=anlauf`:
+  gehen 30/30, rennen 30/30, invisibleCollision 0, durch Barriere 0, im
+  Kern 0 wie vorher; die Stichprobe der Anlauffaelle ist eine andere (die
+  Hindernisliste ist um die Parkwagen laenger).
+- `innenklettern.js` (isoliert und im Weltlauf): innen 108 Laeufe, 0
+  angeklebt, alle vier harten Zahlen 0. Aussenkontrolle 91 statt 92
+  Laeufe, 85 statt 89 angeklebt, 1 ungueltig (Startpunkt verfehlt): alle
+  neuen Faelle an begehbaren Haeusern, deren Wand direkt am Bordstein
+  steht - der Kontrollstart 5 m davor liegt jenseits der Parkspur, und ein
+  neuer Parkwagen steht zwischen Start und Wand (2,3 bis 4,5 m vom Start;
+  die drei alten Faelle sind dieselbe Art mit alten Parkwagen). Mit
+  demselben Code ohne Parkstreifen: 92 / 89 / 0 wie vorher.
+- `street-details.js`: gleich. `street-life.js`: harte Geometriefehler 0
+  (Laufzahlen schwanken mit dem anderen Laufzeitzufall);
+  `street-life-activities.js`: harte Fehler 0.
+- `npc-wege.js`: A 0 (vorher 2), B 0, C 0, D 90 (vorher 87), E 83.
+- `kernsysteme.js`: Story Akt 1 8 Missionen, 8 sauber; Seitenfehler 0,
+  npc- und enemyStaticPenetration 0, playerNpcOverlap 0 (vorher 7).
+- `freigang.js`: 572 gestreift, 0 gesperrt, kleinste Gehbreite 1,60 m -
+  gleich.
+- `district-identity.js`: harte Fehler 0, neue Hindernisse 0.
+- `verkehr-dichte.js`: harte Fehler 0 (siehe B).
+
+### Grenzen
+
+- Die Modellfassaden oberhalb des Erdgeschosses bleiben Fototextur; die
+  Familie wird dort ueber das Erdgeschoss hergestellt, nicht umgekehrt.
+- Die Fassade der prozeduralen Haeuser ist Shader: aus der Naehe flach,
+  ohne echte Laibungstiefe; Fenster an sehr schmalen Fronten entfallen
+  (unter 0,5 m Fensterbreite je Achse).
+- Der Verkehr bleibt eine Irrfahrt: die Bezirksdichte stellt sich im
+  Mittel ein, ein einzelner Moment kann anders aussehen.
+- Unfall-Vorfaelle halten einen Wagen absichtlich an; die Spur dahinter
+  wartet (kein Spurwechsel) - mit mehr Verkehr steht dort oefter eine
+  kurze Schlange.
+- Ladezeit +3,6 s (T6, SwiftShader), fast ganz die drei Shaderprogramme
+  der Parkwagen; Simulation +1,3 ms je Schritt, fast ganz die Fahrerpose.
+  Beides waere der naechste Hebel, falls es auf echter Hardware stoert.
+- Parkplaetze abseits der Strasse und Parkhaeuser gibt es nicht (siehe C).
 
 ---
 

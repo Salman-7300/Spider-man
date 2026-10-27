@@ -77,6 +77,12 @@ async function starte(breite, hoehe, seed, opt) {
     if (ein.seed !== null) window.__WEBHERO_SEED = ein.seed;
     if (ein.autos) window.__WEBHERO_AUTOS = ein.autos;
     if (ein.park !== null) window.__WEBHERO_PARKAUTOS = ein.park;
+    /* Mehr Verkehr und Parkstreifen: Zahl der zusaetzlichen fahrenden
+       Wagen (0 = wie vorher) und Parken ohne Streifen - auch ueber die
+       Umgebung ZUSATZVERKEHR=n und OHNE_PARKSTREIFEN=1, damit jeder
+       Pruefstand den Stand davor messen kann. */
+    if (ein.zusatzVerkehr !== null) window.__WEBHERO_ZUSATZVERKEHR = ein.zusatzVerkehr;
+    if (ein.ohneParkstreifen) window.__WEBHERO_OHNE_PARKSTREIFEN = 1;
     if (ein.streetSpur) window.__WEBHERO_STREETSPUR = ein.streetSpur;
     /* CITY V2 Stufe 5: Hoehenschwelle, ab der ein Haus ein echtes Modell
        bekommt statt prozedural zu bleiben. Damit lassen sich Kandidaten
@@ -198,6 +204,9 @@ async function starte(breite, hoehe, seed, opt) {
        zivis: (opt && typeof opt.zivis === 'number') ? opt.zivis : null,
        ziviCullAlt: !!(opt && opt.ziviCullAlt),
        park: (opt && opt.park !== undefined) ? opt.park : null,
+       zusatzVerkehr: (opt && typeof opt.zusatzVerkehr === 'number') ? opt.zusatzVerkehr
+         : (process.env.ZUSATZVERKEHR !== undefined && process.env.ZUSATZVERKEHR !== '') ? +process.env.ZUSATZVERKEHR : null,
+       ohneParkstreifen: !!((opt && opt.ohneParkstreifen) || process.env.OHNE_PARKSTREIFEN === '1'),
        streetSpur: (opt && opt.streetSpur) || 0,
        hybrid: (opt && opt.hybrid) || 0,
        modellFehler: (opt && opt.modellFehler) || 0,

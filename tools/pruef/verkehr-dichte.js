@@ -63,6 +63,21 @@ async function einLauf(nr) {
                 ineinander: 0, inGleicheSpur: 0, inNachbarSpur: 0, inKreuzend: 0,
                 langStand: 0, maxStand: 0, parkend: 0 };
     const seite = new Map(), stand = new Map(), vorher = new Map();
+    /* Bezirk einer Stelle: der Block mit der naechsten Mitte. Dazu die
+       Strassenlaenge je Bezirk (alle 5 m eine Probe auf jeder Linie), damit
+       aus dem Anteil der Wagen eine Dichte wird. */
+    const TEILE = d.stadtteile();
+    const bezirkAn = (x, z) => { let b = null, bd = Infinity;
+      for (const t of TEILE) { const q = (t.x - x) * (t.x - x) + (t.z - z) * (t.z - z); if (q < bd) { bd = q; b = t.art; } }
+      return b || '?'; };
+    Z.bezirke = {}; Z.strasseJeBezirk = {};
+    for (const t of str) {
+      const a0 = t.achse === 'x' ? R.z0 : R.x0, a1 = t.achse === 'x' ? R.z1 : R.x1;
+      for (let s = a0; s <= a1; s += 5) {
+        const x = t.achse === 'x' ? t.linie : s, z = t.achse === 'x' ? s : t.linie;
+        const b = bezirkAn(x, z); Z.strasseJeBezirk[b] = (Z.strasseJeBezirk[b] || 0) + 1;
+      }
+    }
     const wanderung = [[0, 0], [-140, -140], [140, 140], [-250, 40], [120, -200],
                        [160, -25], [-60, 160], [-300, 200]];
     const dt = 1 / 60;
@@ -104,6 +119,10 @@ async function einLauf(nr) {
         if (dd <= 150) n150++;
         const k = klasseVon(c);
         if (k) Z.klassen[k]++;
+        /* Bruecke und alles oestlich des Rasters zaehlt eigens - es gehoert
+           zu keiner Strassenlaenge im Raster und haette das Ufer aufgeblaeht. */
+        const bz = (aufDeck(x, z) || x > R.x1 + 6) ? 'BRUECKE' : bezirkAn(x, z);
+        Z.bezirke[bz] = (Z.bezirke[bz] || 0) + 1;
         /* Bruecke */
         const aufBrStrasse = c.axis === 'x' && Math.abs(c.lane - BZ) < 6;
         if (aufBrStrasse) {
@@ -198,6 +217,26 @@ async function einLauf(nr) {
     };
     zeile('  ' + k, anteil);
   }
+  p('');
+  p('  Verteilung auf die Bezirke: Anteil der Wagenproben / Dichte');
+  p('  (Dichte = Anteil der Wagen geteilt durch Anteil der Strassenlaenge; 1 = Mittel;');
+  p('  ohne Bruecke und Ostufer, die stehen als Anteil aller Proben darunter)');
+  const BEZ = ['ZENTRUM', 'GESCHAEFT', 'MISCHUNG', 'WOHN', 'UFER', 'PARK'];
+  const imRaster = (a) => BEZ.reduce((x, k) => x + (a.Z.bezirke[k] || 0), 0) || 1;
+  for (const k of BEZ) {
+    const anteil = (a) => +((a.Z.bezirke[k] || 0) / imRaster(a) * 100).toFixed(1);
+    const dichte = (a) => {
+      const g = imRaster(a);
+      const l = Object.values(a.Z.strasseJeBezirk).reduce((x, y) => x + y, 0) || 1;
+      return +(((a.Z.bezirke[k] || 0) / g) / (((a.Z.strasseJeBezirk[k] || 0) / l) || 1)).toFixed(2);
+    };
+    zeile('  ' + k + ' %', anteil);
+    zeile('  ' + k + ' Dichte', dichte);
+  }
+  zeile('  BRUECKE % aller', (a) => {
+    const g = Object.values(a.Z.bezirke).reduce((x, y) => x + y, 0) || 1;
+    return +((a.Z.bezirke.BRUECKE || 0) / g * 100).toFixed(1);
+  });
   p('');
   p('  Bruecke');
   zeile('  auf Brueckenstrasse', (a) => a.Z.brStrasse);

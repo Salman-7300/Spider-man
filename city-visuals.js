@@ -795,6 +795,9 @@ vec3 irScheibe( inout float alpha ) {
     g.userData.cityMotion = { wheels, brake, speed: 0, yaw: null, steering: 0 };
     return g;
   }
+  /* Weisse Karosserie einer Bauart: geparkte Wagen werden instanziert und
+     bekommen ihren Lack als Instanzfarbe (game.js, Parkstreifen). */
+  function parkKarosserie(kind) { return carParts(0xffffff, ((kind % 3) + 3) % 3)[0]; }
   function updateCar(g, speed, dt) {
     const m = g.userData.cityMotion;
     if (!m || !Number.isFinite(speed) || !Number.isFinite(dt) || dt <= 0) return;
@@ -1458,7 +1461,7 @@ vec3 irScheibe( inout float alpha ) {
     return true;
   }
 
-  return { enabled, setzeFassadenTextur, createTower, innenraumPatch, setzeInnenraumLicht, fensterStapel, fensterInStapel, fensterGeometrie, createCar, updateCar, finishUtilityVehicle, createAmbulance, createBus, createTree, createPark, createHelicopterShell,
+  return { enabled, setzeFassadenTextur, createTower, innenraumPatch, setzeInnenraumLicht, fensterStapel, fensterInStapel, fensterGeometrie, createCar, updateCar, parkKarosserie, finishUtilityVehicle, createAmbulance, createBus, createTree, createPark, createHelicopterShell,
     trainDetails, updateTrain, dressCivilian, dressEnemy,
     towerStyles: TOWERS.map(t => t.name), carStyles: ['Fastback', 'Crossover', 'Sportkombi'],
     civilianStyles: OUTFITS.map(o => o.name), enemyStyles: Object.keys(ENEMIES) };

@@ -1475,6 +1475,140 @@ function canvasTex(w, h, draw) {
   return t;
 }
 
+/* ======================= Hausfamilien (prozedurale Haeuser) =======================
+   Fassadenkohaerenz: das Erdgeschoss der prozeduralen Haeuser bekam in
+   Stufe 8A Putz, Klinkersockel, Wohnfenster und Haustuer - darueber lief
+   aber weiter die alte Rastertextur: 1-m-Achsen und "Geschosse" von
+   0,75 m, ein fremdes Buerogitter ueber einem Wohnhaus. Jetzt ist jedes
+   prozedurale Haus EINE Familie vom Sockel bis zur Attika:
+
+     1 Wohnhaus   (Wohngebiet)   Putz in sechs Toenen, Klinkersockel,
+                                 weisse Rahmen, Sims und Sturz, Vorhaenge
+     2 Stadthaus  (Mischgebiet)  gedeckter Putz, Betonsockel, dunkle
+                                 Rahmen, groessere Fenster, Buero/Wohnen
+     3 Uferhaus   (Ufer)         heller Putz, Kalksockel, helle Rahmen,
+                                 hohe Fenstertueren mit Bruestungsstab
+
+   Familie, Putzfarbe und Achsraster stehen beim Bau des Hauses fest
+   (Bezirk und ein eigener Hash - kein Zug aus dem Weltzufall). Die
+   Fassade zeichnet der Shader der vorhandenen Wandmaterialien
+   (HF_GLSL_*): keine neue Geometrie, kein neuer Zeichenaufruf; die
+   Fenster zeigen Raeume wie die Erdgeschosse (Interior Mapping). Das
+   Erdgeschoss (biSockel) uebernimmt Farbe, Hoehe und Achsen. */
+const HF_FAMILIE = {
+  /* achse: Achsbreite (m), eg: Hoehe des Erdgeschosses, krone: Gesims oben */
+  1: { name: 'Wohnhaus', achse: 2.3, eg: 3.9, sims: 0xd8d1c3 },
+  2: { name: 'Stadthaus', achse: 2.6, eg: 4.2, sims: 0x8d8a83 },
+  3: { name: 'Uferhaus', achse: 2.8, eg: 4.0, sims: 0xe6e1d7 },
+};
+const HF_PUTZ = {
+  1: [0xcfc3ae, 0xbfb29b, 0xd6cdbd, 0xb9a891, 0xc9bca5, 0xa9a69c],
+  2: [0x9d988f, 0x928d85, 0xa69f93, 0x8e8a83],
+  3: [0xe2ddd3, 0xdad3c6, 0xe6e2da],
+};
+/* Ein eigener Hash je Haus (Weltkeim, Hausnummer) - der Stadtzufall bleibt unberuehrt. */
+function hfHash(i, k) {
+  let h = (Math.imul((i | 0) + 1, 0x9e3779b1) ^ Math.imul((k | 0) + 7, 0x85ebca6b) ^ (WELT_KEIM | 0)) >>> 0;
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d) >>> 0; h ^= h >>> 12; h = Math.imul(h, 0x297a2d39) >>> 0; h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
+/* Familie eines prozeduralen Hauses aus seinem Bezirk; null fuer andere */
+function hausFamilie(art, index) {
+  const fam = art === 'WOHN' ? 1 : art === 'MISCHUNG' ? 2 : art === 'UFER' ? 3 : 0;
+  if (!fam) return null;
+  const putz = HF_PUTZ[fam];
+  const F = HF_FAMILIE[fam];
+  return { fam, farbe: putz[Math.floor(hfHash(index, 1) * putz.length)], eg: F.eg, achse: F.achse, sims: F.sims };
+}
+/* Achszahl einer Front: so viele Achsen, wie die Familie breit haben will */
+function hfAchsen(hf, breite) { return Math.max(1, Math.round(breite / hf.achse)); }
+/* Die Fassade im Shader. vIrLokal = (laengs ab linker Kante, Hoehe ueber dem
+   Gehweg), vIrMass = (Breite, Hoehe, Erdgeschoss, Keim), vIrRaum.xy =
+   (Familie, Achsen), vIrLicht = Putzfarbe. Familie 0: alte Textur. */
+const HF_GLSL_KOPF = `
+vec3 hfFassade( inout vec3 emit ) {
+  float fam = floor( vIrRaum.x + 0.5 );
+  vec2 p = vIrLokal;
+  float W = vIrMass.x, H = vIrMass.y, eg = vIrMass.z, keim = floor( vIrMass.w + 0.5 );
+  float nA = max( 1.0, floor( vIrRaum.y + 0.5 ) );
+  vec3 wand = vIrLicht;
+  float w = irKantenW();
+  vec3 rahmen, sims, sockel, licht;
+  float sockelM, ww, fhSoll, brust, wh;
+  if ( fam < 1.5 ) {
+    rahmen = vec3( 0.902, 0.878, 0.831 ); sims = vec3( 0.847, 0.82, 0.765 ); sockel = vec3( 0.353, 0.243, 0.2 );
+    sockelM = 15.0; ww = 1.25; fhSoll = 3.0; brust = 0.9; wh = 1.5; licht = vec3( 1.0, 0.82, 0.6 );
+  } else if ( fam < 2.5 ) {
+    rahmen = vec3( 0.2, 0.216, 0.227 ); sims = vec3( 0.553, 0.541, 0.514 ); sockel = vec3( 0.435, 0.424, 0.404 );
+    sockelM = 17.0; ww = 1.4; fhSoll = 3.2; brust = 0.8; wh = 1.7; licht = vec3( 1.0, 0.95, 0.86 );
+  } else {
+    rahmen = vec3( 0.914, 0.902, 0.875 ); sims = vec3( 0.902, 0.882, 0.843 ); sockel = vec3( 0.812, 0.788, 0.741 );
+    sockelM = 11.0; ww = 1.15; fhSoll = 3.1; brust = 0.45; wh = 2.15; licht = vec3( 1.0, 0.9, 0.74 );
+  }
+  /* Sockelband (sichtbar nur dort, wo kein Erdgeschoss davor steht) */
+  if ( p.y < 0.55 ) return biFlaeche( p, sockelM, sockel, w );
+  vec3 c = biFlaeche( p, 14.0, wand, w );
+  /* Attika: glatter Putz unter der Krone, oben ein Gesims mit Schattenfuge */
+  float attika = H - 1.75;
+  if ( p.y > attika ) {
+    float band = irR( p, vec2( -1.0, attika ), vec2( W + 1.0, attika + 0.16 ), w );
+    c = mix( c, biFlaeche( p, 11.0, sims, w ), band );
+    c *= 1.0 - 0.22 * irR( p, vec2( -1.0, attika - 0.05 ), vec2( W + 1.0, attika ), w );
+    return c;
+  }
+  /* Geschoss: Erdgeschoss bis eg, darueber gleich hohe Obergeschosse */
+  float y0, fh, k;
+  if ( p.y < eg ) { y0 = 0.0; fh = eg; k = -1.0; }
+  else {
+    float n = max( 1.0, floor( ( attika - eg ) / fhSoll ) );
+    fh = ( attika - eg ) / n; k = min( floor( ( p.y - eg ) / fh ), n - 1.0 ); y0 = eg + k * fh;
+  }
+  float yf = p.y - y0;
+  /* Gurtgesims ueber dem Erdgeschoss (wie oben am Sockel) */
+  c = mix( c, biFlaeche( p, 11.0, sims, w ), irR( p, vec2( -1.0, eg - 0.16 ), vec2( W + 1.0, eg ), w ) );
+  /* Achse und Fenster */
+  float a = W / nA, i = clamp( floor( p.x / a ), 0.0, nA - 1.0 );
+  float x = p.x - ( i + 0.5 ) * a;
+  float wwE = min( ww, a - 0.5 );
+  float b0 = k < 0.0 ? 0.95 : brust;
+  float b1 = k < 0.0 ? 2.45 : b0 + min( wh, fh - b0 - 0.45 );
+  if ( wwE < 0.5 ) return c;
+  vec2 q = vec2( x, yf );
+  float hw = wwE * 0.5;
+  /* Sims unter dem Fenster, Sturz darueber - je 8 cm breiter, wie unten */
+  float simsM = irR( q, vec2( -hw - 0.08, b0 - 0.06 ), vec2( hw + 0.08, b0 ), w );
+  float sturz = fam > 1.5 && fam < 2.5 ? 0.0 : irR( q, vec2( -hw - 0.08, b1 ), vec2( hw + 0.08, b1 + 0.14 ), w );
+  c = mix( c, biFlaeche( p, 11.0, sims, w ), max( simsM, sturz ) );
+  c *= 1.0 - 0.25 * irR( q, vec2( -hw - 0.08, b0 - 0.1 ), vec2( hw + 0.08, b0 - 0.06 ), w );
+  float fenster = irR( q, vec2( -hw, b0 ), vec2( hw, b1 ), w );
+  if ( fenster < 0.001 ) return c;
+  /* Rahmen 7 cm, dahinter das Glas mit dem Raum */
+  c = mix( c, rahmen, fenster );
+  float r = 0.07;
+  float glas = irR( q, vec2( -hw + r, b0 + r ), vec2( hw - r, b1 - r ), w );
+  float sprosse = fam > 1.5 && fam < 2.5 ? 0.0 : irR( q, vec2( -0.025, b0 ), vec2( 0.025, b1 ), w );
+  float stab = fam > 2.5 ? irR( q, vec2( -hw, b0 + 0.9 ), vec2( hw, b0 + 0.94 ), w ) : 0.0;
+  glas *= ( 1.0 - sprosse ) * ( 1.0 - stab );
+  c = mix( c, vec3( 0.16, 0.16, 0.17 ), stab );
+  if ( glas < 0.001 ) return c;
+  float s = floor( mod( keim * 7.0 + ( k + 2.0 ) * 31.0 + i * 13.0, 997.0 ) );
+  float stil = fam > 1.5 && fam < 2.5 && irH( s * 1.7 + 0.3 ) < 0.5 ? 0.0 : 3.0;
+  vec2 pw = vec2( x + hw - r, yf - b0 - r );
+  vec4 m = vec4( wwE - 2.0 * r, b1 - b0 - 2.0 * r, 3.2, s );
+  vec4 qq = vec4( -( b0 + r ), fh - b0 - r - 0.3, stil, 1.0 );
+  vec3 rr = vIrStrahl, rn = normalize( rr );
+  vec3 innen = irRaum( rr, pw, m, qq, licht, w );
+  float fres = 0.04 + 0.62 * pow( 1.0 - clamp( rn.z, 0.0, 1.0 ), 5.0 );
+  float tag = 1.0 - uIrNacht;
+  vec3 g = mix( innen * vec3( 0.92, 0.95, 0.97 ), irSpiegel( rn ), clamp( fres * ( 1.0 - 0.55 * uIrNacht ) + 0.14 * tag, 0.0, 0.9 ) );
+  emit += g * glas;
+  return mix( c, vec3( 0.025, 0.028, 0.03 ), glas );
+}
+`;
+const HF_GLSL_FLAECHE = `
+    if ( floor( vIrRaum.x + 0.5 ) > 0.5 ) diffuseColor.rgb = hfFassade( irEmit );
+`;
+
 /* Fensterfassaden (3 Varianten).
    Statt flacher Rechtecke gibt es jetzt richtige Fenster: Rahmen mit
    Sprosse, ein Raum dahinter mit Boden, Möbelschatten und in manchen
@@ -3358,7 +3492,7 @@ function dachProp(art, w, h, d, x, yUnten, z, sicht) {
    Ein Reihenhaus bekommt sein Gesims deshalb nur zur STRASSE. Weil alle
    Haeuser einer Zeile dieselbe Bauflucht haben, wird daraus ein
    durchgehendes Band - genau wie bei einer echten Reihe. */
-function schmueckeHaus(w, h, d, x, z, frei, schau) {
+function schmueckeHaus(w, h, d, x, z, frei, schau, hf) {
   const VOR = 0.45;
   const nx = schau ? schau.nx : 0, nz = schau ? schau.nz : 0;
   /* Ohne Richtung: ringsum. Mit Richtung: nur dorthin. */
@@ -3406,11 +3540,15 @@ function schmueckeHaus(w, h, d, x, z, frei, schau) {
      Jetzt bekommt JEDES sichtbare Band sein eigenes, genau passendes
      Hindernis, und beide sind kletterbar. Gemessen an 40 Waenden kamen
      vorher 25 aufs Dach, danach siehe tools/pruef/dachhohlraum.js. */
-  deko(w + bW, 0.55, d + bD, x + oX, oben - 0.28, z + oZ, 0x8b9099);
+  /* Mit Hausfamilie: das Gesims in deren Steinfarbe, das untere Band im
+     Putz des Hauses - die Krone gehoert zur Fassade, nicht zu einem
+     anderen Haus. Nur Farben, kein Zufall. */
+  deko(w + bW, 0.55, d + bD, x + oX, oben - 0.28, z + oZ, hf ? hf.sims : 0x8b9099);
   addCollider({ x0: x + oX - (w + bW) / 2, x1: x + oX + (w + bW) / 2,
                 z0: z + oZ - (d + bD) / 2, z1: z + oZ + (d + bD) / 2,
                 h: oben, y0: oben - 0.9, klein: KRONE_ALT, krone: true });
-  deko(w + bW * 0.55, 0.7, d + bD * 0.55, x + oX * 0.55, oben - 1.1, z + oZ * 0.55, 0x6f757e);
+  deko(w + bW * 0.55, 0.7, d + bD * 0.55, x + oX * 0.55, oben - 1.1, z + oZ * 0.55,
+       hf ? biDunkler(hf.farbe, 0.9) : 0x6f757e);
   /* Das untere Band, jetzt mit eigenem Hindernis in seinen EIGENEN
      Massen - nicht in denen des oberen, sonst raegte das Hindernis
      weiter heraus als das Sichtbare. */
@@ -5430,8 +5568,10 @@ function inEimer(map, schluessel, geo) {
 }
 
 /* modell = ueber dieses Haus kommt spaeter ein echtes Modell; seine
-   prozedurale Geometrie gehoert dann in den Rueckfallsatz. */
-function sammleHausBox(w, h, d, x, y, z, texIdx, modell) {
+   prozedurale Geometrie gehoert dann in den Rueckfallsatz.
+   hf = Hausfamilie (hausFamilie) - die Waende tragen dann je Ecke die
+   Fassadenlage fuer HF_GLSL_*; ohne Familie bleibt die alte Textur. */
+function sammleHausBox(w, h, d, x, y, z, texIdx, modell, hf, index) {
   const g = new THREE.BoxGeometry(w, h, d).toNonIndexed();
   const uv = g.attributes.uv;
   /* Kachelung pro Seite: waagerecht nach der tatsächlichen Breite der
@@ -5468,6 +5608,27 @@ function sammleHausBox(w, h, d, x, y, z, texIdx, modell) {
     return { p, n, u };
   };
   const tw = teile([0, 1, 4, 5]), td = teile([2, 3]);
+  /* Fassadenlage je Ecke: laengs ab der linken Kante (von aussen
+     gesehen, laengs cross(oben, Normale) wie biFront), Hoehe ueber dem
+     Gehweg; dazu Masse, Familie, Achszahl und Putzfarbe der Front. */
+  const lo = [], ma = [], ra = [], li = [];
+  const farbe = hf ? biRgb(hf.farbe) : [0, 0, 0];
+  for (let i = 0; i < tw.p.length / 3; i++) {
+    const px = tw.p[i * 3], py = tw.p[i * 3 + 1], pz = tw.p[i * 3 + 2];
+    const nx = Math.round(tw.n[i * 3]), nz = Math.round(tw.n[i * 3 + 2]);
+    const breite = nx ? d : w;
+    /* t = cross(oben, n) = (nz, 0, -nx) */
+    const u = (px - x) * nz - (pz - z) * nx + breite / 2;
+    lo.push(u, py - SLAB_H);
+    const fl = Math.floor(i / 6);
+    ma.push(breite, h, hf ? hf.eg : 0, hf ? ((index | 0) * 4 + fl) % 997 : 0);
+    ra.push(hf ? hf.fam : 0, hf ? hfAchsen(hf, breite) : 0, 0, 0);
+    li.push(farbe[0], farbe[1], farbe[2]);
+  }
+  wand.setAttribute('aIrLokal', new THREE.Float32BufferAttribute(lo, 2));
+  wand.setAttribute('aIrMass', new THREE.Float32BufferAttribute(ma, 4));
+  wand.setAttribute('aIrRaum', new THREE.Float32BufferAttribute(ra, 4));
+  wand.setAttribute('aIrLicht', new THREE.Float32BufferAttribute(li, 3));
   wand.setAttribute('position', new THREE.Float32BufferAttribute(tw.p, 3));
   wand.setAttribute('normal', new THREE.Float32BufferAttribute(tw.n, 3));
   wand.setAttribute('uv', new THREE.Float32BufferAttribute(tw.u, 2));
@@ -5486,11 +5647,15 @@ function fasseGeometrien(liste) {
   let n = 0;
   for (const g of liste) n += g.attributes.position.count;
   const p = new Float32Array(n * 3), nn = new Float32Array(n * 3), u = new Float32Array(n * 2);
+  /* Waende tragen zusaetzlich die Fassadenlage (sammleHausBox) */
+  const extra = ['aIrLokal', 'aIrMass', 'aIrRaum', 'aIrLicht'].filter((k) => liste.length && liste[0].attributes[k]);
+  const ex = extra.map((k) => new Float32Array(n * liste[0].attributes[k].itemSize));
   let o = 0;
   for (const g of liste) {
     p.set(g.attributes.position.array, o * 3);
     nn.set(g.attributes.normal.array, o * 3);
     u.set(g.attributes.uv.array, o * 2);
+    extra.forEach((k, j) => ex[j].set(g.attributes[k].array, o * g.attributes[k].itemSize));
     o += g.attributes.position.count;
     g.dispose();
   }
@@ -5498,6 +5663,7 @@ function fasseGeometrien(liste) {
   out.setAttribute('position', new THREE.BufferAttribute(p, 3));
   out.setAttribute('normal', new THREE.BufferAttribute(nn, 3));
   out.setAttribute('uv', new THREE.BufferAttribute(u, 2));
+  extra.forEach((k, j) => out.setAttribute(k, new THREE.BufferAttribute(ex[j], liste[0].attributes[k].itemSize)));
   out.computeBoundingSphere();
   return out;
 }
@@ -5512,6 +5678,13 @@ function fasseGeometrien(liste) {
 function baueHausMeshes() {
   /* Ein Material je Fassadentextur – alle Kacheln teilen es sich. */
   const wandMats = facadeTexes.map((t) => new THREE.MeshLambertMaterial({ map: t }));
+  /* Fassadenkohaerenz: die Hausfamilien zeichnet derselbe Shader wie die
+     Erdgeschosse (biFlaeche, irRaum). Die Texte werden erst beim
+     Uebersetzen gelesen - BI_GLSL_KOPF steht weiter unten in der Datei. */
+  if (CITY_LOOK && CITY_LOOK.innenraumPatch) {
+    const hf = { get fragKopf() { return BI_GLSL_KOPF + HF_GLSL_KOPF; }, flaeche: HF_GLSL_FLAECHE };
+    for (const m of wandMats) CITY_LOOK.innenraumPatch(m, 'hausfassade', hf);
+  }
   const dachMat = new THREE.MeshLambertMaterial({ map: roofTex });
   /* Beide Saetze werden gleich gebaut - sie unterscheiden sich nur
      darin, wer sie spaeter ausblenden darf. */
@@ -6259,7 +6432,11 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
                   art: (info && info.art) || null,
                   ecke: !!(info && info.ecke) };
   HAUS_KISTEN.push(kiste);
-  sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx, visual === 'model');
+  /* Hausfamilie (Fassadenkohaerenz): nur fuer Haeuser, die prozedural
+     bleiben - ueber den anderen steht spaeter ein Modell. */
+  const hf = visual === 'model' ? null : hausFamilie((info && info.art) || stadtteilAn(x, z), HAUS_KISTEN.length - 1);
+  kiste.hf = hf;
+  sammleHausBox(w, h, d, x, SLAB_H + h / 2, z, texIdx, visual === 'model', hf, HAUS_KISTEN.length - 1);
   /* Die Häuserkollision endet einen Meter unter der Straße. Ohne diese
      Untergrenze reicht sie beliebig tief ins Erdreich – in der U-Bahn-
      Station stand man dadurch an einer unsichtbaren Hauswand und kletterte
@@ -6291,7 +6468,7 @@ function makeBuildingMesh(w, h, d, x, z, schau, info) {
      Auf dem Bild schwebten dadurch graue Dachplatten in der Luft, und
      ueber jedem hohen Haus stand eine unsichtbare Wand. Beides ist damit
      weg; die Silhouette bringt jetzt das Modell selbst mit. */
-  schmueckeHaus(w, h, d, x, z, null, schau);
+  schmueckeHaus(w, h, d, x, z, null, schau, hf);
   _bauJetzt = bauVorher;
   /* Das ganze Dach ist frei - es steht nichts mehr darauf, was Platz
      braeuchte. */
@@ -25207,9 +25384,11 @@ function waehleFahrzeug() {
   return FAHRZEUGE[0];
 }
 
-function makeCarMesh(color) {
+let PARK_SITZE = null;   // Sitze und Innenraum der geparkten Wagen (einmal gebaut)
+function makeCarMesh(color, geparkt) {
   const modern = CITY_LOOK ? CITY_LOOK.createCar(color) : null;
   const g = modern || new THREE.Group();
+  g.userData.lack = color;
   if (!modern) {
   const bodyMat = new THREE.MeshLambertMaterial({ color });
   /* Das Auto ist gewachsen. Vorher endete das Dach auf 1,57 m - in so eine
@@ -25270,6 +25449,11 @@ function makeCarMesh(color) {
      EINER Geometrie zusammen mit den Insassen, damit es beim
      Zeichenaufwand bleibt wie bisher. */
   const leute = [];
+  if (geparkt && PARK_SITZE) {
+    g.add(new THREE.Mesh(PARK_SITZE.geo, PARK_SITZE.mat));
+    scene.add(g);
+    return g;
+  }
   /* Die Sitze kommen in ein EIGENES Netz: die Insassen werden ausgeblendet,
      sobald ein echter Zivilist einsteigt - die Sitze muessen bleiben. */
   const sitze = [];
@@ -25308,6 +25492,12 @@ function makeCarMesh(color) {
   }
   g.add(new THREE.Mesh(verschmelzeTeile(sitze),
                        new THREE.MeshLambertMaterial({ vertexColors: true })));
+  if (geparkt) {
+    const m = g.children[g.children.length - 1];
+    PARK_SITZE = { geo: m.geometry, mat: m.material };
+    scene.add(g);
+    return g;
+  }
   for (const sx of [-1, 1]) {
     if (sx > 0 && Math.random() < 0.35) continue;        // mal faehrt jemand allein
     for (const t of sitzMensch(sx * 0.44, 0.96, 0.12, 0, 0.9)) leute.push(t);
@@ -25579,8 +25769,10 @@ function collidePlayerHelis(prevY) {
 }
 
 /* Baut ein Fahrzeug nach Typ. Alles aus Kisten, damit es zum Stil passt. */
-function makeFahrzeugMesh(typ, farbe) {
-  if (typ.art === 'pkw') return makeCarMesh(farbe);
+/* geparkt: ohne (unsichtbare) Insassen, Sitze aus einer gemeinsamen
+   Geometrie - die Parkstreifen verschmelzen die Wagen ohnehin. */
+function makeFahrzeugMesh(typ, farbe, geparkt) {
+  if (typ.art === 'pkw') return makeCarMesh(farbe, geparkt);
   if (typ.art === 'bus' && CITY_LOOK && CITY_LOOK.createBus) {
     const bus = CITY_LOOK.createBus(typ, farbe), people = [];
     for (const [i, seat] of bus.userData.sitzplaetze.entries()) {
@@ -25601,7 +25793,7 @@ function makeFahrzeugMesh(typ, farbe) {
     color: 0x5c7f96, transparent: true, opacity: 0.34, depthWrite: false });
 
   if (typ.art === 'taxi') {
-    const auto = makeCarMesh(0xf2c12e);
+    const auto = makeCarMesh(0xf2c12e, geparkt);
     const schild = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.28, 0.35),
       new THREE.MeshBasicMaterial({ color: 0xfff3c0 }));
     schild.position.set(0, (auto.userData.roofHeight || 1.98) + 0.14, -0.2);
@@ -25615,7 +25807,7 @@ function makeFahrzeugMesh(typ, farbe) {
     return auto;
   }
   if (typ.art === 'polizei') {
-    const auto = makeCarMesh(0xf0f0f2);
+    const auto = makeCarMesh(0xf0f0f2, geparkt);
     for (const sz of [1, -1]) {
       const tuer = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 2.4),
         new THREE.MeshLambertMaterial({ color: 0x1c3f8c }));
@@ -27194,50 +27386,114 @@ function spawnCars() {
     /* Die Spur kommt aus der Strassenklasse: eine Nebenstrasse hat zwei
        Spuren, eine Avenue vier. Vorher stand hier fest +/-3. */
     const lane = pick(spurMitten(querAchse(axis), line, laneSign));
-    const isBridgeRoad = axis === 'x' && line === BRIDGE_Z;
     const typ = waehleFahrzeug();
-    /* Ein Polizeiwagen im normalen Verkehr ist eine Streife: er faehrt
-       wie jeder andere, ohne Sirene und ohne Licht - und steht dem
-       Dispatch als naechste Einheit zur Verfuegung (siehe respStreife). */
-    /* ---- Die Brueckenstrasse endet an der Kaimauer drueben ----
-       Sie reichte bis SHORE_X1 - 10, also mitten in den Stadtteil am
-       anderen Ufer. Dort liegt aber ein EIGENES Strassenraster (SHORE_*),
-       und die Wagen fuhren stur auf ihrer Spur weiter - quer durch die
-       Haeuser. Genau das war der Bus, der im Gebaeude steckte.
-       Jetzt ist an der Kaimauer Schluss; dort wenden sie und fahren
-       zurueck ueber die Bruecke. */
-    /* ---- Wo eine Strasse anfaengt und aufhoert ----
-       Hier standen feste -186 und 186. Das Raster endet aber an der
-       aeussersten Linie (x, z = 175); die 11 m dahinter sind Gehweg,
-       Promenade oder blosser Untergrund. Die Wagen fuhren dort hinaus,
-       standen sichtbar neben der Fahrbahn und wurden dann in EINEM Bild
-       um 11 m auf die Kreuzung zurueckgesetzt.
-       Jetzt endet die Strasse an der aeussersten Kreuzung. Die drei Meter
-       Zuschlag sind der Spurversatz: wer dort abbiegt, steht auf Linie
-       plus oder minus drei.
-       Die Brueckenstrasse laeuft weiter, bis sie drueben auf die erste
-       Uferstrasse trifft - dort ist Platz zum Wenden. */
-    const RASTER_A = rasterO(axis) - 3, RASTER_E = rasterE(axis) + 3;
-    const sMin = RASTER_A, sMax = isBridgeRoad ? SHORE_OX + 3 : RASTER_E;
-    cars.push({
-      axis, lane, dir: laneSign, // Rechtsverkehr angenähert
-      /* Startpunkt INNERHALB des Strassenrasters. Ein Auto, das zwischen
-         der aeussersten Kreuzung und dem Kartenrand startet, erreicht nie
-         eine Kreuzung - es fuhr geradewegs aus der Karte und wurde auf die
-         andere Seite gesetzt. Auf der Brueckenstrasse darf es weiter
-         draussen anfangen, dort geht es ja ueber den Fluss. */
-      s: isBridgeRoad ? rand(sMin, sMax)
+    cars.push(baueAuto(axis, line, laneSign, lane, typ));
+  }
+}
+/* Ein fahrendes Fahrzeug auf seiner Spur. sFest setzt die Laengslage;
+   ohne wird sie hier gewuerfelt - in derselben Reihenfolge wie frueher
+   (Lage, Tempo, Modell), damit der Weltstrom gleich bleibt. */
+function baueAuto(axis, line, laneSign, lane, typ, sFest) {
+  const isBridgeRoad = axis === 'x' && line === BRIDGE_Z;
+  /* Ein Polizeiwagen im normalen Verkehr ist eine Streife: er faehrt
+     wie jeder andere, ohne Sirene und ohne Licht - und steht dem
+     Dispatch als naechste Einheit zur Verfuegung (siehe respStreife). */
+  /* ---- Die Brueckenstrasse endet an der Kaimauer drueben ----
+     Sie reichte bis SHORE_X1 - 10, also mitten in den Stadtteil am
+     anderen Ufer. Dort liegt aber ein EIGENES Strassenraster (SHORE_*),
+     und die Wagen fuhren stur auf ihrer Spur weiter - quer durch die
+     Haeuser. Genau das war der Bus, der im Gebaeude steckte.
+     Jetzt ist an der Kaimauer Schluss; dort wenden sie und fahren
+     zurueck ueber die Bruecke. */
+  /* ---- Wo eine Strasse anfaengt und aufhoert ----
+     Hier standen feste -186 und 186. Das Raster endet aber an der
+     aeussersten Linie (x, z = 175); die 11 m dahinter sind Gehweg,
+     Promenade oder blosser Untergrund. Die Wagen fuhren dort hinaus,
+     standen sichtbar neben der Fahrbahn und wurden dann in EINEM Bild
+     um 11 m auf die Kreuzung zurueckgesetzt.
+     Jetzt endet die Strasse an der aeussersten Kreuzung. Die drei Meter
+     Zuschlag sind der Spurversatz: wer dort abbiegt, steht auf Linie
+     plus oder minus drei.
+     Die Brueckenstrasse laeuft weiter, bis sie drueben auf die erste
+     Uferstrasse trifft - dort ist Platz zum Wenden. */
+  const RASTER_A = rasterO(axis) - 3, RASTER_E = rasterE(axis) + 3;
+  const sMin = RASTER_A, sMax = isBridgeRoad ? SHORE_OX + 3 : RASTER_E;
+  return {
+    axis, lane, dir: laneSign, // Rechtsverkehr angenähert
+    /* Startpunkt INNERHALB des Strassenrasters. Ein Auto, das zwischen
+       der aeussersten Kreuzung und dem Kartenrand startet, erreicht nie
+       eine Kreuzung - es fuhr geradewegs aus der Karte und wurde auf die
+       andere Seite gesetzt. Auf der Brueckenstrasse darf es weiter
+       draussen anfangen, dort geht es ja ueber den Fluss. */
+    s: sFest !== undefined ? sFest
+       : isBridgeRoad ? rand(sMin, sMax)
                       : rand(rasterO(axis), rasterE(axis)), sMin, sMax,
-      /* Auf einer Avenue faehrt man zuegiger als in der Nebenstrasse. */
-      speed: rand(...strasseTempo(querAchse(axis), line)) *
-             (typ.art === 'bus' || typ.art === 'lkw' ? 0.72 : 1),
-      tempoJetzt: 0, hupCd: 0,
-      typ,
-      mesh: makeFahrzeugMesh(typ, typ.art === 'bus' ? pick([0x2f6fc8, 0x3b7a3f, 0xc23b30])
-                                 : typ.art === 'lkw' ? pick([0x4a5058, 0x2f4f7a]) : pick(CAR_COLORS)),
-      vx: 0, vz: 0,
-      hitCd: 0, kurve: 0, kreuzung: null,
-    });
+    /* Auf einer Avenue faehrt man zuegiger als in der Nebenstrasse. */
+    speed: rand(...strasseTempo(querAchse(axis), line)) *
+           (typ.art === 'bus' || typ.art === 'lkw' ? 0.72 : 1),
+    tempoJetzt: 0, hupCd: 0,
+    typ,
+    mesh: makeFahrzeugMesh(typ, typ.art === 'bus' ? pick([0x2f6fc8, 0x3b7a3f, 0xc23b30])
+                               : typ.art === 'lkw' ? pick([0x4a5058, 0x2f4f7a]) : pick(CAR_COLORS)),
+    vx: 0, vz: 0,
+    hitCd: 0, kurve: 0, kreuzung: null,
+  };
+}
+/* ======================= Mehr Verkehr =======================
+   45 Fahrzeuge im Umlauf, am Tag davon 78 Prozent unterwegs: 35 Wagen
+   auf 30,4 km Fahrspur - ein Wagen je 870 m. Der Zusatzverkehr setzt
+   VERKEHR_ZUSATZ weitere Wagen dazu, mit derselben Verkehrs-KI (Ampeln,
+   Vordermann, Abbiegen nach Strassenklasse, Tageszeit ueber die
+   Wagennummer). Die Startstrasse ist wie bisher nach Klasse gewichtet
+   (Boulevard 3,4, Avenue 2,6, Strasse 1,0, Nebenstrasse 0,5), dazu nach
+   dem Bezirk der Startstelle (VERKEHR_BEZIRK): im Zentrum und im
+   Geschaeftsviertel startet jeder gezogene Wagen, im Wohngebiet jeder
+   vierte. Kein Wagen startet naeher als VERKEHR_ABSTAND an einem anderen
+   auf derselben Spur. Wohin sie danach fahren, entscheidet an jeder
+   Kreuzung kreuzungsWahl - mit denselben Bezirksgewichten.
+
+   Die Gewichte sind gemessen (verkehr-dichte.js, 80 Wagen, 3 x 300 s;
+   Dichte = Anteil der Wagen / Anteil der Strassenlaenge):
+     Wohnen 0,40 / Mischung 0,75 / Ufer 0,6   -> Wohnen 0,99, Zentrum 1,07
+                                                 (Bruecke noch im Ufer gezaehlt)
+     Wohnen 0,25, Rand nicht gedaempft        -> Wohnen 0,95
+     dazu VERKEHR_RAND 0,4                    -> Wohnen 0,85, Mischung 1,09
+     dazu Mischung 0,55 (genommen)            -> Zentrum 1,36, Geschaeft
+                                                 1,25, Mischung 0,94, Ufer
+                                                 0,94, Wohnen 0,73, Park 0,60
+
+   Eigener Zufallsstrom, und zwar als LETZTES im Aufbau (initActors, nach
+   den Parkstreifen). Direkt nach den 45 Wagen der Welt reichte der eigene
+   Strom nicht: jeder neue Wagen legt Geometrien in den Wagen-Cache und
+   zaehlt die Bauart weiter - alles, was danach Wagen baut, zog dadurch
+   andere Zufallszahlen (gemessen: andere Parkautos). So bleiben Stadt,
+   Parkautos und Passanten, wie sie sind. Ein Pruefstand setzt die Zahl
+   ueber window.__WEBHERO_ZUSATZVERKEHR (0 = wie vorher). */
+const VERKEHR_ZUSATZ = (typeof window !== 'undefined' && window.__WEBHERO_ZUSATZVERKEHR >= 0)
+  ? (window.__WEBHERO_ZUSATZVERKEHR | 0) : 35;
+const VERKEHR_BEZIRK = { ZENTRUM: 1.0, GESCHAEFT: 1.0, MISCHUNG: 0.55, UFER: 0.5, PARK: 0.45, WOHN: 0.25 };
+const VERKEHR_ABSTAND = 15;
+const VERKEHR_RAND = 0.4;          // Stueck, das in die Randstrasse muendet (kreuzungsWahl)
+function spawnZusatzVerkehr() {
+  if (!VERKEHR_ZUSATZ) return;
+  const merk = ZUFALL_SEED;
+  zufallKeimSetzen((WELT_KEIM ^ 0x6c1e2b07) >>> 0);
+  try {
+    for (let n = 0, versuch = 0; n < VERKEHR_ZUSATZ && versuch < VERKEHR_ZUSATZ * 40; versuch++) {
+      const axis = Math.random() < 0.5 ? 'x' : 'z';
+      const line = zieheStrasse(querAchse(axis));
+      const s = rand(rasterO(axis), rasterE(axis));
+      const x = axis === 'x' ? s : line, z = axis === 'x' ? line : s;
+      if (Math.random() > (VERKEHR_BEZIRK[stadtteilAn(x, z)] || 0.7)) continue;
+      const laneSign = Math.random() < 0.5 ? 1 : -1;
+      const lane = pick(spurMitten(querAchse(axis), line, laneSign));
+      if (cars.some((c) => c.axis === axis && Math.abs(c.lane - lane) < 0.6 &&
+                           Math.abs(c.s - s) < VERKEHR_ABSTAND)) continue;
+      cars.push(baueAuto(axis, line, laneSign, lane, waehleFahrzeug(), s));
+      n++;
+    }
+  } finally {
+    zufallKeimSetzen(merk);
   }
 }
 spawnCars();
@@ -27331,7 +27587,7 @@ function parkPlaetze() {
 
 /* Darf hier einer stehen? Geprueft wird gegen die Flaechen, die das
    Spiel ohnehin schon kennt - kein zweiter, eigener Waechter. */
-function parkPlatzTauglich(pl, halbL, halbB) {
+function parkPlatzTauglich(pl, halbL, halbB, nurPruefen) {
   const x = pl.x, z = pl.z;
   const hx = pl.achse === 'x' ? halbB : halbL;
   const hz = pl.achse === 'x' ? halbL : halbB;
@@ -27355,10 +27611,21 @@ function parkPlatzTauglich(pl, halbL, halbB) {
      gemessen 3,4 m und 1,7 m. Ein paar Baukastenhaeuser stehen dicht an
      der Strassenkante, ihre Tuer liegt dann fast am Bordstein. */
   for (const t of hausTueren()) if (Math.hypot(t.x - x, t.z - z) < 6) return false;
-  /* Und der gemeinsame Platzwaechter, der auch die Stadtmoebel fuehrt. */
+  /* Und der gemeinsame Platzwaechter, der auch die Stadtmoebel fuehrt.
+     nurPruefen (Parkstreifen, nach den Strassendetails): nichts belegen -
+     der Wagen steht auf der Fahrbahn, Baum und Laterne daneben auf dem
+     Gehweg stoeren ihn nicht. */
+  if (nurPruefen) return true;
   return nimmPlatz(x, z, Math.max(hx, hz) + 0.2);
 }
 
+function parkKachelSichtbar(p) {
+  for (const k of PARK_STREIFEN.kacheln)
+    if (Math.abs(p.x - k.x) <= PARK_KACHEL / 2 && Math.abs(p.z - k.z) <= PARK_KACHEL / 2) return k.sichtbar;
+  return false;
+}
+/* Pruefschalter __WEBHERO_OHNE_PARKSTREIFEN: Parken wie vorher */
+const PARK_AUS = typeof window !== 'undefined' && !!window.__WEBHERO_OHNE_PARKSTREIFEN;
 function baueParkAutos(anzahl) {
   const kand = parkPlaetze();
   /* Mischen mit dem Weltzufall: dieselbe Stadt, dieselben Parkplaetze. */
@@ -27449,7 +27716,8 @@ function baueParkAutos(anzahl) {
       addCollider({ x0: pl.x - hx, x1: pl.x + hx, z0: pl.z - hz, z1: pl.z + hz,
                     h: 1.55, y0: 0, klein: true, parkAuto: true });
       PARK_AUTOS.push({ mesh, x: pl.x, z: pl.z, klasse: pl.klasse, art: typ.art,
-                        achse: pl.achse, halbL, halbB });
+                        achse: pl.achse, halbL, halbB, ry: mesh.rotation.y,
+                        linie: pl.linie, seite: pl.seite, s: pl.s });
       gesetzt++; hier++;
     }
   }
@@ -27464,10 +27732,283 @@ function updateParkAutos(dt) {
   parkTakt -= dt;
   if (parkTakt > 0) return;
   parkTakt = 0.25;
+  /* Nach den Parkstreifen stehen die Wagen in Kacheln (je Kachel wenige
+     Meshes); die Kachel ist sichtbar, solange ihr naechster Punkt in
+     PARK_SICHT liegt. */
+  if (PARK_STREIFEN.kacheln.length) {
+    for (const k of PARK_STREIFEN.kacheln) {
+      const dx = Math.max(0, Math.abs(player.pos.x - k.x) - PARK_KACHEL / 2);
+      const dz = Math.max(0, Math.abs(player.pos.z - k.z) - PARK_KACHEL / 2);
+      const an = dx * dx + dz * dz < PARK_SICHT * PARK_SICHT;
+      for (const m of k.meshes) m.visible = an;
+      k.sichtbar = an;
+    }
+    return;
+  }
   const g2 = PARK_SICHT * PARK_SICHT;
   for (const p of PARK_AUTOS) {
     const dx = p.x - player.pos.x, dz = p.z - player.pos.z;
     p.mesh.visible = dx * dx + dz * dz < g2;
+  }
+}
+
+/* ======================= Parkstreifen und Stellplaetze =======================
+   Geparkt wurde bisher "irgendwo am Bordstein": 300 Wagen, ohne
+   erkennbare Stellplaetze. Auf demselben Raster gibt es 962 Plaetze, auf
+   die ein Wagen von 4,6 x 2,0 m passt (parkPlatzTauglich).
+   Jetzt hat jede Neben- und Sammelstrasse (LOCAL, STREET - auf Avenue und
+   Boulevard ist neben den Spuren kein Platz, siehe oben) markierte
+   Parkstreifen: Stellplaetze im Raster von PARK_LUECKE, abgeteilt durch
+   kurze Querstriche und eine Laengslinie zur Fahrspur, dezent hellgrau.
+   Wie voll ein Streifen ist, haengt am Bezirk der Strassenseite:
+
+     Wohnen 72 %   Mischung 55 %   Geschaeft 42 % (Kurzparken)
+     Ufer 35 %     Zentrum 22 %    am Park 12 %
+
+   (STREET 85 % davon, dort ist mehr Durchgang). Die bisherigen 300 Wagen
+   bleiben, wo sie standen - sie stehen schon auf genau diesem Raster -,
+   nur ihre Bauart folgt dem Bezirk (PARK_MIX, nie groesser als vorher);
+   die neuen fuellen die freien Plaetze. Gebaut wird nach den
+   Strassendetails und dem Strassenleben im eigenen Zufallsstrom:
+   Stadt, Moebel, Passanten und Gegner bleiben unberuehrt.
+
+   Leistung: ein geparkter Wagen waren rund zehn Zeichenaufrufe (Karosserie,
+   Zierteile, Glas, Leuchten, vier Raeder, Bremslicht, Sitze). Jetzt wird
+   jedes Bauteil je Kachel (PARK_KACHEL) instanziert
+   (parkAutosVerschmelzen): eine Kachel zeichnet jedes Teil einmal, mit
+   einer Matrix je Wagen. Gepaart gemessen an den 300 Stellen von
+   stadt-leistung.js (Median mit gegen ohne Parkautos): 300 Wagen vorher
+   156,5 Aufrufe, 575 Wagen jetzt 93,5. Ein Verschmelzen zu festen Meshes
+   haette 3,9 Millionen Ecken (rund 139 MB) gekostet, die Instanzen
+   brauchen 0,5 Millionen. */
+const PARK_BELEGUNG = { WOHN: 0.72, MISCHUNG: 0.55, GESCHAEFT: 0.42, UFER: 0.35, ZENTRUM: 0.22, PARK: 0.12 };
+/* Welche Wagen am Rand stehen: fast nur Privatwagen; Taxis warten eher im
+   Zentrum und im Geschaeftsviertel, ein Streifenwagen ist die Ausnahme.
+   Bisher wurde gleichverteilt gewaehlt (an der Sammelstrasse aus Pkw und
+   Taxi, an der Nebenstrasse dazu Polizei) - gezaehlt 121 Pkw, 152 Taxis,
+   27 Streifenwagen. Anteile [Pkw, Taxi], der Rest Polizei. */
+const PARK_MIX = { WOHN: [0.95, 0.04], MISCHUNG: [0.9, 0.08], GESCHAEFT: [0.82, 0.15],
+                   ZENTRUM: [0.78, 0.18], UFER: [0.92, 0.07], PARK: [0.94, 0.05] };
+function parkTypImBezirk(bezirk, r, maxBreite) {
+  const m = PARK_MIX[bezirk] || PARK_MIX.MISCHUNG;
+  const art = r < m[0] ? 'pkw' : r < m[0] + m[1] ? 'taxi' : 'polizei';
+  const f = FAHRZEUGE.find((t) => t.art === art);
+  return f.breite <= maxBreite ? f : FAHRZEUGE[0];
+}
+const PARK_KLASSE_FAKTOR = { LOCAL: 1.0, STREET: 0.85 };
+const PARK_KACHEL = 80;
+const PARK_STRICH = 0xc3c6c6;        // Markierung: hellgrau, nicht leuchtend weiss
+const PARK_STREIFEN = { fertig: false, ms: 0, plaetze: 0, alt: 0, neu: 0, umgebaut: 0, jeBezirk: {}, kacheln: [], mesh: null, fehler: null };
+function baueParkStreifen() {
+  if (PARK_STREIFEN.fertig || typeof document === 'undefined' || PARK_AUS) return;
+  PARK_STREIFEN.fertig = true;
+  const t0 = performance.now();
+  const merk = ZUFALL_SEED;
+  zufallKeimSetzen((WELT_KEIM ^ 0x2f6b0e31) >>> 0);
+  try {
+    const schl = (pl) => pl.achse + '|' + pl.linie + '|' + pl.seite + '|' + pl.s;
+    const alt = new Set(PARK_AUTOS.map(schl));
+    PARK_STREIFEN.alt = PARK_AUTOS.length;
+    /* Groesster Wagen im Streifen fuer die Pruefung des Platzes */
+    const pL = 4.6 / 2 + 0.1, pB = 2.0 / 2;
+    const quer = (pl, halbL, halbB) => pl.linie + pl.seite * (PARK_RAND - halbB - halbL * PARK_SCHIEF - PARK_LUFT);
+    const plaetze = [];
+    for (const pl of parkPlaetze()) {
+      const q = quer(pl, pL, pB);
+      const pr = Object.assign({}, pl, { x: pl.achse === 'x' ? q : pl.s, z: pl.achse === 'x' ? pl.s : q });
+      const istAlt = alt.has(schl(pl));
+      if (!istAlt && !parkPlatzTauglich(pr, pL, pB, true)) continue;
+      /* Bezirk der Strassenseite: der Gehweg neben dem Platz */
+      const gx = pl.achse === 'x' ? pl.linie + pl.seite * (ROAD_HALF + 1.5) : pl.s;
+      const gz = pl.achse === 'x' ? pl.s : pl.linie + pl.seite * (ROAD_HALF + 1.5);
+      plaetze.push({ pl, istAlt, bezirk: stadtteilAn(gx, gz) });
+    }
+    PARK_STREIFEN.plaetze = plaetze.length;
+    /* 1. Markierung: Querstriche an den Platzgrenzen (2,2 m vom Bordstein),
+       Laengslinie zur Fahrspur; geteilte Grenzen nur einmal */
+    const teile = [], grenzen = new Set();
+    const L = PARK_LUECKE, tief = 2.2, dick = 0.12;
+    const kasten = (pl, s0, s1, v0, v1) => {
+      const a = pl.linie + pl.seite * v0, b = pl.linie + pl.seite * v1;
+      const x0 = pl.achse === 'x' ? Math.min(a, b) : s0, x1 = pl.achse === 'x' ? Math.max(a, b) : s1;
+      const z0 = pl.achse === 'x' ? s0 : Math.min(a, b), z1 = pl.achse === 'x' ? s1 : Math.max(a, b);
+      if (aufZebra(x0, x1, z0, z1)) return;
+      teile.push({ w: x1 - x0, h: 0.04, d: z1 - z0, x: (x0 + x1) / 2, y: 0.02, z: (z0 + z1) / 2, farbe: PARK_STRICH });
+    };
+    for (const { pl } of plaetze) {
+      for (const sg of [pl.s - L / 2, pl.s + L / 2]) {
+        const k = pl.achse + '|' + pl.linie + '|' + pl.seite + '|' + sg.toFixed(2);
+        if (grenzen.has(k)) continue;
+        grenzen.add(k);
+        kasten(pl, sg - dick / 2, sg + dick / 2, ROAD_HALF - tief, ROAD_HALF - 0.05);
+      }
+      kasten(pl, pl.s - L / 2, pl.s + L / 2, ROAD_HALF - tief - 0.1, ROAD_HALF - tief);
+    }
+    if (teile.length) {
+      const m = new THREE.Mesh(verschmelzeBoxen(teile), new THREE.MeshLambertMaterial({ vertexColors: true }));
+      m.name = 'Parkstreifen'; m.receiveShadow = true;
+      cityGroup.add(m);
+      PARK_STREIFEN.mesh = m;
+    }
+    /* 2. Belegen: freie Plaetze nach Bezirk und Klasse */
+    const altNach = new Map(PARK_AUTOS.map((p) => [schl(p), p]));
+    for (const { pl, istAlt, bezirk } of plaetze) {
+      const B = PARK_STREIFEN.jeBezirk[bezirk] || (PARK_STREIFEN.jeBezirk[bezirk] = { plaetze: 0, belegt: 0 });
+      B.plaetze++;
+      const maxBreite = pl.klasse === 'LOCAL' ? 2.0 : 1.9;
+      if (istAlt) {
+        /* Der alte Wagen bleibt stehen; er bekommt nur die Bauart des
+           Bezirks - nie eine groessere als vorher, Hindernis und Platz
+           bleiben genau, wie sie waren. */
+        B.belegt++;
+        const p = altNach.get(schl(pl));
+        const alt0 = FAHRZEUGE.find((t) => t.art === p.art);
+        const typ = parkTypImBezirk(bezirk, Math.random(), maxBreite);
+        if (typ.art !== p.art && typ.laenge <= alt0.laenge && typ.breite <= alt0.breite) {
+          const mesh = makeFahrzeugMesh(typ, typ.art === 'taxi' ? 0xf2c12e : pick(CAR_COLORS), true);
+          mesh.position.copy(p.mesh.position); mesh.rotation.y = p.mesh.rotation.y;
+          scene.remove(p.mesh);
+          p.mesh = mesh; p.art = typ.art;
+          PARK_STREIFEN.umgebaut++;
+        }
+        continue;
+      }
+      const p = (PARK_BELEGUNG[bezirk] || 0.4) * (PARK_KLASSE_FAKTOR[pl.klasse] || 0.85);
+      if (Math.random() >= p) continue;
+      const typ = parkTypImBezirk(bezirk, Math.random(), maxBreite);
+      const halbL = typ.laenge / 2 + 0.1, halbB = typ.breite / 2;
+      const q = quer(pl, halbL, halbB);
+      const pr = Object.assign({}, pl, { x: pl.achse === 'x' ? q : pl.s, z: pl.achse === 'x' ? pl.s : q });
+      if (!parkPlatzTauglich(pr, halbL, halbB, true)) continue;
+      const mesh = makeFahrzeugMesh(typ, typ.art === 'taxi' ? 0xf2c12e : pick(CAR_COLORS), true);
+      mesh.position.set(pr.x, 0, pr.z);
+      mesh.rotation.y = pl.ry + rand(-PARK_SCHIEF, PARK_SCHIEF);
+      const hx = pl.achse === 'x' ? halbB : halbL, hz = pl.achse === 'x' ? halbL : halbB;
+      addCollider({ x0: pr.x - hx, x1: pr.x + hx, z0: pr.z - hz, z1: pr.z + hz, h: 1.55, y0: 0, klein: true, parkAuto: true });
+      PARK_AUTOS.push({ mesh, x: pr.x, z: pr.z, klasse: pl.klasse, art: typ.art, achse: pl.achse, halbL, halbB,
+                        ry: mesh.rotation.y, linie: pl.linie, seite: pl.seite, s: pl.s, neu: true });
+      PARK_STREIFEN.neu++; B.belegt++;
+    }
+    PARK_STREIFEN.zeiten = { setzen: +(performance.now() - t0).toFixed(1) };
+    /* 3. Alle geparkten Wagen je Kachel und Material verschmelzen */
+    const t1 = performance.now();
+    parkAutosVerschmelzen();
+    PARK_STREIFEN.zeiten.verschmelzen = +(performance.now() - t1).toFixed(1);
+  } catch (e) {
+    PARK_STREIFEN.fehler = String(e && e.stack || e);
+  } finally {
+    zufallKeimSetzen(merk);
+  }
+  PARK_STREIFEN.ms = +(performance.now() - t0).toFixed(1);
+}
+/* Material eines Wagenteils fuer den Stapel: geteilte Materialien bleiben,
+   eigene je Wagen (Bremslicht, Taxischild, Sitze ...) werden nach Art,
+   Farbe und Durchsicht zusammengefasst. */
+function parkMaterialSchluessel(m) {
+  if (m.userData && m.userData.parkGeteilt) return m.uuid;
+  return m.type + '|' + (m.color ? m.color.getHexString() : '') + '|' + !!m.vertexColors + '|' +
+         !!m.transparent + '|' + (m.opacity || 1).toFixed(2) + '|' + (m.map ? m.map.uuid : '');
+}
+function parkAutosVerschmelzen() {
+  /* Instanziert je Kachel und Bauteil: jedes Teil (Karosserie je Bauart,
+     Zierteile, Glas, Leuchten, Rad, Bremslicht, Sitze ...) liegt EINMAL im
+     Speicher, die Kachel zeichnet es mit einer Matrix je Wagen. Die
+     Karosserie ist weiss und bekommt den Lack als Instanzfarbe. Gleiche
+     Geometrien verschiedener Wagen (Bremslicht, Sitze, Taxischild) werden
+     an ihrem Inhalt erkannt. */
+  const zaehl = new Map();
+  for (const p of PARK_AUTOS) p.mesh.traverse((m) => { if (m.isMesh && !Array.isArray(m.material)) zaehl.set(m.material, (zaehl.get(m.material) || 0) + 1); });
+  for (const [m, n] of zaehl) if (n > 1) m.userData.parkGeteilt = true;
+  const kanonG = new Map(), nachInhalt = new Map(), kanonM = new Map();
+  const geoVon = (g) => {
+    if (kanonG.has(g)) return kanonG.get(g);
+    const a = g.attributes.position.array;
+    const k = a.length + '|' + (g.index ? g.index.count : 0) + '|' +
+              [0, 1, 2, a.length - 3, a.length - 2, a.length - 1, a.length >> 1].map((i) => a[i].toFixed(4)).join(',');
+    if (!nachInhalt.has(k)) nachInhalt.set(k, g);
+    kanonG.set(g, nachInhalt.get(k));
+    return nachInhalt.get(k);
+  };
+  /* Eigene Kopie je Material und je "mit Lack": three r128 waehlt das
+     Programm je Material und baut es nicht neu, wenn ein Teil mit
+     Instanzfarbe und eines ohne sich das Material teilen (Absturz beim
+     ersten Bild). Mit der Kopie springt auch das gemeinsame Material der
+     fahrenden Wagen nicht bei jedem Bild zwischen Einzel- und
+     Instanzprogramm hin und her. */
+  const matVon = (m, mitLack) => {
+    const k = parkMaterialSchluessel(m) + (mitLack ? '|lack' : '');
+    if (!kanonM.has(k)) {
+      const c = m.clone();
+      if (Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile')) {
+        c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey;
+      }
+      kanonM.set(k, c);
+    }
+    return kanonM.get(k);
+  };
+  const weiss = new Map();
+  const kacheln = new Map();
+  const farbe = new THREE.Color();
+  for (const p of PARK_AUTOS) {
+    const kx = Math.floor(p.x / PARK_KACHEL), kz = Math.floor(p.z / PARK_KACHEL);
+    const key = kx + '|' + kz;
+    let K = kacheln.get(key);
+    if (!K) { K = { x: (kx + 0.5) * PARK_KACHEL, z: (kz + 0.5) * PARK_KACHEL, teile: new Map() }; kacheln.set(key, K); }
+    const g0 = p.mesh;
+    g0.updateMatrixWorld(true);
+    g0.traverse((m) => {
+      if (!m.isMesh || Array.isArray(m.material)) return;
+      for (let o = m; o && o !== g0.parent; o = o.parent) if (!o.visible) return;
+      let geo = geoVon(m.geometry), lack = null;
+      if (m.name === 'Body' && CITY_LOOK && CITY_LOOK.parkKarosserie && g0.userData.lack !== undefined) {
+        const kind = g0.userData.variant || 0;
+        if (!weiss.has(kind)) weiss.set(kind, CITY_LOOK.parkKarosserie(kind));
+        geo = weiss.get(kind); lack = g0.userData.lack;
+      }
+      const mat = matVon(m.material, lack !== null);
+      const tk = geo.uuid + '|' + mat.uuid;
+      let T = K.teile.get(tk);
+      if (!T) { T = { geo, mat, liste: [], schatten: false, lack: lack !== null }; K.teile.set(tk, T); }
+      T.liste.push({ e: m.matrixWorld.clone(), lack });
+      if (m.castShadow) T.schatten = true;
+    });
+    scene.remove(g0);
+    p.mesh = null;
+  }
+  const v = new THREE.Vector3();
+  for (const K of kacheln.values()) {
+    const meshes = [];
+    for (const T of K.teile.values()) {
+      /* eigene Huelle je Kachel (die Puffer teilt sie mit der Quelle):
+         so schneidet das Sichtfeld die Kachel und nicht das Teil am Ursprung */
+      const g = new THREE.BufferGeometry();
+      for (const n of Object.keys(T.geo.attributes)) g.setAttribute(n, T.geo.attributes[n]);
+      if (T.geo.index) g.setIndex(T.geo.index);
+      if (!T.geo.boundingSphere) T.geo.computeBoundingSphere();
+      const bs = T.geo.boundingSphere;
+      const m = new THREE.InstancedMesh(g, T.mat, T.liste.length);
+      const mitte = new THREE.Vector3();
+      T.liste.forEach(({ e, lack }, i) => {
+        m.setMatrixAt(i, e);
+        if (T.lack) m.setColorAt(i, farbe.setHex(lack));
+        mitte.add(v.copy(bs.center).applyMatrix4(e));
+      });
+      mitte.multiplyScalar(1 / T.liste.length);
+      let r = 0;
+      for (const { e } of T.liste) r = Math.max(r, v.copy(bs.center).applyMatrix4(e).distanceTo(mitte));
+      g.boundingSphere = new THREE.Sphere(mitte, r + bs.radius);
+      /* three r128 schaltet das Wegschneiden fuer InstancedMesh ab Werk
+         AUS - ohne diese Zeile zeichnete jede sichtbare Kachel in jedem
+         Bild, auch hinter der Kamera (gemessen: 286 Aufrufe an allen 300
+         Stellen von stadt-leistung.js). */
+      m.frustumCulled = true;
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      m.name = 'ParkAutos'; m.castShadow = T.schatten; m.receiveShadow = true;
+      scene.add(m);
+      meshes.push(m);
+    }
+    PARK_STREIFEN.kacheln.push({ x: K.x, z: K.z, meshes, sichtbar: true });
   }
 }
 baueParkAutos((typeof window !== 'undefined' && window.__WEBHERO_PARKAUTOS >= 0)
@@ -28340,6 +28881,46 @@ function setzeAutoGrenzen(car) {
   car.sMax = bruecke ? SHORE_OX + 3 : rasterE(car.axis) + 3;
 }
 
+/* ---- Wohin an der Kreuzung (Mehr Verkehr) ----
+   Gemessen mit 45 Wagen und dem Abbiegen allein nach der eigenen Klasse
+   (verkehr-dichte.js, 3 x 300 s): die Haelfte aller Wagenproben lag auf
+   den Nebenstrassen, ein Zwanzigstel auf den Boulevards, und je Meter
+   Strasse war das Wohngebiet am dichtesten befahren (1,41 des Mittels),
+   das Zentrum am duennsten (0,49). Die Randstrassen sammeln den Verkehr:
+   dort geht es nur nach innen oder weiter am Rand entlang.
+
+   Jetzt bekommt jede Richtung ein Gewicht - Klasse der Zielstrasse
+   (gewicht aus STR_KLASSEN) mal Bezirk des naechsten halben Blocks
+   (VERKEHR_BEZIRK) - und gezogen wird danach. Bei einer solchen
+   Irrfahrt stellt sich der Verkehr je Strassenstueck ungefaehr im
+   Verhaeltnis dieser Gewichte ein, egal wo die Wagen gestartet sind.
+   Eine Querstrasse, die am Rand gleich wieder endet, hat Gewicht null
+   (der Wagen haette dort nur gewendet) - ausser der Brueckenstrasse nach
+   Osten. Ueber den Scheinkreuzungen im Fluss bleibt es beim Geradeaus.
+   Rueckgabe: [geradeaus, Richtung +1, Richtung -1]. */
+function kreuzungsWahl(car, linie, eigene) {
+  const halb = PITCH / 2, qa = eigene.achse;
+  /* a: Lage auf der Fahrachse, q: Lage auf der Querachse */
+  const bezirk = (a, q) => VERKEHR_BEZIRK[car.axis === 'x' ? stadtteilAn(a, q) : stadtteilAn(q, a)] || 0.7;
+  /* Fuehrt das naechste Stueck auf den Rand zu (die naechste Kreuzung
+     ist die aeusserste), endet es dort in einer T-Kreuzung und schiebt
+     jeden Wagen auf die Randstrasse - die Randstrassen trugen so 28
+     Prozent aller Wagen auf rund 13 Prozent der Strassenlaenge. */
+  const amRand = (achse, l) => l < rasterO(achse) + 1 || l > rasterE(achse) - 1;
+  const vorne = linie + car.dir * PITCH;
+  const w = [strasseInfo(qa, eigene.linie).gewicht * bezirk(linie + car.dir * halb, eigene.linie) *
+             (amRand(car.axis, vorne) && !autoAufBruecke(car) ? VERKEHR_RAND : 1), 0, 0];
+  if (car.axis === 'x' && linie > AUTO_X_MAX) return w;
+  const quer = strasseInfo(car.axis, linie).gewicht;
+  for (const [i, nd] of [[1, 1], [2, -1]]) {
+    const ende = eigene.linie + nd * PITCH;
+    const bruecke = car.axis === 'z' && Math.abs(linie - BRIDGE_Z) < 0.5 && nd > 0;
+    if (!bruecke && (ende < rasterO(qa) - 1 || ende > rasterE(qa) + 1)) continue;
+    w[i] = quer * bezirk(linie, eigene.linie + nd * halb) * (!bruecke && amRand(qa, ende) ? VERKEHR_RAND : 1);
+  }
+  return w;
+}
+
 function autoKreuzung(car, linie) {
   const weiter = linie + car.dir * PITCH;
   /* Liegt die NAECHSTE Kreuzung noch auf der Strasse? Der Abstand von 6 m
@@ -28384,15 +28965,26 @@ function autoKreuzung(car, linie) {
     setzeAutoGrenzen(car);
     return true;
   }
-  /* Ob abgebogen wird, haengt von der Strasse ab, auf der man FAEHRT.
-     Auf einem Boulevard faehrt man durch, in einer Wohnstrasse biegt man
-     staendig ab - daraus entsteht der Durchgangsverkehr auf den
-     Hauptachsen. Vorher stand hier fuer jede Strasse dieselbe 0,14. */
   const eigene = strasseVonAuto(car);
-  const abbiegeChance = car.flucht ? 0.30 : strasseInfo(eigene.achse, eigene.linie).abbiegen;
-  if (drin && Math.random() > abbiegeChance) return false;
-  /* Am Rand geht es in die Stadt hinein, sonst nach Lust und Laune. */
-  const nd = !drin ? (car.lane > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
+  let nd;
+  if (drin && !car.flucht && !car.notfall) {
+    /* Mehr Verkehr: geradeaus, links oder rechts - gewichtet nach Klasse
+       und Bezirk der Strasse, auf die es geht (kreuzungsWahl). */
+    const w = kreuzungsWahl(car, linie, eigene);
+    const r = Math.random() * (w[0] + w[1] + w[2]);
+    if (r < w[0]) return false;
+    nd = r < w[0] + w[1] ? 1 : -1;
+  } else {
+    /* Ob abgebogen wird, haengt von der Strasse ab, auf der man FAEHRT.
+       Auf einem Boulevard faehrt man durch, in einer Wohnstrasse biegt man
+       staendig ab - daraus entsteht der Durchgangsverkehr auf den
+       Hauptachsen. Vorher stand hier fuer jede Strasse dieselbe 0,14.
+       So faehrt seit dem Zusatzverkehr nur noch das Fluchtauto. */
+    const abbiegeChance = car.flucht ? 0.30 : strasseInfo(eigene.achse, eigene.linie).abbiegen;
+    if (drin && Math.random() > abbiegeChance) return false;
+    /* Am Rand geht es in die Stadt hinein, sonst nach Lust und Laune. */
+    nd = !drin ? (car.lane > 0 ? -1 : 1) : (Math.random() < 0.5 ? 1 : -1);
+  }
   /* Die Zielstrasse hat ihre eigene Spurzahl. Vorher stand hier fest
      linie + nd * 3, also immer die Spur einer zweispurigen Strasse - auf
      einer Avenue waere der Wagen damit auf der Mittellinie gelandet.
@@ -28415,6 +29007,17 @@ function autoKreuzung(car, linie) {
      verlangte Sicherheitsabstand von 4 m hat genau das Abbiegen auf den
      Randstrassen verhindert. */
   if (neuesS < car.sMin - 0.5 || neuesS > car.sMax + 0.5) return false;
+  /* Eingebogen wird nur in eine freie Spur. Ohne diese Probe landete ein
+     Wagen beim Abbiegen mitten in einem anderen, der dort gerade fuhr
+     (gemessen: ein Pkw in einem Lkw, danach 30 s ineinander). Ist die
+     Stelle belegt, geht es geradeaus weiter. */
+  if (!car.flucht) {
+    const neueAchse = car.axis === 'x' ? 'z' : 'x', L = car.typ ? car.typ.laenge : 4.4;
+    for (const o of cars) {
+      if (o === car || o.aus || o.axis !== neueAchse || Math.abs(o.lane - neueLane) > 0.5) continue;
+      if (Math.abs(o.s - neuesS) < (L + (o.typ ? o.typ.laenge : 4.4)) / 2 + 1.5) return false;
+    }
+  }
   car.axis = car.axis === 'x' ? 'z' : 'x';
   car.lane = neueLane;
   car.s = neuesS;
@@ -28496,7 +29099,11 @@ function updateCars(dt) {
                        ' dessenDir=' + o.dir + ' meinDir=' + car.dir;
         }
         if (gap > 0 && gap < 9) ziel = Math.min(ziel, (o.tempoJetzt || 0) * 0.85);
-        if (gap <= 0 && gap > -3) ziel = 0;
+        /* Ueberlappt der Vordermann mehr als 3 m, galt er hier als "hinten"
+           (gap <= -3) - zwei Wagen, die an einer Kreuzung ineinander
+           geraten waren, fuhren so bis zu 30 s ineinander weiter. Jetzt
+           haelt der hintere, bis sie getrennt sind. */
+        if (gap <= 0 && (o.s - car.s) * car.dir > 0) ziel = 0;
       }
 
       /* Ampel: vor der Haltelinie stehenbleiben, wenn nicht Grün. */
@@ -28573,7 +29180,11 @@ function updateCars(dt) {
     const pz = car.axis === 'x' ? car.lane : car.s;
     let hindernis = 0;                 // Abstand nach vorn, 0 = keins
     const pruefe = (ox, oz, oy) => {
-      if (oy > 2.2) return;
+      /* Nur wer auf der Strasse steht: die Fahrgaeste auf dem U-Bahnsteig
+         (9 m darunter) hielten sonst jeden Wagen auf, der ueber sie
+         hinwegfuhr - gemessen auf dem Boulevard z = 25, ein Wagen stand
+         dort dauerhaft und die Spur dahinter staute sich. */
+      if (oy > 2.2 || oy < -1.5) return;
       const dx2 = ox - px, dz2 = oz - pz;
       const vorne2 = car.axis === 'x' ? dx2 * car.dir : dz2 * car.dir;
       const seit2 = Math.abs(car.axis === 'x' ? dz2 : dx2);
@@ -32458,18 +33069,31 @@ function biBuerozeile(G, F, A, l0, l1, hS, st, seed, e) {
 
 /* GESCHAEFT (und Laeden anderswo): Ladenzeile. Je Laden ein Rahmen in
    eigener Farbe, Sockelbrett, Schaufenster, Tuer in der Nische, Blende. */
-function biLadenzeile(G, F, A, l0, l1, hS, st, seed, raumArt, farben, e) {
+function biLadenzeile(G, F, A, l0, l1, hS, st, seed, raumArt, farben, e, grenzen) {
   const len = l1 - l0, P = st.pfeilerB;
-  const n = Math.max(1, Math.round((len - P) / (raumArt === BI_RAUM.CAFE ? 6.0 : 5.0)));
-  const breit = (len - P * (n + 1)) / n;
-  if (breit < 2.6) return false;
-  let letzte = -1;
-  for (let i = 0; i <= n; i++) {
-    const a = l0 + i * (breit + P);
-    biSpalte(G, F, A, a, a + P, [[0.12, biT(st.sockel)], [hS, biT(st.pfeiler)]], seed + i);
+  /* Pfeiler und Laeden: gleich breit verteilt - oder, mit grenzen (Achsraster
+     einer Hausfamilie), Pfeiler auf den gegebenen Grenzen, die aeusseren
+     innerhalb der Strecke */
+  let pfeiler, laeden;
+  if (grenzen) {
+    const n = grenzen.length - 1;
+    pfeiler = grenzen.map((g, i) => (i === 0 ? [l0, l0 + P] : i === n ? [l1 - P, l1] : [g - P / 2, g + P / 2]));
+    laeden = []; for (let i = 0; i < n; i++) laeden.push([pfeiler[i][1], pfeiler[i + 1][0]]);
+  } else {
+    const n = Math.max(1, Math.round((len - P) / (raumArt === BI_RAUM.CAFE ? 6.0 : 5.0)));
+    const breit = (len - P * (n + 1)) / n;
+    pfeiler = []; laeden = [];
+    for (let i = 0; i <= n; i++) pfeiler.push([l0 + i * (breit + P), l0 + i * (breit + P) + P]);
+    for (let i = 0; i < n; i++) laeden.push([l0 + P + i * (breit + P), l0 + P + i * (breit + P) + breit]);
   }
-  for (let i = 0; i < n; i++) {
-    const a = l0 + P + i * (breit + P), b = a + breit;
+  if (laeden.some(([a, b]) => b - a < 2.6)) return false;
+  let letzte = -1;
+  for (let i = 0; i < pfeiler.length; i++) {
+    const [a, b] = pfeiler[i];
+    biSpalte(G, F, A, a, b, [[0.12, biT(st.sockel)], [hS, biT(st.pfeiler)]], seed + i);
+  }
+  for (let i = 0; i < laeden.length; i++) {
+    const [a, b] = laeden[i], breit = b - a;
     const s = seed * 5 + i * 17;
     let fi = Math.floor(biHash(s, i, 3, BI_H.LADEN) * farben.length);
     if (fi === letzte) fi = (fi + 1) % farben.length;
@@ -32511,7 +33135,7 @@ function biLadenzeile(G, F, A, l0, l1, hS, st, seed, raumArt, farben, e) {
 
 /* WOHN (und Wohnkanten am Ufer und in der Mischung): Sockel, Putz,
    Wohnfenster mit Sims und Sturz, Hauseingang mit Nummer und Leuchte. */
-function biWohnzeile(G, F, A, l0, l1, hS, st, seed, e, putz) {
+function biWohnzeile(G, F, A, l0, l1, hS, st, seed, e, putz, achsen) {
   const len = l1 - l0;
   if (len < 2.4) return false;
   const [fb, fu, fo] = BI_MASS.fenster;
@@ -32519,6 +33143,7 @@ function biWohnzeile(G, F, A, l0, l1, hS, st, seed, e, putz) {
   const sockel = biT(st.sockel), sims = biT(st.sims || st.sockel), rahmen = biRahmenTeil(st);
   /* oben ein Gurtgesims: der Sockel endet sichtbar, das Haus beginnt */
   const kopf = [[hS - 0.16, wand], [hS, sims]];
+  if (achsen) return biWohnzeileAchsen(G, F, A, l0, l1, hS, st, seed, e, achsen, wand, sockel, sims, rahmen, kopf);
   /* Eingaenge: einer ab 4,5 m, ab 13 m zwei */
   const nT = len >= 13 ? 2 : len >= 4.5 ? 1 : 0;
   const slots = [];
@@ -32566,6 +33191,49 @@ function biWohnzeile(G, F, A, l0, l1, hS, st, seed, e, putz) {
   return true;
 }
 
+/* Die Wohnzeile auf dem Achsraster der Hausfamilie: jede Achse traegt ein
+   Fenster oder die Haustuer, dazwischen Putz - dieselben Achsen, auf denen
+   die Obergeschosse (HF_GLSL_*) ihre Fenster haben. */
+function biWohnzeileAchsen(G, F, A, l0, l1, hS, st, seed, e, achsen, wand, sockel, sims, rahmen, kopf) {
+  const [fb, fu, fo] = BI_MASS.fenster;
+  const tb = BI_MASS.tuer + 0.36;                  // Tuer samt Rahmen und Luft
+  const halbF = fb / 2 + 0.08, halbT = tb / 2;
+  const frei = achsen.filter((c) => c - Math.max(halbF, halbT) >= l0 - 1e-6 && c + Math.max(halbF, halbT) <= l1 + 1e-6);
+  const len = l1 - l0;
+  const nT = Math.min(frei.length, len >= 13 ? 2 : len >= 4.5 ? 1 : 0);
+  const tueren = new Set();
+  if (nT === 1) tueren.add(Math.round((frei.length - 1) * (0.3 + 0.4 * biHash(seed, 0, 1, BI_H.TUER))));
+  else if (nT === 2) { tueren.add(Math.round((frei.length - 1) * 0.25)); tueren.add(Math.max(Math.round((frei.length - 1) * 0.75), Math.round((frei.length - 1) * 0.25) + 1)); }
+  const oberhalb = [[fo + 0.14, sims], ...kopf];
+  let cur = l0;
+  frei.forEach((c, i) => {
+    const tuer = tueren.has(i), half = tuer ? halbT : halbF;
+    const a0 = c - half, a1 = c + half;
+    if (a0 > cur + 0.004) biSpalte(G, F, A, cur, a0, [[st.sockelH, sockel], ...kopf], seed + i);
+    if (tuer) {
+      const d0 = a0 + 0.18, d1 = a1 - 0.18;
+      const tuerFarbe = BI_TUERFARBEN[Math.floor(biHash(seed, Math.round(a0 * 10), 2, BI_H.TUER) * BI_TUERFARBEN.length)];
+      const hT = BI_MASS.tuerH;
+      biSpalte(G, F, A, a0, d0, [[st.sockelH, sockel], ...kopf], seed);
+      biSpalte(G, F, A, d1, a1, [[st.sockelH, sockel], ...kopf], seed);
+      biTuer(G, F, A, d0, d1, hT, [[hT + 0.14, sims], ...kopf], { m: BI_M.KALK, c: (st.sims || st.sockel)[1] },
+             { nische: st.nische, tuer: tuerFarbe, D: BI_MASS.nischeD }, seed + 9);
+      e.eingaenge++;
+      e.tueren.push({ l: (d0 + d1) / 2, rechts: a1 });
+    } else {
+      const f0 = c - fb / 2, f1 = c + fb / 2;
+      biSpalte(G, F, A, f0 - 0.08, f0, [[st.sockelH, sockel], [fu - 0.06, wand], [fu, sims], [fo, wand], ...oberhalb], seed + i);
+      biSpalte(G, F, A, f1, f1 + 0.08, [[st.sockelH, sockel], [fu - 0.06, wand], [fu, sims], [fo, wand], ...oberhalb], seed + i);
+      const raum = { glas: st.raum !== undefined ? st.raum : BI_RAUM.WOHNUNG, D: 3.4, yB: -0.65, yD: 2.65 - fu, licht: st.licht };
+      biGlasfeld(G, F, A, f0, f1, [[st.sockelH, sockel], [fu - 0.06, wand], [fu, sims]], oberhalb, fu, fo, rahmen, raum,
+                 seed * 3 + i * 11 + Math.round(f0 * 7));
+      e.scheiben++;
+    }
+    cur = a1;
+  });
+  if (l1 > cur + 0.004) biSpalte(G, F, A, cur, l1, [[st.sockelH, sockel], ...kopf], seed);
+  return true;
+}
 /* MISCHUNG: kleiner Laden, Hauseingang, Bueros mit Jalousie - im Wechsel. */
 function biGemischt(G, F, A, l0, l1, hS, st, seed, e, putz) {
   const len = l1 - l0;
@@ -32581,7 +33249,7 @@ function biGemischt(G, F, A, l0, l1, hS, st, seed, e, putz) {
     return true;
   }
   /* Der Rest: Eingang und Bueros mit Jalousie in einer Putzwand */
-  const bst = Object.assign({}, st, { wand: st.wand, sims: [BI_M.BETON, 0x8d8a83], licht: [1.0, 0.97, 0.92],
+  const bst = Object.assign({}, st, { wand: st.wand, sims: st.sims || [BI_M.BETON, 0x8d8a83], licht: [1.0, 0.97, 0.92],
                                       raum: biHash(seed, 4, 0, BI_H.RAUM) < 0.55 ? BI_RAUM.BUERO : BI_RAUM.WOHNUNG });
   const ez = { scheiben: 0, eingaenge: 0, tueren: [] };
   biWohnzeile(G, F, A, rest[0], rest[1], hS, bst, seed + 3, ez, putz);
@@ -32775,7 +33443,9 @@ function biSockel(K, s, art, nutzung, A) {
   let eb = null, hS = 0;
   if (!K.modell) {
     eb = { l0: -breite / 2, l1: breite / 2, tiefe: 0, spanne: 0, quelle: 'kiste' };
-    hS = biSockelKiste(K);
+    /* mit Hausfamilie: deren Erdgeschosshoehe - darueber beginnen die
+       Obergeschosse der Fassade */
+    hS = K.hf ? K.hf.eg : biSockelKiste(K);
   } else {
     for (const h of BI_MASS.hoehen) {
       const e = biEben(K, s, 0.05, h);
@@ -32803,15 +33473,15 @@ function biSockel(K, s, art, nutzung, A) {
   const G = biGeo();
   const e = { art: 'sockel', bezirk: art, nutzung, haus: ki, K, nx: s.nx, nz: s.nz, l0, l1, y0: 0, y1: hS, tiefe: eb.tiefe,
               quelle: eb.quelle, scheiben: 0, eingaenge: 0, laeden: 0, tueren: [], geo: G, eb };
-  /* Auf den dunklen Glas- und Betonfassaden der Downtown-Modelle wirkt
-     heller Putz wie ein vorgestellter Kasten: dort dieselben Programme
-     in gedeckten, dunkleren Toenen (gleiches Material, 62 % Helligkeit). */
-  const modern = !!K.modell && /^Downtown_/.test(K.modell);
-  const ton = (hex) => modern ? biDunkler(hex, 0.62) : hex;
-  const tonStil = (x) => !modern ? x : Object.assign({}, x, ...['wand', 'pfeiler', 'blende', 'sims'].filter((k) => x[k]).map((k) => ({ [k]: [x[k][0], ton(x[k][1])] })));
-  const putz = ton(BI_PUTZ_WOHN[Math.floor(biHash(ki, s.nx, s.nz, BI_H.PUTZ) * BI_PUTZ_WOHN.length)]);
+  /* eine Putzfarbe je Haus, nicht je Seite */
+  const putz = BI_PUTZ_WOHN[Math.floor(biHash(ki, 0, 0, BI_H.PUTZ) * BI_PUTZ_WOHN.length)];
+  const mf = K.modell && (art === 'WOHN' || art === 'MISCHUNG' || art === 'UFER') ? biModellFamilie(K.modell) : null;
   let ok = false;
-  if (art === 'ZENTRUM') {
+  if (K.hf) {
+    ok = biSockelFamilie(G, F, A, K, s, l0, l1, hS, nutzung, seed, e);
+  } else if (mf) {
+    ok = biSockelModell(G, F, A, l0, l1, hS, art, nutzung, seed, e, mf);
+  } else if (art === 'ZENTRUM') {
     e.programm = nutzung === 'LADEN' ? 'flagship' : 'buero';
     ok = nutzung === 'LADEN'
       ? biLadenzeile(G, F, A, l0, l1, hS, Object.assign({}, st, { pfeilerB: 0.42 }), seed, BI_RAUM.LADEN, [0x2b251f, 0x23272b, 0x3a3027], e)
@@ -32824,21 +33494,127 @@ function biSockel(K, s, art, nutzung, A) {
   } else if (art === 'UFER') {
     e.programm = nutzung === 'WOHNEN' ? 'wohnen' : 'cafe';
     ok = e.programm === 'wohnen'
-      ? biWohnzeile(G, F, A, l0, l1, hS, tonStil(st), seed, e, ton(st.wand[1]))
-      : biLadenzeile(G, F, A, l0, l1, hS, tonStil(st), seed, BI_RAUM.CAFE, modern ? [0x5b6a6e, 0x3d3a36, 0x8c8983] : [0xe9e6df, 0xdcd6ca, 0x5b6a6e], e);
+      ? biWohnzeile(G, F, A, l0, l1, hS, st, seed, e, st.wand[1])
+      : biLadenzeile(G, F, A, l0, l1, hS, st, seed, BI_RAUM.CAFE, [0xe9e6df, 0xdcd6ca, 0x5b6a6e], e);
   } else if (art === 'WOHN') {
     e.programm = nutzung === 'LADEN' ? 'laden' : 'wohnen';
     ok = e.programm === 'laden'
       ? biGemischt(G, F, A, l0, l1, hS, Object.assign({}, BI_STIL.MISCHUNG, { licht: [1.0, 0.9, 0.76] }), seed, e, putz)
-      : biWohnzeile(G, F, A, l0, l1, hS, tonStil(st), seed, e, putz);
+      : biWohnzeile(G, F, A, l0, l1, hS, st, seed, e, putz);
   } else {
     e.programm = nutzung === 'LADEN' ? 'laden' : nutzung === 'WOHNEN' ? 'wohnen' : 'gemischt';
     if (e.programm === 'laden') ok = biLadenzeile(G, F, A, l0, l1, hS, st, seed, BI_RAUM.LADEN, [0x33373a, 0x2c3e36, 0x3d3a36, 0x25334a, 0x4a2b2b], e);
-    else if (e.programm === 'wohnen') ok = biWohnzeile(G, F, A, l0, l1, hS, tonStil(Object.assign({}, BI_STIL.WOHN, { sockel: st.sockel, licht: [1.0, 0.88, 0.7] })), seed, e, putz);
-    else ok = biGemischt(G, F, A, l0, l1, hS, tonStil(st), seed, e, ton(st.wand[1]));
+    else if (e.programm === 'wohnen') ok = biWohnzeile(G, F, A, l0, l1, hS, Object.assign({}, BI_STIL.WOHN, { sockel: st.sockel, licht: [1.0, 0.88, 0.7] }), seed, e, putz);
+    else ok = biGemischt(G, F, A, l0, l1, hS, st, seed, e, st.wand[1]);
   }
   if (!ok) { biVerwirf('sockel:programm'); return null; }
   return e;
+}
+
+/* ---- Erdgeschoss eines prozeduralen Hauses mit Hausfamilie ----
+   Putzfarbe, Hoehe und Achsen der Familie: die Wohnzeile setzt Fenster und
+   Haustuer auf die Achsen, Laeden fuellen Buchten zu zwei Achsen (die
+   Pfeiler stehen auf jeder zweiten Achsgrenze), die Pfeiler sind Putz des
+   Hauses. Darueber laufen die Fenster der Obergeschosse auf denselben
+   Achsen weiter (HF_GLSL_*). */
+const HF_ART = { 1: 'WOHN', 2: 'MISCHUNG', 3: 'UFER' };
+/* ---- Erdgeschoss eines Modellhauses: die Familie bestimmt das Modell ----
+   Die Obergeschosse der Modelle lassen sich nicht umbauen. Also folgt das
+   Erdgeschoss ihnen: unter Ziegelhaeusern (Brownstone, Residential_3)
+   Ziegel in der Farbe des Modells mit hellem Werkstein, unter Glas-,
+   Platten- und Betonbauten (ModernOffice, Brutal, PublicBuilding) Bueros
+   und Laeden in deren Toenen - kein Wohnputz mit Haustuer und Nummer unter
+   einem Buerobau. Die Farben sind die mittleren Fassadenfarben der
+   Modelle (Material mal Textur, nach Flaeche gewichtet), etwas aufgehellt,
+   weil sie die Fenster mitzaehlen. Gilt in Wohn-, Misch- und Ufergebiet;
+   Zentrum und Geschaeftsviertel behalten ihre Buero- und Ladenfronten. */
+const BI_MODELL_FAMILIE = {
+  Brownstone_FlatFacade_1: { art: 'ziegel', farbe: 0x74534a },
+  Brownstone_FlatFacade_3: { art: 'ziegel', farbe: 0x4d3a34 },
+  Brownstone_FlatFacade_6: { art: 'ziegel', farbe: 0x4d3a34 },
+  Brownstone_Harlem_1_B: { art: 'ziegel', farbe: 0x4d3a34 },
+  Brownstone_FlatFacade_5: { art: 'ziegel', farbe: 0x644a42 },
+  Brownstone_Lowrise_1: { art: 'ziegel', farbe: 0x644a42 },
+  Brownstone_Commercial_1_C: { art: 'ziegel', farbe: 0x7b6c58 },
+  Downtown_Residential_3: { art: 'ziegel', farbe: 0x706660 },
+  Downtown_ModernOffice_1: { art: 'buero', pfeiler: [BI_M.GRANIT, 0x4a4d50], sockel: [BI_M.GRANIT, 0x2b2e31], blende: [BI_M.METALL, 0x2b2e31] },
+  Downtown_ModernOffice_2: { art: 'buero', pfeiler: [BI_M.BETON, 0x9b9893], sockel: [BI_M.GRANIT, 0x4a4d50], blende: [BI_M.METALL, 0x3a3d40] },
+  Downtown_Brutal_1: { art: 'buero', pfeiler: [BI_M.BETON, 0x8e887d], sockel: [BI_M.BETON, 0x5f5b55], blende: [BI_M.BETON, 0x77726a] },
+  Downtown_PublicBuilding_1: { art: 'buero', pfeiler: [BI_M.KALK, 0x7a716a], sockel: [BI_M.GRANIT, 0x3b3633], blende: [BI_M.METALL, 0x3a3027] },
+};
+function biModellFamilie(modell) {
+  for (const k of Object.keys(BI_MODELL_FAMILIE)) if (modell.indexOf(k) === 0) return BI_MODELL_FAMILIE[k];
+  return null;
+}
+function biSockelModell(G, F, A, l0, l1, hS, art, nutzung, seed, e, mf) {
+  const LADEN = [0x23272b, 0x2c3e36, 0x4a2b2b, 0x25334a, 0x5b4733];
+  if (mf.art === 'ziegel') {
+    const st = Object.assign({}, BI_STIL.WOHN, { wand: [BI_M.KLINKER, mf.farbe], sockel: [BI_M.GRANIT, 0x3b3633],
+      sims: [BI_M.KALK, 0xb8ab94], rahmen: [BI_M.LACK, 0xe6e0d4], nische: BI_NISCHE.STEIN, sockelH: 0.5 });
+    const stL = Object.assign({}, st, { pfeiler: [BI_M.KLINKER, mf.farbe], pfeilerB: 0.3, blende: [BI_M.KALK, 0xb8ab94] });
+    if (nutzung === 'LADEN') { e.programm = 'laden'; return biLadenzeile(G, F, A, l0, l1, hS, stL, seed, BI_RAUM.LADEN, LADEN, e); }
+    if (art === 'UFER' && nutzung !== 'WOHNEN') { e.programm = 'cafe'; return biLadenzeile(G, F, A, l0, l1, hS, stL, seed, BI_RAUM.CAFE, LADEN, e); }
+    if (art === 'MISCHUNG' && nutzung !== 'WOHNEN') { e.programm = 'gemischt'; return biGemischt(G, F, A, l0, l1, hS, stL, seed, e, mf.farbe); }
+    e.programm = 'wohnen';
+    return biWohnzeile(G, F, A, l0, l1, hS, st, seed, e, mf.farbe);
+  }
+  const st = { sockel: mf.sockel, pfeiler: mf.pfeiler, rahmen: [BI_M.METALL, 0x2b2e31], blende: mf.blende,
+               nische: BI_NISCHE.GRANIT, tuer: 0x25211d, licht: [1.0, 0.96, 0.9],
+               sockelH: 0.4, blendeH: 0.5, pfeilerB: 0.4, bucht: 2.8 };
+  if (nutzung === 'LADEN') { e.programm = 'laden'; return biLadenzeile(G, F, A, l0, l1, hS, st, seed, BI_RAUM.LADEN, LADEN, e); }
+  if (art === 'UFER' && nutzung !== 'WOHNEN') { e.programm = 'cafe'; return biLadenzeile(G, F, A, l0, l1, hS, st, seed, BI_RAUM.CAFE, LADEN, e); }
+  e.programm = 'buero';
+  return biBuerozeile(G, F, A, l0, l1, hS, st, seed, e);
+}
+function biFamilienStil(hf) {
+  if (hf.fam === 1) return Object.assign({}, BI_STIL.WOHN);
+  if (hf.fam === 3) return Object.assign({}, BI_STIL.UFER, { sims: [BI_M.KALK, 0xe6e1d7] });
+  return Object.assign({}, BI_STIL.WOHN, { sockel: BI_STIL.MISCHUNG.sockel, rahmen: [BI_M.LACK, 0x33373a],
+                                           sims: [BI_M.BETON, 0x8d8a83], nische: BI_NISCHE.PUTZ, licht: [1.0, 0.95, 0.86] });
+}
+function biSockelFamilie(G, F, A, K, s, l0, l1, hS, nutzung, seed, e) {
+  const hf = K.hf, fam = hf.fam, breite = s.nx ? K.d : K.w;
+  const nA = hfAchsen(hf, breite), a = breite / nA;
+  const achsen = []; for (let k = 0; k < nA; k++) achsen.push(-breite / 2 + (k + 0.5) * a);
+  const grenze = (j) => -breite / 2 + j * a;
+  const putz = hf.farbe, stW = biFamilienStil(hf);
+  const stL = Object.assign({}, stW, { pfeiler: [BI_M.PUTZ, putz], pfeilerB: 0.32, blende: [BI_M.PUTZ, putz] });
+  /* Buchten zu zwei Achsen zwischen den Achsgrenzen j0 und j1 (ein Rest von
+     drei Achsen bleibt eine Bucht); die aeusseren Grenzen sind lA und lB */
+  const laden = (lA, lB, j0, j1, raumArt, farben) => {
+    const idx = [j0]; let j = j0;
+    while (j1 - j >= 4) { j += 2; idx.push(j); }
+    idx.push(j1);
+    const g = idx.map(grenze); g[0] = lA; g[g.length - 1] = lB;
+    return biLadenzeile(G, F, A, lA, lB, hS, stL, seed, raumArt, farben, e, g);
+  };
+  const LADEN_FARBEN = BI_LADENFARBEN.slice(0, BI_LADENFARBEN.length - 1);
+  if (fam === 3) {
+    e.programm = nutzung === 'WOHNEN' ? 'wohnen' : 'cafe';
+    return e.programm === 'wohnen' ? biWohnzeile(G, F, A, l0, l1, hS, stW, seed, e, putz, achsen)
+      : laden(l0, l1, 0, nA, BI_RAUM.CAFE, [0x5b6a6e, 0x3d3a36, 0x6b6760]);
+  }
+  if (fam === 2 && nutzung === 'LADEN') {
+    e.programm = 'laden';
+    return laden(l0, l1, 0, nA, BI_RAUM.LADEN, [0x33373a, 0x2c3e36, 0x3d3a36, 0x25334a, 0x4a2b2b]);
+  }
+  if (nA >= 3 && (nutzung === 'LADEN' || (fam === 2 && nutzung !== 'WOHNEN'))) {
+    /* Laden an einem Ende (zwei Achsen), daneben Eingang und Fenster */
+    e.programm = fam === 1 ? 'laden' : 'gemischt';
+    const links = biHash(seed, 2, 0, BI_H.PROGRAMM) < 0.5;
+    const lA = links ? l0 : grenze(nA - 2), lB = links ? grenze(2) : l1;
+    const ok = laden(lA, lB, links ? 0 : nA - 2, links ? 2 : nA, BI_RAUM.LADEN, fam === 1 ? LADEN_FARBEN : [0x33373a, 0x2c3e36, 0x3d3a36, 0x25334a]);
+    if (!ok) { e.programm = 'wohnen'; return biWohnzeile(G, F, A, l0, l1, hS, stW, seed, e, putz, achsen); }
+    const rest = links ? [lB, l1] : [l0, lA];
+    const stR = fam === 2 ? Object.assign({}, stW, { raum: biHash(seed, 4, 0, BI_H.RAUM) < 0.55 ? BI_RAUM.BUERO : BI_RAUM.WOHNUNG }) : stW;
+    const ez = { scheiben: 0, eingaenge: 0, tueren: [] };
+    if (rest[1] - rest[0] >= 2.4) biWohnzeile(G, F, A, rest[0], rest[1], hS, stR, seed + 3, ez, putz, achsen.filter((c) => c > rest[0] && c < rest[1]));
+    else if (rest[1] - rest[0] > 0.01) biSpalte(G, F, A, rest[0], rest[1], [[stW.sockelH, biT(stW.sockel)], [hS, { m: BI_M.PUTZ, c: putz }]], seed);
+    e.scheiben += ez.scheiben; e.eingaenge += ez.eingaenge; e.tueren.push(...ez.tueren);
+    return true;
+  }
+  e.programm = 'wohnen';
+  return biWohnzeile(G, F, A, l0, l1, hS, fam === 2 ? Object.assign({}, stW, { raum: BI_RAUM.WOHNUNG }) : stW, seed, e, putz, achsen);
 }
 
 /* ---- Einsaetze in die Oeffnungen der Modelle ----
@@ -32957,6 +33733,9 @@ function biEinsatz(G, F, A, l0, l1, y0, y1, art, nutzung, seed, e) {
   /* schmale Schlitzfenster zwischen Saeulen: Flur dahinter statt Wohnung
      (kein Vorhang - der wuerde als heller Streifen leuchten) */
   if (w < 1.0 && !laden) raumArt = BI_RAUM.BUERO;
+  /* hinter einem Buero-, Glas- oder Betonbau keine Wohnung */
+  const mfE = e.K && e.K.modell ? biModellFamilie(e.K.modell) : null;
+  if (mfE && mfE.art === 'buero' && raumArt === BI_RAUM.WOHNUNG) raumArt = BI_RAUM.BUERO;
   /* In der Oeffnung eines Modells ein zurueckhaltender Rahmen: Graphit,
      im Zentrum Bronze, am Ufer hell; Laeden in ihrer Farbe. */
   /* in den dunklen Modellfronten nur gedeckte Rahmen - Elfenbein und
@@ -33079,7 +33858,9 @@ function biBauen() {
     const sockel = [];
     HAUS_KISTEN.forEach((K) => {
       if (K.modell && /^Turm_/.test(K.modell)) return;
-      const art = K.art || stadtteilAn(K.x, K.z);
+      /* prozedurale Haeuser: der Bezirk ihrer Hausfamilie (so passen
+         Erdgeschoss und Obergeschosse immer zusammen) */
+      const art = K.hf ? HF_ART[K.hf.fam] : (K.art || stadtteilAn(K.x, K.z));
       if (art === 'PARK') return;
       for (const s of biSeiten(K)) {
         const nutzung = kantenNutzung(art, strasseKlasse(s.achse, s.linie));
@@ -43514,6 +44295,10 @@ function initActors() {
   /* CITY V2, Stufe 7A: Parkwege und die zusaetzlichen Strassenpassanten -
      nach allem, was aus dem Stadtstrom zieht, im eigenen Strom. */
   baueStrassenLeben();
+  /* Parkstreifen und Stellplaetze - nach allem anderen, im eigenen Strom */
+  baueParkStreifen();
+  /* Zusatzverkehr - ganz zuletzt, siehe spawnZusatzVerkehr */
+  spawnZusatzVerkehr();
   actorsReady = true;
 }
 wendeGrafikAn();
@@ -46013,7 +46798,8 @@ if (window.__WEBHERO_TEST__ === true) {
                                        visual: b.visual || 'model',
                                        textur: b.textur, modell: b.modell || null,
                                        zeile: b.zeile || null,
-                                       art: b.art || null, ecke: !!b.ecke }));
+                                       art: b.art || null, ecke: !!b.ecke,
+                                       familie: b.hf ? HF_FAMILIE[b.hf.fam].name : null }));
     },
     /* CITY V2 Stufe 5: findet die Geschichte nach dem Umbau noch
        Plaetze? stOrt zieht 40 zufaellige Punkte und nimmt den
@@ -46177,9 +46963,17 @@ if (window.__WEBHERO_TEST__ === true) {
       return PARK_AUTOS.map((p) => ({ x: +p.x.toFixed(3), z: +p.z.toFixed(3),
                                       klasse: p.klasse, art: p.art,
                                       achse: p.achse, halbL: p.halbL, halbB: p.halbB,
-                                      ry: +p.mesh.rotation.y.toFixed(4),
-                                      sichtbar: p.mesh.visible }));
+                                      ry: +(p.mesh ? p.mesh.rotation.y : p.ry).toFixed(4),
+                                      sichtbar: p.mesh ? p.mesh.visible : parkKachelSichtbar(p),
+                                      neu: !!p.neu }));
     },
+    parkStreifen() {
+      return { fertig: PARK_STREIFEN.fertig, ms: PARK_STREIFEN.ms, plaetze: PARK_STREIFEN.plaetze, alt: PARK_STREIFEN.alt,
+               neu: PARK_STREIFEN.neu, umgebaut: PARK_STREIFEN.umgebaut, jeBezirk: JSON.parse(JSON.stringify(PARK_STREIFEN.jeBezirk)),
+               kacheln: PARK_STREIFEN.kacheln.length, meshes: PARK_STREIFEN.kacheln.reduce((n, k) => n + k.meshes.length, 0),
+               markierung: !!PARK_STREIFEN.mesh, fehler: PARK_STREIFEN.fehler, zeiten: PARK_STREIFEN.zeiten };
+    },
+    parkAutoMeshes() { return PARK_STREIFEN.kacheln.reduce((a, k) => a.concat(k.meshes), []); },
     /* CITY V2: die Strassenhierarchie, Linie fuer Linie. */
     strassen() {
       const aus = [];
