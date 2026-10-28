@@ -49,6 +49,7 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `stadtraster.js` | CITY V2: der LOCKED CORE, alle Rastermaße und Weltgrenzen |
 | `strassen.js` | CITY V2: die Straßenhierarchie und ob jeder Wagen auf einer Spur seiner Straße fährt |
 | `strassen-markierung.js` | Qualitäts-Pass, Paket 1: jeder Fahrbahnstrich gegen Spuren, Kreuzungen, Zebrastreifen und Fahrbahnrand, Mitteltrennung und Spurtrenner je Abschnitt, anderes Ufer und Brücke; harte Fehler Soll 0; `farben=alt` misst einen Stand vor dem Pass |
+| `gebaeude-bilder.js` | Qualitäts-Pass, Paket 2: feste Hausauswahl je Gebäudetyp (3 prozedurale Familien, 7 Modelle, 2 Türme) mit fünf Kameras – Straßenabstand, nah, streifend schräg, Obergeschosse, Nacht; `liste` wählt, `bilder … wurzel=` rendert jeden Stand |
 | `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor; `ruhig` blendet Wagen, Passanten und Gegner aus (sonst ±3–4 Aufrufe Streuung je Lauf); `zivis=N` setzt die Zahl der zusätzlichen Straßenpassanten (Stufe 7A), `cullAlt` zeichnet Passanten wie vorher ohne Sichtfeld-Prüfung |
 | `stadt-bilder.js` | CITY V2: vierzehn feste Aufnahmen zum Vergleich zweier Ausbaustufen |
 | `street-details.js` | CITY V2 Stufe 6A: Bäume und Stadtmöbel je Stadtteil und Straßenklasse, leere Gehwegstrecken, Wiederholung; für die neuen Details die harten Platzierungsfehler (Soll überall 0) |

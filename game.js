@@ -8778,6 +8778,18 @@ function setzeHausModelle(szene) {
   for (const o of bau) nachKlasse[klasse(o.name)].push(o);
   for (let i = 0; i < 4; i++) if (!nachKlasse[i].length) nachKlasse[i] = bau;
   /* Materialien einmal auf die Zeichenart des Spiels bringen. */
+  /* Qualitaets-Pass, Paket 2: anisotrope Filterung und Farbe der
+     Fassadenbilder (die Bilder selbst: tools/haeuser-texturen.mjs).
+     Filterung: die Bilder kamen mit dem Vorgabewert 1 aus dem
+     Lader - schaut man streifend an einer Fassade entlang (also fast
+     immer von der Strasse aus), waehlt die Grafikkarte dann die
+     unscharfe Mipmap-Stufe der KURZEN Richtung, und die Fenster
+     verschwimmen schon nach wenigen Metern zu Brei. 8 wie ueblich (die
+     Fassadenkachel der prozeduralen Haeuser hat 4, ihre Fenster sind
+     aber Shader und brauchen keine Filterung). Je Material einmal - die
+     Klone teilen die Materialien, keine Kopie je Haus. */
+  const caps = renderer.capabilities;
+  const ANISO = Math.min(8, caps && caps.getMaxAnisotropy ? caps.getMaxAnisotropy() : 1);
   const gesehen = new Set();
   for (const o of bau) {
     o.traverse((k) => {
@@ -8786,6 +8798,23 @@ function setzeHausModelle(szene) {
       if (k.material.metalness !== undefined) k.material.metalness = 0;
       if (k.material.roughness !== undefined) k.material.roughness = 0.85;
       k.material.side = THREE.FrontSide;
+      if (k.material.map) {
+        if (ANISO > 1) k.material.map.anisotropy = ANISO;
+        /* Farbe: der Lader markiert die Bilder als sRGB, die Grafikkarte
+           rechnet sie deshalb mit rund ^2,2 in "linear" um - nur gibt
+           dieses Spiel linear aus (kein outputEncoding) und rechnet sonst
+           ueberall in Anzeigewerten: Eckfarben, Leinwandbilder, die
+           Fassadenkachel (alle 3000). Allein die Modellhaeuser wurden so
+           gut doppelt dunkel: heller Sichtbeton (Mittel 0x858074) kam als
+           fast schwarze Wand heraus, Ziegel ohne Zeichnung. Mit Linear
+           liegt das Bild so auf der Fassade, wie es gezeichnet ist - und
+           die Erdgeschosse aus Stufe 8B (BI_MODELL_FAMILIE) passen erst
+           jetzt: deren Farben sind die Mittelwerte DIESER Bilder in
+           Anzeigewerten (Flr_1 0x493731 -> Ziegel 0x4d3a34). */
+        k.material.map.encoding = THREE.LinearEncoding;
+        k.material.map.needsUpdate = true;
+        k.material.needsUpdate = true;
+      }
     });
   }
   /* ---- Wo hoert das Haus auf und wo faengt der Zierabschluss an? ----

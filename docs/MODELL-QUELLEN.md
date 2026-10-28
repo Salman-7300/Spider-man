@@ -58,8 +58,13 @@ Abfluss – dazu drei große Baukörper. CC0, also ohne Auflagen verwendbar.
 
 ## `haeuser.glb` – Herkunft benannt: Sketchfab, CC Attribution
 
-18 Gebäude, 39.745 Dreiecke, 2,80 MB, 21 Texturen, über
+18 Gebäude, 39.745 Dreiecke, 3,88 MB, 21 Texturen, über
 `tools/convert-haeuser.mjs` auf einen Einheitswürfel normiert.
+Qualitäts-Pass (Paket 2): 16 der 21 Grundfarben sind mit
+`tools/haeuser-texturen.mjs` aus den Originalen (2048 bzw. 1024 px, Ordner
+`textures/` der beiden Archive) in der gemessenen Auflösung neu gerechnet
+(256 x 1024 bis 1024 x 2048 statt pauschal 256 x 256); Geometrie Byte für
+Byte unverändert. Siehe `CITY-V2-DESIGN.md`, Abschnitt 6s.
 
 ### Die beiden Quellsätze
 

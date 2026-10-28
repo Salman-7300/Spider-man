@@ -3995,6 +3995,111 @@ Brueckenstrasse, Uferstrasse) - Spielkamera, Figur auf der Fahrbahn.
 (Strasse 797,5 -> 791,5, Dach 795,5 -> 788,5, Luft 899 -> 893), Dreiecke
 3 721 711 -> 3 694 740. `strassen-markierung.js`: harte Fehler 856 -> 0.
 
+### Paket 2: Gebaeudequalitaet
+
+**Bestand** (Keim 4711): 617 Haeuser. 212 prozedural mit Fassadenfamilie
+(Wohnhaus 114, Stadthaus 81, Uferhaus 17), 81 Tuerme (Turmbau aus
+city-visuals, Turm_0 bis _3) und 324 Modellhaeuser aus `haeuser.glb` in
+12 Typen: PublicBuilding_1 65, Brutal_1 59, Residential_3 58,
+ModernOffice_1 52, ModernOffice_2 51 und 39 Brownstones (sieben Modelle).
+ClassicOffice, ArtDeco und ModernOffice_4/5 stehen in keiner Stadt (Keime
+4711, 8080, 1234 geprueft) - dort stehen Tuerme.
+
+**Warum die Referenzfassade besser aussieht** (Screenshot: Stadthaus
+rechts): ihre Fenster sind Shader-Geometrie - Rahmen, Sprossen und
+Geschossrhythmus sind in jeder Entfernung scharf, unabhaengig von einer
+Bildaufloesung; die Farben sind Anzeigewerte; die graue Putzkachel
+(512 px) liegt mit 213 px/m darauf. Die Tuerme arbeiten genauso.
+
+**Ursachen bei den Modellhaeusern** (gemessen mit der Texeldichte je
+Dreieck, flaechengewichtet ueber alle Haeuser eines Typs):
+
+1. *Aufloesung:* `convert-haeuser.mjs` hat jede Grundfarbe pauschal auf
+   256 x 256 JPEG (Qualitaet 74) verkleinert - die Originale haben 2048
+   (einige 1024). Ergebnis 10 bis 58 px/m waagrecht und nur 3,5 bis 21
+   senkrecht. Die Spielkamera (72 Grad, 720 Zeilen) zeigt auf 10 m 2 cm
+   je Bildpunkt, scharf waere also rund 50 px/m.
+2. *Filterung:* Mipmaps an (LinearMipmapLinear), aber Anisotropie 1 (der
+   Vorgabewert des Laders): streifend gesehen - von der Strasse aus fast
+   immer - nimmt die Grafikkarte die unscharfe Stufe.
+3. *Farbe und Licht:* der Lader markiert die Bilder als sRGB, sie werden
+   also mit rund ^2,2 umgerechnet; das Spiel gibt aber linear aus und
+   rechnet sonst ueberall in Anzeigewerten (Eckfarben, Leinwandbilder,
+   Fassadenkachel). Die Modellhaeuser waren damit doppelt dunkel: heller
+   Sichtbeton (Bildmittel 0x858074) kam im Schatten als fast schwarze
+   Wand heraus, Ziegel ohne Zeichnung. Die Erdgeschosse aus 8B
+   (`BI_MODELL_FAMILIE`) sind die Bildmittel in Anzeigewerten
+   (Flr_1 0x493731 -> Ziegel 0x4d3a34) - sie passten deshalb nie zu ihren
+   dunklen Obergeschossen.
+4. *Streckung:* die Modelle werden ungleichmaessig auf ihre Kiste
+   skaliert. Gegen die Originalproportionen (Texeldichte im Original-FBX
+   gegen die im Spiel) sind sie senkrecht gestreckt: ModernOffice_1 1,22,
+   FlatFacade_5 1,47, ModernOffice_2 1,57, FlatFacade_3 1,58,
+   Commercial_1_C 1,63, FlatFacade_1 1,90, PublicBuilding_1 2,25,
+   FlatFacade_6 2,26, Residential_3 2,65, Harlem_1_B 2,69, Lowrise_1
+   2,72, Brutal_1 2,96. **Nicht behoben** - dafuer muessten Kisten oder
+   Modellzuordnung anders sein, und an beiden haengen Kollision,
+   Kletterhaut (Tiefenkarte je Modelltyp) und Dachkronen-Kollider.
+5. Kein Grund: Materialart (MeshStandard, Rauheit 0,85, Metall 0 -
+   diffus wie Lambert), Wiederholung (die Geschossmodule des Satzes),
+   Bildschaerfe (der Aufloesungsregler 0,65 bis 1 trifft alle Haeuser
+   gleich).
+
+**Geaendert:**
+
+- `tools/haeuser-texturen.mjs` rechnet 16 der 21 Bilder aus den
+  Originalen neu - je Bild und je ACHSE die kleinste Zweierpotenz, mit der
+  die gemessene Dichte 41 px/m erreicht, waagrecht hoechstens 1024,
+  senkrecht 2048 nur fuer Downtown_Facade_FLR_8 (ModernOffice_2, sonst
+  unter 24 px/m). Kein Bild pauschal auf 2048. Es prueft, dass jedes
+  Original das heute verkleinerte Bild ist (mittlere Abweichung 2,0 bis
+  4,9 von 255), und bricht ab, wenn sich an der Geometrie ein Byte
+  aendert. JPEG Qualitaet 84. Unveraendert bleiben die vier Bilder der
+  nirgends stehenden Modelle und Maskedstuff (schon 75 bis 87 px/m).
+- `setzeHausModelle`: je gemeinsamem Material einmal Anisotropie
+  min(8, Hoechstwert) und LinearEncoding. Keine Kopie je Haus, kein Mesh,
+  kein Zeichenaufruf dazu.
+
+| Modelltyp | Haeuser | px/m waagrecht vorher -> nachher | senkrecht vorher -> nachher |
+|---|---|---|---|
+| ModernOffice_2 | 51 | 10,7 -> 42,6 | 5,4 -> 32,3 |
+| ModernOffice_1 | 52 | 19,5 -> 55,7 | 13,6 -> 54,3 |
+| PublicBuilding_1 | 65 | 36,2 -> 50,3 | 13,2 -> 53,0 |
+| Residential_3 | 58 | 30,8 -> 57,9 | 13,2 -> 52,7 |
+| Brutal_1 | 59 | 54,1 -> 54,1 | 18,1 -> 72,6 |
+| Brownstones (7) | 39 | 17 bis 31 -> 32 bis 75 | 14 bis 20 -> 50 bis 69 |
+
+Verbessert sind damit alle 12 sichtbaren Modelltypen (324 Haeuser), samt
+Obergeschossen, Seiten, Ecken und Dachkronen - es ist dieselbe Textur.
+Die prozeduralen Familien und die Tuerme bleiben, wie sie sind (sie sind
+die Referenz); ihre Vielfalt und die der Modelle bleibt vollstaendig:
+dieselben Modelle auf denselben Haeusern, Ziegel bleibt Ziegel, Beton
+Beton, Glas Glas - nur jetzt so hell und scharf, wie die Bilder
+gezeichnet sind. Die Innenraeume (8A/8B) sind unberuehrt.
+
+Bilder: `qp-gebaeude-00-uebersicht-nachher.jpg` (alle 12 Typen),
+`qp-gebaeude-01` bis `-12` (je Typ vorher/nachher: Strassenabstand 16 m,
+nah 4,5 m, streifend schraeg, Obergeschosse, Nacht 0,92) und
+`qp-gebaeude-13-schaerfe-1zu1.jpg` (Ausschnitte ohne Verkleinerung).
+Pruefstand `tools/pruef/gebaeude-bilder.js`.
+
+**Kosten und Regression Paket 2:** `haeuser.glb` 2,93 -> 3,88 MB (Bilder
+210 -> 1317 KB); Texturspeicher der gesetzten Modelle mit Mipmaps grob
+5,2 -> 48,4 MB; gleiche Meshes und Materialien, ein Shaderprogramm mehr
+(44, die Linear-Variante). `stadt-leistung.js` Gesamtmedian 862
+(Paket 1: 858; ohne `ruhig` streut der Lauf um 3 bis 4 Aufrufe, Szene
+sonst gleich), Tor 899. `ladezeit.js` je zwei Laeufe: T6 34,6 / 35,2 s
+gegen 31,9 / 31,8 s auf 64d4952 (+3,1 s, rund 10 Prozent) - die Zeit
+steckt in den ersten Bildern (Hochladen und Mipmaps der groesseren Bilder
+im Software-Renderer); auf echter Grafik nicht gemessen. `node --test`
+170/170, `determinismus.js` gleich, Geometrie von `haeuser.glb` Byte fuer
+Byte gleich (Pruefsumme im Werkzeug) - Kollision, Kletterhaut und
+Dachkronen haengen nur an ihr.
+
+**Grenzen:** die Streckung (oben, Punkt 4); Brutal_1 bleibt dunkel - sein
+Fensterband ist im Original dunkles Metall; Modellfenster bleiben
+Fototextur (keine Shaderrahmen, kein Innenraum ausser im Erdgeschoss).
+
 ---
 
 ## 7. Was noch aussteht
