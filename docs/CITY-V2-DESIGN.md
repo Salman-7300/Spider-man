@@ -3887,6 +3887,114 @@ Gegen aa04428, Keim 4711:
   Beides waere der naechste Hebel, falls es auf echter Hardware stoert.
 - Parkplaetze abseits der Strasse und Parkhaeuser gibt es nicht (siehe C).
 
+## 6s. Qualitaets-Pass nach Stufe 8B (Markierung, Gebaeude, Leuchttafeln)
+
+Keine neue Stufe: drei getrennte Arbeitspakete auf dem Stand 64d4952,
+jedes mit eigenem Commit. Abnahmebilder in `docs/abnahme-qp/`.
+
+### Paket 1: Fahrbahnmarkierung
+
+**Die Strasse aus dem Screenshot** (drei gestrichelte Linien weiss -
+gelb - weiss) ist eine AVENUE. Avenuen sind die Rasterlinien mit
+k % 3 == 0 ausser dem Boulevard: x = -275, x = 25, z = -125, z = 175.
+Alle Klassen haben 12 m Asphalt (ROAD_HALF 6); die Spurmitten
+(`strasseInfo`, gemessen ueber `d.strassen()`):
+
+| Klasse | Linien | Spurmitten (m von der Achse) | Spuren je Richtung |
+|---|---|---|---|
+| LOCAL | x = -325, z = -275, z = 275 | +/-2,4 | 1 |
+| STREET | alle uebrigen, auch Uferstrasse x = 175 und Brueckenstrasse z = -25 | +/-2,8 | 1 |
+| AVENUE | x = -275, x = 25, z = -125, z = 175 | +/-1,6 und +/-4,4 | 2 |
+| BOULEVARD | x = -125, z = 25 | +/-1,9 und +/-4,6, Mittelstreifen 1,2 m | 2 |
+
+Die Avenue ist **wirklich vierspurig**: die Wagen fahren auf allen vier
+Spuren (180 s, Proben je Spurlage -4,4 / -1,6 / +1,6 / +4,4 m:
+1818 / 1146 / 1318 / 2464; Boulevard 824 / 1329 / 1567 / 1730; STREET
+und LOCAL nur auf +/-2,8 bzw. +/-2,4 m), und `strassen.js` findet 0
+Wagen neben ihrer Spur. Die beiden weissen Linien bei +/-3,0 m sind also die
+richtigen Trenner zwischen den zwei Spuren einer Richtung. Nach A3
+bleiben Spurzahl und Trenner; falsch war die DARSTELLUNG: Mittellinie und
+Trenner waren gleich breite, gleich lange Strichreihen, und in der Sonne
+liefen alle drei auf fast reines Weiss - man las drei gleichwertige
+Linien und keine Richtungstrennung. Parkstreifen liegen ausserhalb der
+Fahrspuren am Bordstein und sind nicht beteiligt.
+
+**Echte Fehler** (`tools/pruef/strassen-markierung.js farben=alt` auf
+64d4952, Keim 4711):
+
+- 692 von 1450 Stadtstrichen lagen in einem Zebrastreifen. Gezeichnet
+  wurde alle 10 m ein 4-m-Strich, ausgelassen nur im 9-m-Umkreis einer
+  Kreuzungsmitte - ein Strich mit Mitte bei 9 m reicht bis 7 m, der
+  Zebrastreifen liegt bei 6,3 bis 10,5 m.
+- 66 Striche hinter der aeussersten Kreuzung, neben jeder Fahrbahn.
+- alle 21 Mittelstreifen-Stuecke lagen quer ueber einem Zebrastreifen.
+- anderes Ufer: 74 von 198 Strichen liefen durch die Kreuzungen, 3 in
+  die Brueckenauffahrt.
+- 0,30 bis 0,35 m breite Striche in 0xe8e8e0 (Gelb 0xd9c979), der
+  Mittelstreifen in 0xbfc4c9.
+
+**Licht:** am Tag liegt auf einer Bodenflaeche Sonne (1,25) plus Himmel
+(1,08), ohne Tonemapping - gemessen das rund 2,0-fache der Grundfarbe,
+im Schatten das 0,9-fache. Alles ueber etwa 0x80 laeuft in der Sonne auf
+255 ueber: Linien, Gelb (255, 255, 201) und Mittelstreifen waren
+zeichnungslose weisse Balken.
+
+**Geaendert** (nur Deko-Kloetzchen im gemeinsamen Sammel-Mesh, kein
+Zeichenaufruf mehr oder weniger):
+
+- `markiereLinie`: EIN Helfer fuer Stadt, Bruecke und anderes Ufer -
+  0,15 m breit, 3 m Strich, 5 m Luecke, das Muster mittig im Abschnitt.
+- Je Abschnitt zwischen zwei Kreuzungen; jede Linie endet
+  `MARK_ENDE` = 11,5 m vor der Kreuzungsmitte, 1 m hinter dem
+  Zebrastreifen. Keine Striche hinter der aeussersten Kreuzung.
+- Zweispurig (LOCAL, STREET, Ufer, Bruecke): EINE gestrichelte gelbe
+  Mittellinie, keine weissen Linien.
+- AVENUE: durchgezogene doppelte gelbe Mittellinie (+/-0,13 m),
+  gestrichelte weisse Spurtrenner bei +/-3,0 m - genau zwischen den
+  Spurmitten 1,6 und 4,4.
+- BOULEVARD: Mittelstreifen plus gestrichelte weisse Trenner bei
+  +/-3,25 m. Der Mittelstreifen beginnt wie die Linien hinter dem
+  Zebrastreifen und ist betongrau (0x5c5e60).
+- Farben 0x7a7b77 (weiss) und 0x7d682c (gelb): in der Sonne rund 245
+  bzw. (250, 210, 90), im Schatten 110 bzw. (115, 95, 40) - hell auf dem
+  Asphalt (Sonne 110, Schatten 50), aber mit Zeichnung.
+- Bruecke: gestrichelte gelbe Mitte auf dem Deck (BR_X0 + 4 bis
+  BR_X1 - 4). Anderes Ufer: je Abschnitt, 1 m vor der Kreuzungsflaeche,
+  in der Brueckenauffahrt frei.
+
+Nicht geaendert: Spurzahl, Spurmitten, Fahrtrichtungen, Abbiegen,
+Strassenbreite, Zebrastreifen, Parkmarkierung, Stellplaetze.
+
+**Ergebnis** (`strassen-markierung.js`, harte Fehler, Soll 0):
+
+| | vorher | nachher |
+|---|---|---|
+| Striche Stadt | 1450 | 1300 |
+| Trenner ohne passende Spur | 0 | 0 |
+| Mittellinie falsch | 0 | 0 |
+| fehlende Mitteltrennung (241 Abschnitte) | 0 | 0 |
+| fehlender Spurtrenner (vierspurig) | 0 | 0 |
+| im Zebrastreifen | 692 | 0 |
+| in der Kreuzung | 0 | 0 |
+| ausserhalb der Fahrbahn | 66 | 0 |
+| Mittelstreifen im Zebrastreifen | 21 | 0 |
+| anderes Ufer in Kreuzung / Brueckenauffahrt | 74 / 3 | 0 / 0 |
+
+Bilder: `qp-strasse-1-zweispurig.jpg` (STREET x = -75, LOCAL x = -325,
+Wohnstrasse mit Parkstreifen z = 125), `qp-strasse-2-vierspurig.jpg`
+(AVENUE x = 25 und z = -125, BOULEVARD z = 25 und x = -125),
+`qp-strasse-3-kreuzung-bruecke-ufer.jpg` (Kreuzung x = 25 / z = 75,
+Brueckenstrasse, Uferstrasse) - Spielkamera, Figur auf der Fahrbahn.
+
+**Regression Paket 1:** `node --test` 170/170; Parken vorher wie nachher
+962 Stellplaetze, 575 geparkt, 80 fahrend, je Bezirk gleich;
+`stadtraster.js` unveraendert; `strassen.js` 0 Wagen neben der Spur,
+0 auf der falschen Seite; `parkautos.js` ohne Befund;
+`verkehr-dichte.js` harte Fehler 0/0/0/0; `determinismus.js` gleich;
+`stadt-leistung.js` (gepaart, dieselbe Stunde) Gesamtmedian 868,5 -> 858
+(Strasse 797,5 -> 791,5, Dach 795,5 -> 788,5, Luft 899 -> 893), Dreiecke
+3 721 711 -> 3 694 740. `strassen-markierung.js`: harte Fehler 856 -> 0.
+
 ---
 
 ## 7. Was noch aussteht

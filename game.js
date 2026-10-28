@@ -3130,6 +3130,37 @@ function deko(w, h, d, x, y, z, farbe, ry, rz) {
   return t;
 }
 
+/* ---- Fahrbahnlinien (Qualitaets-Pass) ----
+   Eine Linie laengs einer Strasse von a bis b: durchgezogen oder
+   gestrichelt (MARK_STRICH Strich, MARK_LUECKE Luecke, das Muster mittig
+   im Abschnitt, damit es an beiden Enden gleich aufhoert). achse/linie wie
+   ueberall: eine Linie auf x ist eine Nord-Sued-Strasse. Alle Linien
+   gleich breit und gedaempft hell - die alten 0,30 bis 0,35 m breiten
+   Striche in fast reinem Weiss wirkten aus der Spielkamera wie Balken.
+   Die Farben sind bewusst dunkel: am Tag liegt auf einer Bodenflaeche
+   Sonne plus Himmel, gemessen rund das 2,0-fache der Grundfarbe (im
+   Schatten 0,9-fach), ohne Tonemapping. Das alte 0xe8e8e0 lief in der
+   Sonne auf reines 255-Weiss ueber, ebenso das Gelb. 0x7a7b77 ergibt in
+   der Sonne etwa 245, im Schatten 110 - die Linie bleibt hell auf dem
+   Asphalt (Sonne 110, Schatten 50) und hat wieder Zeichnung. */
+const MARK_B = 0.15, MARK_STRICH = 3, MARK_LUECKE = 5;
+const MARK_WEISS = 0x7a7b77, MARK_GELB = 0x7d682c;
+const MARK_MITTE = 0x5c5e60;
+function markiereLinie(achse, linie, a, b, v, farbe, durch, y, auslassen) {
+  const box = (s0, s1) => {
+    const m = (s0 + s1) / 2;
+    if (auslassen && auslassen(m)) return;
+    if (achse === 'x') deko(MARK_B, 0.04, s1 - s0, linie + v, y, m, farbe);
+    else deko(s1 - s0, 0.04, MARK_B, m, y, linie + v, farbe);
+  };
+  if (b - a < MARK_STRICH) return;
+  if (durch) { box(a, b); return; }
+  const p = MARK_STRICH + MARK_LUECKE;
+  const n = Math.floor((b - a + MARK_LUECKE) / p);
+  const start = a + ((b - a) - (n * p - MARK_LUECKE)) / 2;
+  for (let i = 0; i < n; i++) box(start + i * p, start + i * p + MARK_STRICH);
+}
+
 /* Eine Liste von Kisten {w,h,d,x,y,z,farbe,ry} zu EINER Geometrie
    verschmelzen. Die Farbe steckt danach in den Eckpunkten, deshalb reicht
    ein einziges Material und ein einziger Zeichenaufruf. */
@@ -3707,50 +3738,56 @@ function buildCity() {
   /* Fahrbahnmarkierungen. Sie gehen ins gemeinsame Sammel-Mesh: einzeln
      gezeichnet waren das über 500 Zeichenaufrufe allein für die Striche –
      der mit Abstand größte Posten der ganzen Stadt. */
-  const nearCrossing = (s, a) => {
-    const u = ((s - rasterO(a)) % PITCH + PITCH) % PITCH;
-    return u < ROAD_HALF + 3 || u > PITCH - ROAD_HALF - 3;
-  };
-  /* Zwei Durchlaeufe, nicht einer. Vorher liefen beide Strichsorten ueber
-     DIESELBE Linienliste (die der z-Achse) und ueber dieselbe Laengslage
-     (die der x-Achse). Bei einer quadratischen Stadt war das dasselbe;
-     sobald sie in x und z verschieden weit reicht, fehlen sonst die
-     Striche der neuen Strassen. */
   /* ---- Die Striche folgen der Strassenklasse ----
-     Eine zweispurige Strasse bekommt wie bisher eine Mittellinie. Auf
-     einer Avenue kommen die beiden Spurtrenner dazu, auf einem
-     Boulevard ein durchgehender Mittelstreifen statt der Mittellinie.
      Die Versaetze werden aus den Spurmitten GERECHNET, nicht von Hand
      eingetragen: ein Spurtrenner liegt genau zwischen zwei Spurmitten
-     derselben Richtung. */
+     derselben Richtung. Gemessen, welche Spuren wirklich befahren werden
+     (180 s, Proben je Spurlage): Avenue -4,4 / -1,6 / +1,6 / +4,4 m =
+     1818 / 1146 / 1318 / 2464, Boulevard -4,6 / -1,9 / +1,9 / +4,6 m =
+     824 / 1329 / 1567 / 1730, Strasse und Nebenstrasse nur +/-2,8 bzw.
+     +/-2,4 m. Die Trenner gehoeren also dorthin, wo sie sind.
+
+     Qualitaets-Pass: auf der Avenue sahen Mittellinie und Spurtrenner
+     gleich aus (drei gleiche Strichreihen) - man las daraus keine zwei
+     Spuren je Richtung. Jetzt trennt eine durchgezogene doppelte gelbe
+     Linie die Richtungen, die Spurtrenner sind gestrichelt und weiss.
+     Zweispurig: eine gestrichelte gelbe Mittellinie. Boulevard: der
+     Mittelstreifen und gestrichelte Spurtrenner. */
   function strichVersaetze(achse, linie) {
     const inf = strasseInfo(achse, linie);
     const aus = [];
-    if (!inf.mittelstreifen) aus.push({ v: 0, farbe: 0xd9c979, breit: 0.35 });
+    if (!inf.mittelstreifen) {
+      if (inf.mitten.length > 2) for (const v of [-0.13, 0.13]) aus.push({ v, farbe: MARK_GELB, durch: true });
+      else aus.push({ v: 0, farbe: MARK_GELB, durch: false });
+    }
     for (let i = 0; i + 1 < inf.mitten.length; i++) {
       const a = inf.mitten[i], b = inf.mitten[i + 1];
       if ((a > 0) !== (b > 0)) continue;            // das ist die Mitte
-      aus.push({ v: (a + b) / 2, farbe: 0xe8e8e0, breit: 0.3 });
+      aus.push({ v: (a + b) / 2, farbe: MARK_WEISS, durch: false });
     }
     return aus;
   }
-  for (const L of rasterLinien('x')) {              // Nord-Sued-Strassen
-    const striche = strichVersaetze('x', L);
-    for (let s = RASTER_Z0 - 11; s < RASTER_Z1 + 11; s += 10) {
-      if (nearCrossing(s, 'z')) continue;
-      for (const st of striche) deko(st.breit, 0.04, 4, L + st.v, 0.02, s, st.farbe);
+  /* ---- Jeder Abschnitt zwischen zwei Kreuzungen fuer sich ----
+     Vorher: ein Strich alle 10 m ueber die ganze Strasse, ausgelassen nur
+     im 9-m-Umkreis einer Kreuzung. Ein 4-m-Strich mit Mitte 9 m vor der
+     Kreuzung reicht aber bis 7 m - mitten in den Zebrastreifen (6,3 bis
+     10,5 m): gemessen 692 von 1648 Strichen. Und hinter der aeussersten
+     Kreuzung liefen die Striche 11 m weiter, neben jeder Fahrbahn (264).
+     Jetzt endet jede Linie MARK_ENDE vor der Kreuzungsmitte, 1 m hinter
+     dem Zebrastreifen, und es gibt nur Abschnitte zwischen zwei
+     Kreuzungen. */
+  const MARK_ENDE = ROAD_HALF + 2.4 + 2.1 + 1.0;
+  for (const achse of ['x', 'z']) {
+    const laengs = querAchse(achse), o = rasterO(laengs), n = rasterN(laengs);
+    for (const L of rasterLinien(achse)) {
+      const striche = strichVersaetze(achse, L);
+      for (let i = 0; i < n; i++) {
+        const a = o + i * PITCH + MARK_ENDE, b = o + (i + 1) * PITCH - MARK_ENDE;
+        for (const st of striche) markiereLinie(achse, L, a, b, st.v, st.farbe, st.durch, 0.02);
+      }
+      const mst = strasseInfo(achse, L).mittelstreifen;
+      if (mst) mittelstreifen(achse, L, mst);
     }
-    const mst = strasseInfo('x', L).mittelstreifen;
-    if (mst) mittelstreifen('x', L, mst);
-  }
-  for (const L of rasterLinien('z')) {              // Ost-West-Strassen
-    const striche = strichVersaetze('z', L);
-    for (let s = RASTER_X0 - 11; s < RASTER_X1 + 11; s += 10) {
-      if (nearCrossing(s, 'x')) continue;
-      for (const st of striche) deko(4, 0.04, st.breit, s, 0.02, L + st.v, st.farbe);
-    }
-    const mst = strasseInfo('z', L).mittelstreifen;
-    if (mst) mittelstreifen('z', L, mst);
   }
   /* Der Mittelstreifen eines Boulevards: ein flaches, helles Band auf
      der Fahrbahn, an jeder Kreuzung unterbrochen - sonst laege er quer
@@ -3762,12 +3799,14 @@ function buildCity() {
     const laengs = querAchse(achse);
     const o = rasterO(laengs), n = rasterN(laengs);
     for (let i = 0; i < n; i++) {
-      const a = o + i * PITCH + ROAD_HALF + 3.5;
-      const b = o + (i + 1) * PITCH - ROAD_HALF - 3.5;
+      const a = o + i * PITCH + MARK_ENDE;          // wie die Linien: hinter dem Zebrastreifen
+      const b = o + (i + 1) * PITCH - MARK_ENDE;
       if (b <= a) continue;
       const mitte = (a + b) / 2, laenge = b - a;
-      if (achse === 'x') deko(breite, 0.05, laenge, linie, 0.025, mitte, 0xbfc4c9);
-      else deko(laenge, 0.05, breite, mitte, 0.025, linie, 0xbfc4c9);
+      /* Betongrau statt 0xbfc4c9: das lief in der Sonne auf 255 ueber und
+         der Mittelstreifen las sich als greller weisser Balken. */
+      if (achse === 'x') deko(breite, 0.05, laenge, linie, 0.025, mitte, MARK_MITTE);
+      else deko(laenge, 0.05, breite, mitte, 0.025, linie, MARK_MITTE);
     }
   }
 
@@ -7006,10 +7045,8 @@ function buildRiverAndBridge() {
   deck.position.set((BR_X0 + BR_X1) / 2, 0, BRIDGE_Z);
   deck.receiveShadow = true; deck.castShadow = true;
   cityGroup.add(deck);
-  // Mittelstreifen, damit die Brücke als Straße lesbar bleibt
-  for (let x = BR_X0 + 5; x < BR_X1 - 5; x += 9) {
-    deko(3.6, 0.04, 0.35, x, BR_HOCH + 0.02, BRIDGE_Z, 0xd9c979);
-  }
+  // Mittellinie, damit die Brücke als Straße lesbar bleibt - wie in der Stadt
+  markiereLinie('z', BRIDGE_Z, BR_X0 + 4, BR_X1 - 4, 0, MARK_GELB, false, BR_HOCH + 0.02);
   /* ---- Gehwege auf der Bruecke ----
      Vier Meter breit, zwanzig Zentimeter ueber der Fahrbahn, auf beiden
      Seiten. Sie bekommen KEINEN eigenen Kollider: die Hoehe steckt in
@@ -7247,17 +7284,22 @@ function buildFarShore() {
   /* Fahrbahnmarkierungen auf den Uferstraßen. Sie wandern ins gemeinsame
      Sammel-Mesh, sonst kämen allein hier über 150 einzelne Zeichenaufrufe
      zusammen und die Bildrate würde spürbar einbrechen. */
+  /* Wie in der Stadt: je Abschnitt zwischen zwei Kreuzungen, 1 m vor
+     der Kreuzung Schluss (die Striche liefen vorher quer durch jede
+     Kreuzung); an der Brueckenauffahrt bleibt die Mitte frei. */
+  const ufAus = (m) => Math.abs(m - BRIDGE_Z) < 10;
   for (let bi = 0; bi <= SHORE_NX; bi++) {
     const L = SHORE_OX + bi * SHORE_PITCH;
-    for (let z = SHORE_OZ + 6; z < SHORE_OZ + SHORE_NZ * SHORE_PITCH - 6; z += 9) {
-      if (Math.abs(z - BRIDGE_Z) < 10) continue;
-      deko(0.35, 0.04, 3.6, L, 0.02, z, 0xd9c979);
+    for (let bj = 0; bj < SHORE_NZ; bj++) {
+      const k = SHORE_OZ + bj * SHORE_PITCH;
+      markiereLinie('x', L, k + SHORE_ROAD + 1, k + SHORE_PITCH - SHORE_ROAD - 1, 0, MARK_GELB, false, 0.02, ufAus);
     }
   }
   for (let bj = 0; bj <= SHORE_NZ; bj++) {
     const L = SHORE_OZ + bj * SHORE_PITCH;
-    for (let x = SHORE_OX + 6; x < SHORE_OX + SHORE_NX * SHORE_PITCH - 6; x += 9) {
-      deko(3.6, 0.04, 0.35, x, 0.02, L, 0xd9c979);
+    for (let bi = 0; bi < SHORE_NX; bi++) {
+      const k = SHORE_OX + bi * SHORE_PITCH;
+      markiereLinie('z', L, k + SHORE_ROAD + 1, k + SHORE_PITCH - SHORE_ROAD - 1, 0, MARK_GELB, false, 0.02);
     }
   }
 
