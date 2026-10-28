@@ -5986,8 +5986,46 @@ function baueKulisse() {
   }
 }
 
+/* ---- Qualitaets-Pass, Paket 3: die Leuchtreklame ist weg ----
+   Human-Befund: die farbigen Rechtecke (pink, gruen, cyan, blau, rot,
+   reinweiss) sahen wie Platzhalter aus. Es waren 1566 leere, einfarbige,
+   selbstleuchtende Tafeln an 558 Haeusern - ohne Schrift, ohne Halter,
+   ohne Bezug zu einem Laden. Die Inventur (tools/pruef/farbtafeln.js)
+   findet keine zweite Quelle: alles andere, was leuchtet, sind
+   Fensterlicht, Fahrzeug- und Ampellichter, U-Bahn-Schilder und Marker.
+   Es wird deshalb gar keine Tafel mehr gebaut - nicht unsichtbar
+   gemacht. Damit bleiben auch alle Abhaengigkeiten leer, statt
+   unsichtbare Reste zu hinterlassen:
+     - kein neonMesh (ein Zeichenaufruf weniger),
+     - neonAnFassade kehrt sofort zurueck, NEON_UEBER (das Kletter-Overlay,
+       955 Tafeln an 305 Hindernissen) bleibt leer: die Kletterhaut liegt
+       wieder ueberall auf der sichtbaren Fassade, wie an jeder Wand ohne
+       Tafel,
+     - biNeonAn liefert nichts: die Sockel und Schriften aus 8A muessen
+       keiner Tafel mehr ausweichen,
+     - Kollider hatten die Tafeln nie (ab 4,2 m, siehe oben).
+   Zufallsstrom: die Tafeln selbst zogen keinen Zufall (streu), aber
+   three.js zieht fuer JEDES neue Objekt vier Zahlen aus Math.random
+   (generateUUID) - und Math.random ist hier der Weltstrom. Geometrie,
+   Material und Mesh der Leuchtreklame verbrauchten so gemessen genau
+   NEON_ZUEGE = 16 Zahlen (Ziehungsprotokoll mit und ohne Tafeln: ab
+   Ziehung 66 706 um 16 versetzt, danach gleich). Ohne sie rutschte alles
+   Spaetere im Strom: gemessen 567 statt 575 geparkte Wagen, 297 statt
+   300 alte Plaetze. Parken, Verkehr und Passanten sind gesperrt -
+   deshalb werden die 16 Zahlen hier gezogen, an genau der Stelle, an der
+   sie vorher verbraucht wurden. Nachgeprueft mit parkautos und dem
+   Weltvergleich: Wagen, Plaetze, Kollider und Passanten wie vorher.
+   Pruefschalter __WEBHERO_NEON_AN baut die Tafeln wie vorher - nur fuer
+   Vorher-Bilder im selben Stand. */
+const NEON_AN = typeof window !== 'undefined' && !!window.__WEBHERO_NEON_AN;
+const NEON_ZUEGE = 16;
+
 /* Alle Schilder in EIN Mesh. Wird nach dem Stadtbau einmal gerufen. */
 function baueNeon() {
+  if (!NEON_AN) {
+    for (let i = 0; i < NEON_ZUEGE; i++) Math.random();
+    return;
+  }
   for (const b of HAUS_KISTEN) neonAnHaus(b.w, b.h, b.d, b.x, b.z, b);
   if (!NEON_KISTEN.length) return;
   neonMesh = new THREE.Mesh(verschmelzeBoxen(NEON_KISTEN),
@@ -46921,7 +46959,7 @@ if (window.__WEBHERO_TEST__ === true) {
        Pruefstand haelt die neuen Tafeln dagegen. */
     neonKisten() {
       return NEON_KISTEN.filter((q) => q.haus).map((q) => ({ haus: HAUS_KISTEN.indexOf(q.haus), nx: q.nx, nz: q.nz,
-        x: q.x, z: q.z, x0: q.x0, z0: q.z0, y: q.y, w: q.w, h: q.h, d: q.d }));
+        x: q.x, z: q.z, x0: q.x0, z0: q.z0, y: q.y, w: q.w, h: q.h, d: q.d, farbe: q.farbe }));
     },
     bezirksMesh() { return BI.mesh; },
     /* Die Oeffnungen eines Modellhauses je Strassenseite (Pruefstand). */

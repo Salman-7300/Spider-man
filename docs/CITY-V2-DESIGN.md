@@ -4100,6 +4100,90 @@ Dachkronen haengen nur an ihr.
 Fensterband ist im Original dunkles Metall; Modellfenster bleiben
 Fototextur (keine Shaderrahmen, kein Innenraum ausser im Erdgeschoss).
 
+### Paket 3: Grelle Farbtafeln
+
+**Quellen** (`tools/pruef/farbtafeln.js`, Keim 4711: jedes Mesh mit
+selbstleuchtendem Material, dazu jede flache Deko-Tafel ueber 2,5 m in
+gesaettigter oder fast weisser Farbe):
+
+- **Leuchtreklame** (`neonAnHaus` -> `NEON_KISTEN` -> ein verschmolzenes
+  `neonMesh`, MeshBasicMaterial): 1566 leere, einfarbige Tafeln an 558
+  Haeusern in sechs Farben (0xff2d55 rot, 0x18d7ff cyan, 0xff45c8 pink,
+  0xffb020 orange, 0x36ff7a gruen, 0xf5f1ff weiss) - ohne Schrift, ohne
+  Bezug zu einem Laden. Das sind die Rechtecke aus den Screenshots.
+- Bleiben, weil realistisch oder funktional: Fensterlicht der Tuerme
+  (`OfficeLights`), Brems-, Front- und Blaulichter der fahrenden und
+  geparkten Wagen, Ampeln, Leuchtschilder und Lampen der U-Bahn,
+  Missionsmarker, die 20 blauen Namensbaender (3,6 x 0,42 m) an den
+  U-Bahn-Eingaengen und die Schriften und Hausnummern aus 8A.
+- Keine farbige Tafel in den Gebaeudemodellen (`haeuser.glb`,
+  `stadtteile.glb`: kein Eigenleuchten) und in der Deko.
+
+**Entfernt:** `baueNeon` baut nichts mehr - kein Mesh, das unsichtbar
+geschaltet wird. Pruefschalter `__WEBHERO_NEON_AN` (in `basis.js`
+`neonAn`, in `district-bilder.js` `neon=an`) baut die Tafeln wie vorher,
+nur fuer Vorher-Bilder im selben Stand.
+
+**Abhaengigkeiten (C4):**
+
+- Kletter-Overlay `NEON_UEBER` (955 Tafeln an 305 Hindernissen): leer.
+  `hautTiefe` fragt `neonUeberlagern` nur, wenn es Tafeln gibt - die
+  Kletterhaut liegt jetzt ueberall auf der sichtbaren Fassade.
+  Unsichtbare Kletterflaechen: 0. Kollider hatten die Tafeln nie.
+- `neonAnFassade` (Tafel auf die Modellfassade ruecken) kehrt sofort
+  zurueck.
+- 8A: `biNeonAn` liefert nichts - Sockel werden nicht mehr unter eine
+  Tafel gesenkt, gekuerzt oder verworfen (`sockel:neon`), Schriften
+  weichen keiner Tafel mehr aus.
+- Zufallsstrom: three.js zieht fuer jedes neue Objekt vier Zahlen aus
+  `Math.random` (generateUUID), und `Math.random` ist der Weltstrom.
+  Geometrie, Material und Mesh der Leuchtreklame verbrauchten 16 Zahlen
+  (Ziehungsprotokoll mit und ohne Tafeln: ab Ziehung 66 706 um genau 16
+  versetzt, danach gleich). Ohne sie rutschte alles Spaetere: gemessen
+  567 statt 575 geparkte Wagen, 297 statt 300 alte Plaetze. Parken,
+  Verkehr und Passanten sind gesperrt - `baueNeon` zieht deshalb die 16
+  Zahlen an derselben Stelle (`NEON_ZUEGE`). Danach Weltvergleich gegen
+  Paket 2: Kollider (ohne Parkwagen 10 706, Pruefsumme gleich), 575
+  Parkwagen, die 300 alten Plaetze, die ersten 45 fahrenden Wagen und
+  die 88 Passanten gleich; Parken 962 / 575, je Bezirk gleich.
+
+**Kennzahlen** (Soll jeweils 0):
+
+- unplausible leere Farbtafeln sichtbar: 0 - `farbtafeln.js`: Leuchtreklame
+  0 Kisten, kein Mesh; jede verbleibende Leuchtquelle ist zugeordnet
+  (siehe oben).
+- unsichtbare Neon-Climb-Flaechen: 0 - Kletter-Overlay 0 Tafeln an 0
+  Hindernissen (vorher 955 an 305).
+- neue Kletterdurchdringungen und neue schwebende Beschilderung: die
+  Messungen laufen beim Commit dieses Pakets noch (27 Neon-Bahnen ohne
+  Tafeln gegen die Fassade, `district-identity.js` gegen 64d4952) - die
+  Werte stehen im Abschnitt Endabnahme.
+- Bereits gemessen, Endstand aller drei Pakete: Naht 221 / 221 / 221 und
+  Aussenecke 150 / 150 zeilengleich mit 8B; MO1 0 / 0 / 0,
+  playerCutsFacade 0; Innenklettern 0 / 0 / 0 / 0 (Aussenkontrolle wie in
+  8B 91 / 85, 1 ungueltig: Startpunkt verfehlt); FlatFacade-Top-out 13 / 13
+  und Kontrolle 8 / 8, postTopOutUnexpectedDisplacement 0,000;
+  Brutal-Halle gehen 30 / 30, rennen 30 / 30, invisibleCollision 0.
+- **Verhaltensaenderung, kein Fehler:** zwei Top-out-Versuche an
+  FlatFacade_1 (Haus 169, +z, f 0,6 und 0,65), die schon in 8B nicht
+  ueberzogen, enden jetzt bei y 4,17 bzw. 4,88 statt 5,20. Dort hing eine
+  cyanfarbene Tafel (4,1 x 0,7 m, y 4,2 bis 4,9) ueber den Ladengesimsen;
+  ihr Overlay fuehrte die Figur ueber das Gesims. Jetzt folgt die Bahn
+  der sichtbaren Fassade.
+
+Bilder: `qp-tafeln-1-screenshot-lage.jpg` (die Lage aus Screenshot 2:
+Stadthaus mit magenta Band neben PublicBuilding_1 mit roter Tafel, Tag und
+Nacht), `qp-tafeln-2-stellen.jpg` (je eine Stelle in Zentrum,
+Geschaeftsviertel, Mischung, Wohnen, Ufer und ein Hochhaus mit acht
+Tafeln, Zentrum und Geschaeft auch nachts), `qp-tafeln-3-bezirke.jpg`
+(die festen Strassenansichten Z-A1, G-A1, M-A1, W-A1, U-A2 und die
+Nachtstrasse K-NACHT). Vorher und nachher im selben Stand, nur der
+Pruefschalter unterscheidet sie. Pruefstaende
+`tools/pruef/leuchttafel-bilder.js` und `tools/pruef/farbtafeln.js`.
+
+**Nacht (C6):** ohne die Tafeln leuchten Fenster, Schaufenster, Lobbys,
+Laternen und Wagen wie vorher; keine Ersatzschilder.
+
 ---
 
 ## 7. Was noch aussteht

@@ -138,6 +138,8 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: Leuchtreklame wie vor der MO1-West-Aufgabe (0,16 m
        tiefe Kiste 0,06 m vor der Kolliderebene, mit Halter). */
     if (ein.neonAlt) window.__WEBHERO_NEON_ALT = 1;
+    /* Nur fuer Vorher-Bilder: die Leuchtreklame wie vor Paket 3 bauen. */
+    if (ein.neonAn) window.__WEBHERO_NEON_AN = 1;
     /* Nur zum Messen: Tiefenversatz der Tafel in Stufen (0 = aus). */
     if (ein.neonVersatz !== null) window.__WEBHERO_NEON_VERSATZ = ein.neonVersatz;
     /* Nur zum Messen: Kletterhaut ohne die Leuchttafeln (Stand vor dem
@@ -235,6 +237,7 @@ async function starte(breite, hoehe, seed, opt) {
        bodenOwnerAlt: !!(opt && opt.bodenOwnerAlt),
        bodenRasterAlt: !!(opt && opt.bodenRasterAlt),
        neonAlt: !!(opt && opt.neonAlt),
+       neonAn: !!(opt && opt.neonAn),
        neonVersatz: opt && typeof opt.neonVersatz === 'number' ? opt.neonVersatz : null,
        neonUeberAlt: !!(opt && opt.neonUeberAlt),
        neonEbeneAlt: !!(opt && opt.neonEbeneAlt),

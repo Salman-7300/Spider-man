@@ -12,7 +12,9 @@
    volle Lauf - vergleichbar sind nur volle Laeufe untereinander (zwei
    volle Laeufe desselben Stands: 4 von 12,4 Millionen Pixeln anders).
 
-   Aufruf:  node tools/pruef/district-bilder.js <ordner> [seed=4711] [zeit=0.45] [nur=name,name]
+   Aufruf:  node tools/pruef/district-bilder.js <ordner> [seed=4711] [zeit=0.45] [nur=name,name] [neon=an]
+   neon=an baut die alte Leuchtreklame (Qualitaets-Pass, Paket 3) - fuer
+   Vorher-Bilder im selben Stand.
    ========================================================================= */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,6 +24,7 @@ if (!ziel) { console.log('Aufruf: node tools/pruef/district-bilder.js <ordner>')
 const arg = (k, def) => { const a = process.argv.find((v) => v.indexOf(k + '=') === 0); return a === undefined ? def : a.slice(k.length + 1); };
 const SEED = +arg('seed', 4711), ZEIT = +arg('zeit', 0.45);
 const NUR = arg('nur', '') ? arg('nur', '').split(',') : null;
+const NEON_AN = arg('neon', '') === 'an';
 fs.mkdirSync(ziel, { recursive: true });
 
 /* Strassenaufnahme: Blockmitte (cx, cz), Seite N/S/O/W, die Figur steht
@@ -69,7 +72,7 @@ function heldLage(o) {
 }
 
 (async () => {
-  const { b, page } = await starte(1280, 720, SEED, { frierSofort: true });
+  const { b, page } = await starte(1280, 720, SEED, { frierSofort: true, neonAn: NEON_AN });
   /* Vorlauf: 30 s Spielzeit, die Figur auf einem Dach nahe dem Start -
      Passanten und Wagen verteilen sich, niemand bleibt bei ihr stehen. */
   await page.evaluate(() => {
