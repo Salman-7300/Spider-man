@@ -4127,8 +4127,11 @@ nur fuer Vorher-Bilder im selben Stand.
 **Abhaengigkeiten (C4):**
 
 - Kletter-Overlay `NEON_UEBER` (955 Tafeln an 305 Hindernissen): leer.
-  `hautTiefe` fragt `neonUeberlagern` nur, wenn es Tafeln gibt - die
-  Kletterhaut liegt jetzt ueberall auf der sichtbaren Fassade.
+  `hautTiefe` fragt `neonUeberlagern` nur, wenn es Tafeln gibt - an den
+  frueheren Tafelstellen gilt jetzt die Kletterhaut des Hauses wie an
+  jeder Wand ohne Tafel. Wo diese selbst von der sichtbaren Fassade
+  abweicht (unter den Ueberhaengen von ModernOffice_1 und Brutal_1),
+  wird das jetzt auch dort sichtbar - siehe Endabnahme.
   Unsichtbare Kletterflaechen: 0. Kollider hatten die Tafeln nie.
 - `neonAnFassade` (Tafel auf die Modellfassade ruecken) kehrt sofort
   zurueck.
@@ -4154,10 +4157,12 @@ nur fuer Vorher-Bilder im selben Stand.
   (siehe oben).
 - unsichtbare Neon-Climb-Flaechen: 0 - Kletter-Overlay 0 Tafeln an 0
   Hindernissen (vorher 955 an 305).
-- neue Kletterdurchdringungen und neue schwebende Beschilderung: die
-  Messungen laufen beim Commit dieses Pakets noch (27 Neon-Bahnen ohne
-  Tafeln gegen die Fassade, `district-identity.js` gegen 64d4952) - die
-  Werte stehen im Abschnitt Endabnahme.
+- neue schwebende Beschilderung: 0 (nach Korrektur des Pruefstands
+  `district-identity.js`, siehe Endabnahme).
+- neue Kletterdurchdringungen: NICHT 0 - an 3 der 9 Pflichtstellen
+  (5 von 27 Bahnen, vorher 1) steckt die Figur beim Klettern hinunter
+  oder quer unter dem Ueberhang in der Fassade. Dasselbe tut sie dort in
+  8B an jeder Stelle ohne Tafel; Einzelheiten in der Endabnahme.
 - Bereits gemessen, Endstand aller drei Pakete: Naht 221 / 221 / 221 und
   Aussenecke 150 / 150 zeilengleich mit 8B; MO1 0 / 0 / 0,
   playerCutsFacade 0; Innenklettern 0 / 0 / 0 / 0 (Aussenkontrolle wie in
@@ -4183,6 +4188,155 @@ Pruefschalter unterscheidet sie. Pruefstaende
 
 **Nacht (C6):** ohne die Tafeln leuchten Fenster, Schaufenster, Lobbys,
 Laternen und Wagen wie vorher; keine Ersatzschilder.
+
+### Endabnahme (Paket 1 bis 3)
+
+Endstand gegen 64d4952 (8B), Keim 4711. Korrekturrunden: Paket 1 zwei
+(Linien liefen in der Sonne weiss ueber -> dunklere Grundfarben;
+Mittelstreifen als greller Balken -> betongrau), Paket 2 keine, Paket 3
+zwei (Zufallsstrom: die 16 Ziehungen, siehe oben; Pruefstand
+`district-identity.js`, siehe unten). Danach ist an keinem Paket mehr
+korrigiert worden.
+
+**Schwebende Beschilderung (Soll 0): 0.** `district-identity.js` meldete
+nach Paket 3 21 harte Fehler `keineFlaecheDahinter`, alle an den drei
+Wahrzeichen-Schriftzuegen (Stadtkrone, Nordturm, Bankhaus; je sieben
+Strahlen). Ursache im Pruefstand, nicht im Spiel: er tastet eingefroren
+VOR dem ersten Bild ab, und die Weltmatrizen eines Modells rechnet sonst
+erst der Renderer. Gemessen beim Laden: mit Tafeln stehen 16
+Modellhaeuser fuer einen Strahl noch im Ursprung, ohne Tafeln 96 - das
+Vermessen der Leuchtreklame hatte 80 Haeuser, darunter die drei Tuerme,
+nebenbei gerechnet. Mit gerechneter Szene (wie in jedem Bild) sitzen die
+Schriftzuege 1,5 cm vor der Turmfassade, wie in 8B (Abstand min = max =
+0,015 m). Korrektur 0ab5e2d: `d.szene.updateMatrixWorld(true)` vor dem
+Abtasten. Gegenprobe: der korrigierte Pruefstand gibt auf 64d4952
+dasselbe Ergebnis wie vorher (harte Fehler 0, Zeile fuer Zeile gleich).
+Endstand: harte Fehler 0, neue Hindernisse 0, Fingerabdruck 25 gleich,
+1 verschieden (Leuchtreklame 1566 -> 0). Nahbilder
+`qp-tafeln-4-wahrzeichen.jpg`: die Schrift liegt auf dem Bruestungsband,
+mit und ohne Tafeln; Stadtkrone und Bankhaus sitzen jetzt mittig, vorher
+wichen sie einer Tafel aus.
+
+**Neue Kletterdurchdringungen (Soll 0): NICHT erfuellt.** Gemessen an den
+neun Pflicht-Schildern der Neon-Overlay-Stufe (27 Bahnen hinauf,
+hinunter, quer; ohne Rendern, Brust und Becken gegen die sichtbaren
+Meshes des Hausmodells, Anbau-Ausnahme wie `kletterproxy.js`; Werkzeug
+`tools/pruef/fassaden-bahnen.js`, Rechtecke in `fassaden-bahnen/`):
+
+| | mit Tafeln (Pruefschalter) | Endstand |
+|---|---|---|
+| Bahnen mit Brust hinter der sichtbaren Fassade | 1 | 4 |
+| Bahnen mit Becken hinter der sichtbaren Fassade | 1 | 5 |
+| Sprung > 0,11 m / steht > 30 Bilder / Ende nicht Ziel | 0 / 1 / 1 | 0 / 1 / 1 |
+
+Betroffen sind drei der neun Stellen, nur beim Klettern hinunter und
+quer: ModernOffice_1 2938 hinunter (2 / 4 Proben), 3825 hinunter (2 / 4)
+und quer (13 / 12, mit Tafel 5 / 2), Brutal_1 6408 hinunter (0 / 2, Anbau
+5) und quer (3 / 6, Anbau 9). Hinauf an denselben Stellen: 0. Die
+anderen 22 Bahnen sind unveraendert 0. (Die alten tafelbezogenen Zahlen
+des Werkzeugs - Brust, Becken, Knie hinter der Tafel, Schnitt - messen
+gegen die Ebene der nicht mehr vorhandenen Tafel und sagen ohne Tafel
+nichts aus.)
+
+*Ursache:* beide Modelle haben einen auskragenden Oberbau ueber einem
+zurueckgesetzten Erdgeschoss (ModernOffice_1 ein dunkles Band ueber der
+Fensterreihe, Brutal_1 den Ueberbau ueber den Stuetzen). Unmittelbar
+darunter fuehrt die Kletterhaut (Tiefenkarte des Modelltyps) die Figur
+0,33 bis 0,38 m hinter die Kiste; Kopf und Schultern stecken dann einige
+Bilder lang in der Unterseite des Ueberhangs. An genau diesen Stellen
+hatte das Kletter-Overlay der Tafel die Figur vor der Tafel gehalten.
+
+*Kein neues Verhalten, aber dort neu sichtbar:* dieselben Fassaden, die
+Bahnen 2,2 bis 6 m seitlich an Stellen, an denen nie eine Tafel hing, im
+8B-Stand (Tafeln an): ModernOffice_1 hinunter an 7 von 10 Stellen 4 / 6
+bis 4 / 7 Proben, quer an 3825 an 4 von 4 Stellen (4 / 4 bis 17 / 21);
+Brutal_1, Mitte von 32 tafelfreien Seiten (11 Haeuser): Brust an 22 von
+96 Bahnen, Becken an 23, ausserdem 51 Bahnen, die unter dem Ueberbau
+haengen bleiben. Ohne Tafeln an denselben Stellen dasselbe - anders nur
+Bahnen, die in die Rampe einer frueheren Tafel kommen (das Overlay wirkte
+mit einer Rampe ueber den Tafelrand hinaus). In 8B steckt die Figur dort
+zeitweise ganz im Ueberhang (`qp-tafeln-5-kletterbefund.jpg`, untere
+Zeilen). Der MO1-Pruefstand (`kletterproxy.js`) klettert nur hinauf und
+seitwaerts, nie hinunter - deshalb war der Befund bisher nicht gezaehlt.
+Umfang: von den 1566 frueheren Tafeln hingen 56 an ModernOffice_1 und 62
+an Brutal_1 zwischen 4 und 8 m, also in diesem Band.
+
+*Nicht behoben:* die Kletterhaut ist in diesem Pass gesperrt (Teil F),
+die Korrekturrunden fuer Paket 3 sind verbraucht, und eine unsichtbare
+Ersatzflaeche an den frueheren Tafelstellen waere genau das, was C4
+verbietet. Vorschlag fuer eine eigene Kletteraufgabe: der Uebergang unter
+dem Ueberhang von ModernOffice_1 und Brutal_1, mit einer Bahn hinunter im
+Pruefstand.
+
+**Erdgeschosse aus 8A:** ohne Tafeln liegen 271 der 1795 Details anders -
+259 sind nur hoeher (Sockel 3,83 m -> 3,9 / 4,0 / 4,2 m, vorher unter die
+Tafel gesenkt; 9 Einsaetze oben nicht mehr gekappt), 12 anders
+zugeschnitten, darunter die zwei Wahrzeichen; an einem Ufer-Buerohaus
+(ModernOffice_1) ersetzt ein Einsatz den vorher gekuerzten Sockel (Regel
+`exakt:uneben`). Platzierungsfehler 0.
+
+**Nacht (C6):** mittlere Bildhelligkeit (0 bis 255) an den Tafelstellen
+nachts, mit Tafeln -> ohne: Screenshot-Lage 30,5 -> 28,7 (8B: 26,3),
+Zentrum 32,1 -> 30,9, Geschaeft 29,0 -> 27,6, Nachtstrasse K-NACHT
+27,4 -> 26,9. Die Tafeln trugen 0,5 bis 1,8 Stufen; dunkler als 8B wird
+die Nacht nicht, weil die Modellfassaden seit Paket 2 heller sind.
+
+**Passanten und Gegner (`npc-wege.js`):** im normalen Ablauf (Start in
+Echtzeit, dann eingefroren) Endstand A 1, B 1, C 0, D 84, E 84 gegen 8B
+A 0, B 0, C 0, D 90, E 83; beide A/B-Faelle sind fliehende Passanten, die
+bekannte Fehlerart. Mit eingefrorenem Start, also ohne den Zufall der
+Echtzeitphase, sind beide Staende Zeile fuer Zeile gleich (A 2, B 0, C 0,
+D 94, E 84): der Pass aendert an Passanten und Gegnern nichts, die
+Unterschiede im normalen Ablauf sind Laufzeitzufall. Die fliehenden
+Passanten im Haus bleiben ein bekannter, nicht behobener Fehler.
+
+**Regression (Teil F)** - gegen 64d4952 in derselben Umgebung:
+
+| Pruefung | Endstand | 8B |
+|---|---|---|
+| `node --test` | 170 / 170 | 170 / 170 |
+| Naht `zeilenuebergang.js` | 221 / 221 / 221, Aussenecke 150 / 150 | zeilengleich |
+| `innenklettern.js` | 108 Laeufe, 0 / 0 / 0 / 0; Aussenkontrolle 91 / 85, 1 ungueltig (Startpunkt verfehlt) | gleich |
+| MO1 `kletterproxy.js` | 0 / 0 / 0, playerCutsFacade 0 | 0 / 0 / 0 |
+| `kletterstetigkeit.js` Foreign Building | 0 | 0 |
+| FlatFacade-Top-out `topoutlandung.js` | 13 / 13, Kontrolle 8 / 8, Versatz 0,000 m | 13 / 13 |
+| `brutal-halle.js` | gehen 30 / 30, rennen 30 / 30, invisibleCollision 0 | gleich |
+| Neon/Fassade, Durchdringung | NICHT ohne neue Befunde: 5 von 27 Bahnen (siehe oben) | 1 von 27 (mit Tafeln) |
+| `district-identity.js` | harte Fehler 0, neue Hindernisse 0 | 0 |
+| `street-details.js` | 0 harte Fehler, zeilengleich | gleich |
+| `street-life.js` / `-activities.js` | 88 (60 / 28), hart 0 / 35 % in M1, hart 0 | hart 0 / hart 0 |
+| `verkehr-dichte.js 0 300 3` | harte Fehler 0 / 0 / 0 / 0 | 0 |
+| `strassen-markierung.js` | harte Fehler 0 | 856 |
+| Parken `parkautos.js`, Weltvergleich | 962 / 575 / 80, Kollider, Passanten, Wagen gleich | - |
+| `determinismus.js` | gleich in allen Laeufen | - |
+| `stadtraster.js` | unveraendert | - |
+| `kernsysteme.js` | Story Akt 1: 8 Missionen, 8 sauber; Seitenfehler 0; npc-/enemyStaticPenetration 0, playerNpcOverlap 0 | gleich |
+| `freigang.js` | 572 gestreift, 0 gesperrt, kleinste Gehbreite 1,60 m | gleich |
+| `innenklettern.js welt` | Weltlauf: innen 107 gueltige Laeufe, 0 angeklebt, alle vier harten Zahlen 0; 1 innen ungueltig (im Lauf von einer aktiven Gefahr getroffen), Aussenkontrolle 91 / 85, 1 ungueltig (Startpunkt verfehlt) | 108 / 0, Aussenkontrolle gleich |
+
+**Leistung** (`stadt-leistung.js`, gepaart in derselben Stunde, sonst lief
+nichts; 300 Aufnahmen):
+
+| | 8B | Endstand, Lauf 1 / 2 |
+|---|---|---|
+| Zeichenaufrufe Gesamtmedian (Tor 899) | 862 | 861 / 859 |
+| Strasse / Dach / Luft | 794 / 791 / 895,5 | 793 / 790 / 894,5 und 792,5 / 789,5 / 894 |
+| Dreiecke Median | 3 721 138 | 3 678 186 / 3 677 918 |
+| Shaderprogramme / Materialien / Meshes | 43 / 1016 / 5720 | 44 / 1020 / 5717 |
+
+Die 8B-Referenz misst in dieser Stunde 862 (bei der Paarung zu Paket 1
+868,5) - verglichen wird deshalb nur gepaart. Ladezeit (`ladezeit.js`,
+abwechselnd Endstand / 8B): T6 32,2 / 31,1 s gegen 29,5 / 31,9 s - im
+Mittel rund +1 s, innerhalb der Streuung der 8B-Laeufe (Paket 2 allein:
++3,1 s).
+`haeuser.glb` 2,93 -> 3,88 MB, Texturspeicher der gesetzten Modelle
+grob 5,2 -> 48,4 MB (Paket 2).
+
+**Bilder und Video:** `docs/abnahme-qp/` - Strassen (Paket 1), die
+Gebaeudebilder `qp-gebaeude-00` bis `-12` jetzt als 8B gegen Endstand
+(ohne Tafeln), dazu `qp-gebaeude-00-uebersicht-vorher-nachher.jpg`,
+Leuchttafeln `qp-tafeln-1` bis `-5` und das Gameplay-Video
+`qp-video-gameplay.mp4` (186 s, normale Spielkamera).
 
 ---
 

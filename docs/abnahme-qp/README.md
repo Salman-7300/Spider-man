@@ -26,12 +26,13 @@ der Strasse; dieselbe Kamera in beiden Staenden.
 ## Paket 2: Gebaeudequalitaet (`tools/pruef/gebaeude-bilder.js`)
 
 Feste Hausauswahl je Typ, dieselben Kameras in beiden Staenden; Wagen,
-Passanten und Figur ausgeblendet. Die Leuchttafeln sind in diesen Bildern
-noch da - sie verschwinden erst mit Paket 3.
+Passanten und Figur ausgeblendet. Links 8B, rechts der ENDSTAND (Paket 1
+bis 3, also auch ohne Leuchttafeln).
 
 | Datei | Inhalt |
 | --- | --- |
-| `qp-gebaeude-00-uebersicht-nachher.jpg` | alle 12 Typen nachher aus Strassenabstand: drei prozedurale Familien, sieben Modelle, zwei Hochhaeuser - die Vielfalt bleibt |
+| `qp-gebaeude-00-uebersicht-vorher-nachher.jpg` | alle 12 Typen aus Strassenabstand, je 8B und Endstand nebeneinander |
+| `qp-gebaeude-00-uebersicht-nachher.jpg` | alle 12 Typen im Endstand: drei prozedurale Familien, sieben Modelle, zwei Hochhaeuser - die Vielfalt bleibt |
 | `qp-gebaeude-01-Wohnhaus.jpg` bis `-03-Uferhaus.jpg` | prozedurale Familien (Referenzqualitaet, unveraendert) |
 | `qp-gebaeude-04-Brownstone.jpg`, `-05-Brownstone2.jpg` | Brownstone FlatFacade_6 und Lowrise_1 |
 | `qp-gebaeude-06-ModernOffice1.jpg`, `-07-ModernOffice2.jpg` | Bueromodelle |
@@ -53,3 +54,19 @@ Pruefschalter fuer die alte Leuchtreklame unterscheidet die Bilder.
 | `qp-tafeln-1-screenshot-lage.jpg` | die Lage aus Screenshot 2: Stadthaus mit magenta Querband, daneben PublicBuilding_1 mit roter und weisser Tafel - Tag und Nacht |
 | `qp-tafeln-2-stellen.jpg` | sechs weitere Stellen: Zentrum (ModernOffice_2, gruen), Geschaeftsviertel (Turm_1, weiss), Mischung (PublicBuilding_1, rot), Wohnen (Wohnhaus, cyan), Ufer (ModernOffice_1, pink), Hochhaus Turm_2 mit acht Tafeln; Zentrum und Geschaeft auch nachts |
 | `qp-tafeln-3-bezirke.jpg` | feste Spielkamera-Ansichten: Zentrum Z-A1, Geschaeft G-A1, Mischung M-A1, Wohnen W-A1, Ufer U-A2, Nachtstrasse K-NACHT |
+| `qp-tafeln-4-wahrzeichen.jpg` | die drei Wahrzeichen-Schriftzuege (Stadtkrone, Nordturm, Bankhaus), schraeg und nah, mit Tafeln (Pruefschalter) und im Endstand: die Schrift liegt auf dem Bruestungsband, nichts schwebt |
+| `qp-tafeln-5-kletterbefund.jpg` | offener Befund: an drei frueheren Tafelstellen (ModernOffice_1, Brutal_1) stecken Kopf und Schultern beim Klettern hinunter/quer unter dem Ueberhang in der Fassade; untere Zeilen: dasselbe im 8B-Stand an Stellen ohne Tafel (Doku 6s, Endabnahme) |
+
+## Gameplay-Video
+
+`qp-video-gameplay.mp4` (186 s, 960 x 540, 15 Bilder/s = Echtzeit):
+normale Spielkamera (Alt+W), Keim 4711, Gangs und Vorfaelle aus.
+Abschnitte: Zentrum am Boulevard z = 25 (Mittelstreifen, weisse
+Spurtrenner), Geschaeftsviertel an der Avenue z = 175 (doppelte gelbe
+Mitte), Avenue x = 25 wie Screenshot 1 auf der Fahrbahn, Wohnstrasse
+z = 125 mit Stellplaetzen und Parkwagen, Modellhaeuser am Tag
+(Strasse x = -325), die Stelle aus Screenshot 2 ohne Farbtafeln, zwei
+Nachtabschnitte (Zentrum, Modellhaeuser). Die Ortsangaben oben links sind
+Aufnahmeinformation, im Spiel gibt es keine Anzeige dafuer. Die Fassaden
+sieht man darin so, wie die Spielkamera sie zeigt - fuer den genauen
+Vergleich sind die Gebaeudebilder oben da.
