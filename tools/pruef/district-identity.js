@@ -219,6 +219,12 @@ function finger(s) {
         if (i !== undefined) meshe.set(i, o);
       }
       const prod = d.hausFassaden().filter((m) => m.visible);
+      /* Eingefroren vor dem ersten Bild: die Weltmatrizen rechnet sonst
+         erst der Renderer. Ein Modell, das kein Bauschritt vermessen hat,
+         stuende fuer den Strahl noch im Ursprung - bis zum Qualitaets-Pass
+         hatte das Vermessen der Leuchtreklame die Hochhaeuser nebenbei
+         gerechnet, ohne sie fielen die Wahrzeichen hier durch. */
+      d.szene.updateMatrixWorld(true);
       const ray = new THREE.Raycaster();
       const dir = new THREE.Vector3(), org = new THREE.Vector3();
       const KO = K;
