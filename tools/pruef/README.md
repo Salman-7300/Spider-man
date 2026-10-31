@@ -1,0 +1,101 @@
+# Prüfstand: Messungen im laufenden Spiel
+
+Die Werkzeuge eine Ebene höher (`tools/*.mjs`, `tools/*.cjs`) lesen
+Dateien. Damit lässt sich nicht beantworten, ob ein Wagen über die Brücke
+fährt, ob ein Fuß beim Gehen rutscht oder ob ein Passant stecken bleibt.
+Dafür muss das Spiel laufen.
+
+Diese Skripte starten das echte `index.html` in einem kopflosen Chromium,
+frieren die Bildschleife ein und rechnen die Simulation Schritt für
+Schritt weiter. Gemessen wird über `window.__dbg`.
+
+## Einrichten
+
+    cd tools
+    npm install                       # die normalen Werkzeuge
+    npm i -D playwright three@0.128.0 # nur für den Prüfstand
+    npx playwright install chromium
+
+Die Version von `three` ist kein Zufall: das Spiel lädt `three@0.128.0`
+vom CDN, und der Prüfstand biegt genau diese Anfrage auf die lokale Kopie
+um. Neuere Fassungen liefern kein `build/three.min.js` mehr.
+
+`playwright` steht bewusst **nicht** in `tools/package.json`: es lädt
+einen ganzen Browser nach, und die meisten Werkzeuge brauchen ihn nicht.
+Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
+
+## Die drei Fallen
+
+1. `d.frier(true)` hält `animate()` an. `d.schritt(dt)` rechnet einen
+   Schritt **ohne zu zeichnen**. Ein Bildschirmfoto ohne `d.zeichne()`
+   oder `d.aufnahme(...)` zeigt das Bild von vor dem Einfrieren.
+2. Wer auf der Fahrbahn misst, misst irgendwann einen überfahrenen
+   Helden. `d.cars.length = 0` vorher, wenn der Verkehr nicht zur Sache
+   gehört.
+3. Der erste Renderdurchgang nach einem Kamerawechsel unterscheidet sich
+   stark von den folgenden (gemessen 425 gegen 605 Zeichenaufrufe bei
+   identischer Szene). Für Zeichenaufruf-Vergleiche mehrere Durchgänge
+   nehmen und den ersten wegwerfen.
+
+## Was hier liegt
+
+| Skript | Was es misst |
+|---|---|
+| `bruecke-gehen.js` | Läuft die Brücke in fünf Spuren ab, hin und zurück: Stufen, unsichtbare Wände, Abdrift |
+| `verkehr-stunde.js` | Eine Stunde Verkehr: festhängende Wagen, Wagen neben der Fahrbahn, im Wasser, in Häusern, Geisterfahrer |
+| `fuss-rutschen.js` | Wie weit der tragende Fuß während des Bodenkontakts wandert, je Gangart. Erstes Argument ist das Bodenfenster in Metern (Vorgabe 0,12) |
+| `anim-klassen.js` | Welcher Heldenclip läuft ab, welcher wird als Haltung an einer gesetzten Stelle gehalten |
+| `anim-eigentempo.js` | Eigengeschwindigkeit der Gangclips im Animationslabor |
+| `stadtraster.js` | CITY V2: der LOCKED CORE, alle Rastermaße und Weltgrenzen |
+| `strassen.js` | CITY V2: die Straßenhierarchie und ob jeder Wagen auf einer Spur seiner Straße fährt |
+| `strassen-markierung.js` | Qualitäts-Pass, Paket 1: jeder Fahrbahnstrich gegen Spuren, Kreuzungen, Zebrastreifen und Fahrbahnrand, Mitteltrennung und Spurtrenner je Abschnitt, anderes Ufer und Brücke; harte Fehler Soll 0; `farben=alt` misst einen Stand vor dem Pass |
+| `gebaeude-bilder.js` | Qualitäts-Pass, Paket 2: feste Hausauswahl je Gebäudetyp (3 prozedurale Familien, 7 Modelle, 2 Türme) mit fünf Kameras – Straßenabstand, nah, streifend schräg, Obergeschosse, Nacht; `liste` wählt, `bilder … wurzel=` rendert jeden Stand |
+| `farbtafeln.js` | Qualitäts-Pass, Paket 3: Inventur aller selbstleuchtenden Materialien der Szene (nach Material gruppiert, mit Zahl, Farbe, Größe, Lage) und aller grellen flachen Deko-Tafeln über 2,5 m, dazu der Stand der Leuchtreklame und ihres Kletter-Overlays; `neon=an` baut die alte Leuchtreklame |
+| `leuchttafel-bilder.js` | Qualitäts-Pass, Paket 3: Stellen mit früherer Leuchtreklame vorher/nachher – die Lage aus dem Human-Screenshot, je Stadtteil eine Stelle, ein Hochhaus; Tag und Nacht; `liste` wählt (mit Tafeln), `bilder … [neon=an]` rendert |
+| `fassaden-bahnen.js` | Qualitäts-Pass, Endabnahme: Kletterbahnen hinauf, hinunter und quer an Fassadenrechtecken (frühere Tafeln, Daten in `fassaden-bahnen/`) – Brust und Becken hinter der sichtbaren Fläche des Hausmodells (Anbau-Ausnahme wie `kletterproxy.js`), Sprung, Stillstand, Ende; `schalter=neonAn` mit den alten Tafeln, `render=1` mit verdecktem Anteil, `foto=1` zwei Aufnahmen beim ersten Treffer |
+| `ueberhang-klettern.js` | problem-2, Überhänge (ModernOffice_1, Brutal_1): klettert die Figur mit dem GANZEN Körper an der sichtbaren Fassade? Zwei Wege an dieselbe Stelle – `weg=regulaer` nur echte Tasten (vom Gehweg hinauf, aufs Dach, mit Alt + W über die Kante, 0,1 s danach mit S zurück an die Wand und hinunter – greift sie dabei etwas anderes als die Zielkiste, etwa die Dachkrone, endet der Weg mit diesem Befund; quer: vom Boden ankleben, auf Bandhöhe, mit A/D seitwärts; abquer: hinunter bis aufs Band, dann seitwärts), `weg=kuenstlich` mit gesetztem Kletterzustand wie `fassaden-bahnen.js`. Je Bild jede zweite Ecke der Figur gegen die sichtbaren Meshes des Hauses (5-cm-Raster, beidseitig: in / hinter / Anbau) nach Körperteil (Kopf, Schulter, Rumpf, Becken, Arme, Beine), der Weg von Kopf, Schultern, Brust und Becken seit dem vorigen Bild, Halt (nächste sichtbare Fläche hinter Kopf, Brust, Becken, Händen, Füßen; über 0,6 m = ohne Halt), Sprünge, Hautziel am Fußabdruck und am Rumpf; `faelle=<json>` (Felder im Kopf der Datei), `bahnen=`, `band=alle`, `alt=1` (Kletterhaut ohne Körperrahmen, Stand vor dem Fix), `protokoll=1` |
+| `ueberhang-video.js` | dazu die Bilder für die Abnahme: dieselben regulären Wege, jedes 4. Bild (15 Bilder/s = Echtzeit), `ansicht=spiel` (normale Spielkamera) oder `ansicht=seite` (feste Diagnosekamera seitlich der Stelle: Körper gegen Überhang im Profil), `alt=1` |
+| `qualitaet-video.js` | Qualitäts-Pass: Gameplay-Video (normale Spielkamera, Alt+W, 15 Bilder/s Echtzeit) durch Zentrum, Geschäftsviertel, die Avenue aus Screenshot 1 auf der Fahrbahn, die Wohnstraße mit Parkwagen, Modellhäuser bei Tag, die Stelle aus Screenshot 2 und zwei Nachtabschnitte |
+| `stadt-leistung.js` | CITY V2: Zeichenaufrufe und Dreiecke an 300 festen Kamerastellen, Leistungstor; `ruhig` blendet Wagen, Passanten und Gegner aus (sonst ±3–4 Aufrufe Streuung je Lauf); `zivis=N` setzt die Zahl der zusätzlichen Straßenpassanten (Stufe 7A), `cullAlt` zeichnet Passanten wie vorher ohne Sichtfeld-Prüfung |
+| `stadt-bilder.js` | CITY V2: vierzehn feste Aufnahmen zum Vergleich zweier Ausbaustufen |
+| `street-details.js` | CITY V2 Stufe 6A: Bäume und Stadtmöbel je Stadtteil und Straßenklasse, leere Gehwegstrecken, Wiederholung; für die neuen Details die harten Platzierungsfehler (Soll überall 0) |
+| `street-bilder.js` | CITY V2 Stufe 6A: zehn feste Straßenbilder auf Augenhöhe und drei Luftbilder, gleiche Stelle vorher und nachher |
+| `sd-leistung.js` | CITY V2 Stufe 6B: Zeichenaufrufe und Dreiecke der Straßendetails je Art an den 300 Stellen von `stadt-leistung.js`, eingefroren und spielnah, gegen echte Bilder geprüft; Lesbarkeit in Bildpunkten |
+| `sd-sicht-bilder.js` | CITY V2 Stufe 6B: je Art dieselbe Spielansicht mit kürzeren Sichtweiten, gezählt die geänderten Bildpunkte |
+| `ladezeit.js` | CITY V2 Stufe 6B: Zeitmarken T0 bis T6 des Ladens (nur von außen gemessen) mit Bildern, Shaderbau, Uploads je Abschnitt; `wurzel=` misst auch einen alten Stand |
+| `fassaden-zugang.js` | CITY V2 Stufe 6B: echter Lauf vom Bordstein und vom Gehweg an 20 Fassaden mit Straßendetails davor, Haustüren und Arkaden; completelyBlockedFacadeAccess (Soll 0) |
+| `street-life.js` | CITY V2 Stufe 7A: Straßenbevölkerung – Zahl, Stadtteil, Modell, Look; sichtbar im Bild und im Umkreis 25/50/100/150 m an den zehn Straßenorten; Startprüfung (Ding, Haus, Fahrbahn, Wasser, Haustür, abseits Netz, gleicher Punkt); im Lauf Dinge/Häuser, Fahrbahn ohne Überweg, Eingang blockiert, abseits Netz, Stau-Trauben, enge Stellen, längster Stillstand, gleiche Looks, Park (Weg/Bank/Platz/Eingang/Ringstreifen/Rasen, dazu Busch und Pflanzscheibe) und Promenade; `zivis=N`, `cullAlt`, `gegner=s` (zweite Phase mit Gangs); harte Geometriefehler = Exit 1 |
+| `street-life-bilder.js` | CITY V2 Stufe 7A: die zehn Straßenorte aus Stufe 6 mit Passanten und vier Spielkamera-Ansichten (Zentrum, Wohnstraße, Park, Promenade) zu drei Zeitpunkten, nach festem Vorlauf; je Bild gezählt, wer im Bildkegel steht und wer wirklich zu sehen ist (Figur ausgeblendet, geänderte Bildpunkte); ab Stufe 7B die wirklich Sichtbaren bis 25/50/100 m nach Zustand (gehen, sitzen, reden, telefon, warten, gafft – wer dem an der Kamera stehenden, unsichtbaren Helden zuschaut, zählt nicht als Aufenthalt); `zivis=N`, `anteil=x` und `mix=<datei>` (Aufenthalt, nur zum Vergleich) |
+| `street-life-activities.js` | CITY V2 Stufe 7B: Aufenthalt – Anker je Art, Ort und Stadtteil, jeder Platz nachgeprüft (Hindernis, Tür, Gehnetz, 1,8 m Gehweg daneben, Anlaufweg, Gesprächsplatz: Abstand, Blick, nichts dazwischen); 240 s Lauf: Beschäftigung je Art und Stadtteil, Sitzplätze belegt, Doppelbelegung, im Ding/Haus, abseits des Anlaufwegs, Gespräche (Abstand, zugewandt, Gehweg frei, getrennt), wer durch die Beine eines Sitzenden läuft, Trauben, längster ungewollter Stillstand, Kreuzung 86/−148; Sicht an den zehn Orten je Zustand bis 25/50/100 m (gemittelt); Sitzgeometrie jeder Sitzenden und jedes Looks auf jeder Bankart (jeder Vertex auf der CPU gehäutet); Hüllkugel; Gefahr neben Sitzendem, Stehendem, Gespräch; Spieler 0,3 m neben einer sitzenden und einer stehenden Figur (Aufenthalt endet, Figur macht Platz); läuft auch auf einem Stand vor 7B (dann nur Lauf und Sicht); `anteil=x`, `mix=<datei>`, `gefahr=0`, `kugel=0`; harte Fehler = Exit 1 |
+| `innenklettern.js` | problem-2 / CITY V2 Abnahme 7B: Klettern im Innenraum der begehbaren Häuser (vier harte Kennzahlen) mit Kontrolle von außen. Standard isoliert: eingefroren nach dem Laden, Weltereignisse, Gegner und Wagen in jedem Schritt aus, je Fall lebender Held am festen Start (nicht unverwundbar). `welt`: Integrationslauf mit aktiven Weltereignissen und Gefahren. In beiden gilt ein Fall mit totem oder verletztem Start, verfehltem Start oder Treffer/Tod im Lauf als ungültig – weder Kletterfehler noch bestanden; Exit 0 bestanden, 1 harter Befund, 2 ungültige Fälle |
+| `flucht-ueberlappung.js` | CITY V2 Abnahme 7B: gepaarter Vergleich der Überschneidung von fliehenden Passanten mit dem stehenden Helden auf zwei Spielständen (`<wurzel> <keim> <ausgabe.json>`). Eingefroren nach dem Laden, keine Weltereignisse; je Straßenort 30 s Stehen (Gaffer), dann eine Gang 10 m voraus mit gleich gesetztem Zufall, 10 s Flucht. Erfasst Fluchtbegegnungen, zusammenhängende Überschneidungen (Körpermaße, Höhen), Dauer, Tiefe, Vorzustand, Flucht aus einem Aufenthalt, Spielzähler |
+| `flucht-ueberlappung-auswertung.js` | Auswertung dazu (`<ordner>` mit `ref-<keim>.json`/`neu-<keim>.json`): Summen, exakter bedingter Binomialtest, Ratenverhältnis mit 95-%-Grenzen, Vorzeichentest je Episode, Entscheidung nach dem Plan in `docs/abnahme-7b/` |
+| `district-identity.js` | CITY V2 Stufe 8A: Bestand je Stadtteil (Häuser, Höhen, Modell/prozedural, Modelle, Fassadenfarbe aus den Materialien, Kantennutzung, Leuchtschilder, Straßendetails, Laternen, Ampeln, Bänke, POIs, U-Bahn, Altbau, Anker); die neuen Erdgeschosse je Stadtteil und Art (Sockel mit Programm, Einsätze in den Modellöffnungen, Hausnummern, Wahrzeichen-Namen, Vorplätze; Scheiben, Eingänge, Läden, Frontmeter, Fläche je Shader-Modus: Fläche, Raum, Milchglas, Nische) mit den harten Fehlern (außerhalb der Front, über einem Leuchtschild – ein Einsatz darf hinter einem Schild liegen, das mindestens 6 cm vor ihm endet –, im Nachbarhaus, im Park, mehrfacher Sockel oder Überlappung je Front, schwebend/steckend – je Fläche sieben Strahlen auf die gezeichnete Geometrie des eigenen Hauses, beim Einsatz darf die Öffnung dahinter tiefer sein, aber nichts davor liegen –, Vorplatz nicht auf dem Gehweg, auf einem Überweg oder über einem Schacht), neue Hindernisse; Welt-Fingerabdruck (Bezirke, Häuser, Modelle, Hindernisse als Menge, Parkautos, Wagen, Passanten mit Look, Gegner, POIs, Straßendetails, Anker, Missionen; nach dem Laden und nach 20 s), mit `vergleich=<json>` gegen einen anderen Stand; Exit 1 bei hartem Fehler oder Abweichung |
+| `district-bilder.js` | CITY V2 Stufe 8A: feste Bezirksbilder – je Stadtteil zwei Straßenaufnahmen mit der echten Spielkamera und eine Luftansicht, drei Bezirksgrenzen, Dämmerung, Nacht, Regen; Wagen und Passanten bleiben (eingefroren, gleicher Ablauf), Zeichenaufrufe und Dreiecke je Bild; `nur=name,name` (Teillauf: andere Wagen und Passanten als im vollen Lauf – vergleichbar sind nur volle Läufe); `neon=an` (Qualitäts-Pass) baut die alte Leuchtreklame für Vorher-Bilder |
+| `verkehr-dichte.js` | CITY V2 Stufe 4, erweitert in Stufe 8B: fahrende Wagen bei fester Tageszeit 0,33 (alle unterwegs) – gleichzeitig aktiv, sichtbar in 50/100/150 m, Anteil je Straßenklasse und (8B) je Stadtteil mit Dichte = Anteil der Wagen geteilt durch Anteil der Straßenlänge (Brücke und Ostufer eigens), Brücke, Kosten, harte Fehler (neben der Fahrbahn, im Wasser, Ortssprung, Geisterfahrer; Soll 0) und verrauschte Zusatzwerte (ineinander, langes Stehen); `node verkehr-dichte.js [autos] [sekunden] [läufe]` |
+| `verkehr-bilder.js` | CITY V2 Stufe 8B: Verkehr vorher/nachher – nach 90 s Spielzeit an neun festen Ansichten (Boulevard, Avenue, Zentrum, Geschäftsviertel, Wohnstraße, Luft) 60 Proben im Sekundenabstand: fahrende Wagen, die wirklich zu sehen sind (Bildkegel, bis 150 m, Sichtlinie gegen Häuser über 3 × 3 m und 4 m Höhe), dazu je Ansicht drei Bilder im Abstand von 8 s; `wurzel=<Spielordner>` misst einen anderen Stand mit dessen `basis.js` |
+| `fassaden-familien.js` | CITY V2 Stufe 8B: Fassaden vorher/nachher mit fester Hausauswahl – `liste` wählt im aktuellen Stand je Haustyp × Stadtteil × Erdgeschoss-Programm Häuser und hält zwei Kamerapunkte fest (13 m / 7 m seitlich und 9 m / 12 m seitlich, Augenhöhe), `bilder` rendert sie in einem beliebigen Stand (`wurzel=`), Wagen und Passanten ausgeblendet |
+| `district-video.js` | CITY V2 Stufe 8A: Gameplay-Video durch die sechs Stadtteile (Gehen mit Alt+W, normale Spielkamera, Echtzeit 15 Bilder/s) und zwei erhöhte Abschnitte (Dachkante, Spielkamera dreht); `nur=<abschnitt>` |
+
+Aufruf jeweils aus diesem Ordner, z. B.
+
+    node fuss-rutschen.js 0.03
+
+Zwei Schalter aus Stufe 8B gelten für jeden Prüfstand, der `basis.js`
+benutzt – über die Umgebung, ohne `game.js` zu ändern:
+
+    ZUSATZVERKEHR=0 node stadt-leistung.js      # ohne die 35 zusätzlichen Wagen
+    OHNE_PARKSTREIFEN=1 node stadt-leistung.js  # Parken wie vor 8B (300 Wagen, keine Markierung)
+
+Beide zusammen messen den Stand vor 8B mit dem Code von 8B (bis auf die
+Fassaden, die Abbiegewahl und die Hinderniserkennung unter der Straße).
+
+Die Laufzeiten reichen von einer Minute (`bruecke-gehen`) bis zu einer
+knappen halben Stunde (`verkehr-stunde`).
+
+## Was diese Messungen NICHT sind
+
+Sie laufen in einem software-gerenderten Browser. **Bildraten daraus sind
+wertlos.** Aussagekräftig sind Zeichenaufrufe und Dreiecke
+(`renderer.info.render`) sowie alles, was aus der Simulation kommt –
+Positionen, Zustände, Zähler.

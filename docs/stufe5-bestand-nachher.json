@@ -1,0 +1,6323 @@
+{
+ "zusammenfassung": {
+  "bloecke": 110,
+  "gebaeude": 622,
+  "gebaeudeInBloecken": 573,
+  "gebaeudeAusserhalb": 49,
+  "gebaeudeJeBlock": 5.65,
+  "blockkanten": 440,
+  "kantenMitHaus": 346,
+  "haeuserJeKanteMittel": 1.95,
+  "haeuserJeKanteMedian": 2,
+  "kantenBelegungMittel": 53.18,
+  "kantenBelegungMedian": 74,
+  "kantenBelegungMax": 77,
+  "hoeheMedian": 23.1,
+  "hoeheMax": 94.8,
+  "hoeheMin": 9.8,
+  "verteilung": {
+   "LOW": 3.5,
+   "MID": 53.4,
+   "UPPER": 30.4,
+   "HIGH": 9.8,
+   "HOCHHAUS": 3
+  },
+  "zeichenaufrufe": 882,
+  "dreiecke": 3103872,
+  "kollider": 3611,
+  "objekte": 17027,
+  "hausModelle": 413,
+  "objekteJeHausModell": 4,
+  "dreieckeJeHausModell": 2192,
+  "dreieckeAlleHausModelle": 905481,
+  "tueren": 23,
+  "gehknoten": 1463,
+  "geometrien": 1906,
+  "texturen": 292
+ },
+ "bloecke": [
+  {
+   "bi": 0,
+   "bj": 0,
+   "x": -300,
+   "z": -250,
+   "kern": false,
+   "haeuser": 10,
+   "hoehen": [
+    21.3,
+    12.2,
+    10,
+    14,
+    14.1,
+    16.5,
+    13.1,
+    16.7,
+    17.3,
+    17.2
+   ],
+   "hoeheMedian": 15.3,
+   "hoeheMax": 21.3,
+   "bebaut": 731,
+   "frei": 713,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 4
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 4
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 7,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 1,
+   "x": -300,
+   "z": -200,
+   "kern": false,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 3,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 2,
+   "x": -300,
+   "z": -150,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    16.4,
+    15.9,
+    11.9,
+    17.8,
+    18.1,
+    19.2,
+    13.7
+   ],
+   "hoeheMedian": 16.4,
+   "hoeheMax": 19.2,
+   "bebaut": 684,
+   "frei": 760,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 3,
+   "x": -300,
+   "z": -100,
+   "kern": false,
+   "haeuser": 5,
+   "hoehen": [
+    20.2,
+    14,
+    10.9,
+    12.5,
+    19.4
+   ],
+   "hoeheMedian": 14,
+   "hoeheMax": 20.2,
+   "bebaut": 606,
+   "frei": 838,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 21.2,
+     "anteil": 56,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 21.2,
+     "anteil": 56,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 4,
+   "x": -300,
+   "z": -50,
+   "kern": false,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 3,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 5,
+   "x": -300,
+   "z": 0,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    21,
+    43,
+    34.2,
+    28.8,
+    26.3,
+    60.5
+   ],
+   "hoeheMedian": 31.5,
+   "hoeheMax": 60.5,
+   "bebaut": 697,
+   "frei": 747,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 6,
+   "x": -300,
+   "z": 50,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    35.1,
+    36.3,
+    34.5,
+    20.1,
+    29.4,
+    34.6
+   ],
+   "hoeheMedian": 34.6,
+   "hoeheMax": 36.3,
+   "bebaut": 718,
+   "frei": 726,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 18,
+     "anteil": 47,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 7,
+   "x": -300,
+   "z": 100,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    15,
+    13.5,
+    22.6,
+    15.1,
+    10.8,
+    19.2,
+    13.7,
+    12.9
+   ],
+   "hoeheMedian": 14.3,
+   "hoeheMax": 22.6,
+   "bebaut": 726,
+   "frei": 718,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 8,
+   "x": -300,
+   "z": 150,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    21.6,
+    11.3,
+    21.2,
+    20.6,
+    18.6,
+    17.6,
+    18.9,
+    14.7
+   ],
+   "hoeheMedian": 18.8,
+   "hoeheMax": 21.6,
+   "bebaut": 739,
+   "frei": 705,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 9,
+   "x": -300,
+   "z": 200,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    15.3,
+    13.7,
+    13.8,
+    17.9,
+    18.5,
+    20.1,
+    14,
+    9.8
+   ],
+   "hoeheMedian": 14.7,
+   "hoeheMax": 20.1,
+   "bebaut": 658,
+   "frei": 786,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 0,
+   "bj": 10,
+   "x": -300,
+   "z": 250,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    13,
+    16,
+    20.4,
+    13.4,
+    18.3,
+    20.6,
+    14.7,
+    14.3
+   ],
+   "hoeheMedian": 15.3,
+   "hoeheMax": 20.6,
+   "bebaut": 760,
+   "frei": 684,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.6,
+     "anteil": 75,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 492,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 6,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 0,
+   "x": -250,
+   "z": -250,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    21.1,
+    19.4,
+    20.9,
+    12.4,
+    17.9,
+    14.6,
+    15.1
+   ],
+   "hoeheMedian": 17.9,
+   "hoeheMax": 21.1,
+   "bebaut": 751,
+   "frei": 693,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 1,
+   "x": -250,
+   "z": -200,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    20.9,
+    15.2,
+    20.9,
+    13.8,
+    16.9,
+    17,
+    13.6
+   ],
+   "hoeheMedian": 16.9,
+   "hoeheMax": 20.9,
+   "bebaut": 723,
+   "frei": 721,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 2,
+   "x": -250,
+   "z": -150,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    17.8,
+    13.9,
+    16.3,
+    14.1,
+    16.4,
+    15.1,
+    18.5,
+    18.8
+   ],
+   "hoeheMedian": 16.4,
+   "hoeheMax": 18.8,
+   "bebaut": 689,
+   "frei": 755,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 3,
+   "x": -250,
+   "z": -100,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    21.6,
+    16.3,
+    22.1,
+    18.5,
+    18.6,
+    17.9,
+    18.1,
+    20
+   ],
+   "hoeheMedian": 18.6,
+   "hoeheMax": 22.1,
+   "bebaut": 691,
+   "frei": 753,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 4,
+   "x": -250,
+   "z": -50,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    26.8,
+    35.8,
+    25.3,
+    27.1,
+    21.6,
+    16,
+    26.8
+   ],
+   "hoeheMedian": 26.8,
+   "hoeheMax": 35.8,
+   "bebaut": 729,
+   "frei": 715,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 5,
+   "x": -250,
+   "z": 0,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    36.1,
+    32.1,
+    47.6,
+    29.3,
+    41.9,
+    64.1
+   ],
+   "hoeheMedian": 39,
+   "hoeheMax": 64.1,
+   "bebaut": 682,
+   "frei": 762,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 6,
+   "x": -250,
+   "z": 50,
+   "kern": false,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 2,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 7,
+   "x": -250,
+   "z": 100,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    22,
+    19,
+    19.8,
+    15,
+    14.3,
+    14.7,
+    16.1,
+    18.1
+   ],
+   "hoeheMedian": 17.1,
+   "hoeheMax": 22,
+   "bebaut": 728,
+   "frei": 716,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 0,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 8,
+   "x": -250,
+   "z": 150,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    18.3,
+    13.4,
+    16.6,
+    11.8,
+    12.3,
+    19.3,
+    15.5,
+    15.7
+   ],
+   "hoeheMedian": 15.6,
+   "hoeheMax": 19.3,
+   "bebaut": 692,
+   "frei": 752,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 9,
+   "x": -250,
+   "z": 200,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    14.1,
+    12.2,
+    22.3,
+    20.5,
+    19.5,
+    9.8,
+    14.5
+   ],
+   "hoeheMedian": 14.5,
+   "hoeheMax": 22.3,
+   "bebaut": 716,
+   "frei": 728,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 1,
+   "bj": 10,
+   "x": -250,
+   "z": 250,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    15.5,
+    14.3,
+    18.2,
+    18.8,
+    14.7,
+    15.5,
+    18.9,
+    17.3
+   ],
+   "hoeheMedian": 16.4,
+   "hoeheMax": 18.9,
+   "bebaut": 732,
+   "frei": 712,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 442,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 0,
+   "x": -200,
+   "z": -250,
+   "kern": false,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 3,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 1,
+   "x": -200,
+   "z": -200,
+   "kern": false,
+   "haeuser": 9,
+   "hoehen": [
+    18,
+    13.9,
+    17.9,
+    18.7,
+    16.8,
+    17.5,
+    21.7,
+    14.9,
+    14.9
+   ],
+   "hoeheMedian": 17.5,
+   "hoeheMax": 21.7,
+   "bebaut": 754,
+   "frei": 690,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 4
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 2,
+   "x": -200,
+   "z": -150,
+   "kern": false,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "PARK",
+   "park": true,
+   "wasserAbstand": 392,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 3,
+   "x": -200,
+   "z": -100,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    20,
+    29.6,
+    33.7,
+    21.9,
+    18.1,
+    23.1,
+    43.5,
+    21.5
+   ],
+   "hoeheMedian": 22.5,
+   "hoeheMax": 43.5,
+   "bebaut": 721,
+   "frei": 723,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 4,
+   "x": -200,
+   "z": -50,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    21.3,
+    26.8,
+    29.3,
+    35.3,
+    21.2,
+    20.9,
+    22.4
+   ],
+   "hoeheMedian": 22.4,
+   "hoeheMax": 35.3,
+   "bebaut": 707,
+   "frei": 737,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 5,
+   "x": -200,
+   "z": 0,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    23.6,
+    32.5,
+    20.6,
+    35.8,
+    29.5,
+    35,
+    19.1,
+    23.7
+   ],
+   "hoeheMedian": 26.6,
+   "hoeheMax": 35.8,
+   "bebaut": 684,
+   "frei": 760,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 6,
+   "x": -200,
+   "z": 50,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    23.8,
+    29.1,
+    32.5,
+    14.4,
+    21.3,
+    20.3,
+    23.6
+   ],
+   "hoeheMedian": 23.6,
+   "hoeheMax": 32.5,
+   "bebaut": 705,
+   "frei": 739,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 9.9,
+     "anteil": 26,
+     "haeuser": 1
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 7,
+   "x": -200,
+   "z": 100,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    21.9,
+    16.9,
+    34.7,
+    22,
+    17.3,
+    20.3,
+    20.9,
+    20.1
+   ],
+   "hoeheMedian": 20.6,
+   "hoeheMax": 34.7,
+   "bebaut": 732,
+   "frei": 712,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 8,
+   "x": -200,
+   "z": 150,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    21.4,
+    17.4,
+    14.2,
+    13,
+    13.7,
+    16.5,
+    13,
+    14.8
+   ],
+   "hoeheMedian": 14.5,
+   "hoeheMax": 21.4,
+   "bebaut": 722,
+   "frei": 722,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 9,
+   "x": -200,
+   "z": 200,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    20.2,
+    19.5,
+    19.3,
+    18.6,
+    12.5,
+    12.3,
+    17.4
+   ],
+   "hoeheMedian": 18.6,
+   "hoeheMax": 20.2,
+   "bebaut": 728,
+   "frei": 716,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 2,
+   "bj": 10,
+   "x": -200,
+   "z": 250,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    18.4,
+    10,
+    17.7,
+    18.3,
+    17.4,
+    17.7,
+    17.6,
+    11.2
+   ],
+   "hoeheMedian": 17.6,
+   "hoeheMax": 18.4,
+   "bebaut": 719,
+   "frei": 725,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 392,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 6,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 0,
+   "x": -150,
+   "z": -250,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    27.9,
+    26.9,
+    26.8,
+    26.6,
+    29.6,
+    32.2,
+    20.1
+   ],
+   "hoeheMedian": 26.9,
+   "hoeheMax": 32.2,
+   "bebaut": 739,
+   "frei": 705,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 18.5,
+     "anteil": 49,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 1,
+   "x": -150,
+   "z": -200,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    23,
+    24.4,
+    23.3,
+    29.8,
+    33,
+    17.7,
+    27.4
+   ],
+   "hoeheMedian": 24.4,
+   "hoeheMax": 33,
+   "bebaut": 700,
+   "frei": 744,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 2,
+   "x": -150,
+   "z": -150,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    34.6,
+    24.3,
+    37.7,
+    22.9,
+    42.2,
+    30.3
+   ],
+   "hoeheMedian": 32.4,
+   "hoeheMax": 42.2,
+   "bebaut": 692,
+   "frei": 752,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 20.3,
+     "anteil": 53,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 3,
+   "x": -150,
+   "z": -100,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    18.2,
+    25.3,
+    30.9
+   ],
+   "hoeheMedian": 25.3,
+   "hoeheMax": 30.9,
+   "bebaut": 237,
+   "frei": 1207,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 10.6,
+     "anteil": 28,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 10.3,
+     "anteil": 27,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 4,
+   "x": -150,
+   "z": -50,
+   "kern": true,
+   "haeuser": 7,
+   "hoehen": [
+    33.6,
+    28.1,
+    33.9,
+    25.6,
+    29.3,
+    22.5,
+    27.2
+   ],
+   "hoeheMedian": 28.1,
+   "hoeheMax": 33.9,
+   "bebaut": 704,
+   "frei": 740,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 8.9,
+     "anteil": 23,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 5,
+   "x": -150,
+   "z": 0,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    28.9,
+    41.1,
+    45.6
+   ],
+   "hoeheMedian": 41.1,
+   "hoeheMax": 45.6,
+   "bebaut": 247,
+   "frei": 1197,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 11.1,
+     "anteil": 29,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 11.9,
+     "anteil": 31,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 2,
+   "ubahn": 1
+  },
+  {
+   "bi": 3,
+   "bj": 6,
+   "x": -150,
+   "z": 50,
+   "kern": true,
+   "haeuser": 7,
+   "hoehen": [
+    32.8,
+    23.1,
+    40,
+    32.7,
+    39.3,
+    23.4,
+    23.9
+   ],
+   "hoeheMedian": 32.7,
+   "hoeheMax": 40,
+   "bebaut": 658,
+   "frei": 786,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 18.4,
+     "anteil": 48,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 2,
+   "ubahn": 1
+  },
+  {
+   "bi": 3,
+   "bj": 7,
+   "x": -150,
+   "z": 100,
+   "kern": true,
+   "haeuser": 4,
+   "hoehen": [
+    32.3,
+    30.1,
+    28.2,
+    40.8
+   ],
+   "hoeheMedian": 31.2,
+   "hoeheMax": 40.8,
+   "bebaut": 318,
+   "frei": 1126,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 16.8,
+     "anteil": 44,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 18.9,
+     "anteil": 50,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 17.9,
+     "anteil": 47,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 17.7,
+     "anteil": 47,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 8,
+   "x": -150,
+   "z": 150,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    40.3,
+    29.7,
+    29.8,
+    27.1,
+    19.5,
+    39
+   ],
+   "hoeheMedian": 29.7,
+   "hoeheMax": 40.3,
+   "bebaut": 698,
+   "frei": 746,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 20.1,
+     "anteil": 53,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 9,
+   "x": -150,
+   "z": 200,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    38.6,
+    19,
+    18.7,
+    23.5,
+    28.5,
+    41.3
+   ],
+   "hoeheMedian": 26,
+   "hoeheMax": 41.3,
+   "bebaut": 688,
+   "frei": 756,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 3,
+   "bj": 10,
+   "x": -150,
+   "z": 250,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    32.8,
+    36.6,
+    26.7,
+    18.8,
+    32.7,
+    33.1,
+    15.7
+   ],
+   "hoeheMedian": 32.7,
+   "hoeheMax": 36.6,
+   "bebaut": 748,
+   "frei": 696,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 18.9,
+     "anteil": 50,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 342,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 4,
+   "bj": 0,
+   "x": -100,
+   "z": -250,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    21.6,
+    20.1,
+    21.2,
+    29.4,
+    24,
+    30.5,
+    31.8
+   ],
+   "hoeheMedian": 24,
+   "hoeheMax": 31.8,
+   "bebaut": 712,
+   "frei": 732,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 4,
+   "bj": 1,
+   "x": -100,
+   "z": -200,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    35.5,
+    31.6,
+    25.7,
+    45.8,
+    16.5,
+    25.7
+   ],
+   "hoeheMedian": 28.7,
+   "hoeheMax": 45.8,
+   "bebaut": 730,
+   "frei": 714,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 4,
+   "bj": 2,
+   "x": -100,
+   "z": -150,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    30.1,
+    21,
+    27.8
+   ],
+   "hoeheMedian": 27.8,
+   "hoeheMax": 30.1,
+   "bebaut": 251,
+   "frei": 1193,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 11.1,
+     "anteil": 29,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 9.4,
+     "anteil": 25,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 4,
+   "bj": 3,
+   "x": -100,
+   "z": -100,
+   "kern": true,
+   "haeuser": 4,
+   "hoehen": [
+    21.8,
+    24.9,
+    36.6,
+    23.1
+   ],
+   "hoeheMedian": 24,
+   "hoeheMax": 36.6,
+   "bebaut": 410,
+   "frei": 1034,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 17.6,
+     "anteil": 46,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 17.6,
+     "anteil": 46,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 1,
+   "ubahn": 1
+  },
+  {
+   "bi": 4,
+   "bj": 4,
+   "x": -100,
+   "z": -50,
+   "kern": true,
+   "haeuser": 2,
+   "hoehen": [
+    54.7,
+    36.6
+   ],
+   "hoeheMedian": 45.7,
+   "hoeheMax": 54.7,
+   "bebaut": 185,
+   "frei": 1259,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 17.9,
+     "anteil": 47,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 10.4,
+     "anteil": 27,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 10.4,
+     "anteil": 27,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 2,
+   "ubahn": 1
+  },
+  {
+   "bi": 4,
+   "bj": 5,
+   "x": -100,
+   "z": 0,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    74.6,
+    90.4,
+    48.9,
+    33.4,
+    27.3,
+    46.7
+   ],
+   "hoeheMedian": 47.8,
+   "hoeheMax": 90.4,
+   "bebaut": 688,
+   "frei": 756,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 2,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 4,
+   "bj": 6,
+   "x": -100,
+   "z": 50,
+   "kern": true,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 0,
+   "tueren": 3,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 4,
+   "bj": 7,
+   "x": -100,
+   "z": 100,
+   "kern": true,
+   "haeuser": 4,
+   "hoehen": [
+    18.2,
+    23.6,
+    19.6,
+    36.5
+   ],
+   "hoeheMedian": 21.6,
+   "hoeheMax": 36.5,
+   "bebaut": 425,
+   "frei": 1019,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 19.3,
+     "anteil": 51,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 19.3,
+     "anteil": 51,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 1,
+   "ubahn": 1
+  },
+  {
+   "bi": 4,
+   "bj": 8,
+   "x": -100,
+   "z": 150,
+   "kern": true,
+   "haeuser": 1,
+   "hoehen": [
+    36.6
+   ],
+   "hoeheMedian": 36.6,
+   "hoeheMax": 36.6,
+   "bebaut": 89,
+   "frei": 1355,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 8.3,
+     "anteil": 22,
+     "haeuser": 1
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 10.6,
+     "anteil": 28,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 4,
+   "ubahn": 1
+  },
+  {
+   "bi": 4,
+   "bj": 9,
+   "x": -100,
+   "z": 200,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    39.7,
+    29,
+    38.6,
+    21.3,
+    26.8,
+    26.6
+   ],
+   "hoeheMedian": 27.9,
+   "hoeheMax": 39.7,
+   "bebaut": 687,
+   "frei": 757,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "GESCHAEFT",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 0,
+   "ubahn": 0
+  },
+  {
+   "bi": 4,
+   "bj": 10,
+   "x": -100,
+   "z": 250,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    46.9,
+    28.3,
+    17.4,
+    33.7,
+    21.5,
+    17.8,
+    20,
+    19.6
+   ],
+   "hoeheMedian": 20.8,
+   "hoeheMax": 46.9,
+   "bebaut": 740,
+   "frei": 704,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 292,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 0,
+   "x": -50,
+   "z": -250,
+   "kern": false,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 0,
+   "tueren": 3,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 1,
+   "x": -50,
+   "z": -200,
+   "kern": false,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "KEIN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "PARK",
+   "park": true,
+   "wasserAbstand": 242,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 2,
+   "x": -50,
+   "z": -150,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    41.5,
+    30.6,
+    26.9,
+    17.6,
+    28.4,
+    26.8
+   ],
+   "hoeheMedian": 27.7,
+   "hoeheMax": 41.5,
+   "bebaut": 724,
+   "frei": 720,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 0,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 3,
+   "x": -50,
+   "z": -100,
+   "kern": true,
+   "haeuser": 1,
+   "hoehen": [
+    80.9
+   ],
+   "hoeheMedian": 80.9,
+   "hoeheMax": 80.9,
+   "bebaut": 621,
+   "frei": 823,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 24.5,
+     "anteil": 64,
+     "haeuser": 1
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 4,
+   "x": -50,
+   "z": -50,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    93.8,
+    52.5,
+    52.8,
+    50.8,
+    42.3,
+    72.3
+   ],
+   "hoeheMedian": 52.6,
+   "hoeheMax": 93.8,
+   "bebaut": 738,
+   "frei": 706,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 2,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 0,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 5,
+   "x": -50,
+   "z": 0,
+   "kern": true,
+   "haeuser": 2,
+   "hoehen": [
+    48.7,
+    41.8
+   ],
+   "hoeheMedian": 45.3,
+   "hoeheMax": 48.7,
+   "bebaut": 208,
+   "frei": 1236,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 20.6,
+     "anteil": 54,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 10.2,
+     "anteil": 27,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 10,
+     "anteil": 26,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 3,
+   "ubahn": 1
+  },
+  {
+   "bi": 5,
+   "bj": 6,
+   "x": -50,
+   "z": 50,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    30.5,
+    47.4,
+    72.4,
+    91.5,
+    42.7,
+    30.4
+   ],
+   "hoeheMedian": 45,
+   "hoeheMax": 91.5,
+   "bebaut": 710,
+   "frei": 734,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 2,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 4,
+   "ubahn": 1
+  },
+  {
+   "bi": 5,
+   "bj": 7,
+   "x": -50,
+   "z": 100,
+   "kern": true,
+   "haeuser": 1,
+   "hoehen": [
+    79.7
+   ],
+   "hoeheMedian": 79.7,
+   "hoeheMax": 79.7,
+   "bebaut": 444,
+   "frei": 1000,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 18.2,
+     "anteil": 48,
+     "haeuser": 1
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 8,
+   "x": -50,
+   "z": 150,
+   "kern": true,
+   "haeuser": 7,
+   "hoehen": [
+    33.4,
+    14.1,
+    20,
+    31.2,
+    20.6,
+    28.8,
+    31
+   ],
+   "hoeheMedian": 28.8,
+   "hoeheMax": 33.4,
+   "bebaut": 707,
+   "frei": 737,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 9,
+   "x": -50,
+   "z": 200,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    27.2,
+    25.4,
+    33.9,
+    28,
+    20.5,
+    47
+   ],
+   "hoeheMedian": 27.6,
+   "hoeheMax": 47,
+   "bebaut": 729,
+   "frei": 715,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 5,
+   "bj": 10,
+   "x": -50,
+   "z": 250,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    22.1,
+    22.4,
+    28.2,
+    29.8,
+    31.6,
+    17.2,
+    28.1,
+    23
+   ],
+   "hoeheMedian": 25.6,
+   "hoeheMax": 31.6,
+   "bebaut": 740,
+   "frei": 704,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 242,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 6,
+   "bj": 0,
+   "x": 0,
+   "z": -250,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    19.4,
+    17.8,
+    30.9,
+    17.3,
+    20.4,
+    32.4,
+    24.6
+   ],
+   "hoeheMedian": 20.4,
+   "hoeheMax": 32.4,
+   "bebaut": 716,
+   "frei": 728,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 6,
+   "bj": 1,
+   "x": 0,
+   "z": -200,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    23.4,
+    21.5,
+    37.4,
+    19.6,
+    31.8,
+    33.2,
+    25.5,
+    30.1
+   ],
+   "hoeheMedian": 27.8,
+   "hoeheMax": 37.4,
+   "bebaut": 726,
+   "frei": 718,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 6,
+   "bj": 2,
+   "x": 0,
+   "z": -150,
+   "kern": true,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 0,
+   "tueren": 4,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 6,
+   "bj": 3,
+   "x": 0,
+   "z": -100,
+   "kern": true,
+   "haeuser": 2,
+   "hoehen": [
+    27.2,
+    33.4
+   ],
+   "hoeheMedian": 30.3,
+   "hoeheMax": 33.4,
+   "bebaut": 288,
+   "frei": 1156,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 10.3,
+     "anteil": 27,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 10.3,
+     "anteil": 27,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 1,
+   "ubahn": 1
+  },
+  {
+   "bi": 6,
+   "bj": 4,
+   "x": 0,
+   "z": -50,
+   "kern": true,
+   "haeuser": 1,
+   "hoehen": [
+    71.9
+   ],
+   "hoeheMedian": 71.9,
+   "hoeheMax": 71.9,
+   "bebaut": 569,
+   "frei": 875,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 23.1,
+     "anteil": 61,
+     "haeuser": 1
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 0,
+   "ubahn": 1
+  },
+  {
+   "bi": 6,
+   "bj": 5,
+   "x": 0,
+   "z": 0,
+   "kern": true,
+   "haeuser": 0,
+   "hoehen": [],
+   "hoeheMedian": 0,
+   "hoeheMax": 0,
+   "bebaut": 0,
+   "frei": 1444,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 0,
+   "tueren": 2,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 6,
+   "bj": 6,
+   "x": 0,
+   "z": 50,
+   "kern": true,
+   "haeuser": 1,
+   "hoehen": [
+    69.8
+   ],
+   "hoeheMedian": 69.8,
+   "hoeheMax": 69.8,
+   "bebaut": 332,
+   "frei": 1112,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 6,
+   "bj": 7,
+   "x": 0,
+   "z": 100,
+   "kern": true,
+   "haeuser": 4,
+   "hoehen": [
+    57.9,
+    25.8,
+    25.8,
+    94.8
+   ],
+   "hoeheMedian": 41.9,
+   "hoeheMax": 94.8,
+   "bebaut": 468,
+   "frei": 976,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 19.1,
+     "anteil": 50,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 19.1,
+     "anteil": 50,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 3,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 3,
+   "ubahn": 1
+  },
+  {
+   "bi": 6,
+   "bj": 8,
+   "x": 0,
+   "z": 150,
+   "kern": true,
+   "haeuser": 2,
+   "hoehen": [
+    42.6,
+    50
+   ],
+   "hoeheMedian": 46.3,
+   "hoeheMax": 50,
+   "bebaut": 164,
+   "frei": 1280,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 16.4,
+     "anteil": 43,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 10.9,
+     "anteil": 29,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 9,
+     "anteil": 24,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 1,
+   "ubahn": 1
+  },
+  {
+   "bi": 6,
+   "bj": 9,
+   "x": 0,
+   "z": 200,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    25.8,
+    28,
+    32.8,
+    24.6,
+    33.4,
+    14.8,
+    22.3
+   ],
+   "hoeheMedian": 25.8,
+   "hoeheMax": 33.4,
+   "bebaut": 701,
+   "frei": 743,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 6,
+   "bj": 10,
+   "x": 0,
+   "z": 250,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    21.9,
+    35.3,
+    24.4,
+    33.2,
+    22.2,
+    21.3,
+    23.4
+   ],
+   "hoeheMedian": 23.4,
+   "hoeheMax": 35.3,
+   "bebaut": 717,
+   "frei": 727,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 192,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 0,
+   "x": 50,
+   "z": -250,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    30.1,
+    27.5,
+    25.2,
+    20.7,
+    17.7,
+    13.9
+   ],
+   "hoeheMedian": 23,
+   "hoeheMax": 30.1,
+   "bebaut": 732,
+   "frei": 712,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 5,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 1,
+   "x": 50,
+   "z": -200,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    35.3,
+    25.9,
+    29.3,
+    23.4,
+    22.5,
+    17.6,
+    27.2,
+    16.8
+   ],
+   "hoeheMedian": 24.7,
+   "hoeheMax": 35.3,
+   "bebaut": 720,
+   "frei": 724,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 2,
+   "x": 50,
+   "z": -150,
+   "kern": true,
+   "haeuser": 7,
+   "hoehen": [
+    22.5,
+    23.1,
+    31.7,
+    17.3,
+    19.6,
+    27.3,
+    23.8
+   ],
+   "hoeheMedian": 23.1,
+   "hoeheMax": 31.7,
+   "bebaut": 719,
+   "frei": 725,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 3,
+   "x": 50,
+   "z": -100,
+   "kern": true,
+   "haeuser": 4,
+   "hoehen": [
+    33.9,
+    28.4,
+    42.5,
+    41.1
+   ],
+   "hoeheMedian": 37.5,
+   "hoeheMax": 42.5,
+   "bebaut": 398,
+   "frei": 1046,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 19,
+     "anteil": 50,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 21.1,
+     "anteil": 55,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 18.1,
+     "anteil": 48,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 21.7,
+     "anteil": 57,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 4,
+   "x": 50,
+   "z": -50,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    40.2,
+    53.9,
+    80.3,
+    70.3,
+    37,
+    20.8
+   ],
+   "hoeheMedian": 47.1,
+   "hoeheMax": 80.3,
+   "bebaut": 743,
+   "frei": 701,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 2,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 5,
+   "x": 50,
+   "z": 0,
+   "kern": true,
+   "haeuser": 1,
+   "hoehen": [
+    72.4
+   ],
+   "hoeheMedian": 72.4,
+   "hoeheMax": 72.4,
+   "bebaut": 517,
+   "frei": 927,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 19.6,
+     "anteil": 52,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 2,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 3,
+   "ubahn": 1
+  },
+  {
+   "bi": 7,
+   "bj": 6,
+   "x": 50,
+   "z": 50,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    44.8,
+    58.3,
+    49.3,
+    40.8,
+    37,
+    42
+   ],
+   "hoeheMedian": 43.4,
+   "hoeheMax": 58.3,
+   "bebaut": 680,
+   "frei": 764,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 2,
+   "ubahn": 1
+  },
+  {
+   "bi": 7,
+   "bj": 7,
+   "x": 50,
+   "z": 100,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    32.8,
+    22.3,
+    27.9
+   ],
+   "hoeheMedian": 27.9,
+   "hoeheMax": 32.8,
+   "bebaut": 235,
+   "frei": 1209,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 9,
+     "anteil": 24,
+     "haeuser": 1
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 10.1,
+     "anteil": 27,
+     "haeuser": 1
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 1,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 8,
+   "x": 50,
+   "z": 150,
+   "kern": true,
+   "haeuser": 7,
+   "hoehen": [
+    30.2,
+    29.6,
+    22.1,
+    21,
+    32.8,
+    20.5,
+    24.7
+   ],
+   "hoeheMedian": 24.7,
+   "hoeheMax": 32.8,
+   "bebaut": 693,
+   "frei": 751,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 9,
+   "x": 50,
+   "z": 200,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    23.8,
+    34.9,
+    31.2,
+    20.2,
+    35.6,
+    25.9
+   ],
+   "hoeheMedian": 28.5,
+   "hoeheMax": 35.6,
+   "bebaut": 709,
+   "frei": 735,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 7,
+   "bj": 10,
+   "x": 50,
+   "z": 250,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    28.4,
+    27.3,
+    23.7,
+    22.9,
+    19.2,
+    24.5,
+    16.3
+   ],
+   "hoeheMedian": 23.7,
+   "hoeheMax": 28.4,
+   "bebaut": 750,
+   "frei": 694,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 142,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 8,
+   "bj": 0,
+   "x": 100,
+   "z": -250,
+   "kern": false,
+   "haeuser": 8,
+   "hoehen": [
+    20,
+    12.6,
+    14.9,
+    12.6,
+    19.9,
+    12.8,
+    17.9,
+    11.4
+   ],
+   "hoeheMedian": 13.9,
+   "hoeheMax": 20,
+   "bebaut": 708,
+   "frei": 736,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 8,
+   "bj": 1,
+   "x": 100,
+   "z": -200,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    40,
+    19.7,
+    23.2,
+    23.5,
+    28.5,
+    30.8,
+    30.2
+   ],
+   "hoeheMedian": 28.5,
+   "hoeheMax": 40,
+   "bebaut": 741,
+   "frei": 703,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 8,
+   "bj": 2,
+   "x": 100,
+   "z": -150,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    16.4,
+    25.8,
+    32.2
+   ],
+   "hoeheMedian": 25.8,
+   "hoeheMax": 32.2,
+   "bebaut": 243,
+   "frei": 1201,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 9.3,
+     "anteil": 24,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 11.1,
+     "anteil": 29,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 8,
+   "bj": 3,
+   "x": 100,
+   "z": -100,
+   "kern": true,
+   "haeuser": 5,
+   "hoehen": [
+    31.2,
+    25.8,
+    17.5,
+    30.9,
+    30.5
+   ],
+   "hoeheMedian": 30.5,
+   "hoeheMax": 31.2,
+   "bebaut": 403,
+   "frei": 1041,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 17.2,
+     "anteil": 45,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 17.2,
+     "anteil": 45,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 3,
+   "ubahn": 1
+  },
+  {
+   "bi": 8,
+   "bj": 4,
+   "x": 100,
+   "z": -50,
+   "kern": true,
+   "haeuser": 2,
+   "hoehen": [
+    43,
+    27.7
+   ],
+   "hoeheMedian": 35.4,
+   "hoeheMax": 43,
+   "bebaut": 191,
+   "frei": 1253,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 19.7,
+     "anteil": 52,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 9.8,
+     "anteil": 26,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 9.5,
+     "anteil": 25,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 1,
+   "ubahn": 1
+  },
+  {
+   "bi": 8,
+   "bj": 5,
+   "x": 100,
+   "z": 0,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    44.8,
+    31.6,
+    36.3,
+    87.8,
+    68.5,
+    49.8
+   ],
+   "hoeheMedian": 47.3,
+   "hoeheMax": 87.8,
+   "bebaut": 700,
+   "frei": 744,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 2,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 8,
+   "bj": 6,
+   "x": 100,
+   "z": 50,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    32.9,
+    40.4,
+    28.5
+   ],
+   "hoeheMedian": 32.9,
+   "hoeheMax": 40.4,
+   "bebaut": 217,
+   "frei": 1227,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 9.6,
+     "anteil": 25,
+     "haeuser": 1
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 11,
+     "anteil": 29,
+     "haeuser": 1
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "BUERO",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "ZENTRUM",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 8,
+   "bj": 7,
+   "x": 100,
+   "z": 100,
+   "kern": true,
+   "haeuser": 4,
+   "hoehen": [
+    30.3,
+    33.1,
+    21.2,
+    20.2
+   ],
+   "hoeheMedian": 25.7,
+   "hoeheMax": 33.1,
+   "bebaut": 454,
+   "frei": 990,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 19.7,
+     "anteil": 52,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 19.7,
+     "anteil": 52,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 0,
+   "ubahn": 1
+  },
+  {
+   "bi": 8,
+   "bj": 8,
+   "x": 100,
+   "z": 150,
+   "kern": true,
+   "haeuser": 2,
+   "hoehen": [
+    32.5,
+    20.7
+   ],
+   "hoeheMedian": 26.6,
+   "hoeheMax": 32.5,
+   "bebaut": 148,
+   "frei": 1296,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 17.5,
+     "anteil": 46,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 8.4,
+     "anteil": 22,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 8.4,
+     "anteil": 22,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 2,
+   "ubahn": 1
+  },
+  {
+   "bi": 8,
+   "bj": 9,
+   "x": 100,
+   "z": 200,
+   "kern": false,
+   "haeuser": 7,
+   "hoehen": [
+    35.6,
+    25.2,
+    35.6,
+    21,
+    18.9,
+    24.1,
+    20.1
+   ],
+   "hoeheMedian": 24.1,
+   "hoeheMax": 35.6,
+   "bebaut": 703,
+   "frei": 741,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "GEMISCHT",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "MISCHUNG",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 8,
+   "bj": 10,
+   "x": 100,
+   "z": 250,
+   "kern": false,
+   "haeuser": 9,
+   "hoehen": [
+    17.4,
+    17.7,
+    13.2,
+    15.5,
+    18.6,
+    14.8,
+    21.1,
+    19,
+    13.4
+   ],
+   "hoeheMedian": 17.4,
+   "hoeheMax": 21.1,
+   "bebaut": 737,
+   "frei": 707,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 4
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "WOHN",
+   "park": false,
+   "wasserAbstand": 92,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 6,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 0,
+   "x": 150,
+   "z": -250,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    19.9,
+    30,
+    22.2,
+    23.8,
+    23.6,
+    55
+   ],
+   "hoeheMedian": 23.7,
+   "hoeheMax": 55,
+   "bebaut": 732,
+   "frei": 712,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 6,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 1,
+   "x": 150,
+   "z": -200,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    25.4,
+    29.1,
+    47.8,
+    33,
+    19.1,
+    26.5
+   ],
+   "hoeheMedian": 27.8,
+   "hoeheMax": 47.8,
+   "bebaut": 716,
+   "frei": 728,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 2,
+   "x": 150,
+   "z": -150,
+   "kern": true,
+   "haeuser": 4,
+   "hoehen": [
+    20,
+    15.8,
+    17.7,
+    25.2
+   ],
+   "hoeheMedian": 18.8,
+   "hoeheMax": 25.2,
+   "bebaut": 609,
+   "frei": 835,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 21.1,
+     "anteil": 56,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 21.1,
+     "anteil": 56,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 2,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 3,
+   "x": 150,
+   "z": -100,
+   "kern": true,
+   "haeuser": 1,
+   "hoehen": [
+    59.4
+   ],
+   "hoeheMedian": 59.4,
+   "hoeheMax": 59.4,
+   "bebaut": 549,
+   "frei": 895,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 23,
+     "anteil": 60,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 4,
+   "x": 150,
+   "z": -50,
+   "kern": true,
+   "haeuser": 7,
+   "hoehen": [
+    45.8,
+    25.6,
+    30.1,
+    29.6,
+    17.9,
+    51.6,
+    57.5
+   ],
+   "hoeheMedian": 30.1,
+   "hoeheMax": 57.5,
+   "bebaut": 747,
+   "frei": 697,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 5,
+   "x": 150,
+   "z": 0,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    35.6,
+    31.6,
+    26.5
+   ],
+   "hoeheMedian": 31.6,
+   "hoeheMax": 35.6,
+   "bebaut": 233,
+   "frei": 1211,
+   "kanten": {
+    "N": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 11.9,
+     "anteil": 31,
+     "haeuser": 1
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 11,
+     "anteil": 29,
+     "haeuser": 1
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 1,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 2,
+   "ubahn": 1
+  },
+  {
+   "bi": 9,
+   "bj": 6,
+   "x": 150,
+   "z": 50,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    48.7,
+    28.2,
+    20,
+    20.9,
+    32.4,
+    14.4
+   ],
+   "hoeheMedian": 24.5,
+   "hoeheMax": 48.7,
+   "bebaut": 694,
+   "frei": 750,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "BOULEVARD",
+     "nutzung": "LADEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 27.4,
+     "anteil": 72,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 1,
+   "parkautos": 1,
+   "ubahn": 1
+  },
+  {
+   "bi": 9,
+   "bj": 7,
+   "x": 150,
+   "z": 100,
+   "kern": true,
+   "haeuser": 3,
+   "hoehen": [
+    16.8,
+    19.6,
+    36.2
+   ],
+   "hoeheMedian": 19.6,
+   "hoeheMax": 36.2,
+   "bebaut": 236,
+   "frei": 1208,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 9.4,
+     "anteil": 25,
+     "haeuser": 1
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 10.7,
+     "anteil": 28,
+     "haeuser": 1
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 0,
+     "anteil": 0,
+     "haeuser": 0
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 8,
+   "x": 150,
+   "z": 150,
+   "kern": true,
+   "haeuser": 6,
+   "hoehen": [
+    23.1,
+    17.8,
+    31.6,
+    18.5,
+    23.1,
+    22.3
+   ],
+   "hoeheMedian": 22.7,
+   "hoeheMax": 31.6,
+   "bebaut": 726,
+   "frei": 718,
+   "kanten": {
+    "N": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 4,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 9,
+   "x": 150,
+   "z": 200,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    28.5,
+    25.6,
+    20.1,
+    17.6,
+    17.9,
+    16.1
+   ],
+   "hoeheMedian": 19,
+   "hoeheMax": 28.5,
+   "bebaut": 717,
+   "frei": 727,
+   "kanten": {
+    "N": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "S": {
+     "klasse": "AVENUE",
+     "nutzung": "LADEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 3
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28,
+     "anteil": 74,
+     "haeuser": 2
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 3,
+   "ubahn": 0
+  },
+  {
+   "bi": 9,
+   "bj": 10,
+   "x": 150,
+   "z": 250,
+   "kern": false,
+   "haeuser": 6,
+   "hoehen": [
+    21.9,
+    26.5,
+    23.3,
+    30.5,
+    15,
+    15.5
+   ],
+   "hoeheMedian": 22.6,
+   "hoeheMax": 30.5,
+   "bebaut": 749,
+   "frei": 695,
+   "kanten": {
+    "N": {
+     "klasse": "LOCAL",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "S": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 28.8,
+     "anteil": 76,
+     "haeuser": 2
+    },
+    "O": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    },
+    "W": {
+     "klasse": "STREET",
+     "nutzung": "WOHNEN",
+     "belegt": 29.4,
+     "anteil": 77,
+     "haeuser": 3
+    }
+   },
+   "bezirk": "UFER",
+   "park": false,
+   "wasserAbstand": 42,
+   "pois": 0,
+   "tueren": 0,
+   "aufzuege": 0,
+   "parkautos": 7,
+   "ubahn": 0
+  }
+ ]
+}
