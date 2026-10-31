@@ -17836,6 +17836,78 @@ function hautZiel(c, nx, nz, y, t, voraus) {
                       t - HAUT_SEIT, t + HAUT_SEIT);
   return w > HAUT_MAX ? -1 : w;
 }
+/* ---- Der ganze Koerper haengt an der Haut, nicht nur der Griff ----
+   problem-2, Ueberhaenge (ModernOffice_1, Brutal_1). Der Fussabdruck oben
+   (y-0,3 bis y+0,8 um player.pos) beschreibt den AUFRECHTEN Koerper.
+   Beim Klettern hinunter und seitwaerts zeigt wandKriechen die Figur aber
+   um die Wandnormale gerollt, Drehpunkt rund 1 m ueber player.pos:
+   gemessen liegt der Rumpf hinunter (kopfueber) 1,4 bis 2,3 m und
+   seitwaerts (quer) bis 1,1 m ueber player.pos - ueber dem Fussabdruck.
+   Unter einem Ueberhang gab die Haut deshalb die Tiefe des
+   zurueckgesetzten Erdgeschosses vor, waehrend Kopf, Schultern und Rumpf
+   noch auf Hoehe der Platte hingen: bis 0,36 m in ihr (gemessen,
+   tools/pruef/ueberhang-klettern.js, auch auf dem regulaeren Spielweg).
+   Hier die vorderste sichtbare Flaeche vor dem Teil der GEZEIGTEN Figur,
+   der ueber dem Fussabdruck liegt (Knochenrahmen koerperRahmen wie
+   frueher fuer die Leuchttafeln, plus Fleisch und Scheitel), in der
+   ganzen Breite der Figur; -1, wenn dort nichts liegt oder nichts zu
+   pruefen ist. Aufrecht liegt der Rumpf im Fussabdruck, darueber reichen
+   hoechstens die Haende. Nur Feldzugriffe, kein Strahl.
+
+   Die Figur liegt dabei in der Ebene IHRER Normale (player.hautN, nach
+   ihr dreht sich player.facing): ein Koerperteil l laengs neben
+   player.pos liegt um l * hautNt / hautNo tiefer. An der Fase von
+   ModernOffice_1 haengt sie so schraeg an der Fase, die Huefte 1,2 m vor
+   player.pos (gemessen). Ohne diese Neigung hielt das gerade Wandstueck
+   hinter dem Koerper die ganze Figur 0,7 bis 1,2 m vor der Fase fest -
+   an keinem Koerperteil lag mehr etwas Sichtbares in 0,6 m. */
+const KOERPER_HAUT_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KOERPERHAUT_ALT;
+const HAUT_KOERPER_RAND = 0.15;
+const _hautKR = { l0: 0, l1: 0, y0: 0, y1: 0 };
+function hautKoerper(c, w, t) {
+  if (!heroVisual || !heroVisual.koerperRahmen ||
+      !heroVisual.koerperRahmen(w.nx, player.pos.x, player.pos.y, player.pos.z, _hautKR)) return -1;
+  const ya = player.pos.y + Math.max(_hautKR.y0 - HAUT_KOERPER_RAND, HAUT_OBEN);
+  const yb = Math.min(player.pos.y + _hautKR.y1 + HAUT_KOERPER_RAND, c.h);
+  if (yb <= ya) return -1;
+  const scher = (player.hautNt || 0) / Math.max(HAUT_NO_MIN, player.hautNo || 1);
+  return hautScherMin(c, w.nx, w.nz, ya, yb, t + _hautKR.l0 - HAUT_KOERPER_RAND,
+                      t + _hautKR.l1 + HAUT_KOERPER_RAND, t, scher);
+}
+/* Vorderste Flaeche unter einem Rechteck der Schauseite (ya..yb hoch,
+   ta..tb laengs), gemessen fuer eine Ebene mit der Neigung scher (Tiefe
+   je Meter laengs, wie in hautFlaecheModell) durch die Stelle t: so tief
+   darf eine so geneigte Figur an t hoechstens liegen, ohne dass im
+   Rechteck etwas Sichtbares vor ihr liegt. -1, wenn im Rechteck nichts
+   liegt; ausserhalb der Karte gelten die Randzellen. */
+function hautScherMin(c, nx, nz, ya, yb, ta, tb, t, scher) {
+  const f = c && c.fassade;
+  const g = f && f.g.seiten[nx + ',' + nz];
+  if (!g) return -1;
+  const achseX = nx !== 0;
+  const l0 = achseX ? c.z0 : c.x0, l1 = achseX ? c.z1 : c.x1;
+  if (l1 <= l0) return -1;
+  const tiefM = achseX ? f.w : f.d, zelle = (l1 - l0) / FASS_NU;
+  const hoch = f.h * f.g.hLok;
+  const u0 = (ta - l0) / (l1 - l0), u1 = (tb - l0) / (l1 - l0);
+  const v0 = (ya - SLAB_H) / hoch - f.g.vOff, v1 = (yb - SLAB_H) / hoch - f.g.vOff;
+  if (v1 < 0 || v0 > 1) return -1;
+  const i0 = clamp(Math.floor(u0 * FASS_NU), 0, FASS_NU - 1);
+  const i1 = clamp(Math.floor(u1 * FASS_NU), 0, FASS_NU - 1);
+  const j0 = clamp(Math.floor(v0 * FASS_NV), 0, FASS_NV - 1);
+  const j1 = clamp(Math.floor(v1 * FASS_NV), 0, FASS_NV - 1);
+  let m = FASS_LEER;
+  for (let j = j0; j <= j1; j++) {
+    const r = j * FASS_NU;
+    for (let i = i0; i <= i1; i++) {
+      const w = g[r + i];
+      if (w >= FASS_LEER) continue;
+      const d = w * tiefM - (l0 + (i + 0.5) * zelle - t) * scher;
+      if (d < m) m = d;
+    }
+  }
+  return m >= FASS_LEER ? -1 : Math.max(0, m);
+}
 /* Die Figur an die Haut setzen, mit der geglaetteten Tiefe
    player.hautTiefe: der Abstand climbGap gilt SENKRECHT zur Flaeche,
    laengs der Kistennormale ist das climbGap / no (problem-3, finaler
@@ -21607,6 +21679,15 @@ function updatePlayer(dt) {
                                 player.vel.y * 0.25);
         if (vor >= 0 && vor < ziel) ziel = vor;
         nWx = nx0; nWz = nz0;
+      }
+      /* Und die Flaeche vor dem ganzen gezeigten Koerper (siehe
+         hautKoerper): kopfueber hinunter und quer liegt er ueber dem
+         Fussabdruck - tiefer als sie geht es nicht. Hinaus faehrt die
+         Haut mit HAUT_TEMPO_RAUS, hinein erst, wenn der ganze Koerper
+         unter dem Ueberhang heraus ist. Die Normale bleibt die der Stelle. */
+      if (ziel >= 0 && !KOERPER_HAUT_ALT) {
+        const kz = hautKoerper(c, w, w.nx !== 0 ? player.pos.z : player.pos.x);
+        if (kz >= 0 && kz < ziel) ziel = kz;
       }
       if (ziel >= 0) {
         const alt = player.hautTiefe || 0;
