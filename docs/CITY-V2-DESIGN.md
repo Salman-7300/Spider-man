@@ -4340,6 +4340,270 @@ Leuchttafeln `qp-tafeln-1` bis `-5` und das Gameplay-Video
 
 ---
 
+## 6t. Problem-2: Klettern an Ueberhaengen (ModernOffice_1, Brutal_1)
+
+Ausgang 9afcf6d, der offene Kletterbefund aus 6s: an ModernOffice_1 und
+Brutal_1 kragt ein Oberbau ueber ein zurueckgesetztes Erdgeschoss aus,
+und beim Klettern hinunter und seitwaerts steckten Kopf und Schultern in
+der Unterseite. Gesperrt und unveraendert: Fahrbahnmarkierung,
+Modelltexturen, Fassadenhelligkeit, die 1566 entfernten Leuchttafeln
+(keine Neonrechtecke zurueck), 80 fahrende / 575 parkende Wagen auf 962
+Plaetzen, alle Bezirke. Im Spiel geaendert ist nur der Kletterschritt
+(`hautKoerper`, `hautScherMin`, ein Aufruf im Kletterschritt); dazu der
+Pruefschalter `koerperHautAlt` in `tools/pruef/basis.js` (Stand vor dem
+Fix, nur fuer den Vergleich).
+
+### Pruefstand: regulaerer Weg gegen kuenstlichen Start
+
+`tools/pruef/ueberhang-klettern.js` faehrt dieselbe Stelle auf zwei Wegen:
+**A** wie `fassaden-bahnen.js` (Lage, Kletterzustand und Wand gesetzt,
+danach echte Tasten) und **B** nur mit echten Tasten - vom Gehweg mit
+Anlauf (W + Shift) hinauf, oben ueber die Kante aufs Dach, mit der
+Gehtaste (Alt + W) zurueck ueber die Kante, 0,1 s spaeter S (die Figur
+greift die Fassade knapp unter der Dachkrone), dann mit S hinunter durch
+das Band; seitwaerts vom Boden ankleben (W + Space), mit W auf Bandhoehe,
+mit A/D durch die Stelle; `abquer` hinunter bis aufs Band, dann
+seitwaerts. Gemessen wird jedes Bild gegen die SICHTBAREN Meshes des
+Hauses (nicht gegen die Kletterhaut): jede zweite Ecke der Figur nach
+Koerperteil (Kopf, Schulter, Rumpf, Becken, Arme, Beine), der Weg von
+Kopf, Schultern, Brust und Becken seit dem vorigen Bild (ein Weg durch
+eine Platte zaehlt, auch wenn beide Enden frei sind), der Halt (naechste
+sichtbare Flaeche hinter Kopf, Brust, Becken, Haenden, Fuessen; ueber
+0,6 m = "ohne Halt") und die Spruenge.
+
+Stand 9afcf6d, Bilder mit Kopf / Schulter / Brust / Becken in der
+sichtbaren Geometrie (groesste Tiefe Kopf / Schulter):
+
+| Stelle | A kuenstlich | B regulaer |
+|---|---|---|
+| ModernOffice_1 2938 hinunter | 6 / 11 / 16 / 19 (0,17 / 0,28 m) | 11 / 17 / 21 / 25 (0,26 / 0,36 m) |
+| ModernOffice_1 2938 quer | 0 | 0 |
+| ModernOffice_1 3825 hinunter | 5 / 12 / 14 / 18 (0,15 / 0,18 m) | 5 / 11 / 14 / 19 (0,15 / 0,21 m) |
+| ModernOffice_1 3825 quer | 68 / 71 / 69 / 69 (0,22 / 0,31 m) | 82 / 81 / 79 / 74 (0,22 / 0,31 m) |
+| ModernOffice_1 3825 hinunter + quer | - | 46 / 58 / 51 / 50 (0,18 / 0,26 m) |
+| Brutal_1 6408 hinunter | 8 / 16 / 18 / 22 (0,22 / 0,31 m) | 9 / 15 / 18 / 22 (0,21 / 0,28 m) |
+| Brutal_1 6408 quer | 43 / 50 / 44 / 41 (0,25 / 0,36 m) | 18 / 18 / 12 / 1 (0,23 / 0,35 m) |
+| Brutal_1 6408 hinunter + quer | - | 28 / 34 / 27 / 23 (0,14 / 0,28 m) |
+
+Jeder Befund aus A kommt auch auf dem regulaeren Weg vor - der Fehler
+liegt im Spiel, nicht am Pruefstand.
+
+*Der Weg vom Dach musste zweimal korrigiert werden (nur Pruefstand):*
+mit Lauftempo ueber die Kante flog die Figur bis 1,9 m hinaus und fiel,
+als S sie zurueckbrachte, schon mit 19 m/s - dann zerlegt das Spiel den
+Schritt in Teilschritte, und der Wandkontakt des ersten Teilschritts ist
+im letzten wieder weg: sie greift nicht. Mit S sofort greift sie an
+ModernOffice_1 die Dachkrone (siehe Befunde unten). Vom Dach aus
+vermessen (0,3 / 0,7 / 1,2 m vor der Kante, an 3825, 2938, 6408): Alt + W
+und S nach 0,1 s greift in allen neun Faellen die Fassade unter der
+Krone. Greift die Figur trotzdem etwas anderes als die Zielkiste, endet
+der Weg mit diesem Befund, statt still nichts zu messen.
+
+### Ursache (je Bild nachgewiesen)
+
+Die Kletterhaut setzt die Figur an die vorderste sichtbare Flaeche ihres
+Fussabdrucks: y-0,3 bis y+0,8 um `player.pos`, der AUFRECHTE Koerper.
+Beim Klettern hinunter und seitwaerts zeigt `wandKriechen` die Figur aber
+um die Wandnormale gerollt (Drehpunkt rund 1 m ueber `player.pos`):
+gemessen liegt der Rumpf hinunter (kopfueber) 1,4 bis 2,3 m und quer bis
+1,1 m ueber `player.pos` - ueber dem Fussabdruck. Unter dem Ueberhang
+reicht der Fussabdruck schon ins zurueckgesetzte Erdgeschoss, waehrend
+Kopf, Schultern und Brust noch auf Hoehe der Platte haengen. Beispiele:
+3825 hinunter Bild 1347 - Ziel am Fussabdruck 0,48 m hinter der Kiste, an
+der Stelle des Rumpfes 0,034 m; Brutal_1 Bild 585 - 0,489 gegen 0; 3825
+quer Bild 123 - am Rumpf 0,036, die Haut bleibt bei 0,33. Einordnung: C
+(es fehlt die Pruefung des ganzen Koerpers) mit dem Mechanismus E
+(gerollte Haltung). Nicht A (die Tiefenkarte ist richtig, die Platte
+liegt dort bei 0), nicht B (die Normale aendert sich nicht), nicht D
+(dieselbe Wand, kein Wechsel).
+
+### Korrektur
+
+`hautKoerper` nimmt den Rahmen der GEZEIGTEN Figur (`koerperRahmen`: Kopf,
+Brust, Becken, Unterarme, Haende, Unterschenkel, Fuesse) plus 0,15 m und
+sucht darin, oberhalb des Fussabdrucks, die vorderste sichtbare Flaeche;
+tiefer als sie geht die Haut nicht. Das ist dieselbe Tiefenkarte wie
+bisher - keine neue Flaeche, kein Strahl, kein Kollider angefasst, keine
+Kamera, kein Rig. Die Pruefung kann die Haut nur nach aussen nehmen; das
+geschieht mit der vorhandenen Ausfahrgeschwindigkeit (6 m/s, 0,1 m je
+Bild), es gibt also keinen Sprung. Hinein faehrt die Haut erst, wenn der
+ganze Koerper unter dem Ueberhang heraus ist.
+
+**Korrekturrunde 1 (von hoechstens zwei).** Die erste Fassung verglich
+jeden Abschnitt so, als hinge die Figur parallel zur Kiste. An der Fase
+von ModernOffice_1 (3825 West, 42 Grad) dreht sich die Figur aber mit der
+Flaechennormale (`player.facing` folgt `player.hautN`): gemessen liegt die
+Huefte 1,2 m weniger tief als `player.pos`. Das gerade Wandstueck hinter
+dem Koerper hielt deshalb die ganze Figur 0,7 bis 1,2 m vor der Fase -
+"ohne Halt" quer 1 -> 49 Bilder (bis 1,29 m), hinunter 9 -> 38, hinunter
++ quer 9 -> 98. Korrektur: der Bereich wird in der Ebene der Figur
+gemessen (`hautScherMin`, Neigung `hautNt / hautNo`, dieselbe Scherung
+wie `hautFlaecheModell`). Danach haengt die Figur an der Fase wieder
+0,98 m tief (vor dem Fix 0,99 m), der naechste Koerperteil 0,03 bis
+0,22 m vor der Flaeche; an einer geraden Wand ist die Neigung 0 und
+nichts aendert sich. Eine zweite Runde gab es nicht.
+
+### Pflichtwege nach dem Fix
+
+Alle regulaer (B), vorher = Spielstand mit `koerperHautAlt` (gleich
+9afcf6d), nachher = Endstand. Kopf / Schulter / Brust / Becken in der
+sichtbaren Geometrie in Bildern, dazu "Weg durch Platte" (Kopf,
+Schultern, Brust, Becken auf dem Weg seit dem vorigen Bild):
+
+| Weg | Bahn | Ende | vorher | nachher | Weg durch Platte | ohne Halt | Ortssprung max (m) |
+|---|---|---|---|---|---|---|---|
+| MO1 2938 Ueberhang | hinunter | unten an | 11 / 17 / 21 / 25 | 0 / 0 / 0 / 0 | 68 -> 0 | 1 -> 1 | 0,1 -> 0,1 |
+| MO1 2938 Ueberhang | quer | durch | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 3 -> 3 | 0,1 -> 0,1 |
+| MO1 2938 Ueberhang | hinunter + quer | durch | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 3 -> 3 | 0,1 -> 0,1 |
+| MO1 3825 Ueberhang | hinunter | unten an | 5 / 11 / 14 / 19 | 0 / 0 / 0 / 0 | 30 -> 0 | 3 -> 3 | 0,1 -> 0,1 |
+| MO1 3825 Ueberhang | quer | durch | 82 / 81 / 79 / 74 | 0 / 0 / 0 / 0 | 357 -> 0 | 1 -> 1 | 0,101 -> 0,101 |
+| MO1 3825 Ueberhang | hinunter + quer | durch | 46 / 58 / 51 / 50 | 0 / 0 / 0 / 9 | 177 -> 0 | 3 -> 3 | 0,1 -> 0,1 |
+| MO1 2938 Ost, gerade | hinunter | unten an | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 0 -> 0 | 0,031 -> 0,031 |
+| MO1 2938 Ost, gerade | quer | durch | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 3 -> 3 | 0,043 -> 0,043 |
+| MO1 3825 West, Fase | hinunter | unten an | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 0 -> 0 | 0,1 -> 0,1 |
+| MO1 3825 West, Fase | quer | steht an der Kante (t 242,36) | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 1 -> 1 | 0,1 -> 0,1 |
+| MO1 3825 West, Fase | hinunter + quer | steht an der Kante (t 242,36) | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 0 -> 0 | 0,1 -> 0,1 |
+| MO1 3825 West, in die Fase | quer | durch | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 2 -> 2 | 0,1 -> 0,1 |
+| MO1 3825 West, in die Fase | hinunter + quer | steht an der Kante (t 242,34) | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 0 -> 0 | 0,1 -> 0,1 |
+| MO1 3825 Rueckseite | hinunter | unten an | 0 / 6 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 0 -> 0 | 0,1 -> 0,1 |
+| MO1 3825 Rueckseite | hinunter + quer | steht an der Kante (t -62,13) | 0 / 1 / 0 / 0 | 0 / 1 / 0 / 0 | 0 -> 0 | 0 -> 0 | 0,1 -> 0,1 |
+| Brutal_1 Ueberhang (Kern) | hinunter | unten an | 9 / 15 / 18 / 22 | 0 / 0 / 0 / 0 | 54 -> 0 | 0 -> 0 | 0,1 -> 0,002 |
+| Brutal_1 Ueberhang (Kern) | quer | steht an der Kante (t 160,07) | 18 / 18 / 12 / 1 | 0 / 0 / 0 / 0 | 42 -> 0 | 112 -> 146 | 0,103 -> 0,103 |
+| Brutal_1 Ueberhang (Kern) | hinunter + quer | steht an der Kante (t 160,07) | 28 / 34 / 27 / 23 | 0 / 0 / 0 / 0 | 123 -> 0 | 127 -> 161 | 0,06 -> 0,1 |
+| Brutal_1 offene Halle | hinunter | haengt, kommt nicht weiter | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 1050 -> 1050 | 0,043 -> 0,043 |
+| Brutal_1 offene Halle | hinunter + quer | haengt, kommt nicht weiter | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 1050 -> 1050 | 0,043 -> 0,043 |
+| Brutal_1 Aussensaeule | hinunter | kein Ankleben | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 0 -> 0 | 0 -> 0 |
+| Brutal_1 Aussensaeule | quer | steht an der Kante (t 191,46) | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 0 -> 0 | 470 -> 470 | 0,043 -> 0,069 |
+
+"steht an der Kante": die Seitwaertsbewegung endet am Rand des
+kletterbaren Abschnitts (Fase jenseits 1,2 m Tiefe, Kern neben der
+offenen Halle, Saeule neben dem offenen Feld) - vorher wie nachher.
+Offene Halle (x 156,5): der Abstieg endet an der Unterkante des
+Ueberbaus, darunter traegt nichts; die Bilder ohne Halt sind die, in
+denen die Figur dort haengt, solange S gedrueckt bleibt. Aussensaeule:
+der Anlauf vom Boden klebt an der Saeulenmitte nicht an (vorher wie
+nachher); aufs Dach von Brutal_1 geht es ueber den Kern (Zeile
+"Ueberhang, hinunter": hinauf, ueber die Kante, wieder hinunter).
+
+A (kuenstlich) nach dem Fix: an allen drei Stellen hinunter und quer 0 /
+0 / 0 / 0.
+
+*Rest:* 3825 hinunter + quer, Becken 9 Bilder (vorher 50) mit 1 bis 41
+der 116 Beckenecken bis 0,08 m tief (vorher bis 0,37 m): am Ostende,
+unmittelbar unter der Platte laeuft eine Pfeilerflanke schraeg nach aussen
+(Tiefe auf 0,6 m von 0,41 auf 0,04 m), und in der
+Seitwaertshaltung woelbt sich die Huefte rund 0,3 m vor die Ebene der
+Figur. Kopf, Schulter und Brust 0, der Beckenknochen selbst frei.
+
+*Brutal_1, Ende der Seitwaertsbahn:* die Bahn endet an der Kante des
+Kerns (t 160,07, dahinter die offene Halle); dort steht die Figur 401
+Bilder. Vorher hing sie am zurueckgesetzten Kern, Kopf / Schulter / Brust
+11 Bilder in der Platte, "ohne Halt" 112 Bilder; nachher 0 in der Platte,
+sie haengt an der Vorderkante des Ueberbaus (Median 0,33 m statt 0,05 m
+bis zur naechsten Flaeche), "ohne Halt" 146 Bilder. Das ist die Stelle
+des Befunds selbst, kein anderer Kletterbereich; einen Halt, an dem
+weder ein Koerperteil in der Platte steckt noch die Figur vor der Halle
+haengt, gibt es dort nicht (Ergebnis C: kein gueltiger Halt, kein
+Clipping - die Bahn endet, wie vorher, an der Kante).
+
+Kontrollhaeuser (FlatFacade, PublicBuilding, Wohnhaus, prozedurales
+Stadthaus, Brownstone, Harlem, Turm; je hinunter und quer, Spalten aus
+der Kletterkarte gewaehlt, die vom Boden bis zum Dach tragen): vorher
+und nachher Zeile fuer Zeile gleich, bis auf den groessten Ortssprung
+beim PublicBuilding quer (0,10 -> 0,118 m: das Gleiten der Haut, 0,1 m
+je Bild, plus ein Seitwaertsschritt) und Brownstone hinunter (0,029 ->
+0,064 m). Kopf / Schulter / Brust / Becken in Summe vorher 1 / 0 / 0 / 0,
+nachher 1 / 0 / 0 / 0 (Stadthaus, ein Bild, 0,04 m, an der Kiste - das
+Haus hat kein Modell). Wege, die tatsaechlich nicht kletterbar sind,
+enden sauber und zaehlen nicht als Durchstieg: PublicBuilding Sued kommt
+nicht aufs Dach (Tiefe 24,9 bis 26,4 m jenseits der Reichweite 1,2 m,
+die Figur bleibt bei 24,5 m haengen), FlatFacade hinunter greift nach dem
+Sprung ueber das Dachgelaender das Gelaender, Brownstone bei x -260,5
+klebt nicht an (an Spalte -255,7: hinunter bis unten, 0 / 0 / 0 / 0).
+
+### Befunde, die der Fix nicht aendert (vorher = nachher)
+
+Gefunden mit dem regulaeren Weg; jeder ist eine eigene Aufgabe und hier
+nur benannt (eine Loesung je Aufgabe, keine gestapelten Regeln):
+
+1. **Dachkrone:** wer an ModernOffice_1 vom Dach ueber die Kante geht und
+   sofort S drueckt, greift die Dachkrone (eigener Kollider, 36,17 bis
+   37,07 m) und klettert danach an deren Ebene hinunter - 0,6 m vor der
+   Fassade, durch die Luft, bis zum Boden (3825: von 36,2 m bis 1,1 m an
+   Kollider 3826).
+2. **Schneller Griff:** faellt die Figur schneller als rund 18,5 m/s,
+   greift sie die Wand nicht mehr (der Wandkontakt des ersten
+   Teilschritts ist im letzten wieder weg).
+3. **Brutal_1-Halle, Hausecke:** bis 1,5 m neben der Ecke gilt ein Loch
+   bis an die Seitenkante als offene Seite (Regel fuer Brandwand und
+   Hausecke); vor der offenen Halle klettert die Figur dort an der Kiste
+   bis zum Boden (x 155,2: 81 Bilder ohne sichtbare Flaeche). Weiter
+   innen (x 156,5) bleibt sie an der Unterkante des Ueberbaus haengen.
+4. **Brutal_1-Saeulen:** die Seitwaertsbahn an der Aussensaeule endet an
+   der Saeulenkante, der Koerper haengt ueber dem offenen Feld (470 Bilder
+   ohne Halt, vorher wie nachher).
+5. **ModernOffice_1, Rueckseite:** unter dem Dach des Nachbarn 3859
+   (24,07 m) klettert die Figur im 0,6 m breiten Spalt zwischen den beiden
+   Haeusern weiter bis zum Boden, statt auf dem Nachbardach anzukommen.
+   Dort streift der Hinterkopf die Fassade des Nachbarn: vorher 88 Bilder
+   bis 0,043 m, nachher 98 Bilder bis 0,052 m; an 3825 selbst vorher 6
+   Bilder Schulter bis 0,11 m, nachher 0 - der Fix haelt die Figur unten
+   aus 3825 heraus und damit 4,5 cm naeher am Nachbarn.
+6. **Fensterloecher:** wo die Kletterkarte ein Loch hat, bleibt die Figur
+   haengen (FlatFacade x -311,5 bei 5,3 m, Brownstone x -258 bei 3,9 m,
+   Brutal_1-Seite bei 6,7 m); das ist das gewollte Verhalten an einer
+   Kante ohne Griff.
+
+### Regression
+
+Gegen 9afcf6d in derselben Umgebung (Keim 4711):
+
+| Pruefung | Endstand | 9afcf6d |
+|---|---|---|
+| `node --test` | 170 / 170 | 170 / 170 |
+| Naht `zeilenuebergang.js` | 221 / 221 / 221, Aussenecke 150 / 150; drei "steckt"-Stellen flacher (Abstand min -0,467 -> -0,357 m) | 221 / 221 / 221, 150 / 150 |
+| `innenklettern.js` | 108 Laeufe, 0 angeklebt, 0 / 0 / 0 / 0; Aussenkontrolle 91 / 85 / 85, 1 ungueltig (Startpunkt verfehlt) | gleich |
+| MO1 `kletterproxy.js` | 0 / 0 / 0, playerCutsFacade 0 | zeilengleich |
+| `kletterstetigkeit.js` | playerInsideForeignBuildingWhileClimbing 0 (in der Kiste des Nachbarn 339 -> 319 Bilder, in der eigenen Kiste 13 560 -> 13 533) | 0 |
+| FlatFacade-Top-out `topoutlandung.js` | 13 / 13, Kontrolle 8 / 8, Versatz 0,000 m (ein Zielpunkt 3 mm anders) | 13 / 13, 8 / 8, 0,000 m |
+| `brutal-halle.js teil=anlauf` | gehen 30 / 30, rennen 30 / 30, invisibleCollision 0 | zeilengleich |
+| `fassaden-bahnen.js` (27 Bahnen aus 6s) | Brust / Becken hinter der sichtbaren Fassade 0 / 0; Sprung > 0,11 m 0, steht > 30 Bilder 1, Ende nicht Ziel 1 | 4 / 5; 0 / 1 / 1 |
+| `street-details.js` | 0 harte Fehler, Ergebnisdatei bytegleich | gleich |
+| `freigang.js` | 572 gestreift, 0 gesperrt, kleinste Gehbreite 1,60 m | gleich |
+| Parken und Welt (`parkautos.js`, Fingerabdruck) | 962 Plaetze, 575 parkend, 80 fahrend; Kollider, Parkplaetze, Wagen, Passanten gleich | gleich |
+| `kernsysteme.js` | Story Akt 1: 8 Missionen, 8 sauber; Seitenfehler 0 | gleich |
+
+Markierung, Texturen, Fassadenhelligkeit, Tafeln, Verkehr und Bezirke
+sind nicht angefasst: `game.js` aendert nur den Kletterschritt.
+
+### Leistung
+
+`stadt-leistung.js`, 300 Aufnahmen, gepaart in derselben halben Stunde,
+sonst lief nichts:
+
+| | Endstand, Lauf 1 | 9afcf6d | Endstand, Lauf 2 |
+|---|---|---|---|
+| Zeichenaufrufe Gesamtmedian (Tor 899) | 861 | 861 | 860,5 |
+| Strasse / Dach / Luft | 793 / 790 / 894,5 | 793 / 790 / 894,5 | 792,5 / 789,5 / 894,5 |
+| Dreiecke Median | 3 700 356 | 3 700 356 | 3 678 186 |
+| Programme / Materialien / Meshes | 44 / 1015 / 5723 | 44 / 1015 / 5723 | 44 / 1020 / 5717 |
+
+Lauf 1 und 9afcf6d sind Zeile fuer Zeile gleich; Lauf 2 liegt in der
+schon bekannten Streuung zwischen zwei Laeufen (6s: 861 / 859). Der Fix
+zeichnet nichts; er kostet je Kletterbild einen Knochenrahmen (13
+Knochen) und einige Dutzend Zellen der Tiefenkarte.
+
+### Bilder und Video
+
+`docs/abnahme-ueberhang/` - normale Spielkamera, Echtzeit (15 Bilder/s),
+je links vorher und rechts nachher: ModernOffice_1 hinunter (2938) und
+seitwaerts (3825), Brutal_1 hinunter und seitwaerts, eine normale
+Fassade als Kontrolle (Harlem); dazu dieselben Abstiege mit fester
+Diagnosekamera von der Seite (Koerper gegen Ueberhang im Profil). Oben
+links steht in jedem Bild, was der Pruefstand dort misst.
+
+---
+
 ## 7. Was noch aussteht
 
 Stufe 3 bis 11: Strassenhierarchie, Parzellierung und Strassenwaende,
