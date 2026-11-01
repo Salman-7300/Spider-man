@@ -18656,6 +18656,7 @@ function stopSwing(boost) {
        Ueberschlag. Jetzt reicht ordentliches Tempo, und welche Bewegung
        kommt, entscheidet die Lenkung. */
     if (vh > 9) schwungKunst(12);
+    megaSchwungLos();            // M3: Fluss
   }
   /* Wer eben noch am Faden hing, landet mit der Abrollbewegung aus
      animation-1 statt mit der allgemeinen Sturzlandung. */
@@ -18855,6 +18856,7 @@ function zipZuPunkt(target, hand, enemy, fest) {
                  fest: !!fest,
                  t: clamp(weg / 13 + 0.7, 0.9, 3.2),
                  tempo: Math.max(16, Math.hypot(player.vel.x, player.vel.z)) };
+  megaZipStart(player.zip);                    // M3: Startpunkt, Fluss
   /* Kein zusätzlicher Blitz-Faden: der Zip zieht den Faden ohnehin die
      ganze Zeit mit. Beide zusammen sahen aus wie zwei Netze. */
   /* Der Abschuss ist eine eigene Bewegung: Arm nach vorn, Koerper folgt.
@@ -19082,6 +19084,7 @@ function tryJump() {
       camShake = Math.max(camShake, 0.24);
       popupScreen('Perfekter Absprung!');
       addScore(Math.round(30 * skillWert('schwungkunst')), '', player.pos);
+      megaFluss('absprung');     // M3: Fluss
       SFX.zip();
     }
     SFX.swoosh();
@@ -19129,6 +19132,7 @@ function tryJump() {
        Ankleben - wer die Halte-Taste drueckt, will zurueck an die Wand und
        darf das sofort. */
     player.wandSperre = WAND_SPERRE;
+    megaFluss('wandsprung');     // M3: Fluss
     /* Der Absprung von der Wand ist eine eigene Bewegung: abstossen,
        einmal ueberschlagen, dann in den Fall. Vorher schaltete die Figur
        im selben Bild von der Kletterhaltung auf freien Fall um. */
@@ -20579,6 +20583,9 @@ function progLeer() {
     statistik: {
       spielzeit: 0, crimes: 0, gerettet: 0, bosse: 0,
       herausforderungen: 0, poi: 0, marken: 0, besteKombo: 0, stufenAufstiege: 0,
+      /* M3: Bewegungsfluss - fehlt in alten Staenden und startet dann bei 0
+         (progPruefen geht ueber die Schluessel dieses Musters). */
+      flowKetten: 0, besterFlow: 0,
     },
   };
 }
@@ -22002,7 +22009,7 @@ function updatePlayer(dt) {
         player.mastHocke = true;
         popupWorld('Aufgesessen', t, '#bfe8ff');
       }
-      else player.vel.multiplyScalar(0.45);
+      else { megaZipEnde(z, false); player.vel.multiplyScalar(0.45); }   // M3
       player.zip = null;
       player.state = player.onGround ? 'ground' : 'air';
     } else {
@@ -22023,6 +22030,7 @@ function updatePlayer(dt) {
       if (player.wall) {
         if (z.enemy && !z.enemy.dead && dist < 4.2) zipAngriff(z.enemy);
         player.zip = null; player.state = 'air'; swingStrand.visible = false;
+        megaZipEnde(z, true);    // M3: an kletterbarer Fassade angreifen, Schwung wird Wandlauf
       }
       /* Waehrend des Zugs zieht der Faden die Figur nach vorn. Die Haltung
          wird hier gesetzt, nicht in der allgemeinen Auswahl weiter unten -
@@ -22782,12 +22790,17 @@ function updatePlayer(dt) {
       player.jumps = 0;
       beendeGleiten();
       SFX.swoosh();
+      megaFluss('wandlauf');     // M3: Fluss
     }
   }
 
   if (player.wall && !player.onGround && player.state !== 'swing' && player.state !== 'zip') {
     const w = player.wall;
-    const movingIn = dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.3;
+    /* M3: Ein Netz-Zip, der eben an DIESEM Haus endete, traegt an die Wand
+       wie die Laufrichtung (megaZipTraegt). Alle Pruefungen darunter
+       gelten unveraendert. */
+    const zipTraegt = megaZipTraegt(w);
+    const movingIn = (dir && (dir.x * -w.nx + dir.z * -w.nz) > 0.3) || zipTraegt;
     /* ---- Eigene Taste zum Ankleben ----
        Sie lag zusammen mit dem Ducken auf X. Das ging schief, sobald beide
        Bedeutungen im selben Moment gelten konnten: an der Wand hat man
@@ -22816,6 +22829,7 @@ function updatePlayer(dt) {
       player.vel.set(0, 0, 0);
       player.jumps = 0;
       beendeGleiten();
+      if (zipTraegt) megaZipWandlauf(w);    // M3: Schwung des Zugs wird Wandlauf
     }
   } else onWallTimer = 0;
 
@@ -24021,7 +24035,8 @@ function updateHeroVisual(dt) {
       }
       else if (!heroVisual.hatClip('climb')) heroVisual.poseKlettern(player.phase);
     } else if (player.state === 'zip' && player.zip) {
-      heroVisual.poseSchuss(player.zip.target, player.zip.hand, 1);
+      /* M3: einblenden statt schalten (megaZipArm). */
+      heroVisual.poseSchuss(player.zip.target, player.zip.hand, megaZipArm(player.zip, dt));
       /* Das Ziel fuer das Ausblenden merken, siehe unten. */
       if (!player.zipNachZiel) player.zipNachZiel = new THREE.Vector3();
       player.zipNachZiel.copy(player.zip.target);
@@ -41233,6 +41248,329 @@ function megaKamNach(dt) {
   MEGA.kamImp = Math.max(0, MEGA.kamImp - dt / 0.3);
 }
 
+/* ======================= M3: Bewegungsfluss =======================
+   Neue Bewegungsqualitaet entsteht hier nur an den UEBERGAENGEN zwischen
+   vorhandenen Bewegungen. Schwingen, Springen, Klettern und Gleiten
+   rechnen weiter genau wie vorher:
+
+     1. Netz-Zip, Armhaltung: die Schusshaltung blendet ueber ZIP_ARM_EIN
+        ein, statt im ersten Zugbild mit voller Staerke zu greifen (nicht
+        waehrend eines Saltos, siehe megaZipArm).
+        Gemessen sprang die Hand nach einem Netzschwung dabei um 0,85 m in
+        einem einzigen Bild (scratchpad m3/probe2: Clipgewichte stetig,
+        nur poseSchuss(…, 1) schaltete hart).
+     2. Netz-Zip -> Wandlauf: endet ein Zug an einer kletterbaren Fassade,
+        greift die Figur dort an - mit denselben Pruefungen und demselben
+        Einstieg wie beim Anklettern aus der Luft (wandTraegt,
+        ankletternVonAussen, kletterOwnerSetzen, Haut zuruecksetzen). Der
+        Schwung des Zugs geht als Wandlauf weiter, mit derselben Formel
+        wie der Anlauf vom Boden (Tempo zur Wand * 1,15, 8 bis 14). Keine
+        unsichtbare Flaeche, keine eigene Wandsuche: gegriffen wird nur,
+        wo die Kollision die Figur ohnehin an die Wand gelegt hat.
+     3. Fluss: verschiedene Bewegungen ohne Pause hintereinander ergeben
+        am Ende der Kette einen kleinen Punktebonus ueber addScore. Nur
+        Punkte - kein Tempo, keine Physik.
+
+   Gesperrt und hier nicht beruehrt: Gleitpose und Gleitphysik,
+   Kletterhaut, Ueberhang-Fix, Kamera-Fade, Hochziehen, Eckbogen, Naht,
+   Wandkollision. Die offenen Kletterrandfaelle bleiben offen.
+
+   Schalter fuer den Vergleich im Pruefstand: window.__WEBHERO_FLUSS_ALT
+   (alle M3-Teile aus, Stand vor dem Update). */
+const MEGA_FLUSS_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_FLUSS_ALT;
+let ZIP_ARM_EIN = 0.08;          // s, Einblenden der Schusshaltung im Zug
+const ZIP_WAND_FENSTER = 0.45;   // s nach dem Zugende darf noch angegriffen werden
+const ZIP_WAND_RAND = 1.2;       // m: so nah muss das Zugziel an DIESEM Haus liegen
+const FLUSS_LUECKE = 2.5;        // s ohne fluessige Bewegung beenden die Kette
+const FLUSS_STILL = 0.8;         // s Stillstand am Boden beenden sie sofort
+const FLUSS_DAUER = 40;          // s, laenger laeuft keine Kette
+const FLUSS_SPERRE = 8;          // s nach einer Auszahlung zaehlt nichts
+const FLUSS_MIN = 3;             // ab so vielen VERSCHIEDENEN Aktionen gibt es Punkte
+/* Punkte je Kettenlaenge (Anzahl verschiedener Aktionen). Klein gehalten:
+   eine Erste Hilfe bringt 120, eine gerettete Person 100. */
+const FLUSS_PUNKTE = [0, 0, 0, 20, 35, 50, 70, 90, 110, 110, 110];
+const FLUSS_NAMEN = { schwung: 'Schwung', zip: 'Netz-Zip', absprung: 'Absprung',
+  wandlauf: 'Wandlauf', wandsprung: 'Wandsprung', hochziehen: 'Hochziehen',
+  landung: 'Landung', sprint: 'Sprint', dachsprung: 'Dachsprung', gleiten: 'Gleiten' };
+MEGA.fluss = {
+  kette: [], start: 0, seit: 0, still: 0, sperre: 0,
+  zipEnde: null, hp: null, altSt: null, altBoden: true,
+  luftSeit: 0, swingT: 0, sprintT: 0, sprintGemeldet: false, gleitT: 0, gleitGemeldet: false,
+  dach: null, ab: null, anzeige: '', anzeigeT: 0, el: null, nEl: null, tEl: null,
+  statistik: { ketten: 0, ausgezahlt: 0, punkte: 0, laengste: 0, gerissen: 0,
+               zuKurz: 0, gesperrt: 0, wiederholt: 0, zipWand: 0, zipWandlauf: 0,
+               zipWandOben: 0, zipWandOhneTempo: 0, zipWandAbgelehnt: 0, zipImSalto: 0,
+               jeAktion: {}, letzte: null },
+};
+
+/* ---- Armhaltung im Zug: einblenden statt schalten ----
+   Abgestimmt (tools/pruef/mega-bewegung.js, teil=kette): 0,08 s. Bei
+   0,18 s wurde es wieder schlechter (0,75 m), 0,05 und 0,12 s lagen
+   gleichauf. Laeuft beim Zugbeginn ein Kunststueck (Salto), bleibt es beim
+   sofortigen Greifen wie bisher: dort dreht sich der ganze Koerper, und
+   die Blende gegen die Drehung war in 32 Stichproben schlechter als der
+   harte Wechsel (Median 0,36 statt 0,28 m Handruck). */
+function megaZipArm(z, dt) {
+  if (MEGA_FLUSS_ALT || !z || z.armSofort) return 1;
+  z.armT = (z.armT || 0) + dt;
+  return clamp(z.armT / ZIP_ARM_EIN, 0, 1);
+}
+
+/* ---- Zugbeginn: Startpunkt merken (fuer die Richtung zur Wand) ---- */
+function megaZipStart(z) {
+  if (MEGA_FLUSS_ALT || !z) return;
+  z.vonX = player.pos.x; z.vonZ = player.pos.z;
+  z.armSofort = (player.luftSalto || 0) > 0;     // siehe megaZipArm
+  if (z.armSofort) MEGA.fluss.statistik.zipImSalto++;
+  if (!z.enemy) megaFluss('zip');
+}
+
+/* ---- Zugende ohne Gegner: Zeit, Ziel, Tempo und Richtung merken ----
+   kontakt = der Zug wurde von der Wand selbst beendet (player.wall). Dann
+   wird sofort angegriffen - im naechsten Bild beruehrt die Figur die Wand
+   nicht mehr unbedingt, weil collideBody den Anteil in die Wand schon
+   herausgenommen hat. */
+function megaZipEnde(z, kontakt) {
+  if (MEGA_FLUSS_ALT || !z || z.enemy || z.fest) return;
+  let dx = z.target.x - (z.vonX === undefined ? player.pos.x : z.vonX);
+  let dz = z.target.z - (z.vonZ === undefined ? player.pos.z : z.vonZ);
+  const l = Math.hypot(dx, dz);
+  if (l > 1) { dx /= l; dz /= l; } else { dx = 0; dz = 0; }
+  MEGA.fluss.zipEnde = { t: elapsed, tempo: z.tempo || 0, dx, dz, ziel: z.target.clone() };
+  if (kontakt && player.wall && player.state === 'air' && megaZipTraegt(player.wall) &&
+      !((player.wandSperre || 0) > 0) &&
+      wandTraegt(player.wall.col, player.wall.nx, player.wall.nz, player.pos.y + 1.0,
+                 player.pos.x, player.pos.z) &&
+      ankletternVonAussen(player.wall.col)) {
+    megaWandAnsetzen(player.wall);
+    megaZipWandlauf(player.wall);
+  }
+}
+
+/* Traegt der eben beendete Zug an DIESE Wand? Nur wenn das Zugziel an
+   genau diesem Haus lag, der Zug gerade erst endete und niemand bewusst
+   von der Wand weg lenkt. */
+function megaZipTraegt(w) {
+  const ze = MEGA.fluss.zipEnde;
+  if (MEGA_FLUSS_ALT || !ze || !w || !w.col || w.col.klein) return false;
+  if (elapsed - ze.t > ZIP_WAND_FENSTER) return false;
+  const c = w.col, t = ze.ziel, r = ZIP_WAND_RAND;
+  if (t.x < c.x0 - r || t.x > c.x1 + r || t.z < c.z0 - r || t.z > c.z1 + r) return false;
+  const dir = inputDir();
+  if (dir && (dir.x * -w.nx + dir.z * -w.nz) < -0.3) {
+    if (!ze.abgelehnt) { ze.abgelehnt = true; MEGA.fluss.statistik.zipWandAbgelehnt++; }
+    return false;
+  }
+  return true;
+}
+
+/* Derselbe Einstieg wie beim Anklettern aus der Luft - Zeile fuer Zeile
+   (siehe "player.wall && !player.onGround" in updatePlayer). */
+function megaWandAnsetzen(w) {
+  player.state = 'climb';
+  player.wallInfo = w;
+  kletterOwnerSetzen(w.col);
+  player.hautTiefe = 0; hautNormaleRuecksetzen(null);
+  player.vel.set(0, 0, 0);
+  player.jumps = 0;
+  beendeGleiten();
+}
+
+/* Der Schwung des Zugs wird Wandlauf - dieselbe Formel wie beim Anlauf
+   vom Boden. Ohne Tempo zur Wand (Zug laengs der Fassade, senkrechter
+   Zug) bleibt es beim gewoehnlichen Angreifen. */
+function megaZipWandlauf(w) {
+  const ze = MEGA.fluss.zipEnde;
+  MEGA.fluss.zipEnde = null;
+  if (!ze || player.state !== 'climb') return;
+  MEGA.fluss.statistik.zipWand++;
+  /* Liegt die Dachkante schon in Griffweite, gibt es nichts zu laufen:
+     das vorhandene Hochziehen uebernimmt im naechsten Bild. */
+  if (!w.col || (w.col.h - player.pos.y) <= 2.5) { MEGA.fluss.statistik.zipWandOben++; return; }
+  const rein = ze.tempo * Math.max(0, ze.dx * -w.nx + ze.dz * -w.nz);
+  if (rein > 3.8) {
+    player.wandSchwung = clamp(rein * 1.15, 8, 14);
+    player.wandlauf = true;
+    MEGA.fluss.statistik.zipWandlauf++;
+    megaFluss('wandlauf');
+    /* Das Rauschen wuerfelt seinen Puffer - ueber den eigenen Strom, nicht
+       ueber den Stadtstrom (siehe MEGA_ZUFALL). */
+    MEGA_ZUFALL.klammer(() => SFX.swoosh());
+  } else MEGA.fluss.statistik.zipWandOhneTempo++;
+}
+
+/* ---- Fluss: eine Aktion melden ----
+   Gezaehlt wird jede ART nur einmal je Kette - dieselbe Taste zweimal
+   ergibt nichts. Eine Wiederholung haelt die Kette aber am Leben. */
+function megaFluss(art) {
+  if (MEGA_FLUSS_ALT || player.dead) return;
+  const F = MEGA.fluss;
+  F.statistik.jeAktion[art] = (F.statistik.jeAktion[art] || 0) + 1;
+  if (F.sperre > 0) { F.statistik.gesperrt++; return; }
+  F.seit = 0;
+  if (F.kette.indexOf(art) >= 0) { F.statistik.wiederholt++; return; }
+  if (!F.kette.length) F.start = elapsed;
+  F.kette.push(art);
+  F.statistik.laengste = Math.max(F.statistik.laengste, F.kette.length);
+  if (F.kette.length >= Object.keys(FLUSS_NAMEN).length) megaFlussEnde('voll');
+  else megaFlussAnzeige();
+}
+
+/* ---- Kette beenden ----
+   bezahlt: Ende durch Pause, Stillstand, volle Kette oder Hoechstdauer.
+   Ein Treffer reisst die Kette ohne Punkte. */
+function megaFlussEnde(grund) {
+  const F = MEGA.fluss;
+  const n = F.kette.length;
+  F.kette = []; F.seit = 0; F.still = 0;
+  if (!n) return;
+  F.statistik.ketten++;
+  if (grund === 'treffer' || grund === 'aus') {
+    F.statistik.gerissen++;
+    F.statistik.letzte = { n, grund, punkte: 0 };
+    megaFlussAnzeige();
+    return;
+  }
+  if (n < FLUSS_MIN) {
+    F.statistik.zuKurz++;
+    F.statistik.letzte = { n, grund, punkte: 0 };
+    megaFlussAnzeige();
+    return;
+  }
+  const punkte = FLUSS_PUNKTE[Math.min(n, FLUSS_PUNKTE.length - 1)];
+  const vor = player.score;
+  MEGA_ZUFALL.klammer(() => addScore(punkte, '', null));
+  const gutschrift = player.score - vor;
+  F.statistik.ausgezahlt++;
+  F.statistik.punkte += gutschrift;
+  F.statistik.letzte = { n, grund, punkte: gutschrift };
+  F.sperre = FLUSS_SPERRE;
+  if (typeof PROG !== 'undefined' && PROG && PROG.statistik) {
+    PROG.statistik.flowKetten = (PROG.statistik.flowKetten || 0) + 1;
+    PROG.statistik.besterFlow = Math.max(PROG.statistik.besterFlow || 0, n);
+    progMerken();
+  }
+  F.anzeigeT = 2.6;
+  megaFlussAnzeige('+' + gutschrift, 'FLOW ×' + n);
+}
+
+/* ---- Kleine Anzeige rechts unter der Kombo ----
+   Waehrend der Kette ab zwei Aktionen die Zahl und die letzte Aktion,
+   nach der Auszahlung 2,6 s lang der Bonus. Keine Einblendung in der
+   Bildmitte, kein Text in der Welt. Das DOM wird nur bei Aenderung
+   angefasst. */
+function megaFlussAnzeige(gross, klein) {
+  const F = MEGA.fluss;
+  if (!F.el) {
+    if (typeof document === 'undefined') return;
+    F.el = document.getElementById('fluss');
+    F.nEl = document.getElementById('flussN');
+    F.tEl = document.getElementById('flussT');
+    if (!F.el) return;
+  }
+  let a = '', b = '';
+  if (gross !== undefined) { a = gross; b = klein || ''; }
+  else if (F.anzeigeT > 0) return;          // der Bonus bleibt stehen
+  else if (F.kette.length >= 2) {
+    a = '×' + F.kette.length;
+    b = 'FLOW · ' + FLUSS_NAMEN[F.kette[F.kette.length - 1]];
+  }
+  const text = a + '|' + b;
+  if (text === F.anzeige) return;
+  F.anzeige = text;
+  F.nEl.textContent = a; F.tEl.textContent = b;
+  F.el.style.opacity = a ? '1' : '0';
+}
+
+/* Die Dachflaeche (Kollider), auf der die Figur gerade steht - oder null.
+   Nur ueber 6 m, damit Bordstein, Bank und Autodach nicht zaehlen. */
+function megaDachUnter() {
+  const p = player.pos;
+  if (p.y < 6) return null;
+  for (const c of collidersNear(p.x, p.z)) {
+    if (c.parkAuto || c.innen) continue;
+    if (Math.abs(p.y - c.h) > 0.35) continue;
+    if (p.x < c.x0 - 0.3 || p.x > c.x1 + 0.3 || p.z < c.z0 - 0.3 || p.z > c.z1 + 0.3) continue;
+    return c;
+  }
+  return null;
+}
+
+/* ---- Fluss: einmal je Bild, nach updatePlayer ----
+   Liest nur Zustand und Tempo der Figur und meldet daraus Landung,
+   Sprint, Dachsprung, Gleiten und Hochziehen. Schreibt nichts in die
+   Bewegung. */
+function megaFlussTakt(dt) {
+  if (MEGA_FLUSS_ALT) return;
+  const F = MEGA.fluss;
+  if (F.sperre > 0) F.sperre -= dt;
+  if (F.anzeigeT > 0) { F.anzeigeT -= dt; if (F.anzeigeT <= 0) { F.anzeigeT = 0; megaFlussAnzeige(); } }
+  const getroffen = F.hp !== null && player.hp < F.hp - 0.5;
+  F.hp = player.hp;
+  if (player.dead || MISSION_INTERIOR.active) {
+    if (F.kette.length) megaFlussEnde('aus');
+    F.altSt = player.state; F.altBoden = player.onGround;
+    return;
+  }
+  if (getroffen && F.kette.length) megaFlussEnde('treffer');
+  const st = player.state;
+  const vh = Math.hypot(player.vel.x, player.vel.z);
+  const amBoden = player.onGround && st === 'ground';
+
+  if (st === 'swing') F.swingT += dt;
+  if (st === 'kante' && F.altSt !== 'kante') megaFluss('hochziehen');
+
+  /* Gleiten: eine Sekunde am Stueck. */
+  if (player.gleiten) {
+    F.gleitT += dt;
+    if (F.gleitT > 1.0 && !F.gleitGemeldet) { F.gleitGemeldet = true; megaFluss('gleiten'); }
+  } else { F.gleitT = 0; F.gleitGemeldet = false; }
+
+  if (!amBoden) {
+    if (F.altBoden) {
+      /* Abgesprungen, von der Kante gelaufen oder vom Dach gezogen:
+         das Dach merken, von dem es losging. */
+      F.ab = { dach: F.dach, x: player.pos.x, z: player.pos.z };
+    }
+    if (st === 'air' || st === 'swing' || st === 'zip') F.luftSeit += dt;
+    F.sprintT = 0; F.sprintGemeldet = false; F.still = 0;
+  } else {
+    if (!F.altBoden && F.luftSeit > 0.7) {
+      megaFluss('landung');
+      const dach = megaDachUnter();
+      if (dach && F.ab && F.ab.dach && dach !== F.ab.dach && F.luftSeit < 5 &&
+          Math.hypot(player.pos.x - F.ab.x, player.pos.z - F.ab.z) > 5) megaFluss('dachsprung');
+    }
+    F.luftSeit = 0;
+    F.dach = megaDachUnter();
+    if (sprintAn() && vh > 8.5) {
+      F.sprintT += dt;
+      if (F.sprintT > 0.6 && !F.sprintGemeldet) { F.sprintGemeldet = true; megaFluss('sprint'); }
+    } else if (vh < 5) { F.sprintT = 0; F.sprintGemeldet = false; }
+    if (vh < 1.5) {
+      F.still += dt;
+      if (F.still > FLUSS_STILL && F.kette.length) megaFlussEnde('still');
+    } else F.still = 0;
+  }
+  if (st !== 'swing') F.swingT = 0;
+
+  /* Die Kette lebt, solange sich die Figur fluessig bewegt. */
+  if (F.kette.length) {
+    const fluessig = st === 'swing' || st === 'zip' || st === 'kante' || player.gleiten ||
+                     (st === 'climb' && player.wandlauf) || vh > 6 || (st === 'air' && vh > 3);
+    if (!fluessig) F.seit += dt;
+    if (F.seit > FLUSS_LUECKE) megaFlussEnde('pause');
+    else if (elapsed - F.start > FLUSS_DAUER) megaFlussEnde('dauer');
+  }
+  F.altSt = player.state; F.altBoden = amBoden;
+}
+/* Schwung losgelassen (stopSwing mit Schub): zaehlt ab einer halben
+   Sekunde am Faden - ein Antippen ist kein Schwung. */
+function megaSchwungLos() {
+  if (MEGA_FLUSS_ALT) return;
+  if (MEGA.fluss.swingT >= 0.5) megaFluss('schwung');
+}
+
 /* ======================= Einsatzkräfte =======================
    Bis hierher endete jedes Ereignis so: Spider-Man gewinnt, das Ereignis
    verschwindet, die Stadt ist wieder wie vorher. Der Merker
@@ -46925,6 +47263,7 @@ function simuliere(dt) {
   // Moving rope anchors and landing decks must use this frame's helicopter transform.
   if (welt) updateHelis(dt);
   updatePlayer(dt);
+  megaFlussTakt(dt);             // M3: liest nur, schreibt keine Bewegung
   if (welt) { updateWetter(dt); updateTagNacht(dt); updateCars(dt); }
   /* Zivilisten und Gegner laufen weiter, filtern drinnen aber selbst:
      nur die Geisel und nur Storygegner. Ein voelliger Stopp liesse die
@@ -47250,6 +47589,24 @@ if (window.__WEBHERO_TEST__ === true) {
     evStarte,
     /* ---- Mega-Update 1.0 (nur Pruefstaende) ---- */
     mega: {
+      /* M3: Bewegungsfluss - Zaehler, laufende Kette, Sperre, Anzeige. */
+      fluss() {
+        const F = MEGA.fluss;
+        return { statistik: JSON.parse(JSON.stringify(F.statistik)), kette: F.kette.slice(),
+                 sperre: +F.sperre.toFixed(2), seit: +F.seit.toFixed(2), anzeige: F.anzeige,
+                 zipEnde: F.zipEnde ? { alter: +(elapsed - F.zipEnde.t).toFixed(3), tempo: F.zipEnde.tempo } : null,
+                 prog: PROG && PROG.statistik ? { flowKetten: PROG.statistik.flowKetten, besterFlow: PROG.statistik.besterFlow } : null };
+      },
+      flussLeeren() {
+        const F = MEGA.fluss;
+        F.kette = []; F.sperre = 0; F.seit = 0; F.still = 0; F.zipEnde = null; F.anzeigeT = 0;
+        /* Auch die Beobachtung der Figur: nach einem Versetzen im
+           Pruefstand gilt kein alter Absprung und keine alte Luftzeit. */
+        F.luftSeit = 0; F.ab = null; F.dach = null; F.altSt = null; F.altBoden = true;
+        F.swingT = 0; F.sprintT = 0; F.sprintGemeldet = false; F.gleitT = 0; F.gleitGemeldet = false;
+        F.hp = null;
+        megaFlussAnzeige();
+      },
       zufall() { return MEGA_ZUFALL.zustand(); },
       laeden() { return megaLaeden().length; },
       statistik() { return JSON.parse(JSON.stringify(MEGA.statistik)); },
@@ -48221,6 +48578,10 @@ if (window.__WEBHERO_TEST__ === true) {
     get ziehLose() { return ZIEH; },
     // Kamera auf einen Punkt ausrichten (nur für automatisierte Aufnahmen)
     setzeKamYaw(v) { camYaw = v; },
+    /* M3-Pruefstand: Blickneigung fuer die Zielwahl des Netz-Zugs. */
+    setzeKamPitch(v) { camPitch = v; },
+    /* M3-Pruefstand: Einblendzeit der Schusshaltung im Zug (Abstimmung). */
+    setzeZipArmEin(v) { ZIP_ARM_EIN = v; },
     /* ---- Fester Kamerastart fuer einen Messlauf ----
        problem-2, finaler Blocker-Pass, 2: dachkamera.js und
        kamera-restfaelle.js fahren dieselben Laeufe, zaehlten aber 7 und

@@ -305,3 +305,168 @@ unverändert (M2 baut nichts in die Szene).
   (Arkaden, Ladenfront), hängt er vor der Flucht der oberen Fassade.
 * Im Prüfstand werden die Gegner mit viel Leben gestellt (400), damit der
   Abschluss geprüft wird und nicht, wie schnell der Gegner fällt.
+
+---
+
+## 3. M3 – Cinematic Movement & Parkour Flow
+
+Neue Bewegungsqualität nur an den **Übergängen** zwischen vorhandenen
+Bewegungen. Schwingen, Springen, Klettern und Gleiten rechnen wie vorher;
+gemessen ist ein Ablauf ohne Zip-an-die-Wand (Sprint, Sprung, Schwung,
+Loslassen, Landung, 420 Bilder) mit und ohne M3 **bitgleich**, mit
+identisch vielen Zufallszügen. Code: Block „M3: Bewegungsfluss“ in
+`game.js` plus Ein-Zeilen-Haken in `zipZuPunkt`, Zug-Ende, Zug-Wandkontakt,
+`stopSwing`, perfektem Absprung, Wandsprung, Wandlauf vom Boden und im
+Anklettern aus der Luft. Schalter für Vorher/Nachher im Prüfstand:
+`window.__WEBHERO_FLUSS_ALT` (`starte(..., { flussAlt: true })`).
+
+Unberührt: Gleitpose und Gleitphysik, Kletterhaut, Überhang-Fix,
+Kamera-Fade, Hochziehen (Top-out), Eckbogen, Naht, Wandkollision.
+
+### 3.1 Schwung → Netz-Zip → Weiterbewegung
+
+Geprüft wurden alle sechs Punkte aus dem Auftrag; gemessen mit
+`tools/pruef/mega-bewegung.js teil=kette` (8 Fassaden × 3 Verzögerungen
+nach dem Loslassen, Leertaste halten → loslassen → E, W gehalten):
+
+| Punkt | Befund vorher | M3 |
+| --- | --- | --- |
+| Geschwindigkeit | Zug startet mit `max(16, Tempo)` und zieht auf bis 40 m/s – trägt den Schwung | unverändert (keine Beschleunigung ohne Aktion) |
+| Animationsblend | **Handruck 0,85 m in einem Bild** beim Zugbeginn: die Schusshaltung (`poseSchuss`) griff im ersten Zugbild mit voller Stärke, die Clipgewichte waren stetig | Schusshaltung blendet über 0,08 s ein: Arm-Ruck Median 0,64 → 0,13 m, kein Fall schlechter als vorher |
+| Kamera | Winkeländerung beim Übergang 2–6° je Bild (Kletterkamera beim Angreifen) | unverändert |
+| Zielwahl | Ziel immer an einem echten Haus (24/24), mindestens 2 m über der Figur | unverändert |
+| Netzanbindung | Faden an der Hand, straff | unverändert |
+| Landung / neu schwingen | nach dem Absprung im Fenster sofort wieder Schwung möglich (6/6, 0,03 s) | unverändert, perfekter Absprung zählt jetzt für den Fluss |
+
+Abstimmung der Blende (zweite und letzte Korrekturrunde für diesen
+Befund): 0,05 / 0,08 / 0,12 s lagen gleichauf, 0,18 s war schlechter
+(0,75 m). **Während eines Saltos** greift der Arm weiter sofort: dort dreht
+sich der ganze Körper, und die Blende war in 32 Stichproben schlechter als
+der harte Wechsel (Median 0,36 statt 0,28 m) – deshalb dort abgeschaltet
+(`megaZipArm`, im Prüfstand nachgewiesen: 5/5 Züge im Salto ohne Blende).
+
+Vorbestehend und **nicht** verändert (alt und neu identisch):
+Fußruck bis 0,58 m, wenn der Zug direkt aus einer Landung beginnt (der
+Bodenausgleich fällt beim Abheben weg); ein Sprung der linken Hand
+(0,85 m) im Clip `zip_zug` selbst; der Haltungswechsel beim Angreifen an
+der Wand (0,37 m, wie beim gewöhnlichen Anklettern aus der Luft).
+
+### 3.2 Netz-Zip → Wandlauf
+
+Vorher: Endete ein Zug an einer Fassade, griff die Figur nur mit
+gehaltenem W und dann **mit Tempo 0** – der Schwung war weg, sie kroch
+die Wand hoch. Ohne Taste fiel sie herunter.
+
+Jetzt: Endet ein Zug (ohne Gegner, nicht an einer Laterne) an genau dem
+Haus, auf das er zielte, greift die Figur dort an – über **denselben
+Einstieg** wie beim Anklettern aus der Luft (`wandTraegt`,
+`ankletternVonAussen`, `kletterOwnerSetzen`, Kletterhaut zurücksetzen).
+Gegriffen wird nur, wo die Kollision die Figur ohnehin an die Wand gelegt
+hat; keine unsichtbare Fläche, keine eigene Wandsuche. Der Schwung des
+Zugs wird Wandlauf – mit der Formel des Anlaufs vom Boden
+(Tempo zur Wand × 1,15, 8 bis 14). Liegt die Dachkante schon in
+Griffweite (≤ 2,5 m), übernimmt sofort das vorhandene Hochziehen.
+Wer mit S von der Wand weg lenkt, wird nicht festgehalten.
+
+| Messung (`teil=wand`, Zug von der Straße 18/26/34 m) | vorher | M3 |
+| --- | --- | --- |
+| mit W: angegriffen / Wandlauf / Hochziehen | 8 / 3 / 4 | 7 / 6 / 6 |
+| mit W: Median Zeit bis aufs Dach | 4,9 s | **2,2 s** |
+| ohne Taste: angegriffen | 0 | 2 (beide mit Wandlauf) |
+| Abstand zur echten Kollisionsfläche beim Angreifen | ≤ 0,65 m | ≤ 0,65 m |
+| mit S: Angreifen am Haus des Zugziels | 0 | 0 |
+| nach Schwung (`teil=kette`): Zug → Wand mit > 2,5 m Wand darüber | 0 Wandlauf | 2/2 Wandlauf, 6 Fälle direkt Hochziehen |
+
+### 3.3 Dachparkour
+
+Eine Vault-Animation gibt es nicht; deshalb wird nichts überklettert, was
+keine Bewegung dafür hat. Die neue, getestete Kette nutzt nur vorhandene
+Bewegungen und den Übergang aus 3.2:
+
+**Sprint über Dach A → Absprung an der Kante → Netz-Zip an die Fassade des
+höheren Hauses B → Wandlauf → Hochziehen → auf Dach B weiter.**
+
+`teil=dach` sucht selbst Paare (Dach A, Straße 7–24 m, Haus B 3–18 m
+höher, nichts dazwischen) und läuft sie mit echten Tasten
+(W + Shift, Leertaste 1,7 m vor der Kante – viele Dächer haben dort eine
+0,2 m hohe Brüstung –, E acht Bilder später, W gehalten):
+
+| | vorher | M3 |
+| --- | --- | --- |
+| Dach B erreicht | 3/6 | 3/6 |
+| Median Zeit Absprung → Dach B | 5,0 s | **2,2 s** |
+| Ablauf | Zug, Griff mit Tempo 0, Kriechen, Hochziehen | Zug, Wandlauf (37–38 Bilder), Hochziehen |
+
+Die drei anderen Paare enden auch vorher nicht auf Dach B (Hochziehen auf
+einen anderen Teil des Hauses bzw. Hängenbleiben unter der Dachkrone –
+bekannter Kletterrandfall „Dachkronen-Griff“, nicht verändert).
+
+### 3.4 Flow-Belohnung
+
+Verschiedene Bewegungen ohne Pause hintereinander ergeben am Ende der
+Kette einen kleinen Punktebonus über das vorhandene Punktesystem
+(`addScore` → Punkte, Stufen, Fertigkeitspunkte) und zählen im
+Fortschritt (`PROG.statistik.flowKetten`, `besterFlow`; alte Spielstände
+bekommen 0).
+
+* **Aktionen**: Schwung (ab 0,5 s am Faden), Netz-Zip, perfekter Absprung,
+  Wandlauf, Wandsprung, Hochziehen, Landung (nach mehr als 0,7 s Luft),
+  Sprint (0,6 s), Dachsprung (Dach zu anderem Dach, > 5 m), Gleiten (1 s).
+* **Nur echte, verschiedene Aktionen**: jede Art zählt einmal je Kette;
+  dieselbe Taste noch einmal hält die Kette nur am Leben.
+* **Ende**: 2,5 s ohne flüssige Bewegung, 0,8 s Stillstand, 40 s
+  Höchstdauer oder alle zehn Arten. Ein Treffer reißt die Kette ohne Punkte.
+* **Bonus** ab drei Arten: 20 / 35 / 50 / 70 / 90 / 110 Punkte (×
+  Ruf-Faktor). Danach 8 s Sperre. Zum Vergleich: Erste Hilfe 120.
+* **Anzeige**: klein rechts unter der Minikarte – während der Kette ab
+  zwei Aktionen „×n · letzte Aktion“, nach der Gutschrift 2,6 s „+P FLOW
+  ×n“. Keine Einblendung in der Bildmitte, kein Text in der Welt; das DOM
+  wird nur bei Änderung angefasst.
+* **Kein Einfluss auf die Physik**: der Takt liest Zustand und Tempo nur;
+  der Ton und die Gutschrift laufen über `MEGA_ZUFALL.klammer`, damit auch
+  der Rauschpuffer des Tons den Stadtstrom nicht verschiebt.
+
+| Prüfung (`teil=fluss`) | Ergebnis |
+| --- | --- |
+| echte Kette (Schwung, Zug, Wand, Hochziehen, Landung …) | genau eine Gutschrift, 41 Punkte, Anzeige „+41“ |
+| zehnmal Schwung/Loslassen | Kette höchstens 2, keine Punkte |
+| zweite Kette direkt nach einer Gutschrift | gesperrt, keine zweite Gutschrift |
+| Treffer während der Kette | gerissen, 0 Punkte |
+| Physik ohne Zip→Wand alt/neu | bitgleich |
+| Schalter alt | zahlt nie |
+
+### 3.5 Prüfstand, Bilder
+
+* `tools/pruef/mega-bewegung.js [teil=alle|kette|trick|neuschwung|wand|abweisen|dach|fluss]`
+  – je Teil zwei frische Browser (alt/neu), 21 Prüfungen, Exit 1 bei
+  Fehler. Letzter Lauf: 21/21.
+* `tools/pruef/mega-bewegung-bilder.js <ordner>` – vier Momente der
+  Dachkette mit Spielkamera und HUD plus Seitenansicht des Wandlaufs.
+* `docs/abnahme-mega-1.0/m3-dachkette.jpg`,
+  `docs/abnahme-mega-1.0/m3-wandlauf-seite.jpg`.
+
+### 3.6 Regression und Leistung
+
+Verglichen mit dem M2-Stand `f0f92ee` (eigener Arbeitsbaum, gleiche
+Prüfstände, gleicher Keim):
+
+| Prüfstand | Ergebnis |
+| --- | --- |
+| `kletterproxy.js`, `kletterstetigkeit.js`, `zeilenuebergang.js` (Naht), `wandlauf.js` | Ausgaben **bitgleich** zu M2 (Klettern, Haut, Naht, Wandlauf ohne Zip) |
+| `uebergangsmatrix.js` | bricht auf M2 und M3 identisch ab (der alte Prüfstand setzt einen Kletterzustand ohne Wand) – keine Abweichung |
+| `kernsysteme.js` | alles ok (Story 8/8, Ereignisse, Boss, Polizei/Rettung, Welthygiene, Fortschritt) |
+| `mega-ereignisse.js` | 5/5 gelöst, harte Fehler 0 |
+| `mega-kampf.js` | Wand-Finisher 6/6, Rückfall, Luft-Finisher ok; Rollentaktik mit exakt denselben Werten wie beim M2-Commit |
+| `node --test` | 170/170 |
+| Weltfingerabdruck | identisch (Hindernisse, Parkautos, Wagen, 88 Passanten) |
+| Szenengraph | identisch zu M2 (1169 Objekte, 5329 Meshes, 3 Lichter) – M3 baut nichts in die Szene, die Zeichenaufrufe sind damit unverändert |
+
+CPU je Simulationsschritt (gepaart, beide Stände gleichzeitig, aber unter
+Volllast durch parallel laufende Prüfstände und Videoaufnahme): Median
+8,70 ms (M3) gegen 8,18 ms (M2), bei derselben Ereignisfolge. Das ist bei
+dieser Last nicht belastbar; der M3-Takt liest nur Zustand und Tempo
+(eine Kolliderabfrage je Bild, nur auf Dächern). Eine Wiederholung auf
+ruhiger Maschine steht im M4-Abschnitt.
+
+Noch nicht wiederholt (laufen beim Commit noch): `schwingen.js`,
+`topoutlandung.js`, `gleitflug.js` – Ergebnis im M4-Abschnitt.
