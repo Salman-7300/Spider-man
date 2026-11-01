@@ -971,6 +971,25 @@ const SFX = (() => {
       noise(0.7, 0.16 * v, 180);
       tone(70, 0.6, 'sawtooth', 0.09 * v, 0.6);
     },
+    /* ---- Mega-Update 1.0: Geraeusche der neuen Ereignisse ----
+       Alles aus Oszillatoren und Rauschen wie der Rest, keine Datei.
+       Jeder Ton haelt an und wird danach vom Browser eingesammelt - es
+       bleibt kein Knoten haengen. Die Lautstaerke nach Entfernung
+       rechnet der Aufrufer. */
+    alarmGlocke(v) {
+      for (let i = 0; i < 6; i++) setTimeout(() => tone(1180, 0.06, 'triangle', v), i * 75);
+    },
+    autoAlarm(v) {
+      tone(620, 0.36, 'sawtooth', v * 0.8, 1.55);
+      setTimeout(() => tone(620, 0.36, 'sawtooth', v * 0.8, 1.55), 440);
+    },
+    motor(v) { tone(85, 0.7, 'sawtooth', v, 2.4); noise(0.5, v * 0.7, 260); },
+    crash(v) {
+      noise(0.4, v, 260);
+      tone(68, 0.45, 'sine', v * 1.3, 0.5);
+      setTimeout(() => noise(0.3, v * 0.55, 2400), 70);
+    },
+    schrei(v) { tone(820, 0.42, 'triangle', v, 0.62); },
     /* Spinnensinn: ein feines, schnell aufsteigendes Kribbeln. */
     sinn() {
       tone(1750, 0.07, 'sine', 0.05, 1.5);
@@ -15387,7 +15406,7 @@ document.addEventListener('keydown', (e) => {
     case 'KeyR': uppercut(); break;
     case 'KeyG': packenUndWerfen(); break;
     case 'KeyV': katapultStart(); break;
-    case 'KeyC': if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); break;
+    case 'KeyC': if (!interagieren()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); break;
     case 'KeyT': symbiontStart(); break;
     case 'Enter': if (player.dead) respawn(); break;
   }
@@ -15434,7 +15453,7 @@ const PAD_TASTEN = {
   4: () => webShot(),
   5: () => webZip(),
   6: () => uppercut(),
-  8: () => { if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); },
+  8: () => { if (!interagieren()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); },
   9: () => zeigeEinstellungen(settingsEl.style.display !== 'flex'),
   11: () => packenUndWerfen(),
 };
@@ -15611,7 +15630,7 @@ function baueTouch() {
       hilfe: 'Ausweichrolle – im richtigen Moment gibt es einen Konter', tun: () => dodge() },
     { id: 'tHilfeC', sym: '✚', bez: '1. Hilfe', reihe: 2, art: 'tipp',
       hilfe: 'Verletzten am roten Kreuz helfen',
-      tun: () => { if (!ersteHilfe()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); } },
+      tun: () => { if (!interagieren()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); } },
     { id: 'tSymbiont', sym: '🕷', bez: 'Symbiont', reihe: 2, art: 'tipp',
       hilfe: 'Schwarzer Anzug: 22 Sekunden lang deutlich mehr Wucht. ' +
              'Der Balken fuellt sich beim Kaempfen; erst wenn er voll ist, geht es.',
@@ -18720,6 +18739,8 @@ function webShot() {
          stehen.
      Bisher gab es nur den zweiten Fall; an einer Laterne passierte gar
      nichts. */
+  /* M1: ein Netz auf den Fluchtwagen zaehlt als Treffer. */
+  if (!target && megaNetzAmWagen()) return;
   if (!target) {
     const obj = ziehZiel(24, 0.55);
     const fest = ziehFestZiel(26, 0.6);
@@ -25130,6 +25151,12 @@ function updateAutoFahrer(dt) {
   const nah = [];
   for (const c of cars) {
     if (c.aus || !c.mesh || !c.mesh.userData.fahrerSitz) continue;
+    /* M1: ausgestiegen (Autodieb an der Tuer, eingeklemmter Fahrer liegt
+       unsichtbar im Wagen) - dann sitzt dort niemand sichtbar. */
+    if (c.leer) {
+      if (c.mesh.userData.insassen) c.mesh.userData.insassen.visible = false;
+      continue;
+    }
     const p = c.mesh.position;
     const d2 = (p.x - player.pos.x) * (p.x - player.pos.x) +
                (p.z - player.pos.z) * (p.z - player.pos.z);
@@ -34405,6 +34432,9 @@ function updateCivilians(dtBild) {
        Die Geisel laeuft weiter, damit sie nicht mitten in ihrer Animation
        einfriert. */
     if (MISSION_INTERIOR.active && !c.geisel) continue;
+    /* M1: Person auf dem Dach, eingeklemmter Fahrer, Heimweg nach einem
+       gescheiterten Einsatz - die Darstellung uebernimmt megaZiviBild. */
+    if ((c.dachRettung || c.imWagen || c.megaHeim) && megaZiviBild(c, dtBild)) continue;
     /* Stufe 7B: Geisel, Fahrgast, Verletzter - der Aufenthalt endet
        sofort; wer zu lange zu seinem Platz unterwegs ist, gibt ihn auf. */
     if (c.saAnker && (c.geisel || c.bahnsteig !== undefined || c.eingestiegen > 0 || c.state === 'hurt')) {
@@ -38293,6 +38323,12 @@ const EV_ARTEN = [
   { art: 'gang',      gewicht: 22, schwere: 2 },
   { art: 'unfall',    gewicht: 16, schwere: 1 },
   { art: 'enforcer',  gewicht: 3,  schwere: 4 },
+  /* Mega-Update 1.0, M1: drei neue Ablaeufe (siehe megaEreignisBild).
+     Laden und Autodieb zaehlen als gross - die Taktbremse und das
+     Hoechstmass EV_MAX_GROSS gelten fuer sie genauso. */
+  { art: 'laden',       gewicht: 13, schwere: 2 },
+  { art: 'autodieb',    gewicht: 11, schwere: 2 },
+  { art: 'dachrettung', gewicht: 10, schwere: 1 },
 ];
 
 function evLog() { if (EVENT_DEBUG) console.log.apply(console, arguments); }
@@ -38405,7 +38441,10 @@ function evNeu(art, schwere, ort) {
        ist keine Stadt mehr, das ist Dauerbeschaeftigung. Ein Ueberfall,
        den niemand stoert, ist auch nach knapp zwei Minuten vorbei. */
     maxLeben: art === 'enforcer' ? 210 : art === 'gang' ? 150
-            : art === 'unfall' ? 75 : 110,
+            : art === 'unfall' ? 75
+            : art === 'laden' || art === 'autodieb' ? 150
+            : art === 'dachrettung' ? 140 : 110,
+    phase: null, phaseT: 0, phasen: null,
     entdeckt: false,
     gegner: [], zivilisten: [], gang: null,
     ziel: '',                 // Text der Hauptbedingung
@@ -38844,6 +38883,9 @@ function evSetzeRollen(gang, schwere) {
 /* ---- Ereignis aufbauen ---- */
 function evBaue(e) {
   if (e.art === 'unfall') return evBaueUnfall(e);
+  if (e.art === 'laden') return evBaueLaden(e);
+  if (e.art === 'autodieb') return evBaueAutodieb(e);
+  if (e.art === 'dachrettung') return evBaueDach(e);
   const n = e.art === 'enforcer' ? evGangGroesse(4) : evGangGroesse(e.schwere);
   const gang = spawnGang(e.ort.x, e.ort.z, n, 'event');
   e.gang = gang;
@@ -38939,6 +38981,8 @@ function evBaueUnfall(e) {
     e.rettung = c;
   }
   e.ziel = 'Verletzten versorgen';
+  /* M1: der eingeklemmte Fahrer und die Phasen. */
+  megaUnfallErweitern(e);
   return true;
 }
 
@@ -38949,7 +38993,9 @@ function evBaueUnfall(e) {
 /* Macht das Ereignis Laerm? Ein Ueberfall mit Opfer und ein Kampf schon,
    ein stehendes Auto nicht. */
 function evLaut(e) {
-  if (e.art === 'unfall') return !!(e.rettung && e.rettung.hilfeBar);
+  if (e.art === 'unfall') return !!((e.rettung && e.rettung.hilfeBar) || (e.fahrer && e.fahrer.imWagen));
+  /* Alarmglocke, Alarmanlage, Hilferufe: von Anfang an zu hoeren. */
+  if (e.art === 'laden' || e.art === 'autodieb' || e.art === 'dachrettung') return e.lebenszeit > 1;
   if (e.lebenszeit < 3) return false;
   return e.gegner.some((g) => !g.dead);
 }
@@ -38989,6 +39035,12 @@ function evWichtigstes() {
 /* Wo genau steckt das Ereignis gerade? Der Marker soll dem Geschehen
    folgen, nicht auf dem Startpunkt kleben. */
 function evBrennpunkt(e) {
+  if (e.art === 'autodieb' && e.auto && e.phase === 'eskalation') return e.auto.mesh.position;
+  if (e.art === 'dachrettung' && e.person) return e.person.pos;
+  if (e.art === 'laden' && e.beute && e.beute.zustand === 'liegt') return e.beute;
+  if (e.art === 'laden' && e.beute && e.beute.zustand === 'held' && e.laden)
+    return e.besitzer && !e.besitzer.dead ? e.besitzer.pos : { x: e.laden.kx, y: e.ort.y, z: e.laden.kz };
+  if (e.art === 'unfall' && e.fahrer && e.fahrer.imWagen && e.auto) return e.auto.mesh.position;
   if (e.fluechtige.length) {
     const f = e.fluechtige.find((g) => !g.dead && g.webStufe < 3);
     if (f) return f.pos;
@@ -39075,6 +39127,9 @@ function evPruefeFluechtige(e) {
 
 /* ---- Ist das Ereignis vorbei? ---- */
 function evPruefeEnde(e) {
+  /* M1: die neuen Ablaeufe (und der erweiterte Unfall) entscheiden in
+     ihren Phasen selbst, wann sie vorbei sind. */
+  if (e.phase) { evAblauf(e); return; }
   const lebend = e.gegner.filter((g) => !g.dead && g.webStufe < 3);
   if (e.art === 'unfall') {
     if (e.rettung) {
@@ -39115,9 +39170,13 @@ function evEnde(e, erfolg, text) {
   if (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT' ||
       e.zustand === 'AUFRAEUMEN' || e.zustand === 'FERTIG') return;
   e.zustand = erfolg ? 'GELOEST' : 'GESCHEITERT';
+  e.endeZeit = EV.gesamtZeit;
   if (erfolg) EV.statistik.geloest++; else EV.statistik.gescheitert++;
   if (erfolg) {
-    PROG.statistik.crimes++;
+    /* Eine Rettung ist kein gestopptes Verbrechen - sie zaehlt als Rettung,
+       fuer den Bezirk aber wie jeder andere geklaerte Vorfall. */
+    if (e.art === 'dachrettung') PROG.statistik.gerettet++;
+    else PROG.statistik.crimes++;
     bezirkZaehle(e.ort.x, e.ort.z, 'crime');
     bezirkPruefen(e.ort.x, e.ort.z);
     progSofort();
@@ -39159,6 +39218,8 @@ function evEnde(e, erfolg, text) {
    Jede Rolle wieder loeschen, sonst bleibt ein Zivilist fuer immer
    "Opfer" und ein Auto steht in zehn Minuten noch quer. */
 function evAufraeumen(e) {
+  megaAufraeumen(e);
+  for (const g of e.gegner) if (g.bewacht) g.bewacht = null;
   for (const c of e.zivilisten) {
     if (c.eventId === e.id) { c.eventId = null; c.eventRolle = null; }
   }
@@ -39224,8 +39285,10 @@ function evLeckPruefung() {
   for (const c of civilians) if (c.eventId && !ids.has(c.eventId)) { c.eventId = null; c.eventRolle = null; leck++; }
   for (const g of enemies) if (g.eventId && !ids.has(g.eventId)) {
     g.eventId = null; g.eventRolle = null; g.eventFlucht = false; leck++; }
+  for (const c of civilians) if (c.dachRettung && !ids.has(c.dachRettung.e.id)) { c.dachRettung = null; leck++; }
   for (const a of cars) if (a.eventId && !ids.has(a.eventId)) {
-    a.eventId = null; a.unfall = false;
+    a.eventId = null; a.unfall = false; a.diebstahl = false; a.leer = false;
+    if (a.flucht && !(MISSION.daten && MISSION.daten.car === a)) a.flucht = false;
     if (a.altTempo !== undefined) a.speed = a.altTempo;
     leck++;
   }
@@ -39244,8 +39307,13 @@ function evWaehleArt(nurOhneGegner) {
   for (const a of EV_ARTEN) {
     /* Ist die Stadt schon voller Ganoven, kommt nur noch ein Ereignis
        ohne zusaetzliche Gegner in Frage (der Verkehrsunfall). */
-    if (nurOhneGegner && a.art !== 'unfall') continue;
+    if (nurOhneGegner && a.art !== 'unfall' && a.art !== 'dachrettung') continue;
     if (a.schwere >= 2 && gross >= EV_MAX_GROSS) continue;
+    /* Ein Fluchtwagen zur Zeit: nicht neben dem Fluchtauto-Auftrag, nicht
+       waehrend einer Storymission (sie nimmt sich selbst Fluchtwagen) und
+       nicht, solange irgendein Wagen flieht. */
+    if (a.art === 'autodieb' && (MISSION.art === 'flucht' || MISSION.art === 'story' ||
+                                 cars.some((c) => c.flucht && !c.aus))) continue;
     let g = a.gewicht;
     /* Kommt die Art gerade oft vor, wird sie unwahrscheinlicher. */
     const wieOft = EV.letzteArten.filter((x) => x === a.art).length;
@@ -39265,6 +39333,7 @@ function evWaehleArt(nurOhneGegner) {
 const EV_TICK = 0.25;
 function updateWeltEreignisse(dt) {
   EV.gesamtZeit += dt;
+  megaEreignisBild(dt);
   /* Ereignisse altern immer, auch zwischen den Entscheidungen. */
   let aktiveGross = 0, erlebt = 0;
   for (const e of EV.liste) {
@@ -39341,7 +39410,11 @@ function updateWeltEreignisse(dt) {
       !storyKampfPhase() && EV.taktAnteil < EV_ZIEL_AKTIV) {
     const wahl = evWaehleArt(lebendeGegner >= EV_GEGNER_MAX);
     if (wahl) {
-      const ort = evSucheOrt(EV_NAH, EV_FERN, wahl.art !== 'unfall');
+      /* Laden, Autodieb und Dach suchen ihren Ort selbst (Ladentuer,
+         Wagen, Dachkante) - evSucheOrt wuerde nur den Stadtstrom ziehen. */
+      const ort = EV_EIGENER_ORT.has(wahl.art)
+        ? { x: player.pos.x, y: 0, z: player.pos.z }
+        : evSucheOrt(EV_NAH, EV_FERN, wahl.art !== 'unfall');
       if (ort) {
         const e = evNeu(wahl.art, wahl.schwere, ort);
         if (!evBaue(e)) {
@@ -39384,13 +39457,1481 @@ function updateWeltEreignisse(dt) {
 function evStarte(art, schwere) {
   const a = EV_ARTEN.find((x) => x.art === art);
   if (!a) return null;
-  const ort = evSucheOrt(EV_NAH, EV_FERN, art !== 'unfall');
+  const ort = EV_EIGENER_ORT.has(art)
+    ? { x: player.pos.x, y: 0, z: player.pos.z }
+    : evSucheOrt(EV_NAH, EV_FERN, art !== 'unfall');
   if (!ort) return null;
   const e = evNeu(art, schwere === undefined ? a.schwere : schwere, ort);
-  if (!evBaue(e)) { e.zustand = 'FERTIG'; return null; }
+  if (!evBaue(e)) {
+    e.zustand = 'FERTIG';
+    EV.statistik.gestartet--;
+    EV.statistik.arten[e.art]--;
+    return null;
+  }
   EV.ruheCd = 20;
   return e;
 }
+
+/* ======================= Mega-Update 1.0: eigener Zufallsstrom =======================
+   Alles, was dieses Update neu auswuerfelt, kommt aus diesem Strom und
+   NICHT aus Math.random. Math.random ist hier der Stadtstrom: an ihm haengt
+   der Fingerabdruck der Welt (tools/pruef/determinismus.js, weltgleich).
+   Schon ein einziger zusaetzlicher Zug verschiebt alles, was danach kommt.
+
+   klammer(fn) fuehrt fn mit diesem Strom als Math.random aus. Das ist
+   noetig, weil vorhandene Bausteine selbst wuerfeln: spawnGang waehlt Typ
+   und Kleidung, und three.js zieht fuer JEDE neue UUID (Mesh, Material,
+   Knochen) vier Zahlen. Ohne die Klammer liefe das ueber den Stadtstrom. */
+const MEGA_ZUFALL = (() => {
+  let s = ((WELT_KEIM ^ 0x6d656761) >>> 0) || 0x9e3779b9;
+  function zahl() {
+    s ^= s << 13; s >>>= 0;
+    s ^= s >> 17;
+    s ^= s << 5; s >>>= 0;
+    return s / 4294967296;
+  }
+  return {
+    zahl,
+    bereich(a, b) { return a + zahl() * (b - a); },
+    ganz(a, b) { return Math.floor(a + zahl() * (b - a + 1)); },
+    wahl(arr) { return arr[Math.floor(zahl() * arr.length)]; },
+    zustand() { return s; },
+    keim(n) { s = (n >>> 0) || 0x9e3779b9; },
+    klammer(fn) {
+      const alt = Math.random;
+      Math.random = zahl;
+      try { return fn(); } finally { Math.random = alt; }
+    },
+  };
+})();
+
+/* ======================= M1: neue Ereignisablaeufe =======================
+   Kein zweites Ereignissystem: die vier Ablaeufe haengen im vorhandenen
+   Regisseur (EV_ARTEN, evNeu, evBaue, evPruefeEnde, evEnde, evAufraeumen)
+   und benutzen dessen Bausteine - spawnGang, das Moral- und Fluchtsystem,
+   die Verletzten-Mechanik mit erster Hilfe (Taste C), Polizei und
+   Rettungsdienst (RESP), die Autojagd (respAutojagd) und die Zuschauer.
+
+   Neu ist nur die Gliederung in Phasen, die jeder dieser Ablaeufe
+   durchlaeuft und in e.phasen protokolliert:
+     verborgen   angelegt, der Spieler weiss noch nichts
+     entdeckt    gehoert oder gesehen (Alarm, Hilferuf, Unfallknall)
+     annaeherung der Spieler ist unterwegs
+     intervention der Spieler ist da und greift ein
+     eskalation  die Lage kippt (Flucht, Absturz, Rauch)
+     hauptziel   das eigentliche Ziel ist erreichbar
+     abschluss   Ziel erreicht, das Ereignis endet
+     nachphase   Polizei, Rettungsdienst, Dank - dann wird aufgeraeumt
+   Nicht jede Phase kommt in jedem Lauf vor: wer den Autodieb vor dem
+   Einsteigen stoppt, erlebt keine Verfolgungsjagd. */
+const EV_EIGENER_ORT = new Set(['laden', 'autodieb', 'dachrettung']);
+const MEGA = {
+  laeden: null,
+  statistik: { laden: { gebaut: 0, ohneOrt: 0, beuteZurueck: 0, beuteWeg: 0 },
+               autodieb: { gebaut: 0, ohneWagen: 0, jagden: 0, gestoppt: 0, ohneJagd: 0, entkommen: 0,
+                           netzTreffer: 0, schlagTreffer: 0 },
+               dachrettung: { gebaut: 0, ohneDach: 0, abgerutscht: 0, gefangen: 0, gegriffen: 0,
+                              abgesetzt: 0, gestuerzt: 0, zurueckGebracht: 0 },
+               unfall: { mitFahrer: 0, befreitSpieler: 0, befreitAuto: 0 } },
+  beuteMesh: null, seil: null, rauch: null, rauchBesitzer: null,
+  prompt: null, promptText: '', promptCd: 0, kandidat: null,
+  rueckweg: [],              // Personen, die nach einem gescheiterten Einsatz noch heim muessen
+};
+EV.statistik.phasen = {};
+
+function evPhase(e, neu) {
+  if (e.phase === neu) return;
+  e.phase = neu; e.phaseT = 0;
+  (e.phasen || (e.phasen = [])).push([neu, +e.lebenszeit.toFixed(1)]);
+  const k = e.art + ':' + neu;
+  EV.statistik.phasen[k] = (EV.statistik.phasen[k] || 0) + 1;
+}
+/* Ein Ort ist nur dann frei, wenn dort kein anderes Ereignis laeuft und
+   er nicht gerade gesperrt ist - dieselben Regeln wie evOrtTauglich. */
+function megaOrtFrei(x, z) {
+  for (const g of EV.gesperrt) if (Math.hypot(g.x - x, g.z - z) < 30) return false;
+  for (const o of EV.liste) {
+    if (o.zustand === 'FERTIG') continue;
+    if (Math.hypot(o.ort.x - x, o.ort.z - z) < 45) return false;
+  }
+  return true;
+}
+/* Rollen einer Ereignisgang fest setzen (wie evSetzeRollen, aber mit
+   Liste statt Schwere). Laeuft innerhalb der Zufallsklammer. */
+function megaRollen(gang, rollen) {
+  for (let i = 0; i < gang.enemies.length; i++) {
+    const typ = GANOVEN.find((g) => g.art === rollen[i % rollen.length]);
+    if (!typ) continue;
+    const e = gang.enemies[i];
+    e.typ = typ; e.hp = typ.hp; e.hpMax = typ.hp;
+    e.radius = 0.4 * typ.groesse;
+    if (e.visual && e.visual.root) e.visual.root.scale.setScalar(typ.groesse);
+    if (e.visual) {
+      if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, typ.art);
+      setzeGegnerHaut(e.visual, typ.art);
+    }
+    if (MUT_BASIS[typ.art] !== undefined) e.mut = MUT_BASIS[typ.art];
+  }
+}
+/* Ein vorhandener Passant fuer eine Rolle (Ladenbesitzer, Person auf dem
+   Dach, eingeklemmter Fahrer). Es wird niemand neu erzeugt - die 88
+   Passanten bleiben 88. Genommen wird nur, wer gerade frei ist, keinen
+   Begleiter hat und vom Spieler nicht gesehen wird: er wird ja versetzt. */
+function megaZiviHolen(x, z, r) {
+  let best = null, bestD = r;
+  for (const c of civilians) {
+    if (c.eventId || c.state !== 'walk' || c.eingestiegen > 0 || c.bahnsteig !== undefined) continue;
+    if (c.geisel || c.dachRettung || c.imWagen || c.gafft || c.megaHeim) continue;
+    if (c.begleiter && !c.begleiter.dead) continue;
+    if (!c.visual || !c.visual.root || c.visual.procedural) continue;
+    const d = Math.hypot(c.pos.x - x, c.pos.z - z);
+    if (d >= bestD) continue;
+    if (Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) < 70 && evImBlick(c.pos.x, c.pos.z)) continue;
+    best = c; bestD = d;
+  }
+  if (best && best.saAnker) saAbbruch(best, 'mission', true);
+  return best;
+}
+/* Einen versetzten Passanten wieder ins normale Leben schicken: naechster
+   Knoten des Gehnetzes, neues Ziel. Die Wegwahl wuerfelt - deshalb in der
+   Klammer. */
+function megaZiviZurueck(c) {
+  c.dachRettung = null; c.imWagen = null; c.megaHeim = false;
+  c.visual.root.visible = true;
+  c.state = 'walk'; c.vel.set(0, 0, 0);
+  c.route = null; c.routeI = 0; c.waypoint = null;
+  c.knoten = gehNaechster(c.pos.x, c.pos.z, 30);
+  MEGA_ZUFALL.klammer(() => gehNeuesZiel(c));
+}
+/* Sieht der Spieler gerade einen Punkt in beliebiger Hoehe? evImBlick
+   prueft nur in Bodenhoehe - ein Dach braucht die echte Hoehe. */
+function megaSiehtPunkt(x, y, z) {
+  const dx = x - player.pos.x, dz = z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 150) return false;
+  const f = camForward();
+  if ((dx * f.x + dz * f.z) / Math.max(0.001, d) < EV_SICHT_KEGEL) return false;
+  return freieSicht(player.pos.x, player.pos.y + 1.5, player.pos.z, x, y, z);
+}
+function megaAbstand(e, p) {
+  return Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+}
+
+/* ---- Kleine Effekte, einmal gebaut und wiederverwendet ----
+   Alles in der Zufallsklammer (UUIDs), alles nur einmal: es entstehen im
+   Lauf keine neuen Szenenobjekte, es wird nur ein- und ausgeblendet. */
+function megaBeute() {
+  if (MEGA.beuteMesh) return MEGA.beuteMesh;
+  MEGA_ZUFALL.klammer(() => {
+    const g = new THREE.Group();
+    const sack = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8),
+      new THREE.MeshLambertMaterial({ color: 0x3b3326 }));
+    sack.scale.set(1, 1.15, 0.85);
+    const knoten = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.12, 8),
+      new THREE.MeshLambertMaterial({ color: 0x2a241b }));
+    knoten.position.y = 0.26;
+    g.add(sack); g.add(knoten);
+    g.visible = false;
+    scene.add(g);
+    MEGA.beuteMesh = g;
+  });
+  return MEGA.beuteMesh;
+}
+function megaSeil() {
+  if (MEGA.seil) return MEGA.seil;
+  MEGA_ZUFALL.klammer(() => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    const l = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xf2f6fa }));
+    l.frustumCulled = false;
+    l.visible = false;
+    scene.add(l);
+    MEGA.seil = l;
+  });
+  return MEGA.seil;
+}
+const MEGA_RAUCH_N = 10;
+function megaRauch() {
+  if (MEGA.rauch) return MEGA.rauch;
+  MEGA_ZUFALL.klammer(() => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+    const g = cv.getContext('2d');
+    const gr = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+    gr.addColorStop(0, 'rgba(120,120,124,0.85)');
+    gr.addColorStop(1, 'rgba(120,120,124,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(cv);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.6 });
+    MEGA.rauch = [];
+    for (let i = 0; i < MEGA_RAUCH_N; i++) {
+      const s = new THREE.Sprite(mat.clone());
+      s.visible = false;
+      scene.add(s);
+      MEGA.rauch.push({ s, t: 0, dauer: 0, vx: 0, vz: 0 });
+    }
+  });
+  return MEGA.rauch;
+}
+/* Rauch an einem Wagen: ein paar Wolken steigen auf und verblassen. Nur
+   ein Ereignis zur Zeit besitzt den Rauch. */
+function megaRauchBild(dt) {
+  const R = MEGA.rauch;
+  if (!R) return;
+  const e = MEGA.rauchBesitzer;
+  const aktiv = e && e.zustand !== 'FERTIG' && e.auto && e.rauchStufe > 0;
+  const p = aktiv ? e.auto.mesh.position : null;
+  const nah = aktiv && Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 140;
+  for (const w of R) {
+    if (w.t > 0) {
+      w.t -= dt;
+      const a = clamp(w.t / w.dauer, 0, 1);
+      w.s.position.x += w.vx * dt; w.s.position.z += w.vz * dt;
+      w.s.position.y += (0.9 + (1 - a) * 0.8) * dt;
+      const g = 0.7 + (1 - a) * 2.2 * (e && e.rauchStufe > 1 ? 1.5 : 1);
+      w.s.scale.set(g, g, g);
+      w.s.material.opacity = 0.55 * a;
+      if (w.t <= 0) w.s.visible = false;
+    } else if (nah && MEGA_ZUFALL.zahl() < dt * (e.rauchStufe > 1 ? 7 : 3)) {
+      const vorn = e.auto.typ ? e.auto.typ.laenge * 0.32 : 1.4;
+      const ax = e.auto.axis === 'x' ? e.auto.dir : 0, az = e.auto.axis === 'z' ? e.auto.dir : 0;
+      w.s.position.set(p.x + ax * vorn + MEGA_ZUFALL.bereich(-0.3, 0.3), p.y + 1.1,
+                       p.z + az * vorn + MEGA_ZUFALL.bereich(-0.3, 0.3));
+      w.dauer = w.t = MEGA_ZUFALL.bereich(1.6, 2.8);
+      w.vx = MEGA_ZUFALL.bereich(-0.3, 0.3); w.vz = MEGA_ZUFALL.bereich(-0.3, 0.3);
+      w.s.visible = true;
+    }
+  }
+}
+
+/* ======================= A: Geschaeftsueberfall =======================
+   Drei Raeuber vor einem Laden, der Inhaber steht mit erhobenen Haenden in
+   der Tuer, die Alarmglocke laeutet. Zwei bewachen ihn, einer steht
+   Schmiere. Greift der Spieler ein, rennt der mit der Beute weg - das ist
+   die Eskalation. Wer ihn stoppt, muss die Beute noch zurueckbringen.
+
+   Die Laeden kommen aus den Erdgeschossen von Stufe 8A (BI.liste:
+   Sockel mit Programm Laden, Cafe, Flagship, gemischt, mit Tuer). */
+function megaLaeden() {
+  if (MEGA.laeden) return MEGA.laeden;
+  if (!BI.fertig) return [];
+  const aus = [];
+  for (const e of BI.liste) {
+    if (e.art !== 'sockel' || !e.tueren || !e.tueren.length) continue;
+    if (!/^(laden|cafe|flagship|gemischt)$/.test(e.programm || '')) continue;
+    const K = HAUS_KISTEN[e.haus];
+    if (!K) continue;
+    const n = e.nx ? e.nx : e.nz;
+    const ebene = e.nx ? K.x + e.nx * K.w / 2 : K.z + e.nz * K.d / 2;
+    const vor = ebene + n * (BI_VOR - (e.tiefe || 0));
+    const t = e.tueren[Math.floor(e.tueren.length / 2)];
+    const tx = e.nx ? vor : K.x + e.nz * t.l;
+    const tz = e.nx ? K.z - e.nx * t.l : vor;
+    const qx = tx + (e.nx || 0) * 2.6, qz = tz + (e.nz || 0) * 2.6;
+    if (inWater(qx, qz) || onBridge(qx, qz) || inGebaeude(qx, qz)) continue;
+    const y = groundY(qx, qz, 2);
+    if (y < -0.5 || y > 1.5) continue;
+    if (typeof gehPlatzFrei === 'function' && !gehPlatzFrei(qx, qz, 0.8)) continue;
+    /* Der Inhaber steht knapp vor der Tuer - dort muss derselbe Boden
+       sein wie davor, sonst steht er auf einer Stufe oder darin. */
+    const kx = tx + (e.nx || 0) * 0.8, kz = tz + (e.nz || 0) * 0.8;
+    if (Math.abs(groundY(kx, kz, 2) - y) > 0.25) continue;
+    aus.push({ nr: e.nr, tx, tz, qx, qz, kx, kz, nx: e.nx || 0, nz: e.nz || 0,
+               programm: e.programm, bezirk: e.bezirk });
+  }
+  MEGA.laeden = aus;
+  return aus;
+}
+function megaLadenWahl() {
+  let best = null, bestW = -1e9;
+  const mitte = (EV_NAH + EV_FERN) / 2;
+  for (const L of megaLaeden()) {
+    const d = Math.hypot(L.qx - player.pos.x, L.qz - player.pos.z);
+    if (d < EV_NAH || d > EV_FERN) continue;
+    if (!megaOrtFrei(L.qx, L.qz)) continue;
+    if (evImBlick(L.qx, L.qz)) { EV.statistik.spawnSichtbar++; continue; }
+    const w = -Math.abs(d - mitte) / mitte * 20 + MEGA_ZUFALL.zahl() * 8;
+    if (w > bestW) { bestW = w; best = L; }
+  }
+  return best;
+}
+function evBaueLaden(e) {
+  const L = megaLadenWahl();
+  if (!L) { MEGA.statistik.laden.ohneOrt++; return false; }
+  e.ort.x = L.qx; e.ort.z = L.qz; e.ort.y = groundY(L.qx, L.qz, 2);
+  e.laden = L;
+  const gang = MEGA_ZUFALL.klammer(() => {
+    const g = spawnGang(L.qx, L.qz, 3, 'event');
+    megaRollen(g, ['flink', 'schlaeger', 'werfer']);
+    return g;
+  });
+  e.gang = gang; gang.ausEvent = e.id;
+  const y = e.ort.y;
+  /* Der Inhaber: ein Passant aus der Naehe, in die Tuer gestellt. */
+  const c = megaZiviHolen(L.kx, L.kz, 60);
+  if (c) {
+    c.pos.set(L.kx, groundY(L.kx, L.kz, 2), L.kz); c.vel.set(0, 0, 0);
+    c.facing = Math.atan2(L.nx, L.nz);
+    /* Versetzt: der alte Gehwegknoten gilt nicht mehr - ohne das liefe er
+       spaeter von der Ladentuer aus quer durch die Stadt zu seinem alten
+       Weg zurueck. -1 heisst: beim naechsten Ziel den naechsten Knoten
+       suchen (gehNeuesZiel). */
+    c.route = null; c.waypoint = null; c.knoten = -1;
+    c.geisel = true;
+    c.eventId = e.id; c.eventRolle = 'ladenbesitzer';
+    e.zivilisten.push(c);
+    e.besitzer = c;
+  }
+  /* Zwei bewachen ihn (seitlich vor der Tuer, nie im Haus), einer steht
+     Schmiere zur Strasse hin. Der Ring der Bewacher zeigt nach aussen. */
+  const w0 = Math.atan2(L.nx, L.nz);
+  const anker = c || { pos: V3(L.kx, y, L.kz) };
+  const schmiere = { pos: V3(L.qx + L.nx * 2.2, y, L.qz + L.nz * 2.2) };
+  const plaetze = [w0 - 0.95, w0 + 0.95, 0];
+  gang.enemies.forEach((g, i) => {
+    const ziel = i < 2 ? anker : schmiere;
+    g.bewacht = ziel;
+    g.ringWinkel = plaetze[i];
+    g.pos.set(ziel.pos.x + Math.sin(plaetze[i]) * 1.6, y, ziel.pos.z + Math.cos(plaetze[i]) * 1.6);
+    g.state = 'patrol'; g.target = null;
+    g.eventId = e.id; g.eventRolle = 'taeter';
+    e.gegner.push(g);
+  });
+  e.beuteTraeger = gang.enemies[0];
+  e.beuteTraeger.eventRolle = 'beute';
+  e.beute = { zustand: 'traeger', x: 0, y: 0, z: 0 };
+  e.raubZeit = 65;
+  e.alarmCd = 0;
+  e.ziel = 'Ladenüberfall stoppen';
+  e.phase = 'verborgen'; e.phaseT = 0; e.phasen = [['verborgen', 0]];
+  MEGA.statistik.laden.gebaut++;
+  return true;
+}
+/* Wer zaehlt als "gestoppt"? Dieselbe Regel wie die Polizei. */
+function megaGestoppt(g) {
+  return !g || g.dead || g.policeCustody || (g.webStufe || 0) >= 3 || g.eventRolle === 'gefasst';
+}
+function megaBeuteFallen(e, g) {
+  const B = e.beute;
+  B.zustand = 'liegt';
+  B.x = g.pos.x; B.z = g.pos.z; B.y = groundY(g.pos.x, g.pos.z, g.pos.y + 1);
+  popupWorld('Beute!', g.pos, '#ffd23c');
+}
+function megaRaeuberFliehen(e, alle) {
+  for (const g of e.gegner) {
+    if (g.dead || megaGestoppt(g)) continue;
+    if (!alle && g !== e.beuteTraeger) continue;
+    g.bewacht = null;
+    g.flieht = true;
+    g.state = 'patrol'; g.target = null;
+    g.mut = Math.min(g.mut || 0.5, 0.15);
+    if (g === e.beuteTraeger) g.eventFlucht = true;
+  }
+}
+function evAblaufLaden(e) {
+  const T = e.beuteTraeger, B = e.beute;
+  const d = megaAbstand(e, e.ort);
+  const dy = Math.abs(player.pos.y - e.ort.y);
+  /* Nach der Raubzeit gehen sie von selbst - mit der Beute. */
+  const raubVorbei = e.lebenszeit > e.raubZeit;
+  switch (e.phase) {
+    case 'verborgen':
+      if (e.entdeckt) evPhase(e, 'entdeckt');
+      else if (raubVorbei) { evEnde(e, false, null); return; }
+      break;
+    case 'entdeckt':
+      if (e.phaseT >= 2 || d < 70) evPhase(e, 'annaeherung');
+      break;
+    case 'annaeherung':
+      if (d < 22 && dy < 8) {
+        evPhase(e, 'intervention');
+        e.ziel = 'Räuber stoppen';
+      } else if (raubVorbei) {
+        if (d > 120) { evEnde(e, false, '💨 Die Räuber sind mit der Beute entkommen'); return; }
+        megaRaeuberFliehen(e, true);
+        evPhase(e, 'eskalation');
+        e.ziel = 'Räuber mit der Beute stoppen';
+        popupScreen('🏃 Die Räuber hauen mit der Beute ab!');
+      }
+      break;
+    case 'intervention': {
+      if (megaGestoppt(T)) {            // den Traeger hat es zuerst erwischt
+        megaBeuteFallen(e, T);
+        evPhase(e, 'hauptziel');
+        e.ziel = 'Beute zum Laden zurückbringen';
+        break;
+      }
+      const einerUnten = e.gegner.some((g) => g !== T && megaGestoppt(g));
+      if (einerUnten || e.phaseT >= 8 || (T.staggerT || 0) > 0) {
+        megaRaeuberFliehen(e, false);
+        evPhase(e, 'eskalation');
+        e.ziel = 'Räuber mit der Beute stoppen';
+        popupScreen('🏃 Der Räuber flieht mit der Beute!');
+      }
+      break;
+    }
+    case 'eskalation':
+      if (megaGestoppt(T)) {
+        megaBeuteFallen(e, T);
+        evPhase(e, 'hauptziel');
+        e.ziel = 'Beute zum Laden zurückbringen';
+      } else if (T.wegGrund === 'zuWeitVomSpieler' || T.wegGrund === 'verfolgungEntkommen') {
+        B.zustand = 'weg';
+        MEGA.statistik.laden.beuteWeg++;
+        evEnde(e, false, '💨 Der Räuber ist mit der Beute entkommen');
+        return;
+      }
+      break;
+    case 'hauptziel':
+      if (B.zustand === 'zurueck') {
+        evPhase(e, 'abschluss');
+      }
+      break;
+    case 'abschluss': {
+      /* Abgeschlossen, sobald keiner mehr in der Naehe kaempft. Wer
+         weglaeuft, ist Sache der Polizei. */
+      const kaempft = e.gegner.some((g) => !megaGestoppt(g) && !g.flieht &&
+        Math.hypot(g.pos.x - e.ort.x, g.pos.z - e.ort.z) < 30);
+      if (!kaempft || e.phaseT > 20) {
+        MEGA.statistik.laden.beuteZurueck++;
+        addScore(150, 'Beute zurück!', e.ort);
+        setzeRuf(+4, 'Ruf +4', e.ort);
+        evEnde(e, true, '✅ Ladenüberfall vereitelt');
+        return;
+      }
+      break;
+    }
+  }
+}
+/* Beute aufheben und zurueckgeben - je Bild, damit es sich direkt anfuehlt. */
+function megaLadenBild(e, dt) {
+  const B = e.beute;
+  const m = megaBeute();
+  const fertig = e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN';
+  if (!B || fertig || B.zustand === 'weg') { m.visible = false; return; }
+  const T = e.beuteTraeger;
+  if (B.zustand === 'traeger') {
+    if (!T || T.dead || !T.visual || !T.visual.root.visible) { m.visible = false; return; }
+    const sx = Math.sin(T.facing + 1.6) * 0.32, sz = Math.cos(T.facing + 1.6) * 0.32;
+    m.position.set(T.pos.x + sx, T.pos.y + 0.85, T.pos.z + sz);
+    m.visible = true;
+  } else if (B.zustand === 'liegt') {
+    m.position.set(B.x, B.y + 0.2, B.z);
+    m.visible = true;
+    if (Math.hypot(player.pos.x - B.x, player.pos.z - B.z) < 1.7 &&
+        Math.abs(player.pos.y - B.y) < 1.9 && !player.dead) {
+      B.zustand = 'held';
+      popupScreen('💰 Beute gesichert – zurück zum Laden');
+      SFX.score();
+    }
+  } else if (B.zustand === 'held') {
+    const sx = Math.sin(player.facing - 1.6) * 0.34, sz = Math.cos(player.facing - 1.6) * 0.34;
+    m.position.set(player.pos.x + sx, player.pos.y + 0.9, player.pos.z + sz);
+    m.visible = true;
+    const L = e.laden, k = e.besitzer && !e.besitzer.dead ? e.besitzer.pos : { x: L.kx, z: L.kz };
+    if (Math.hypot(player.pos.x - k.x, player.pos.z - k.z) < 2.2 &&
+        Math.abs(player.pos.y - e.ort.y) < 2.5) megaBeuteZurueck(e);
+  } else if (B.zustand === 'zurueck') {
+    const L = e.laden;
+    m.position.set(L.kx + L.nx * 0.4, e.ort.y + 0.2, L.kz + L.nz * 0.4);
+    m.visible = true;
+  }
+  /* Die Alarmglocke laeutet, bis die Lage geklaert ist. */
+  if (B.zustand === 'traeger' || B.zustand === 'liegt') {
+    e.alarmCd -= dt;
+    if (e.alarmCd <= 0) {
+      e.alarmCd = 1.15;
+      const d = Math.hypot(e.ort.x - player.pos.x, e.ort.z - player.pos.z);
+      const v = clamp(1 - d / EV_HOER, 0, 1);
+      if (v > 0.02 && SFX.alarmGlocke) SFX.alarmGlocke(0.07 * v);
+    }
+  }
+}
+function megaBeuteZurueck(e) {
+  const B = e.beute;
+  if (!B || B.zustand !== 'held') return false;
+  B.zustand = 'zurueck';
+  const c = e.besitzer;
+  if (c && !c.dead) {
+    c.geisel = false;
+    c.ruhePose = 'jubel'; c.poseT = 3;
+    c.facing = Math.atan2(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
+    popupWorld('Danke!', c.pos, '#9bffb1');
+  }
+  popupScreen('🛍️ Beute zurückgegeben');
+  SFX.score();
+  return true;
+}
+
+/* ======================= B: Autodiebstahl und Verfolgungsjagd =======================
+   Ein Wagen steht auf seiner Spur, ein Dieb macht sich an der Tuer zu
+   schaffen, ein zweiter steht Schmiere, die Alarmanlage hupt. Kommt der
+   Spieler, bleibt dem Dieb kurz Zeit: wer ihn in diesen 1,8 s mit Netz
+   oder Schlag erwischt, verhindert die Jagd. Sonst steigt er ein und
+   faehrt los - mit der vorhandenen Fluchtwagen-Fahrlogik (car.flucht),
+   und die vorhandene Autojagd der Polizei haengt sich von selbst an.
+   Gestoppt wird mit drei Treffern (Schlag am Wagen, Landung auf dem Dach
+   oder Netz), danach springt der Dieb heraus und flieht zu Fuss.
+
+   Waehrend der Fahrt ist der Dieb aus enemies herausgenommen und
+   unsichtbar: so kann ihn keine andere Schleife anfassen, und es gibt ihn
+   nie zweimal. Am Steuer sitzt die vorhandene Fahrerfigur. */
+function evBaueAutodieb(e) {
+  if (cars.some((c) => c.flucht && !c.aus)) { MEGA.statistik.autodieb.ohneWagen++; return false; }
+  let auto = null, best = -1e9;
+  const mitte = (EV_NAH + EV_FERN) / 2;
+  for (const c of cars) {
+    if (c.aus || c.flucht || c.eventId || c.notfall || c.notfallWeg || c.notfallEinsatz) continue;
+    if (c.typ && (c.typ.art === 'polizei' || c.typ.art === 'bus')) continue;
+    if (!c.mesh || !c.mesh.userData) continue;
+    const p = c.mesh.position;
+    const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+    if (d < EV_NAH || d > EV_FERN) continue;
+    if (inWater(p.x, p.z) || onBridge(p.x, p.z)) continue;
+    if (abstandZurKreuzung(c) < 16) continue;
+    if (!megaOrtFrei(p.x, p.z)) continue;
+    if (evImBlick(p.x, p.z)) { EV.statistik.spawnSichtbar++; continue; }
+    const w = -Math.abs(d - mitte) / mitte * 20 + MEGA_ZUFALL.zahl() * 8;
+    if (w > best) { best = w; auto = c; }
+  }
+  if (!auto) { MEGA.statistik.autodieb.ohneWagen++; return false; }
+  /* Die Tuerseite: die vom Strassenmittel abgewandte (Bordstein). */
+  const q = querAchse(auto.axis);
+  const mittelLinie = rasterLinieNah(auto.lane, q);
+  const seite = Math.sign(auto.lane - mittelLinie) || 1;
+  const p = auto.mesh.position;
+  const sx = auto.axis === 'x' ? 0 : seite, sz = auto.axis === 'x' ? seite : 0;
+  const tx = p.x + sx * 1.55, tz = p.z + sz * 1.55;
+  auto.eventId = e.id;
+  auto.altTempo = auto.speed;
+  auto.speed = 0;
+  auto.diebstahl = true;
+  auto.leer = true;                   // der Fahrer ist ausgestiegen - nur der Dieb
+  e.auto = auto;
+  e.ort.x = p.x; e.ort.z = p.z; e.ort.y = groundY(p.x, p.z, 2);
+  e.tuer = { x: tx, z: tz, sx, sz };
+  const gang = MEGA_ZUFALL.klammer(() => {
+    const g = spawnGang(tx, tz, 2, 'event');
+    megaRollen(g, ['flink', 'schlaeger']);
+    return g;
+  });
+  e.gang = gang; gang.ausEvent = e.id;
+  const ly = groundY(tx, tz, 2);
+  const lx = auto.axis === 'x' ? auto.dir : 0, lz = auto.axis === 'z' ? auto.dir : 0;
+  const dieb = gang.enemies[0], schmiere = gang.enemies[1];
+  dieb.bewacht = { pos: V3(tx, ly, tz) }; dieb.ringWinkel = Math.atan2(sx, sz);
+  dieb.pos.set(tx + sx * 0.4, ly, tz + sz * 0.4);
+  schmiere.bewacht = { pos: V3(tx + lx * 4 + sx * 0.8, ly, tz + lz * 4 + sz * 0.8) };
+  schmiere.ringWinkel = Math.atan2(lx, lz);
+  schmiere.pos.set(schmiere.bewacht.pos.x, ly, schmiere.bewacht.pos.z);
+  for (const g of gang.enemies) {
+    g.state = 'patrol'; g.target = null;
+    g.eventId = e.id; g.eventRolle = 'taeter';
+    e.gegner.push(g);
+  }
+  dieb.eventRolle = 'dieb';
+  e.dieb = dieb;
+  e.einbruchBis = 42;            // so lange braucht er, wenn ihn niemand stoert
+  e.jagd = { treffer: 0, noetig: 3, cd: 0, t: 0, fern: 0 };
+  e.alarmCd = 0;
+  e.ziel = 'Autodiebstahl verhindern';
+  e.phase = 'verborgen'; e.phaseT = 0; e.phasen = [['verborgen', 0]];
+  MEGA.statistik.autodieb.gebaut++;
+  return true;
+}
+function megaDiebSteigtEin(e) {
+  const T = e.dieb, car = e.auto;
+  if (!T || T.dead || !car) return;
+  const i = enemies.indexOf(T);
+  if (i >= 0) enemies.splice(i, 1);
+  if (T.visual && T.visual.root) T.visual.root.visible = false;
+  T.imAuto = car; T.bewacht = null; T.attack = null; T.state = 'idle'; T.target = null;
+  car.leer = false;
+  car.diebstahl = false;
+  car.flucht = true;
+  car.speed = 22;
+  e.jagd.t = 0; e.jagd.fern = 0;
+  MEGA.statistik.autodieb.jagden++;
+  /* Die Schmiere haut zu Fuss ab. */
+  for (const g of e.gegner) {
+    if (g === T || megaGestoppt(g)) continue;
+    g.bewacht = null; g.flieht = true; g.mut = Math.min(g.mut || 0.5, 0.15);
+  }
+  if (SFX.motor) SFX.motor(clamp(1 - megaAbstand(e, car.mesh.position) / 80, 0, 1) * 0.12);
+  popupScreen('🚗 Er fährt los – Verfolgungsjagd!');
+}
+function megaDiebSteigtAus(e) {
+  const T = e.dieb, car = e.auto;
+  if (!T || !T.imAuto) return;
+  const p = car.mesh.position;
+  const q = querAchse(car.axis);
+  const seite = Math.sign(car.lane - rasterLinieNah(car.lane, q)) || 1;
+  const sx = car.axis === 'x' ? 0 : seite, sz = car.axis === 'x' ? seite : 0;
+  let x = p.x + sx * 1.7, z = p.z + sz * 1.7;
+  if (inGebaeude(x, z)) { x = p.x - sx * 1.7; z = p.z - sz * 1.7; }
+  T.pos.set(x, groundY(x, z, 2), z);
+  T.vel.set(0, 0, 0);
+  T.imAuto = null;
+  T.visual.root.visible = true;
+  T.visual.root.position.copy(T.pos);
+  if (enemies.indexOf(T) < 0) enemies.push(T);
+  T.flieht = true; T.eventFlucht = true; T.state = 'patrol'; T.target = null;
+  T.mut = 0.1; T.staggerT = Math.max(T.staggerT || 0, 0.5);
+  car.leer = true;
+}
+/* Treffer am Fluchtwagen: dieselbe Regel wie beim Fluchtauto-Auftrag -
+   im Angriff nah dran oder auf dem Dach gelandet. */
+function megaJagdTreffer(e, art) {
+  const J = e.jagd, car = e.auto;
+  J.treffer++; J.cd = 1.0;
+  if (art === 'netz') MEGA.statistik.autodieb.netzTreffer++; else MEGA.statistik.autodieb.schlagTreffer++;
+  const p = car.mesh.position;
+  treffEffekt(_v1.set(p.x, p.y + 1.2, p.z), 1.6, art === 'netz' ? 0xdff0ff : 0xffd23c);
+  hitstop(0.07); camShake = Math.max(camShake, 0.14);
+  car.speed = Math.max(5, car.speed - 6);
+  popupWorld(`Treffer ${J.treffer}/${J.noetig}`, p, '#ffd23c');
+  e.ziel = `Fluchtwagen stoppen (${J.treffer}/${J.noetig})`;
+  if (J.treffer >= J.noetig) {
+    car.speed = 0; car.tempoJetzt = Math.min(car.tempoJetzt || 0, 3);
+    car.flucht = false;
+    MEGA.statistik.autodieb.gestoppt++;
+    megaDiebSteigtAus(e);
+    evPhase(e, 'hauptziel');
+    e.ziel = 'Autodieb schnappen';
+    popupScreen('🛑 Wagen gestoppt – der Dieb rennt!');
+  }
+}
+/* Haken fuer webShot: trifft das Netz den Fluchtwagen? */
+function megaNetzAmWagen() {
+  for (const e of EV.liste) {
+    if (e.art !== 'autodieb' || e.phase !== 'eskalation' || !e.auto || !e.auto.flucht) continue;
+    if (e.jagd.cd > 0) continue;
+    const p = e.auto.mesh.position;
+    const dx = p.x - player.pos.x, dz = p.z - player.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 26 || Math.abs(p.y - player.pos.y) > 14) continue;
+    const f = camForward();
+    if ((dx * f.x + dz * f.z) / Math.max(0.001, d) < 0.55) continue;
+    flashWebShot(heroHandPos(_v1, netzHand).clone(), V3(p.x, p.y + 1.0, p.z));
+    netzKlatscher(V3(p.x, p.y + 1.2, p.z));
+    megaJagdTreffer(e, 'netz');
+    return true;
+  }
+  return false;
+}
+function evAblaufAutodieb(e) {
+  const T = e.dieb, car = e.auto;
+  const d = megaAbstand(e, car.mesh.position);
+  const dy = Math.abs(player.pos.y - e.ort.y);
+  /* Startet vor der Jagd ein Fluchtauto-Auftrag oder eine Storymission,
+     gehoeren die Fluchtwagen dorthin - das Ereignis verschwindet dann still. */
+  if ((MISSION.art === 'flucht' || MISSION.art === 'story') &&
+      e.phase !== 'eskalation' && e.phase !== 'hauptziel' && e.phase !== 'abschluss') {
+    evEnde(e, false, null); return;
+  }
+  switch (e.phase) {
+    case 'verborgen':
+      if (e.entdeckt) { evPhase(e, 'entdeckt'); e.einbruchBis = Math.max(e.einbruchBis, e.lebenszeit + 18); }
+      else if (e.lebenszeit > e.einbruchBis) { evEnde(e, false, null); return; }
+      break;
+    case 'entdeckt':
+      if (e.phaseT >= 2 || d < 60) evPhase(e, 'annaeherung');
+      break;
+    case 'annaeherung':
+      if (d < 24 && dy < 10) {
+        evPhase(e, 'intervention');
+        e.einsteigT = 1.8;
+        e.ziel = 'Dieb stoppen, bevor er einsteigt!';
+        popupScreen('⚠️ Er will einsteigen – Netz oder Schlag!');
+      } else if (e.lebenszeit > e.einbruchBis) {
+        megaDiebSteigtEin(e);
+        evPhase(e, 'eskalation');
+        e.ziel = 'Fluchtwagen stoppen (0/3)';
+      }
+      break;
+    case 'intervention':
+      if (T.dead || (T.webT || 0) > 0 || (T.webStufe || 0) >= 1 || (T.staggerT || 0) > 0 || megaGestoppt(T)) {
+        T.bewacht = null;
+        if (!megaGestoppt(T)) { T.state = 'chase'; T.target = 'player'; }
+        MEGA.statistik.autodieb.ohneJagd++;
+        evPhase(e, 'hauptziel');
+        e.ziel = 'Autodieb überwältigen';
+        popupScreen('👊 Erwischt, bevor er einsteigt!');
+      } else {
+        e.einsteigT -= EV_TICK;
+        if (e.einsteigT <= 0) {
+          megaDiebSteigtEin(e);
+          evPhase(e, 'eskalation');
+          e.ziel = 'Fluchtwagen stoppen (0/3)';
+        }
+      }
+      break;
+    case 'eskalation':
+      e.jagd.t += EV_TICK;
+      e.jagd.fern = d > 230 ? e.jagd.fern + EV_TICK : 0;
+      if (e.jagd.t > 85 || e.jagd.fern > 6) {
+        MEGA.statistik.autodieb.entkommen++;
+        evEnde(e, false, '💨 Der Autodieb ist entkommen');
+        return;
+      }
+      break;
+    case 'hauptziel':
+      if (megaGestoppt(T)) {
+        evPhase(e, 'abschluss');
+      } else if (T.wegGrund === 'zuWeitVomSpieler' || T.wegGrund === 'verfolgungEntkommen') {
+        MEGA.statistik.autodieb.entkommen++;
+        evEnde(e, false, '💨 Der Autodieb ist entkommen');
+        return;
+      }
+      break;
+    case 'abschluss':
+      addScore(120, 'Autodieb gestellt!', e.ort);
+      evEnde(e, true, '✅ Autodiebstahl vereitelt');
+      return;
+  }
+}
+function megaAutodiebBild(e, dt) {
+  const J = e.jagd, car = e.auto;
+  if (!car || e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN') return;
+  if (J.cd > 0) J.cd -= dt;
+  if (e.phase === 'eskalation' && car.flucht && !(J.cd > 0)) {
+    const p = car.mesh.position;
+    const dist = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+    if (dist < 3.6 && Math.abs(player.pos.y - p.y) < 3.4 &&
+        ((player.attack && !player.attack.hitDone && player.attack.type !== 'web') || player.platform === car)) {
+      megaJagdTreffer(e, 'schlag');
+    }
+  }
+  /* Der Dieb im Wagen faehrt mit - fuer Marker und Abstand. */
+  if (e.dieb && e.dieb.imAuto) e.dieb.pos.copy(car.mesh.position);
+  /* Alarmanlage, solange er an der Tuer ist. */
+  if (e.phase === 'verborgen' || e.phase === 'entdeckt' || e.phase === 'annaeherung' || e.phase === 'intervention') {
+    e.alarmCd -= dt;
+    if (e.alarmCd <= 0) {
+      e.alarmCd = 0.9;
+      const d = Math.hypot(car.mesh.position.x - player.pos.x, car.mesh.position.z - player.pos.z);
+      const v = clamp(1 - d / EV_HOER, 0, 1);
+      if (v > 0.02 && SFX.autoAlarm) SFX.autoAlarm(0.06 * v);
+    }
+  }
+}
+
+/* ======================= C: Dachrettung =======================
+   Jemand steht am Rand eines Dachs und ruft um Hilfe. Kommt der Spieler
+   naeher, rutscht er ab und haengt an der Kante - die Eskalation. Wer
+   rechtzeitig da ist, sichert ihn mit C und traegt ihn am Netz hinunter
+   auf die Strasse. Wer zu spaet kommt, kann ihn im Fall noch auffangen
+   (bis 9 m Abstand faengt das Netz von selbst). Schlaegt er unten auf,
+   ist er verletzt - dann hilft die vorhandene erste Hilfe oder der
+   Rettungsdienst.
+
+   Die Person ist ein Passant der Stadt, kein neuer. Waehrend der Rettung
+   uebernimmt megaZiviBild seine Darstellung; die normale Passantenlogik
+   pausiert fuer ihn. */
+/* Oberkante unter einem Punkt: groundY kennt nur Strasse, Gehweg,
+   Bruecke und U-Bahn - Daecher stecken in den Kollisionskoerpern (wie in
+   dachKante). */
+function megaOberkante(x, z, yRef) {
+  let gy = groundY(x, z, yRef);
+  for (const c of collidersNear(x, z)) {
+    if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
+    if (c.h > gy && c.h <= yRef + 0.6) gy = c.h;
+  }
+  return gy;
+}
+/* Ein Dach fuer die Rettung: dieselbe Auswahl wie die kleine Aktivitaet
+   "Jemand kommt nicht weiter" (aktDachsuche: Kollisionskoerper ab 8 x 8 m),
+   aber an der KANTE statt in der sicheren Mitte, mit echtem Absturz
+   davor (Strasse, kein Nachbardach) und ohne Dachaufbau am Standplatz. */
+function megaDachWahl() {
+  const mitte = (EV_NAH + EV_FERN) / 2;
+  const kand = [];
+  for (const c of colliders) {
+    if (c.klein || c.parkAuto || (c.h || 0) < 14 || c.h > 46) continue;
+    if ((c.x1 - c.x0) < 8 || (c.z1 - c.z0) < 8) continue;
+    const x = (c.x0 + c.x1) / 2, z = (c.z0 + c.z1) / 2;
+    const d = Math.hypot(x - player.pos.x, z - player.pos.z);
+    if (d < EV_NAH + 8 || d > EV_FERN) continue;
+    kand.push({ c, d });
+  }
+  if (!kand.length) return null;
+  let best = null, bestW = -1e9;
+  const start = MEGA_ZUFALL.ganz(0, kand.length - 1);
+  const n = Math.min(kand.length, 160);
+  for (let k = 0; k < n; k++) {
+    const { c, d: dK } = kand[(start + k) % kand.length];
+    const seiten = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const s0 = MEGA_ZUFALL.ganz(0, 3);
+    for (let si = 0; si < 4; si++) {
+      const [nx, nz] = seiten[(s0 + si) % 4];
+      const tx = -nz, tz = nx;
+      const lang = nx ? (c.z1 - c.z0) : (c.x1 - c.x0);
+      const t = MEGA_ZUFALL.bereich(-0.25, 0.25) * lang;
+      const mx = nx ? (nx > 0 ? c.x1 : c.x0) : (c.x0 + c.x1) / 2 + tx * t;
+      const mz = nz ? (nz > 0 ? c.z1 : c.z0) : (c.z0 + c.z1) / 2 + tz * t;
+      const dachY = c.h;
+      const px = mx - nx * 1.0, pz = mz - nz * 1.0;
+      /* Standplatz und je 0,6 m daneben: kein Aufbau, kein hoeherer Teil. */
+      let frei = true;
+      for (const q of [0, 0.6, -0.6]) {
+        const yq = megaOberkante(px + tx * q, pz + tz * q, dachY + 3);
+        if (Math.abs(yq - dachY) > 0.3) { frei = false; break; }
+      }
+      if (!frei) continue;
+      const ox = mx + nx * 1.7, oz = mz + nz * 1.7;
+      if (inWater(ox, oz)) continue;
+      const untenY = megaOberkante(ox, oz, dachY - 1);
+      if (untenY > 2.0 || dachY - untenY < 10) continue;
+      /* Vor der Fassade haengt nichts, woran er stuende (Vordach, Balkon). */
+      if (megaOberkante(mx + nx * 0.36, mz + nz * 0.36, dachY - 0.3) > untenY + 0.5) continue;
+      /* Davor liegt ein breiter, freier Fallraum bis zur Strasse - keine
+         Nische zwischen zwei Haeusern, kein vorspringender Nachbar. Dort
+         sieht man ihn von unten, und dort kann man ihn hinuntertragen. */
+      let fallraum = true;
+      for (const vor of [1.7, 4, 7]) {
+        for (const q of [-2.5, 0, 2.5]) {
+          const fx = mx + nx * vor + tx * q, fz = mz + nz * vor + tz * q;
+          if (inGebaeude(fx, fz) || megaOberkante(fx, fz, dachY + 2) > 2.0) { fallraum = false; break; }
+        }
+        if (!fallraum) break;
+      }
+      if (!fallraum) continue;
+      if (megaSiehtPunkt(px, dachY + 1.2, pz)) { EV.statistik.spawnSichtbar++; continue; }
+      if (!megaOrtFrei(ox, oz)) continue;
+      let akt = false;
+      for (const a of AKT.liste) if (Math.hypot(a.x - ox, a.z - oz) < 40) akt = true;
+      if (akt) continue;
+      const w = -Math.abs(dK - mitte) / mitte * 20 + MEGA_ZUFALL.zahl() * 8;
+      if (w > bestW) {
+        bestW = w;
+        best = { px, pz, dachY, nx, nz, hx: mx + nx * 0.36, hz: mz + nz * 0.36,
+                 ox, oz, untenY };
+      }
+      break;
+    }
+  }
+  return best;
+}
+function evBaueDach(e) {
+  const D = megaDachWahl();
+  if (!D) { MEGA.statistik.dachrettung.ohneDach++; return false; }
+  const c = megaZiviHolen(D.ox, D.oz, 90) || megaZiviHolen(D.ox, D.oz, 220);
+  if (!c) { MEGA.statistik.dachrettung.ohneDach++; return false; }
+  e.ort.x = D.ox; e.ort.z = D.oz; e.ort.y = D.untenY;
+  e.dach = D;
+  c.pos.set(D.px, D.dachY, D.pz); c.vel.set(0, 0, 0);
+  c.facing = Math.atan2(D.nx, D.nz);
+  c.dachRettung = { e, zustand: 'wartet', vx: 0, vy: 0, vz: 0, t: 0, bodenT: 0, rufCd: 1 };
+  c.eventId = e.id; c.eventRolle = 'dach';
+  e.zivilisten.push(c);
+  e.person = c;
+  /* So lange haelt er sich an der Kante. Gerechnet ab dem Abrutschen,
+     das erst bei 45 m Abstand kommt: Schwingen, Netz-Zug, letzte Meter
+     klettern und C sind in rund zehn Sekunden zu schaffen. Wer es nicht
+     schafft, kann ihn im Fall noch auffangen. */
+  e.halteZeit = 18;
+  e.ziel = 'Person auf dem Dach retten';
+  e.phase = 'verborgen'; e.phaseT = 0; e.phasen = [['verborgen', 0]];
+  MEGA.statistik.dachrettung.gebaut++;
+  return true;
+}
+function megaDachGreifen(e) {
+  const c = e.person, r = c && c.dachRettung;
+  if (!r || (r.zustand !== 'wartet' && r.zustand !== 'haengt' && r.zustand !== 'faellt')) return false;
+  const imFall = r.zustand === 'faellt';
+  r.zustand = 'getragen'; r.vx = r.vy = r.vz = 0; r.bodenT = 0; r.t = 0;
+  if (imFall) {
+    MEGA.statistik.dachrettung.gefangen++;
+    addScore(120, 'Im Fall gefangen!', c.pos);
+    popupScreen('🕸️ Gefangen! Bring ihn auf die Straße');
+  } else {
+    MEGA.statistik.dachrettung.gegriffen++;
+    popupScreen('🕸️ Gesichert – bring ihn auf die Straße');
+  }
+  SFX.web();
+  if (e.phase !== 'intervention' && e.phase !== 'hauptziel') evPhase(e, 'intervention');
+  evPhase(e, 'hauptziel');
+  e.ziel = 'Person sicher auf die Straße bringen';
+  return true;
+}
+function evAblaufDach(e) {
+  const c = e.person;
+  if (!c) { evEnde(e, false, null); return; }
+  const r = c.dachRettung;
+  const d = megaAbstand(e, c.pos);
+  switch (e.phase) {
+    case 'verborgen':
+      if (e.entdeckt) evPhase(e, 'entdeckt');
+      else if (e.lebenszeit > 90) { evEnde(e, false, null); return; }
+      break;
+    case 'entdeckt':
+      if (e.phaseT >= 2 || d < 70) evPhase(e, 'annaeherung');
+      break;
+    case 'annaeherung':
+      /* Die Kante gibt nach, sobald der Spieler naeher kommt - oder nach
+         einer halben Minute ohnehin. */
+      if (r && r.zustand === 'wartet' && (d < 45 || e.phaseT > 30)) {
+        r.zustand = 'haengt'; r.t = 0;
+        MEGA.statistik.dachrettung.abgerutscht++;
+        evPhase(e, 'eskalation');
+        e.ziel = 'Er rutscht ab – schnell hin! (C)';
+        popupScreen('⚠️ Er rutscht ab und hängt an der Kante!');
+        if (SFX.schrei) SFX.schrei(clamp(1 - d / 90, 0, 1) * 0.08);
+      }
+      break;
+    case 'eskalation':
+      if (r && r.zustand === 'haengt') {
+        const rest = Math.max(0, e.halteZeit - r.t);
+        e.ziel = `Er rutscht ab – schnell hin! (C)  ${Math.ceil(rest)} s`;
+        if (rest <= 0) {
+          r.zustand = 'faellt'; r.vy = 0; r.vx = e.dach.nx * 0.6; r.vz = e.dach.nz * 0.6;
+          popupScreen('❗ Er fällt!');
+        }
+      }
+      /* Unten aufgeschlagen: jetzt ist es ein Verletzter - versorgt ist er,
+         sobald ihm jemand geholfen hat (erste Hilfe oder Rettungsdienst). */
+      if (!r && e.gestuerzt) {
+        e.ziel = 'Verletzten versorgen';
+        if (!c.hilfeBar) evPhase(e, 'abschluss');
+      }
+      break;
+    case 'hauptziel':
+      if (r && r.zustand === 'abgesetzt') {
+        evPhase(e, 'abschluss');
+      }
+      break;
+    case 'abschluss':
+      if (e.gestuerzt) {
+        evEnde(e, true, '🚑 Gestürzte Person versorgt');
+      } else {
+        addScore(180, 'Gerettet!', c.pos);
+        setzeRuf(+5, 'Ruf +5', c.pos);
+        e.rettung = c;               // der Rettungsdienst schaut nach ihm
+        evEnde(e, true, '✅ Person gerettet');
+      }
+      return;
+  }
+  /* Bewahrt die Laufzeit, solange er getragen wird oder faellt - ein
+     Ereignis darf dem Spieler die Person nicht aus der Hand nehmen. */
+  if (r && (r.zustand === 'getragen' || r.zustand === 'faellt')) {
+    e.maxLeben = Math.max(e.maxLeben, e.lebenszeit + 20);
+    if (r.zustand === 'getragen' && r.t > 120) {
+      /* Notbremse: zwei Minuten am Netz. Er wird dort abgesetzt, wo der
+         Held gerade steht, und geht spaeter von allein nach Hause. */
+      r.zustand = 'abgesetzt'; r.t = 0;
+    }
+  }
+}
+/* Die Darstellung der Person waehrend der Rettung (je Bild, aus
+   updateCivilians heraus). Rueckgabe true = normale Logik ueberspringen. */
+function megaZiviBild(c, dt) {
+  if (c.imWagen) {
+    const p = c.imWagen.mesh.position;
+    c.pos.set(p.x, p.y, p.z);
+    c.visual.root.visible = false;
+    return true;
+  }
+  if (c.megaHeim) {
+    /* Nach einem gescheiterten Einsatz: stehen bleiben, bis niemand
+       hinsieht, dann zurueck auf den Gehweg. */
+    c.visual.root.position.copy(c.pos);
+    c.visual.play('warten', { t: elapsed + c.phase }, dt);
+    return true;
+  }
+  const r = c.dachRettung;
+  if (!r) return false;
+  const e = r.e, D = e.dach;
+  r.t += dt;
+  let anim = 'idle';
+  switch (r.zustand) {
+    case 'wartet':
+      c.pos.set(D.px, D.dachY, D.pz);
+      c.facing = Math.atan2(D.nx, D.nz);
+      anim = 'winken';
+      r.rufCd -= dt;
+      if (r.rufCd <= 0) {
+        r.rufCd = 3.2;
+        if (Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) < 90)
+          popupWorld('Hilfe!', _v2.set(c.pos.x, c.pos.y + 0.4, c.pos.z), '#ff9b9b');
+      }
+      break;
+    case 'haengt': {
+      const w = Math.sin(r.t * 2.1) * 0.05;
+      c.pos.set(D.hx + D.nz * w, D.dachY - 1.85, D.hz - D.nx * w);
+      c.facing = Math.atan2(-D.nx, -D.nz);
+      anim = 'jubel';
+      r.rufCd -= dt;
+      if (r.rufCd <= 0) {
+        r.rufCd = 2.2;
+        if (Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) < 90)
+          popupWorld('Hilfe!', _v2.set(c.pos.x, c.pos.y + 2.2, c.pos.z), '#ff9b9b');
+      }
+      break;
+    }
+    case 'faellt': {
+      r.vy -= CFG.gravity * dt;
+      c.pos.x += r.vx * dt; c.pos.y += r.vy * dt; c.pos.z += r.vz * dt;
+      anim = 'jubel';
+      /* Das Netz faengt ihn von selbst, wenn der Held nah genug ist. */
+      if (!player.dead && Math.hypot(c.pos.x - player.pos.x, c.pos.y + 1 - player.pos.y,
+                                     c.pos.z - player.pos.z) < 9) {
+        flashWebShot(heroHandPos(_v1, netzHand).clone(), V3(c.pos.x, c.pos.y + 1.4, c.pos.z));
+        megaDachGreifen(e);
+        break;
+      }
+      const boden = groundY(c.pos.x, c.pos.z, c.pos.y + 1);
+      if (c.pos.y <= boden) {
+        c.pos.y = boden;
+        /* Aufgeschlagen: ab hier ein gewoehnlicher Verletzter. */
+        c.dachRettung = null;
+        c.hp = 0; c.state = 'hurt'; c.hurtT = 60; c.hilfeBar = true;
+        if (c.kreuz) c.kreuz.visible = true;
+        e.rettung = c; e.gestuerzt = true;
+        MEGA.statistik.dachrettung.gestuerzt++;
+        staubWolke(c.pos, 1.0);
+        popupScreen('🚑 Er ist gestürzt – erste Hilfe (C)!');
+        return false;
+      }
+      break;
+    }
+    case 'getragen': {
+      if (player.dead) { r.zustand = 'faellt'; r.vy = 0; r.vx = r.vz = 0; break; }
+      const zx = player.pos.x - player.vel.x * 0.05;
+      const zy = player.pos.y - 2.15;
+      const zz = player.pos.z - player.vel.z * 0.05;
+      r.vx += (zx - c.pos.x) * 30 * dt; r.vy += (zy - c.pos.y) * 30 * dt; r.vz += (zz - c.pos.z) * 30 * dt;
+      const daempf = Math.exp(-7 * dt);
+      r.vx *= daempf; r.vy *= daempf; r.vz *= daempf;
+      c.pos.x += r.vx * dt; c.pos.y += r.vy * dt; c.pos.z += r.vz * dt;
+      /* Am Netz: nie weiter als das Seil lang ist. */
+      const ax = player.pos.x, ay = player.pos.y - 0.6, az = player.pos.z;
+      const lx = c.pos.x - ax, ly = c.pos.y - ay, lz = c.pos.z - az;
+      const ll = Math.hypot(lx, ly, lz);
+      if (ll > 2.2) { const k = 2.2 / ll; c.pos.set(ax + lx * k, ay + ly * k, az + lz * k); }
+      const boden = groundY(c.pos.x, c.pos.z, c.pos.y + 1.2);
+      if (c.pos.y < boden) c.pos.y = boden;
+      c.facing = player.facing;
+      anim = 'jubel';
+      /* Abgesetzt wird nur auf der Strasse, nicht auf einem Dach. */
+      const amBoden = player.onGround && player.state !== 'climb' &&
+                      groundY(player.pos.x, player.pos.z, player.pos.y + 0.5) < 2.0;
+      r.bodenT = amBoden ? r.bodenT + dt : 0;
+      if (r.bodenT > 0.45) {
+        let x = player.pos.x - Math.sin(player.facing) * 1.0;
+        let z = player.pos.z - Math.cos(player.facing) * 1.0;
+        if (inGebaeude(x, z)) { x = player.pos.x; z = player.pos.z; }
+        c.pos.set(x, groundY(x, z, player.pos.y + 1), z);
+        r.zustand = 'abgesetzt'; r.t = 0;
+        MEGA.statistik.dachrettung.abgesetzt++;
+        popupWorld('Danke!', c.pos, '#9bffb1');
+      }
+      break;
+    }
+    case 'abgesetzt':
+      c.facing = Math.atan2(player.pos.x - c.pos.x, player.pos.z - c.pos.z);
+      anim = 'jubel';
+      if (r.t > 2.6 && (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT' ||
+                        e.zustand === 'AUFRAEUMEN' || e.zustand === 'FERTIG')) {
+        megaZiviZurueck(c);
+        c.ruhePose = 'jubel'; c.poseT = 2.5;
+        return false;
+      }
+      break;
+  }
+  c.visual.root.position.copy(c.pos);
+  c.visual.root.rotation.y = c.facing;
+  c.visual.play(anim, { phase: c.phase, speed01: 0, speed: 0, t: elapsed + c.phase }, dt);
+  return true;
+}
+/* Das Netz zwischen Hand und Person. */
+function megaSeilBild() {
+  let traeger = null;
+  for (const e of EV.liste) {
+    if (e.art !== 'dachrettung' || !e.person) continue;
+    const r = e.person.dachRettung;
+    if (r && r.zustand === 'getragen') { traeger = e.person; break; }
+  }
+  if (!traeger && !MEGA.seil) return;
+  const l = megaSeil();
+  if (!traeger) { l.visible = false; return; }
+  const a = heroHandPos(_v3, netzHand);
+  const arr = l.geometry.attributes.position.array;
+  arr[0] = a.x; arr[1] = a.y; arr[2] = a.z;
+  arr[3] = traeger.pos.x; arr[4] = traeger.pos.y + 2.0; arr[5] = traeger.pos.z;
+  l.geometry.attributes.position.needsUpdate = true;
+  l.visible = true;
+}
+
+/* ======================= D: Unfall mit eingeklemmtem Fahrer =======================
+   Der vorhandene Verkehrsunfall (ein Wagen steht, ein Verletzter am
+   Gehweg, der Rettungsdienst kommt nach) bekommt einen zweiten Teil: im
+   Wagen sitzt der Fahrer fest, der Motor qualmt. Wer da ist, reisst mit C
+   die Tuer auf; wer zu lange braucht, sieht den Rauch dicker werden, und
+   am Ende befreit ihn der Rettungsdienst. */
+function megaUnfallErweitern(e) {
+  const auto = e.auto;
+  if (!auto) return;
+  const f = megaZiviHolen(auto.mesh.position.x, auto.mesh.position.z, 90);
+  e.phase = 'verborgen'; e.phaseT = 0; e.phasen = [['verborgen', 0]];
+  e.maxLeben = 130;
+  if (f) {
+    f.imWagen = auto;
+    f.visual.root.visible = false;
+    f.eventId = e.id; f.eventRolle = 'eingeklemmt';
+    e.zivilisten.push(f);
+    e.fahrer = f;
+    e.fahrerBis = 0;
+    auto.leer = true;
+    MEGA.statistik.unfall.mitFahrer++;
+    e.ziel = 'Unfall: Verletzte versorgen, Fahrer befreien';
+  }
+  e.rauchStufe = 0;
+}
+function megaFahrerBefreien(e, vomSpieler) {
+  const f = e.fahrer;
+  if (!f || !f.imWagen) return false;
+  const car = e.auto, p = car.mesh.position;
+  const q = querAchse(car.axis);
+  const seite = Math.sign(car.lane - rasterLinieNah(car.lane, q)) || 1;
+  const sx = car.axis === 'x' ? 0 : seite, sz = car.axis === 'x' ? seite : 0;
+  let x = p.x + sx * 1.9, z = p.z + sz * 1.9;
+  if (inGebaeude(x, z)) { x = p.x - sx * 1.9; z = p.z - sz * 1.9; }
+  f.imWagen = null;
+  f.pos.set(x, groundY(x, z, 2), z);
+  f.route = null; f.waypoint = null; f.knoten = -1;
+  f.visual.root.visible = true;
+  f.hp = 0; f.state = 'hurt'; f.hurtT = 60; f.hilfeBar = true;
+  if (f.kreuz) f.kreuz.visible = true;
+  /* Steht der Rettungswagen schon da, nimmt er ihn mit auf die Liste. */
+  for (const ein of RESP.liste) {
+    if (ein.evId === e.id && ein.art === 'ems' && !ein.erledigt && ein.ziele.length < 3 &&
+        ein.ziele.indexOf(f) < 0) ein.ziele.push(f);
+  }
+  if (vomSpieler) {
+    MEGA.statistik.unfall.befreitSpieler++;
+    addScore(100, 'Fahrer befreit!', f.pos);
+    treffEffekt(_v1.set(p.x, p.y + 1.0, p.z), 1.2, 0xbfe8ff);
+    camShake = Math.max(camShake, 0.12);
+    SFX.web();
+    popupScreen('🚪 Tür aufgerissen – Fahrer versorgen (C)');
+  } else {
+    MEGA.statistik.unfall.befreitAuto++;
+    popupScreen('🚑 Der Rettungsdienst hat den Fahrer befreit');
+  }
+  return true;
+}
+function evAblaufUnfall(e) {
+  const f = e.fahrer;
+  const d = megaAbstand(e, e.ort);
+  const offen = (c) => c && c.state === 'hurt' && c.hilfeBar;
+  switch (e.phase) {
+    case 'verborgen':
+      if (e.entdeckt) {
+        evPhase(e, 'entdeckt');
+        if (f && !MEGA.rauchBesitzer) { megaRauch(); MEGA.rauchBesitzer = e; e.rauchStufe = 1; }
+        if (SFX.crash) SFX.crash(clamp(1 - d / EV_HOER, 0, 1) * 0.12);
+      }
+      break;
+    case 'entdeckt':
+      if (e.phaseT >= 2 || d < 60) evPhase(e, 'annaeherung');
+      break;
+    case 'annaeherung':
+      if (d < 14) {
+        evPhase(e, 'intervention');
+        if (f && f.imWagen) popupScreen('🚗 Fahrer eingeklemmt – am Wagen C: Tür aufreißen');
+      }
+      break;
+    case 'intervention':
+      if (f && f.imWagen && (e.phaseT > 12 || e.lebenszeit > 60)) {
+        evPhase(e, 'eskalation');
+        e.rauchStufe = 2;
+        e.fahrerBis = e.lebenszeit + 30;
+        popupScreen('🔥 Der Motor qualmt stärker!');
+      } else if (!f || !f.imWagen) {
+        evPhase(e, 'hauptziel');
+      }
+      break;
+    case 'eskalation':
+      if (f && f.imWagen) {
+        const rest = Math.max(0, e.fahrerBis - e.lebenszeit);
+        e.ziel = `Fahrer befreien (C am Wagen)  ${Math.ceil(rest)} s`;
+        if (rest <= 0) megaFahrerBefreien(e, false);
+      } else evPhase(e, 'hauptziel');
+      break;
+    case 'hauptziel': {
+      const n = (offen(e.rettung) ? 1 : 0) + (offen(f) ? 1 : 0);
+      e.ziel = n ? `Verletzte versorgen (${n} offen)` : 'Verletzte versorgt';
+      if (!n) evPhase(e, 'abschluss');
+      break;
+    }
+    case 'abschluss':
+      EV.statistik.gerettet++;
+      evEnde(e, true, '🚑 Unfall versorgt');
+      return;
+  }
+  /* Ohne Spieler: der Rettungsdienst holt den Fahrer spaetestens kurz vor
+     dem Ende heraus, damit niemand im Wagen zurueckbleibt. */
+  if (f && f.imWagen && e.lebenszeit > e.maxLeben - 20) megaFahrerBefreien(e, false);
+  /* Nie entdeckt und alle versorgt: still zu Ende. */
+  if (!e.entdeckt && e.rettung && !e.rettung.hilfeBar && (!f || (!f.imWagen && !f.hilfeBar))) {
+    evEnde(e, true, null);
+  }
+}
+
+/* ======================= Gemeinsames =======================
+   Je Takt (aus evPruefeEnde) und je Bild (aus updateWeltEreignisse). */
+function evAblauf(e) {
+  e.phaseT = (e.phaseT || 0) + EV_TICK;
+  if (e.art === 'laden') evAblaufLaden(e);
+  else if (e.art === 'autodieb') evAblaufAutodieb(e);
+  else if (e.art === 'dachrettung') evAblaufDach(e);
+  else if (e.art === 'unfall') evAblaufUnfall(e);
+}
+function megaEreignisBild(dt) {
+  let ladenDa = false;
+  for (const e of EV.liste) {
+    if (e.art === 'laden') { megaLadenBild(e, dt); ladenDa = ladenDa || (e.zustand !== 'FERTIG'); }
+    else if (e.art === 'autodieb') megaAutodiebBild(e, dt);
+    /* Nachphase der neuen Ablaeufe: Phase sichtbar machen. */
+    if (e.phase && e.phase !== 'nachphase' &&
+        (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT')) evPhase(e, 'nachphase');
+  }
+  if (!ladenDa && MEGA.beuteMesh) MEGA.beuteMesh.visible = false;
+  megaSeilBild();
+  megaRauchBild(dt);
+  /* Wer nach einem gescheiterten Einsatz noch irgendwo steht, geht heim,
+     sobald niemand hinsieht. */
+  for (let i = MEGA.rueckweg.length - 1; i >= 0; i--) {
+    const c = MEGA.rueckweg[i];
+    if (!c.megaHeim) { MEGA.rueckweg.splice(i, 1); continue; }
+    if (megaSiehtPunkt(c.pos.x, c.pos.y + 1, c.pos.z) &&
+        Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) < 90) continue;
+    const k = gehNaechster(c.pos.x, c.pos.z, 60);
+    if (k >= 0) {
+      const n = GEH.knoten[k];
+      c.pos.set(n.x, groundY(n.x, n.z, 2), n.z);
+    } else {
+      c.pos.y = groundY(c.pos.x, c.pos.z, 2);
+    }
+    MEGA.statistik.dachrettung.zurueckGebracht++;
+    megaZiviZurueck(c);
+    MEGA.rueckweg.splice(i, 1);
+  }
+  megaPromptBild(dt);
+}
+/* Aufraeumen der neuen Teile - vor dem allgemeinen evAufraeumen. */
+function megaAufraeumen(e) {
+  if (e.art === 'autodieb') {
+    const T = e.dieb;
+    if (T && T.imAuto) {
+      /* Er sitzt noch im Wagen (entkommen): er faehrt einfach weiter und
+         verschwindet mit dem Wagen aus der Geschichte. */
+      T.imAuto = null;
+      T.dead = true; T.deadT = 0; T.liegt = true;
+      if (T.visual && T.visual.root) scene.remove(T.visual.root);
+      const gi = e.gegner.indexOf(T);
+      if (gi >= 0) e.gegner.splice(gi, 1);
+      if (T.gang) { const gj = T.gang.enemies.indexOf(T); if (gj >= 0) T.gang.enemies.splice(gj, 1); }
+    }
+    if (e.auto) {
+      e.auto.flucht = false; e.auto.diebstahl = false; e.auto.leer = false;
+    }
+  }
+  if (e.art === 'laden') {
+    if (e.besitzer && e.besitzer.eventId === e.id) {
+      e.besitzer.geisel = false;
+      if (e.besitzer.state === 'walk') megaZiviZurueck(e.besitzer);
+    }
+    if (MEGA.beuteMesh) MEGA.beuteMesh.visible = false;
+  }
+  if (e.art === 'unfall' && e.fahrer && e.fahrer.imWagen) {
+    /* Im Wagen darf niemand zurueckbleiben. */
+    megaFahrerBefreien(e, false);
+    e.fahrer.hp = 20; e.fahrer.state = 'walk'; e.fahrer.hilfeBar = false;
+    if (e.fahrer.kreuz) e.fahrer.kreuz.visible = false;
+  }
+  if (e.art === 'unfall' && e.auto) e.auto.leer = false;
+  if (MEGA.rauchBesitzer === e) MEGA.rauchBesitzer = null;
+  if (e.art === 'dachrettung' && e.person) {
+    const c = e.person, r = c.dachRettung;
+    if (r && r.zustand !== 'abgesetzt') {
+      /* Nicht gerettet (oder Notbremse): er bleibt stehen, wo er ist,
+         und geht heim, sobald niemand hinsieht. Haengt er noch an der
+         Kante, zieht er sich vorher hoch. */
+      if (r.zustand === 'haengt' || r.zustand === 'wartet') {
+        c.pos.set(e.dach.px, e.dach.dachY, e.dach.pz);
+      } else if (r.zustand === 'getragen' || r.zustand === 'faellt') {
+        c.pos.y = groundY(c.pos.x, c.pos.z, c.pos.y + 1);
+      }
+      c.dachRettung = null;
+      c.megaHeim = true;
+      MEGA.rueckweg.push(c);
+    } else if (r && r.zustand === 'abgesetzt') {
+      megaZiviZurueck(c);
+    }
+  }
+}
+
+/* ======================= Interaktion (Taste C) =======================
+   C war "erste Hilfe". Es bleibt die eine Taste fuer alles, was man mit
+   der Hand tut: Person sichern, Tuer aufreissen, Beute abgeben - und
+   erst wenn nichts davon in Reichweite ist, erste Hilfe wie bisher. */
+function megaInteraktionKandidat() {
+  if (player.dead) return null;
+  for (const e of EV.liste) {
+    if (e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN') continue;
+    if (e.art === 'dachrettung' && e.person && e.person.dachRettung) {
+      const c = e.person, r = c.dachRettung;
+      if (r.zustand === 'wartet' || r.zustand === 'haengt') {
+        const ky = r.zustand === 'haengt' ? c.pos.y + 1.85 : c.pos.y;
+        if (Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) < 2.8 &&
+            Math.abs(ky - player.pos.y) < 2.6) {
+          return { text: 'Person sichern', tun: () => megaDachGreifen(e) };
+        }
+      }
+    }
+    if (e.art === 'unfall' && e.fahrer && e.fahrer.imWagen && e.auto) {
+      const p = e.auto.mesh.position;
+      if (Math.hypot(p.x - player.pos.x, p.z - player.pos.z) < 3.4 &&
+          Math.abs(p.y - player.pos.y) < 2.4) {
+        return { text: 'Tür aufreißen', tun: () => megaFahrerBefreien(e, true) };
+      }
+    }
+    if (e.art === 'laden' && e.beute && e.beute.zustand === 'held') {
+      const L = e.laden, k = e.besitzer && !e.besitzer.dead ? e.besitzer.pos : { x: L.kx, z: L.kz };
+      if (Math.hypot(player.pos.x - k.x, player.pos.z - k.z) < 3.4) {
+        return { text: 'Beute zurückgeben', tun: () => megaBeuteZurueck(e) };
+      }
+    }
+  }
+  return null;
+}
+function interagieren() {
+  const k = megaInteraktionKandidat();
+  if (k) { k.tun(); return true; }
+  return ersteHilfe();
+}
+/* Kleiner Hinweis unten in der Mitte: welche Hand-Aktion gerade geht.
+   Nur bei Aenderung ins DOM geschrieben. Die Liste der Hinweise ist offen
+   fuer die Innenraeume (M4) - wer einen Hinweis braucht, setzt
+   MEGA.zusatzHinweis. */
+function megaPromptBild(dt) {
+  MEGA.promptCd -= dt;
+  if (MEGA.promptCd > 0) return;
+  MEGA.promptCd = 0.1;
+  const k = megaInteraktionKandidat();
+  MEGA.kandidat = k;
+  let text = k ? k.text : (MEGA.zusatzHinweis || '');
+  if (!text) {
+    /* Erste Hilfe auch zeigen, wenn jemand in Reichweite liegt. */
+    for (const c of civilians) {
+      if (c.state !== 'hurt' || !c.hilfeBar) continue;
+      if (Math.hypot(c.pos.x - player.pos.x, c.pos.z - player.pos.z) < 3.2 * skillWert('helferhand')) {
+        text = 'Erste Hilfe'; break;
+      }
+    }
+  }
+  if (text === MEGA.promptText) return;
+  MEGA.promptText = text;
+  if (typeof document === 'undefined') return;
+  if (!MEGA.prompt) {
+    const el = document.createElement('div');
+    el.id = 'megaPrompt';
+    el.style.cssText = 'position:fixed;left:50%;bottom:17%;transform:translateX(-50%);' +
+      'padding:6px 14px;border-radius:8px;background:rgba(10,14,22,0.72);color:#f4f7fb;' +
+      'font:600 15px/1.2 system-ui,sans-serif;letter-spacing:0.02em;pointer-events:none;' +
+      'z-index:30;display:none;border:1px solid rgba(255,255,255,0.18)';
+    (document.getElementById('hud') || document.body).appendChild(el);
+    MEGA.prompt = el;
+  }
+  if (text) {
+    MEGA.prompt.innerHTML = '<span style="display:inline-block;min-width:1.4em;padding:1px 6px;' +
+      'margin-right:8px;border-radius:5px;background:#f4f7fb;color:#0a0e16;text-align:center">' +
+      (istTouch ? '✋' : 'C') + '</span>' + text;
+    MEGA.prompt.style.display = 'block';
+  } else {
+    MEGA.prompt.style.display = 'none';
+  }
+}
+
+/* ======================= Harte Pruefungen (Pruefstand) =======================
+   Zaehlt die sechs harten Fehler des Auftrags im laufenden Zustand. Wird
+   vom Pruefstand mehrfach je Sekunde gerufen; im Spiel laeuft nichts davon. */
+function megaHartePruefung() {
+  const aktiv = new Map();
+  for (const e of EV.liste) if (e.zustand !== 'FERTIG') aktiv.set(e.id, e);
+  const f = { haengt: 0, doppelt: 0, fahrzeugBlockiert: 0, markerOhne: 0,
+              gegnerNachCleanup: 0, fahrzeugImHaus: 0, details: [] };
+  const notiz = (art, text) => { f[art]++; if (f.details.length < 12) f.details.push(art + ': ' + text); };
+  /* 1. haengengebliebenes Ereignis */
+  for (const e of aktiv.values()) {
+    const offen = e.zustand === 'WARTEN' || e.zustand === 'AKTIV' || e.zustand === 'ESKALIERT';
+    if (offen && e.lebenszeit > e.maxLeben + 5)
+      notiz('haengt', e.art + '#' + e.id + ' offen nach ' + e.lebenszeit.toFixed(0) + ' s');
+    if (!offen && e.endeZeit !== undefined && EV.gesamtZeit - e.endeZeit > 150)
+      notiz('haengt', e.art + '#' + e.id + ' Nachphase seit ' + (EV.gesamtZeit - e.endeZeit).toFixed(0) + ' s');
+  }
+  /* 2. doppelte Figuren: in zwei Ereignissen, doppelt in einer Liste,
+        versteckt und trotzdem sichtbar */
+  const besitz = new Map();
+  for (const e of aktiv.values()) {
+    for (const x of e.gegner.concat(e.zivilisten)) {
+      if (besitz.has(x) && besitz.get(x) !== e.id) notiz('doppelt', 'Figur in #' + besitz.get(x) + ' und #' + e.id);
+      besitz.set(x, e.id);
+    }
+  }
+  if (new Set(enemies).size !== enemies.length) notiz('doppelt', 'Gegner doppelt in enemies');
+  if (new Set(civilians).size !== civilians.length) notiz('doppelt', 'Passant doppelt in civilians');
+  for (const g of enemies) if (g.imAuto) notiz('doppelt', 'Dieb im Wagen steht zugleich in enemies');
+  for (const c of civilians) if (c.imWagen && c.visual.root.visible) notiz('doppelt', 'Fahrer im Wagen sichtbar');
+  /* 3. blockiertes Fahrzeug */
+  for (const c of cars) {
+    if (c.eventId && !aktiv.has(c.eventId)) notiz('fahrzeugBlockiert', 'Wagen mit erledigtem Ereignis');
+    if ((c.diebstahl || c.leer || c.unfall) && !c.eventId) notiz('fahrzeugBlockiert', 'Wagen mit Ereignisrest');
+    if (c.flucht && !(MISSION.daten && MISSION.daten.car === c) && !(c.eventId && aktiv.has(c.eventId)) &&
+        !(MISSION.art === 'story')) notiz('fahrzeugBlockiert', 'Fluchtwagen ohne Besitzer');
+  }
+  /* 4. Marker ohne Ereignis */
+  if (beacon.visible && !MISSION.art && !crimeGang && !EV.zeigt) notiz('markerOhne', 'Leuchtturm ohne Ziel');
+  if (EV.zeigt && !aktiv.has(EV.zeigt)) notiz('markerOhne', 'Zielanzeige zeigt auf erledigtes Ereignis');
+  const ladenAktiv = [...aktiv.values()].some((e) => e.art === 'laden' && e.zustand !== 'AUFRAEUMEN' &&
+                                                     e.beute && e.beute.zustand !== 'weg');
+  if (MEGA.beuteMesh && MEGA.beuteMesh.visible && !ladenAktiv) notiz('markerOhne', 'Beutesack ohne Ueberfall');
+  const traegt = [...aktiv.values()].some((e) => e.person && e.person.dachRettung &&
+                                                 e.person.dachRettung.zustand === 'getragen');
+  if (MEGA.seil && MEGA.seil.visible && !traegt) notiz('markerOhne', 'Netzseil ohne Person');
+  if (MEGA.rauch && !MEGA.rauchBesitzer) {
+    /* Auslaufende Wolken duerfen zu Ende verblassen - aber keine neuen. */
+    for (const w of MEGA.rauch) if (w.s.visible && w.t > w.dauer) notiz('markerOhne', 'Rauch ohne Unfall');
+  }
+  /* 5. Gegner nach dem Aufraeumen noch aktiv */
+  for (const g of enemies) {
+    if (g.dead) continue;
+    if (g.eventId && !aktiv.has(g.eventId)) notiz('gegnerNachCleanup', 'Gegner haengt an erledigtem Ereignis');
+    if (g.bewacht && !g.eventId && !(MISSION.daten && MISSION.daten.wachen && MISSION.daten.wachen.indexOf(g) >= 0))
+      notiz('gegnerNachCleanup', 'Bewacher ohne Auftrag');
+  }
+  for (const c of civilians) {
+    if (c.eventId && !aktiv.has(c.eventId)) notiz('gegnerNachCleanup', 'Passant haengt an erledigtem Ereignis');
+    if (c.dachRettung && !aktiv.has(c.dachRettung.e.id)) notiz('gegnerNachCleanup', 'Dachperson ohne Ereignis');
+    if (c.geisel && !c.eventId && !(MISSION.daten && MISSION.daten.civ === c) && MISSION.art !== 'story')
+      notiz('gegnerNachCleanup', 'Geisel ohne Auftrag');
+  }
+  /* 6. Fahrzeuge in Haeusern */
+  for (const c of cars) {
+    if (c.aus || !c.mesh) continue;
+    const p = c.mesh.position;
+    for (const k of collidersNear(p.x, p.z)) {
+      if (k.klein || (k.h || 0) < 3 || k.parkAuto) continue;
+      if (p.x > k.x0 + 0.3 && p.x < k.x1 - 0.3 && p.z > k.z0 + 0.3 && p.z < k.z1 - 0.3 &&
+          p.y < k.h && (k.y0 === undefined || p.y + 1 > k.y0)) {
+        notiz('fahrzeugImHaus', 'Wagen bei ' + p.x.toFixed(1) + ',' + p.z.toFixed(1));
+        break;
+      }
+    }
+  }
+  return f;
+}
+
 
 /* ======================= Einsatzkräfte =======================
    Bis hierher endete jedes Ereignis so: Spider-Man gewinnt, das Ereignis
@@ -41283,7 +42824,8 @@ function starteMission() {
   const moeglich = [];
   const gangKandidaten = gangs.filter((g) => !g.cleared && g.enemies.some((e) => !e.dead));
   if (gangKandidaten.length) { moeglich.push('gang', 'geisel', 'dieb'); }
-  if (cars.length) moeglich.push('flucht');
+  /* M1: flieht schon ein Wagen (Autodiebstahl), kein zweites Fluchtauto. */
+  if (cars.length && !cars.some((c) => c.flucht && !c.aus)) moeglich.push('flucht');
   moeglich.push('rennen');
   const art = pick(moeglich);
 
@@ -45404,6 +46946,74 @@ if (window.__WEBHERO_TEST__ === true) {
       return { bekannt, still };
     },
     evStarte,
+    /* ---- Mega-Update 1.0 (nur Pruefstaende) ---- */
+    mega: {
+      zufall() { return MEGA_ZUFALL.zustand(); },
+      laeden() { return megaLaeden().length; },
+      statistik() { return JSON.parse(JSON.stringify(MEGA.statistik)); },
+      phasenStatistik() { return Object.assign({}, EV.statistik.phasen); },
+      hart() { return megaHartePruefung(); },
+      interagieren() { return interagieren(); },
+      kandidat() { const k = megaInteraktionKandidat(); return k ? k.text : null; },
+      prompt() { return MEGA.promptText; },
+      ereignisse() {
+        return EV.liste.filter((e) => e.zustand !== 'FERTIG').map((e) => ({
+          id: e.id, art: e.art, zustand: e.zustand, phase: e.phase,
+          phasen: (e.phasen || []).map((p) => p.slice()), ziel: e.ziel, entdeckt: e.entdeckt,
+          ort: { x: +e.ort.x.toFixed(2), y: +(e.ort.y || 0).toFixed(2), z: +e.ort.z.toFixed(2) },
+          leben: +e.lebenszeit.toFixed(1), maxLeben: e.maxLeben,
+          gegner: e.gegner.map((g) => ({ i: enemies.indexOf(g), tot: !!g.dead, rolle: g.eventRolle || null,
+            x: +g.pos.x.toFixed(2), y: +g.pos.y.toFixed(2), z: +g.pos.z.toFixed(2), web: g.webStufe || 0,
+            imAuto: !!g.imAuto, flieht: !!g.flieht, gestoppt: megaGestoppt(g) })),
+          zivilisten: e.zivilisten.map((c) => civilians.indexOf(c)),
+          auto: e.auto ? cars.indexOf(e.auto) : -1,
+          autoPos: e.auto ? { x: +e.auto.mesh.position.x.toFixed(2), z: +e.auto.mesh.position.z.toFixed(2),
+                              flucht: !!e.auto.flucht, speed: e.auto.speed, tempo: +(e.auto.tempoJetzt || 0).toFixed(2) } : null,
+          jagd: e.jagd ? Object.assign({}, e.jagd) : null,
+          beute: e.beute ? Object.assign({}, e.beute) : null,
+          laden: e.laden ? Object.assign({}, e.laden) : null,
+          besitzer: e.besitzer ? civilians.indexOf(e.besitzer) : -1,
+          person: e.person ? { i: civilians.indexOf(e.person), x: +e.person.pos.x.toFixed(2),
+            y: +e.person.pos.y.toFixed(2), z: +e.person.pos.z.toFixed(2),
+            zustand: e.person.dachRettung ? e.person.dachRettung.zustand : e.person.state,
+            hilfeBar: !!e.person.hilfeBar } : null,
+          dach: e.dach ? Object.assign({}, e.dach) : null,
+          fahrer: e.fahrer ? { i: civilians.indexOf(e.fahrer), imWagen: !!e.fahrer.imWagen,
+            hilfeBar: !!e.fahrer.hilfeBar, x: +e.fahrer.pos.x.toFixed(2), z: +e.fahrer.pos.z.toFixed(2) } : null,
+          rettung: e.rettung ? { i: civilians.indexOf(e.rettung), hilfeBar: !!e.rettung.hilfeBar,
+            x: +e.rettung.pos.x.toFixed(2), z: +e.rettung.pos.z.toFixed(2) } : null,
+          rauch: e.rauchStufe || 0, tuer: e.tuer || null,
+        }));
+      },
+      /* Regisseur und Auftragssystem anhalten, damit ein Pruefablauf nicht
+         von einem zufaelligen zweiten Ereignis gestoert wird. */
+      blockiere(an) { EV.ruheCd = an ? 1e9 : 0; missionCd = an ? 1e9 : 18; },
+      ort(x, z) { return { haus: inGebaeude(x, z), y: +groundY(x, z, 2).toFixed(2), wasser: inWater(x, z),
+                           oben: +megaOberkante(x, z, 80).toFixed(2) }; },
+      resp() {
+        return { stat: Object.assign({}, RESP.statistik),
+                 liste: RESP.liste.map((r) => ({ id: r.id, ev: r.evId, art: r.art, zustand: r.zustand,
+                   autojagd: !!r.autojagd, leute: r.leute.length,
+                   wagen: r.wagen ? { x: +r.wagen.mesh.position.x.toFixed(1), z: +r.wagen.mesh.position.z.toFixed(1),
+                                      sirene: !!r.wagen.sirene } : null })) };
+      },
+      zuschauer(x, z, r) {
+        let gaffen = 0, fliehen = 0, jubeln = 0;
+        for (const c of civilians) {
+          if (Math.hypot(c.pos.x - x, c.pos.z - z) > r) continue;
+          if (c.gafft || (c.gaffEinsatzT || 0) > 0) gaffen++;
+          if (c.state === 'flee') fliehen++;
+          if (c.ruhePose === 'jubel') jubeln++;
+        }
+        return { gaffen, fliehen, jubeln };
+      },
+      objekte() {
+        return { beute: !!(MEGA.beuteMesh && MEGA.beuteMesh.visible),
+                 seil: !!(MEGA.seil && MEGA.seil.visible),
+                 rauch: MEGA.rauch ? MEGA.rauch.filter((w) => w.s.visible).length : 0,
+                 rueckweg: MEGA.rueckweg.length, beacon: !!beacon.visible, zeigt: EV.zeigt || null };
+      },
+    },
     /* Fuer Tests: Ruhephase UND Taktbremse loesen. Ohne das zweite
        wartet ein Test, der schnell viele Ereignisse braucht, auf einen
        Regler, der genau dafuer da ist, sie zu bremsen. */
