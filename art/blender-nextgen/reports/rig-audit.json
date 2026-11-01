@@ -1,0 +1,1680 @@
+{
+ "models": {
+  "hero": {
+   "skins": 1,
+   "file": "assets/hero.glb",
+   "bytes": 2173216,
+   "joints": 66,
+   "meshes": 7,
+   "materials": 7,
+   "textures": 8,
+   "images": 8,
+   "hierarchy": [
+    [
+     "_rootJoint",
+     "Object"
+    ],
+    [
+     "mixamorigHips",
+     "_rootJoint"
+    ],
+    [
+     "mixamorigSpine",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigSpine1",
+     "mixamorigSpine"
+    ],
+    [
+     "mixamorigSpine2",
+     "mixamorigSpine1"
+    ],
+    [
+     "mixamorigNeck",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigHead",
+     "mixamorigNeck"
+    ],
+    [
+     "mixamorigHeadTop_End",
+     "mixamorigHead"
+    ],
+    [
+     "mixamorigLeftShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigLeftArm",
+     "mixamorigLeftShoulder"
+    ],
+    [
+     "mixamorigLeftForeArm",
+     "mixamorigLeftArm"
+    ],
+    [
+     "mixamorigLeftHand",
+     "mixamorigLeftForeArm"
+    ],
+    [
+     "mixamorigLeftHandThumb1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandThumb2",
+     "mixamorigLeftHandThumb1"
+    ],
+    [
+     "mixamorigLeftHandThumb3",
+     "mixamorigLeftHandThumb2"
+    ],
+    [
+     "mixamorigLeftHandThumb4",
+     "mixamorigLeftHandThumb3"
+    ],
+    [
+     "mixamorigLeftHandIndex1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandIndex2",
+     "mixamorigLeftHandIndex1"
+    ],
+    [
+     "mixamorigLeftHandIndex3",
+     "mixamorigLeftHandIndex2"
+    ],
+    [
+     "mixamorigLeftHandIndex4",
+     "mixamorigLeftHandIndex3"
+    ],
+    [
+     "mixamorigLeftHandMiddle1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandMiddle2",
+     "mixamorigLeftHandMiddle1"
+    ],
+    [
+     "mixamorigLeftHandMiddle3",
+     "mixamorigLeftHandMiddle2"
+    ],
+    [
+     "mixamorigLeftHandMiddle4",
+     "mixamorigLeftHandMiddle3"
+    ],
+    [
+     "mixamorigLeftHandRing1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandRing2",
+     "mixamorigLeftHandRing1"
+    ],
+    [
+     "mixamorigLeftHandRing3",
+     "mixamorigLeftHandRing2"
+    ],
+    [
+     "mixamorigLeftHandRing4",
+     "mixamorigLeftHandRing3"
+    ],
+    [
+     "mixamorigLeftHandPinky1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandPinky2",
+     "mixamorigLeftHandPinky1"
+    ],
+    [
+     "mixamorigLeftHandPinky3",
+     "mixamorigLeftHandPinky2"
+    ],
+    [
+     "mixamorigLeftHandPinky4",
+     "mixamorigLeftHandPinky3"
+    ],
+    [
+     "mixamorigRightShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigRightArm",
+     "mixamorigRightShoulder"
+    ],
+    [
+     "mixamorigRightForeArm",
+     "mixamorigRightArm"
+    ],
+    [
+     "mixamorigRightHand",
+     "mixamorigRightForeArm"
+    ],
+    [
+     "mixamorigRightHandThumb1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandThumb2",
+     "mixamorigRightHandThumb1"
+    ],
+    [
+     "mixamorigRightHandThumb3",
+     "mixamorigRightHandThumb2"
+    ],
+    [
+     "mixamorigRightHandThumb4",
+     "mixamorigRightHandThumb3"
+    ],
+    [
+     "mixamorigRightHandIndex1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandIndex2",
+     "mixamorigRightHandIndex1"
+    ],
+    [
+     "mixamorigRightHandIndex3",
+     "mixamorigRightHandIndex2"
+    ],
+    [
+     "mixamorigRightHandIndex4",
+     "mixamorigRightHandIndex3"
+    ],
+    [
+     "mixamorigRightHandMiddle1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandMiddle2",
+     "mixamorigRightHandMiddle1"
+    ],
+    [
+     "mixamorigRightHandMiddle3",
+     "mixamorigRightHandMiddle2"
+    ],
+    [
+     "mixamorigRightHandMiddle4",
+     "mixamorigRightHandMiddle3"
+    ],
+    [
+     "mixamorigRightHandRing1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandRing2",
+     "mixamorigRightHandRing1"
+    ],
+    [
+     "mixamorigRightHandRing3",
+     "mixamorigRightHandRing2"
+    ],
+    [
+     "mixamorigRightHandRing4",
+     "mixamorigRightHandRing3"
+    ],
+    [
+     "mixamorigRightHandPinky1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandPinky2",
+     "mixamorigRightHandPinky1"
+    ],
+    [
+     "mixamorigRightHandPinky3",
+     "mixamorigRightHandPinky2"
+    ],
+    [
+     "mixamorigRightHandPinky4",
+     "mixamorigRightHandPinky3"
+    ],
+    [
+     "mixamorigLeftUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigLeftLeg",
+     "mixamorigLeftUpLeg"
+    ],
+    [
+     "mixamorigLeftFoot",
+     "mixamorigLeftLeg"
+    ],
+    [
+     "mixamorigLeftToeBase",
+     "mixamorigLeftFoot"
+    ],
+    [
+     "mixamorigLeftToe_End",
+     "mixamorigLeftToeBase"
+    ],
+    [
+     "mixamorigRightUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigRightLeg",
+     "mixamorigRightUpLeg"
+    ],
+    [
+     "mixamorigRightFoot",
+     "mixamorigRightLeg"
+    ],
+    [
+     "mixamorigRightToeBase",
+     "mixamorigRightFoot"
+    ],
+    [
+     "mixamorigRightToe_End",
+     "mixamorigRightToeBase"
+    ]
+   ]
+  },
+  "thug": {
+   "skins": 1,
+   "file": "assets/thug.glb",
+   "bytes": 1108204,
+   "joints": 67,
+   "meshes": 1,
+   "materials": 1,
+   "textures": 3,
+   "images": 3,
+   "hierarchy": [
+    [
+     "mixamorigHips",
+     "RootNode"
+    ],
+    [
+     "mixamorigSpine",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigSpine1",
+     "mixamorigSpine"
+    ],
+    [
+     "mixamorigSpine2",
+     "mixamorigSpine1"
+    ],
+    [
+     "mixamorigNeck",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigHead",
+     "mixamorigNeck"
+    ],
+    [
+     "mixamorigHeadTop_End",
+     "mixamorigHead"
+    ],
+    [
+     "LeftEye",
+     "mixamorigHead"
+    ],
+    [
+     "RightEye",
+     "mixamorigHead"
+    ],
+    [
+     "mixamorigLeftShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigLeftArm",
+     "mixamorigLeftShoulder"
+    ],
+    [
+     "mixamorigLeftForeArm",
+     "mixamorigLeftArm"
+    ],
+    [
+     "mixamorigLeftHand",
+     "mixamorigLeftForeArm"
+    ],
+    [
+     "mixamorigLeftHandThumb1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandThumb2",
+     "mixamorigLeftHandThumb1"
+    ],
+    [
+     "mixamorigLeftHandThumb3",
+     "mixamorigLeftHandThumb2"
+    ],
+    [
+     "mixamorigLeftHandThumb4",
+     "mixamorigLeftHandThumb3"
+    ],
+    [
+     "mixamorigLeftHandIndex1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandIndex2",
+     "mixamorigLeftHandIndex1"
+    ],
+    [
+     "mixamorigLeftHandIndex3",
+     "mixamorigLeftHandIndex2"
+    ],
+    [
+     "mixamorigLeftHandIndex4",
+     "mixamorigLeftHandIndex3"
+    ],
+    [
+     "mixamorigLeftHandMiddle1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandMiddle2",
+     "mixamorigLeftHandMiddle1"
+    ],
+    [
+     "mixamorigLeftHandMiddle3",
+     "mixamorigLeftHandMiddle2"
+    ],
+    [
+     "mixamorigLeftHandMiddle4",
+     "mixamorigLeftHandMiddle3"
+    ],
+    [
+     "mixamorigLeftHandRing1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandRing2",
+     "mixamorigLeftHandRing1"
+    ],
+    [
+     "mixamorigLeftHandRing3",
+     "mixamorigLeftHandRing2"
+    ],
+    [
+     "mixamorigLeftHandRing4",
+     "mixamorigLeftHandRing3"
+    ],
+    [
+     "mixamorigLeftHandPinky1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandPinky2",
+     "mixamorigLeftHandPinky1"
+    ],
+    [
+     "mixamorigLeftHandPinky3",
+     "mixamorigLeftHandPinky2"
+    ],
+    [
+     "mixamorigLeftHandPinky4",
+     "mixamorigLeftHandPinky3"
+    ],
+    [
+     "mixamorigRightShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigRightArm",
+     "mixamorigRightShoulder"
+    ],
+    [
+     "mixamorigRightForeArm",
+     "mixamorigRightArm"
+    ],
+    [
+     "mixamorigRightHand",
+     "mixamorigRightForeArm"
+    ],
+    [
+     "mixamorigRightHandThumb1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandThumb2",
+     "mixamorigRightHandThumb1"
+    ],
+    [
+     "mixamorigRightHandThumb3",
+     "mixamorigRightHandThumb2"
+    ],
+    [
+     "mixamorigRightHandThumb4",
+     "mixamorigRightHandThumb3"
+    ],
+    [
+     "mixamorigRightHandIndex1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandIndex2",
+     "mixamorigRightHandIndex1"
+    ],
+    [
+     "mixamorigRightHandIndex3",
+     "mixamorigRightHandIndex2"
+    ],
+    [
+     "mixamorigRightHandIndex4",
+     "mixamorigRightHandIndex3"
+    ],
+    [
+     "mixamorigRightHandMiddle1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandMiddle2",
+     "mixamorigRightHandMiddle1"
+    ],
+    [
+     "mixamorigRightHandMiddle3",
+     "mixamorigRightHandMiddle2"
+    ],
+    [
+     "mixamorigRightHandMiddle4",
+     "mixamorigRightHandMiddle3"
+    ],
+    [
+     "mixamorigRightHandRing1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandRing2",
+     "mixamorigRightHandRing1"
+    ],
+    [
+     "mixamorigRightHandRing3",
+     "mixamorigRightHandRing2"
+    ],
+    [
+     "mixamorigRightHandRing4",
+     "mixamorigRightHandRing3"
+    ],
+    [
+     "mixamorigRightHandPinky1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandPinky2",
+     "mixamorigRightHandPinky1"
+    ],
+    [
+     "mixamorigRightHandPinky3",
+     "mixamorigRightHandPinky2"
+    ],
+    [
+     "mixamorigRightHandPinky4",
+     "mixamorigRightHandPinky3"
+    ],
+    [
+     "mixamorigLeftUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigLeftLeg",
+     "mixamorigLeftUpLeg"
+    ],
+    [
+     "mixamorigLeftFoot",
+     "mixamorigLeftLeg"
+    ],
+    [
+     "mixamorigLeftToeBase",
+     "mixamorigLeftFoot"
+    ],
+    [
+     "mixamorigLeftToe_End",
+     "mixamorigLeftToeBase"
+    ],
+    [
+     "mixamorigRightUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigRightLeg",
+     "mixamorigRightUpLeg"
+    ],
+    [
+     "mixamorigRightFoot",
+     "mixamorigRightLeg"
+    ],
+    [
+     "mixamorigRightToeBase",
+     "mixamorigRightFoot"
+    ],
+    [
+     "mixamorigRightToe_End",
+     "mixamorigRightToeBase"
+    ]
+   ]
+  },
+  "civilian": {
+   "skins": 6,
+   "file": "assets/civilian.glb",
+   "bytes": 3800860,
+   "joints": 67,
+   "meshes": 7,
+   "materials": 6,
+   "textures": 15,
+   "images": 15,
+   "hierarchy": [
+    [
+     "mixamorigLeftLeg",
+     "mixamorigLeftUpLeg"
+    ],
+    [
+     "mixamorigLeftFoot",
+     "mixamorigLeftLeg"
+    ],
+    [
+     "mixamorigLeftToeBase",
+     "mixamorigLeftFoot"
+    ],
+    [
+     "mixamorigLeftToe_End",
+     "mixamorigLeftToeBase"
+    ],
+    [
+     "mixamorigRightLeg",
+     "mixamorigRightUpLeg"
+    ],
+    [
+     "mixamorigRightFoot",
+     "mixamorigRightLeg"
+    ],
+    [
+     "mixamorigRightToeBase",
+     "mixamorigRightFoot"
+    ],
+    [
+     "mixamorigRightToe_End",
+     "mixamorigRightToeBase"
+    ],
+    [
+     "mixamorigHips",
+     "RootNode"
+    ],
+    [
+     "mixamorigSpine",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigSpine1",
+     "mixamorigSpine"
+    ],
+    [
+     "mixamorigSpine2",
+     "mixamorigSpine1"
+    ],
+    [
+     "mixamorigNeck",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigHead",
+     "mixamorigNeck"
+    ],
+    [
+     "mixamorigLeftShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigLeftArm",
+     "mixamorigLeftShoulder"
+    ],
+    [
+     "mixamorigLeftForeArm",
+     "mixamorigLeftArm"
+    ],
+    [
+     "mixamorigRightShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigRightArm",
+     "mixamorigRightShoulder"
+    ],
+    [
+     "mixamorigRightForeArm",
+     "mixamorigRightArm"
+    ],
+    [
+     "mixamorigLeftUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigRightUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigHeadTop_End",
+     "mixamorigHead"
+    ],
+    [
+     "mixamorigRightEye",
+     "mixamorigHead"
+    ],
+    [
+     "mixamorigLeftEye",
+     "mixamorigHead"
+    ],
+    [
+     "mixamorigLeftHand",
+     "mixamorigLeftForeArm"
+    ],
+    [
+     "mixamorigLeftHandMiddle1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandMiddle2",
+     "mixamorigLeftHandMiddle1"
+    ],
+    [
+     "mixamorigLeftHandMiddle3",
+     "mixamorigLeftHandMiddle2"
+    ],
+    [
+     "mixamorigLeftHandMiddle4",
+     "mixamorigLeftHandMiddle3"
+    ],
+    [
+     "mixamorigLeftHandThumb1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandThumb2",
+     "mixamorigLeftHandThumb1"
+    ],
+    [
+     "mixamorigLeftHandThumb3",
+     "mixamorigLeftHandThumb2"
+    ],
+    [
+     "mixamorigLeftHandThumb4",
+     "mixamorigLeftHandThumb3"
+    ],
+    [
+     "mixamorigLeftHandIndex1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandIndex2",
+     "mixamorigLeftHandIndex1"
+    ],
+    [
+     "mixamorigLeftHandIndex3",
+     "mixamorigLeftHandIndex2"
+    ],
+    [
+     "mixamorigLeftHandIndex4",
+     "mixamorigLeftHandIndex3"
+    ],
+    [
+     "mixamorigLeftHandRing1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandRing2",
+     "mixamorigLeftHandRing1"
+    ],
+    [
+     "mixamorigLeftHandRing3",
+     "mixamorigLeftHandRing2"
+    ],
+    [
+     "mixamorigLeftHandRing4",
+     "mixamorigLeftHandRing3"
+    ],
+    [
+     "mixamorigLeftHandPinky1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandPinky2",
+     "mixamorigLeftHandPinky1"
+    ],
+    [
+     "mixamorigLeftHandPinky3",
+     "mixamorigLeftHandPinky2"
+    ],
+    [
+     "mixamorigLeftHandPinky4",
+     "mixamorigLeftHandPinky3"
+    ],
+    [
+     "mixamorigRightHand",
+     "mixamorigRightForeArm"
+    ],
+    [
+     "mixamorigRightHandMiddle1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandMiddle2",
+     "mixamorigRightHandMiddle1"
+    ],
+    [
+     "mixamorigRightHandMiddle3",
+     "mixamorigRightHandMiddle2"
+    ],
+    [
+     "mixamorigRightHandMiddle4",
+     "mixamorigRightHandMiddle3"
+    ],
+    [
+     "mixamorigRightHandThumb1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandThumb2",
+     "mixamorigRightHandThumb1"
+    ],
+    [
+     "mixamorigRightHandThumb3",
+     "mixamorigRightHandThumb2"
+    ],
+    [
+     "mixamorigRightHandThumb4",
+     "mixamorigRightHandThumb3"
+    ],
+    [
+     "mixamorigRightHandIndex1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandIndex2",
+     "mixamorigRightHandIndex1"
+    ],
+    [
+     "mixamorigRightHandIndex3",
+     "mixamorigRightHandIndex2"
+    ],
+    [
+     "mixamorigRightHandIndex4",
+     "mixamorigRightHandIndex3"
+    ],
+    [
+     "mixamorigRightHandRing1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandRing2",
+     "mixamorigRightHandRing1"
+    ],
+    [
+     "mixamorigRightHandRing3",
+     "mixamorigRightHandRing2"
+    ],
+    [
+     "mixamorigRightHandRing4",
+     "mixamorigRightHandRing3"
+    ],
+    [
+     "mixamorigRightHandPinky1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandPinky2",
+     "mixamorigRightHandPinky1"
+    ],
+    [
+     "mixamorigRightHandPinky3",
+     "mixamorigRightHandPinky2"
+    ],
+    [
+     "mixamorigRightHandPinky4",
+     "mixamorigRightHandPinky3"
+    ]
+   ]
+  },
+  "civilian2": {
+   "skins": 4,
+   "file": "assets/civilian2.glb",
+   "bytes": 6435340,
+   "joints": 65,
+   "meshes": 6,
+   "materials": 2,
+   "textures": 4,
+   "images": 4,
+   "hierarchy": [
+    [
+     "mixamorigHips",
+     "RootNode"
+    ],
+    [
+     "mixamorigSpine",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigSpine1",
+     "mixamorigSpine"
+    ],
+    [
+     "mixamorigSpine2",
+     "mixamorigSpine1"
+    ],
+    [
+     "mixamorigNeck",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigHead",
+     "mixamorigNeck"
+    ],
+    [
+     "mixamorigLeftShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigLeftArm",
+     "mixamorigLeftShoulder"
+    ],
+    [
+     "mixamorigLeftForeArm",
+     "mixamorigLeftArm"
+    ],
+    [
+     "mixamorigLeftHand",
+     "mixamorigLeftForeArm"
+    ],
+    [
+     "mixamorigLeftHandThumb1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandThumb2",
+     "mixamorigLeftHandThumb1"
+    ],
+    [
+     "mixamorigLeftHandThumb3",
+     "mixamorigLeftHandThumb2"
+    ],
+    [
+     "mixamorigLeftHandIndex1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandMiddle1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandRing1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigLeftHandPinky1",
+     "mixamorigLeftHand"
+    ],
+    [
+     "mixamorigRightShoulder",
+     "mixamorigSpine2"
+    ],
+    [
+     "mixamorigRightArm",
+     "mixamorigRightShoulder"
+    ],
+    [
+     "mixamorigRightForeArm",
+     "mixamorigRightArm"
+    ],
+    [
+     "mixamorigRightHand",
+     "mixamorigRightForeArm"
+    ],
+    [
+     "mixamorigRightHandThumb1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandThumb2",
+     "mixamorigRightHandThumb1"
+    ],
+    [
+     "mixamorigRightHandThumb3",
+     "mixamorigRightHandThumb2"
+    ],
+    [
+     "mixamorigRightHandIndex1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandMiddle1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandRing1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigRightHandPinky1",
+     "mixamorigRightHand"
+    ],
+    [
+     "mixamorigLeftUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigLeftLeg",
+     "mixamorigLeftUpLeg"
+    ],
+    [
+     "mixamorigRightUpLeg",
+     "mixamorigHips"
+    ],
+    [
+     "mixamorigRightLeg",
+     "mixamorigRightUpLeg"
+    ],
+    [
+     "mixamorigHeadTop_End",
+     "mixamorigHead"
+    ],
+    [
+     "mixamorigLeftHandThumb4",
+     "mixamorigLeftHandThumb3"
+    ],
+    [
+     "mixamorigLeftHandIndex2",
+     "mixamorigLeftHandIndex1"
+    ],
+    [
+     "mixamorigLeftHandIndex3",
+     "mixamorigLeftHandIndex2"
+    ],
+    [
+     "mixamorigLeftHandIndex4",
+     "mixamorigLeftHandIndex3"
+    ],
+    [
+     "mixamorigLeftHandMiddle2",
+     "mixamorigLeftHandMiddle1"
+    ],
+    [
+     "mixamorigLeftHandMiddle3",
+     "mixamorigLeftHandMiddle2"
+    ],
+    [
+     "mixamorigLeftHandMiddle4",
+     "mixamorigLeftHandMiddle3"
+    ],
+    [
+     "mixamorigLeftHandRing2",
+     "mixamorigLeftHandRing1"
+    ],
+    [
+     "mixamorigLeftHandRing3",
+     "mixamorigLeftHandRing2"
+    ],
+    [
+     "mixamorigLeftHandRing4",
+     "mixamorigLeftHandRing3"
+    ],
+    [
+     "mixamorigLeftHandPinky2",
+     "mixamorigLeftHandPinky1"
+    ],
+    [
+     "mixamorigLeftHandPinky3",
+     "mixamorigLeftHandPinky2"
+    ],
+    [
+     "mixamorigLeftHandPinky4",
+     "mixamorigLeftHandPinky3"
+    ],
+    [
+     "mixamorigRightHandThumb4",
+     "mixamorigRightHandThumb3"
+    ],
+    [
+     "mixamorigRightHandIndex2",
+     "mixamorigRightHandIndex1"
+    ],
+    [
+     "mixamorigRightHandIndex3",
+     "mixamorigRightHandIndex2"
+    ],
+    [
+     "mixamorigRightHandIndex4",
+     "mixamorigRightHandIndex3"
+    ],
+    [
+     "mixamorigRightHandMiddle2",
+     "mixamorigRightHandMiddle1"
+    ],
+    [
+     "mixamorigRightHandMiddle3",
+     "mixamorigRightHandMiddle2"
+    ],
+    [
+     "mixamorigRightHandMiddle4",
+     "mixamorigRightHandMiddle3"
+    ],
+    [
+     "mixamorigRightHandRing2",
+     "mixamorigRightHandRing1"
+    ],
+    [
+     "mixamorigRightHandRing3",
+     "mixamorigRightHandRing2"
+    ],
+    [
+     "mixamorigRightHandRing4",
+     "mixamorigRightHandRing3"
+    ],
+    [
+     "mixamorigRightHandPinky2",
+     "mixamorigRightHandPinky1"
+    ],
+    [
+     "mixamorigRightHandPinky3",
+     "mixamorigRightHandPinky2"
+    ],
+    [
+     "mixamorigRightHandPinky4",
+     "mixamorigRightHandPinky3"
+    ],
+    [
+     "mixamorigLeftFoot",
+     "mixamorigLeftLeg"
+    ],
+    [
+     "mixamorigLeftToeBase",
+     "mixamorigLeftFoot"
+    ],
+    [
+     "mixamorigLeftToe_End",
+     "mixamorigLeftToeBase"
+    ],
+    [
+     "mixamorigRightFoot",
+     "mixamorigRightLeg"
+    ],
+    [
+     "mixamorigRightToeBase",
+     "mixamorigRightFoot"
+    ],
+    [
+     "mixamorigRightToe_End",
+     "mixamorigRightToeBase"
+    ]
+   ]
+  }
+ },
+ "clips": {
+  "hero@idle": {
+   "bytes": 271208,
+   "glbClipName": "mixamo.com",
+   "duration": 9.933,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@walk": {
+   "bytes": 36572,
+   "glbClipName": "mixamo.com",
+   "duration": 1.033,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@run": {
+   "bytes": 29680,
+   "glbClipName": "mixamo.com",
+   "duration": 0.7,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@sprint": {
+   "bytes": 26232,
+   "glbClipName": "mixamo.com",
+   "duration": 0.533,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@jump": {
+   "bytes": 32436,
+   "glbClipName": "mixamo.com",
+   "duration": 0.833,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@land": {
+   "bytes": 37260,
+   "glbClipName": "mixamo.com",
+   "duration": 1.067,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@swing": {
+   "bytes": 138044,
+   "glbClipName": "mixamo.com",
+   "duration": 4.7,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@klettern": {
+   "bytes": 94424,
+   "glbClipName": "mixamo.com",
+   "duration": 3.833,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@klettern_seit": {
+   "bytes": 39324,
+   "glbClipName": "mixamo.com",
+   "duration": 1.167,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@gleiten": {
+   "bytes": 38248,
+   "glbClipName": "gleiten",
+   "duration": 3,
+   "channels": 22,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 0,
+   "bonesMissingOnModel": [],
+   "translationBones": [],
+   "restDeltaMaxDeg": 175.68,
+   "restDeltaBone": "mixamorigRightUpLeg"
+  },
+  "hero@punch": {
+   "bytes": 60804,
+   "glbClipName": "mixamo.com",
+   "duration": 1.667,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@kick": {
+   "bytes": 81996,
+   "glbClipName": "mixamo.com",
+   "duration": 2.5,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@roll": {
+   "bytes": 64104,
+   "glbClipName": "mixamo.com",
+   "duration": 2.367,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@fall": {
+   "bytes": 29680,
+   "glbClipName": "mixamo.com",
+   "duration": 0.7,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@schwungpose": {
+   "bytes": 70136,
+   "glbClipName": "mixamo.com",
+   "duration": 2.033,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@zip_zug": {
+   "bytes": 12328,
+   "glbClipName": "ZipPull6",
+   "duration": 0.636,
+   "channels": 23,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 0,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 175.68,
+   "restDeltaBone": "mixamorigRightUpLeg"
+  },
+  "hero@wandlauf": {
+   "bytes": 34504,
+   "glbClipName": "mixamo.com",
+   "duration": 0.933,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@kante": {
+   "bytes": 97844,
+   "glbClipName": "mixamo.com",
+   "duration": 4,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@uppercut": {
+   "bytes": 42768,
+   "glbClipName": "mixamo.com",
+   "duration": 1.333,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@hit": {
+   "bytes": 50624,
+   "glbClipName": "mixamo.com",
+   "duration": 1.267,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@luftangriff": {
+   "bytes": 115136,
+   "glbClipName": "mixamo.com",
+   "duration": 3.8,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@sturzflug": {
+   "bytes": 6028,
+   "glbClipName": "StraightDive",
+   "duration": 0.033,
+   "channels": 23,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 0,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 175.68,
+   "restDeltaBone": "mixamorigRightUpLeg"
+  },
+  "hero@sturzland": {
+   "bytes": 48700,
+   "glbClipName": "mixamo.com",
+   "duration": 2.3,
+   "channels": 33,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 10,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 34.29,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "hero@schwungland": {
+   "bytes": 131260,
+   "glbClipName": "mixamo.com",
+   "duration": 1.867,
+   "channels": 90,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHead",
+    "mixamorigNeck",
+    "mixamorigLeftHandThumb3",
+    "mixamorigLeftHandThumb2",
+    "mixamorigLeftHandIndex3",
+    "mixamorigLeftHandIndex2",
+    "mixamorigLeftHandMiddle3",
+    "mixamorigLeftHandMiddle2",
+    "mixamorigLeftHandRing3",
+    "mixamorigLeftHandRing2",
+    "mixamorigLeftHandPinky3",
+    "mixamorigLeftHandPinky2",
+    "mixamorigLeftHand",
+    "mixamorigLeftForeArm",
+    "mixamorigLeftArm",
+    "mixamorigRightHandThumb3",
+    "mixamorigRightHandThumb2",
+    "mixamorigRightHandIndex3",
+    "mixamorigRightHandIndex2",
+    "mixamorigRightHandMiddle3",
+    "mixamorigRightHandMiddle2",
+    "mixamorigRightHandRing3",
+    "mixamorigRightHandRing2",
+    "mixamorigRightHandPinky3",
+    "mixamorigRightHandPinky2",
+    "mixamorigRightHand",
+    "mixamorigRightForeArm",
+    "mixamorigRightArm",
+    "mixamorigSpine2",
+    "mixamorigSpine1",
+    "mixamorigSpine",
+    "mixamorigLeftToeBase",
+    "mixamorigLeftFoot",
+    "mixamorigLeftLeg",
+    "mixamorigRightToeBase",
+    "mixamorigRightFoot",
+    "mixamorigRightLeg",
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.47,
+   "restDeltaBone": "mixamorigRightForeArm"
+  },
+  "thug@idle": {
+   "bytes": 271208,
+   "glbClipName": "mixamo.com",
+   "duration": 9.933,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@walk": {
+   "bytes": 36572,
+   "glbClipName": "mixamo.com",
+   "duration": 1.033,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@run": {
+   "bytes": 29680,
+   "glbClipName": "mixamo.com",
+   "duration": 0.7,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@punch": {
+   "bytes": 60804,
+   "glbClipName": "mixamo.com",
+   "duration": 1.667,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@kick": {
+   "bytes": 81996,
+   "glbClipName": "mixamo.com",
+   "duration": 2.5,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@block": {
+   "bytes": 88796,
+   "glbClipName": "mixamo.com",
+   "duration": 2.767,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@hit": {
+   "bytes": 50624,
+   "glbClipName": "mixamo.com",
+   "duration": 1.267,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@fall": {
+   "bytes": 29680,
+   "glbClipName": "mixamo.com",
+   "duration": 0.7,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@ausweichenL": {
+   "bytes": 42988,
+   "glbClipName": "mixamo.com",
+   "duration": 0.967,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@ausweichenR": {
+   "bytes": 42988,
+   "glbClipName": "mixamo.com",
+   "duration": 0.967,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@taunt": {
+   "bytes": 90492,
+   "glbClipName": "mixamo.com",
+   "duration": 2.833,
+   "channels": 53,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 30,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  },
+  "thug@uppercut": {
+   "bytes": 42768,
+   "glbClipName": "mixamo.com",
+   "duration": 1.333,
+   "channels": 43,
+   "bonesAnimated": 22,
+   "fingerBonesAnimated": 20,
+   "bonesMissingOnModel": [],
+   "translationBones": [
+    "mixamorigHips"
+   ],
+   "restDeltaMaxDeg": 20.63,
+   "restDeltaBone": "mixamorigLeftShoulder"
+  }
+ },
+ "nameDiff": {
+  "hero-thug": {
+   "onlyA": [
+    "_rootJoint"
+   ],
+   "onlyB": [
+    "LeftEye",
+    "RightEye"
+   ]
+  },
+  "thug-civilian": {
+   "onlyA": [
+    "LeftEye",
+    "RightEye"
+   ],
+   "onlyB": [
+    "mixamorigRightEye",
+    "mixamorigLeftEye"
+   ]
+  },
+  "hero-civilian2": {
+   "onlyA": [
+    "_rootJoint"
+   ],
+   "onlyB": []
+  }
+ }
+}

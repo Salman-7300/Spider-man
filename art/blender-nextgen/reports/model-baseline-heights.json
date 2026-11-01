@@ -1,0 +1,106 @@
+{
+ "hero": {
+  "skinnedTris": 13400,
+  "bbox_min": [
+   -1.1565,
+   -1.7598,
+   -0.2505
+  ],
+  "bbox_max": [
+   1.1565,
+   1.4059,
+   0.4559
+  ],
+  "height_units": 0.7064,
+  "game_scale_to_1_76": 2.49149,
+  "armature_world_scale": [
+   0.000127,
+   0.000127,
+   0.000127
+  ],
+  "toe_minus_ankle_blender": [
+   0.014,
+   -0.16,
+   0.243
+  ],
+  "hips_height_frac": 0.355
+ },
+ "thug": {
+  "skinnedTris": 14808,
+  "bbox_min": [
+   -0.8983,
+   -0.2093,
+   0.0013
+  ],
+  "bbox_max": [
+   0.8984,
+   0.2105,
+   1.7911
+  ],
+  "height_units": 1.7898,
+  "game_scale_to_1_76": 0.98335,
+  "armature_world_scale": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "toe_minus_ankle_blender": [
+   0.026,
+   -0.145,
+   -0.138
+  ],
+  "hips_height_frac": 0.548
+ },
+ "civilian": {
+  "skinnedTris": 35193,
+  "bbox_min": [
+   -1.9335,
+   -0.4036,
+   0.0001
+  ],
+  "bbox_max": [
+   1.9605,
+   0.3194,
+   3.7849
+  ],
+  "height_units": 3.7848,
+  "game_scale_to_1_76": 0.46501,
+  "armature_world_scale": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "toe_minus_ankle_blender": [
+   0.027,
+   -0.243,
+   -0.214
+  ],
+  "hips_height_frac": 0.553
+ },
+ "civilian2": {
+  "skinnedTris": 53452,
+  "bbox_min": [
+   -0.8371,
+   -0.169,
+   0.0011
+  ],
+  "bbox_max": [
+   0.8369,
+   0.1721,
+   1.7647
+  ],
+  "height_units": 1.7636,
+  "game_scale_to_1_76": 0.99794,
+  "armature_world_scale": [
+   1.0,
+   1.0,
+   1.0
+  ],
+  "toe_minus_ankle_blender": [
+   0.008,
+   -0.133,
+   -0.105
+  ],
+  "hips_height_frac": 0.557
+ }
+}
