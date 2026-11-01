@@ -1,0 +1,182 @@
+{
+ "build": {
+  "body_tris": 10744,
+  "wheel_tris": 1664,
+  "faces_per_material": {
+   "Paint": 1814,
+   "Matte": 530,
+   "Interior": 638,
+   "Glass": 462,
+   "Trim": 1367,
+   "Metal": 354,
+   "LampF": 40,
+   "LampR": 84
+  },
+  "body_name": "Sedan_Body"
+ },
+ "gates": {
+  "Sedan_Body": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 6311,
+   "tris": 10744,
+   "nanVerts": 0,
+   "nonManifoldEdges": 1684,
+   "boundaryEdges": 1684,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Sedan_Paint",
+    "Sedan_TrimBlack",
+    "Sedan_MatteDark",
+    "Sedan_Metal",
+    "Sedan_Glass",
+    "Sedan_LampFront",
+    "Sedan_LampRear",
+    "Sedan_Interior"
+   ],
+   "valid": true
+  },
+  "Wheel_FL": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 970,
+   "tris": 1664,
+   "nanVerts": 0,
+   "nonManifoldEdges": 256,
+   "boundaryEdges": 256,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Sedan_MatteDark",
+    "Sedan_Metal"
+   ],
+   "valid": true
+  },
+  "Wheel_FR": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 970,
+   "tris": 1664,
+   "nanVerts": 0,
+   "nonManifoldEdges": 256,
+   "boundaryEdges": 256,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Sedan_MatteDark",
+    "Sedan_Metal"
+   ],
+   "valid": true
+  },
+  "Wheel_RL": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 970,
+   "tris": 1664,
+   "nanVerts": 0,
+   "nonManifoldEdges": 256,
+   "boundaryEdges": 256,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Sedan_MatteDark",
+    "Sedan_Metal"
+   ],
+   "valid": true
+  },
+  "Wheel_RR": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 970,
+   "tris": 1664,
+   "nanVerts": 0,
+   "nonManifoldEdges": 256,
+   "boundaryEdges": 256,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Sedan_MatteDark",
+    "Sedan_Metal"
+   ],
+   "valid": true
+  }
+ },
+ "dims": {
+  "length_y": 4.7372002601623535,
+  "width_x": 2.074734687805176,
+  "height_z": 1.4994115233421326,
+  "min": [
+   -1.037367343902588,
+   -2.3686001300811768,
+   0.0024425387382507324
+  ],
+  "max": [
+   1.037367343902588,
+   2.3686001300811768,
+   1.5018540620803833
+  ]
+ },
+ "blendBytes": 253820,
+ "glbBytes": 361012,
+ "reimport": {
+  "objects": 11,
+  "missing": [],
+  "posDelta": {
+   "DriverSeat": 0.0,
+   "Steer_FL": 0.0,
+   "Wheel_FL": 0.0,
+   "Steer_FR": 0.0,
+   "Wheel_FR": 0.0,
+   "Steer_RL": 0.0,
+   "Wheel_RL": 0.0,
+   "Steer_RR": 0.0,
+   "Wheel_RR": 0.0
+  },
+  "materials": [
+   "Sedan_Glass",
+   "Sedan_Interior",
+   "Sedan_LampFront",
+   "Sedan_LampRear",
+   "Sedan_MatteDark",
+   "Sedan_Metal",
+   "Sedan_Paint",
+   "Sedan_TrimBlack"
+  ],
+  "meshTrisAfterImport": 17400
+ },
+ "renders": [
+  "01_front.jpg",
+  "02_rear.jpg",
+  "03_left.jpg",
+  "04_right.jpg",
+  "05_threequarter_front.jpg",
+  "06_threequarter_rear.jpg",
+  "07_interior.jpg",
+  "08_detail_wheel_light.jpg",
+  "09_steering_left.jpg",
+  "10_night_front.jpg",
+  "11_night_rear.jpg"
+ ],
+ "blenderVersion": "5.2.1 LTS"
+}

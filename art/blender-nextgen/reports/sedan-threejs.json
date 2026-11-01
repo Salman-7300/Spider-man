@@ -1,0 +1,728 @@
+{
+ "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+ "shots": {
+  "01_new_threequarter_day": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 49,
+   "rendererTris": 52202,
+   "geometries": 14,
+   "textures": 2,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "02_compare_threequarter_day": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 0,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 1936,
+     "materials": 4,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 77,
+   "rendererTris": 58012,
+   "geometries": 22,
+   "textures": 4,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "03_compare_side": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 0,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 1936,
+     "materials": 4,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 77,
+   "rendererTris": 58012,
+   "geometries": 25,
+   "textures": 4,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "04_compare_rear": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 0,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 1936,
+     "materials": 4,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 77,
+   "rendererTris": 58012,
+   "geometries": 28,
+   "textures": 4,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "05_new_city_day_driving": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 59,
+   "rendererTris": 52292,
+   "geometries": 39,
+   "textures": 9,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "06_new_steer_left": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 49,
+   "rendererTris": 52202,
+   "geometries": 40,
+   "textures": 9,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "07_new_steer_right": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 49,
+   "rendererTris": 52202,
+   "geometries": 41,
+   "textures": 9,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "08_new_driver": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 23,
+     "drawCalls": 23,
+     "tris": 52593,
+     "materials": 14,
+     "textures": 15,
+     "texMB": 72,
+     "bones": 67
+    }
+   ],
+   "rendererCalls": 70,
+   "rendererTris": 157781,
+   "geometries": 49,
+   "textures": 31,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+   "driver": {
+    "headTop": 1.424,
+    "roofHitAbove": 1.474,
+    "clearance": 0.05,
+    "hitMesh": "Sedan_Body008",
+    "hitMaterial": "Sedan_Paint"
+   }
+  },
+  "09_compare_driver": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 0,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 37129,
+     "materials": 10,
+     "textures": 15,
+     "texMB": 72,
+     "bones": 67
+    },
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 23,
+     "drawCalls": 23,
+     "tris": 52593,
+     "materials": 14,
+     "textures": 15,
+     "texMB": 72,
+     "bones": 67
+    }
+   ],
+   "rendererCalls": 117,
+   "rendererTris": 269066,
+   "geometries": 52,
+   "textures": 50,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+   "driver": {
+    "headTop": 1.934,
+    "roofHitAbove": 1.98,
+    "clearance": 0.046,
+    "hitMesh": "Body",
+    "hitMaterial": ""
+   }
+  },
+  "10_new_city_night": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 67,
+   "rendererTris": 52318,
+   "geometries": 71,
+   "textures": 56,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "11_compare_night": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 0,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 1936,
+     "materials": 4,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 95,
+   "rendererTris": 58168,
+   "geometries": 92,
+   "textures": 64,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "12_new_studio": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 53,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 49,
+   "rendererTris": 52202,
+   "geometries": 93,
+   "textures": 66,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  }
+ },
+ "wheels": {
+  "stand": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   }
+  ],
+  "vorwaerts": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   }
+  ],
+  "rueckwaerts": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   }
+  ],
+  "links": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     -0.408
+    ],
+    "steerY": 0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     -0.408
+    ],
+    "steerY": 0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   }
+  ],
+  "rechts": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     0.408
+    ],
+    "steerY": -0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     0.408
+    ],
+    "steerY": -0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   }
+  ]
+ },
+ "bounds": {
+  "min": [
+   -1.092,
+   -0.137,
+   -2.369
+  ],
+  "max": [
+   1.092,
+   1.502,
+   2.369
+  ]
+ },
+ "perf": [
+  {
+   "n": 1,
+   "which": "old",
+   "calls": 10,
+   "tris": 1938,
+   "medianMs": 0.2,
+   "p95Ms": 0.2,
+   "geometries": 109
+  },
+  {
+   "n": 1,
+   "which": "new",
+   "calls": 17,
+   "tris": 17402,
+   "medianMs": 0.2,
+   "p95Ms": 0.3,
+   "geometries": 110
+  },
+  {
+   "n": 20,
+   "which": "old",
+   "calls": 181,
+   "tris": 39118,
+   "medianMs": 0.7,
+   "p95Ms": 0.9,
+   "geometries": 139
+  },
+  {
+   "n": 20,
+   "which": "new",
+   "calls": 321,
+   "tris": 348002,
+   "medianMs": 0.8,
+   "p95Ms": 1.4,
+   "geometries": 140
+  },
+  {
+   "n": 80,
+   "which": "old",
+   "calls": 794,
+   "tris": 173510,
+   "medianMs": 2.3,
+   "p95Ms": 2.8,
+   "geometries": 221
+  },
+  {
+   "n": 80,
+   "which": "new",
+   "calls": 1628,
+   "tris": 1820206,
+   "medianMs": 5.6,
+   "p95Ms": 6.5,
+   "geometries": 222
+  }
+ ]
+}
