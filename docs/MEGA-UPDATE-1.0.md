@@ -203,3 +203,105 @@ Ganoven herum).
   U-Bahn-Abgang heraus helfen. Unverändert gelassen.
 * Bei der Dachrettung hängt die Person in der Jubel-Haltung (Arme hoch) an
   der Kante; eine eigene Hängebewegung für Passanten gibt es nicht.
+
+---
+
+## 2. M2 – Combat 2.0
+
+Alles im vorhandenen Kampf: Treffer über `damageEnemy`, Flug über
+`geworfen`, Einspinnen und Haften über `applyWeb`/`naheWand`, Bewegungen des
+Helden nur aus seinem Bestand (`kick`, `luftangriff`). Am Rig, an der Haut,
+an den Clips und an der Kletter- und Kamerasteuerung ändert sich nichts.
+Für den Vergleich schaltet `window.__WEBHERO_KAMPF_ALT` (Prüfstand:
+`kampfAlt`) alle M2-Teile aus.
+
+### 2.1 Wand-Finisher (Web Wall Finish)
+
+Q am Boden, ein angeschlagener Gegner direkt vor dem Helden (taumelt, drei
+Treffer in Folge oder unter 40 % Leben) und hinter ihm innerhalb von 6,5 m
+eine **echte, feste Wand**: das Netz reißt ihn hinüber (Tritt-Bewegung des
+Helden, Netzfaden), er schlägt ein und wird mit dem dritten Netz dort
+festgeheftet – über die vorhandene Wandhaftung von `applyWeb`, die die Wand
+selbst noch einmal prüft. Einschlag: 30 Schaden, Hitstop 0,13 s,
+Kamerawackeln, leichter Kameraimpuls, Netzspritzer, Staub, Mutverlust in
+der Nähe, +150 (+10 je Kombotreffer).
+
+„Echt“ heißt: vom Gegner aus in Schlagrichtung (alle 0,3 m) ein Gebäudeteil,
+mindestens 3 m hoch über seinen Füßen und breiter als ein Mast. Steht
+vorher etwas Kleines im Weg (Bank, Kiosk, Laterne, Parkauto, Vordach unten),
+gibt es **keinen** Wandabschluss – dann ist Q der normale Netzschuss
+(Rückfall). Kommt der Gegner unterwegs nicht an (abgelenkt, gebremst), zählt
+der normale Aufprall.
+
+### 2.2 Luft-Finisher (Aerial Finisher)
+
+Nach dem Aufwärtshaken in der Luft: F (Tritt) mit einem Gegner in der Luft
+daneben (bis 3,8 m) und laufender Luftkombo schmettert ihn schräg nach unten
+(`luftangriff`, 30 Schaden, Hitstop 0,12 s, Kameraimpuls, +140 und mehr je
+Luftkombo). Beim Aufschlag läuft eine Druckwelle durch die Umstehenden
+(3,5 m: Schaden, Taumeln, Rückstoß, Angriffe brechen ab). Der Held federt
+kurz nach oben und bleibt in der Bewegung. Ohne Luftkombo bleibt F der
+normale Sprungtritt.
+
+### 2.3 Rollentaktik im Kampfregisseur
+
+Die Plätze auf dem Ring um den Helden verteilte `verteileAngriffsrechte`
+schon gleichmäßig. Jetzt bekommt jede Rolle ihren Platz zur Blickrichtung
+des Helden: der **Flinke flankiert von hinten** (und bekommt dort beim
+Angriffsrecht Vorrang – der vorhandene Spinnensinn warnt), der **Wächter
+stellt sich vorn auf** (er deckt die anderen), der Brecher kommt schräg von
+vorn, Schläger füllen die Seiten, der Werfer bleibt auf Abstand. Gezogen
+wird weiter auf dem Ring.
+
+Beim Messen fiel ein vorhandener Fehler der Kampfleitung auf: es schlugen
+gelegentlich drei Nahkämpfer gleichzeitig zu, obwohl höchstens zwei dürfen
+(`KAMPF_GLEICHZEITIG`). Drei Ursachen, alle an der Kampfleitung behoben
+(mit `KAMPF_ALT` wie vorher):
+1. Die Flankenregel übersprang einen Gegner, der gerade schon zuschlug,
+   wenn er neben dem ersten Angreifer stand – sein Platz ging an einen
+   Dritten. Laufende Angriffe behalten jetzt ihr Recht.
+2. Wer mitten im Angriff aus der Anwärterliste fiel (Mut weg, Rückzug,
+   Netz), belegte seinen Platz nicht mehr. Er zählt jetzt mit.
+3. Konter nach einer Parade und Fortsetzung einer Kombo starteten ohne
+   Blick auf die Zahl der Angreifer. Sie warten jetzt, wenn schon zwei
+   zuschlagen.
+
+### 2.4 Rückmeldung
+
+Hitstop und Kamerawackeln wie bisher (`hitstop`, `camShake`), dazu ein
+leichter Kameraimpuls: höchstens 2,6° Bildwinkel für 0,3 s. Er wird vor
+`updateCamera` abgezogen und danach neu gesetzt, damit er sich nicht im
+Nachziehen des Bildwinkels aufsummiert.
+
+Nicht gebaut: der optionale **Web Pull Counter**. E zieht schon heute zum
+Gegner (Zip-Angriff); ein zweites Verhalten auf derselben Taste wäre ohne
+eigene Bewegung des Helden nicht sauber zu lesen.
+
+### 2.5 Prüfstand und Ergebnisse
+
+`tools/pruef/mega-kampf.js` – echte Eingaben, gestellte Ausgangslage:
+
+| Teil | Ergebnis |
+| --- | --- |
+| Wand-Finisher an 6 Ladenfronten (drei Schläge, dann Q) | 6/6 an die Wand geheftet, Netzstufe 3, 0,4–0,9 m vor der Front, 0,6–1,1 m über dem Boden, Kameraimpuls 0,99 |
+| Freie Kreuzung, keine Wand dahinter | Rückfall: normaler Netzschuss (Netzstufe 1), kein Wandabschluss |
+| Luft-Finisher (Haken R, Leertaste hinterher, Schlag, F) | ausgelöst, Druckwelle trifft den zweiten Gegner, Held landet |
+| Rollentaktik, 4 Runden à 30 s je Keim, fünf Rollen, Held schaut fest nach vorn | Keim 4711: Flinker im Kampf hinten 87 % (ohne 36 %), Wächter vorn 52 % (ohne 28 %), Flinker 20 Angriffe, davon 17 von hinten (ohne 23/8); Keim 2024: 70 % (ohne 28 %), 65 % (ohne 33 %), 19/15 (ohne 13/5); Bilder mit drei Nahkämpfern im Angriff 0 (vor der Korrektur 0,6 %) |
+| CPU je Schritt im Kampf | 6,0–7,6 ms mit, 6,2–7,4 ms ohne (Streuung, kein Mehraufwand) |
+
+Bilder: `docs/abnahme-mega-1.0/m2-wand-finisher.jpg` (zwei Fronten,
+Spielkamera und Seitenansicht – der Gegner hängt im Kokon an der Fassade),
+`m2-luft-finisher.jpg` (Ablauf in vier Bildern).
+
+Regression nach M2: `mega-ereignisse.js` 5/5 gelöst, harte Fehler 0;
+`kernsysteme.js` alles ok (Story 8/8, Boss, Polizei/Rettung, Hygiene);
+`node --test` 170/170; Weltfingerabdruck identisch. Zeichenaufrufe
+unverändert (M2 baut nichts in die Szene).
+
+### 2.6 Grenzen
+
+* Die Wandhaftung setzt den Gegner (wie schon die vorhandene) vor die
+  Kollisionsfläche. Wo ein Erdgeschoss tiefer liegt als die Fassade darüber
+  (Arkaden, Ladenfront), hängt er vor der Flucht der oberen Fassade.
+* Im Prüfstand werden die Gegner mit viel Leben gestellt (400), damit der
+  Abschluss geprüft wird und nicht, wie schnell der Gegner fällt.

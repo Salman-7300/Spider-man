@@ -18715,6 +18715,8 @@ function webShot() {
     }
     if (z) { netzSchmettern(z); return; }
   }
+  /* M2: angeschlagener Gegner vor einer echten Wand - Wand-Finisher. */
+  if (megaWandFinisher()) return;
   player.attack = { type: 'web', t: 0, hitDone: true };
   player.attackCd = 0.34;
   const hand = wechsleNetzHand();
@@ -19639,6 +19641,9 @@ function tryAttack(type) {
      ins Leere schlug oder danebenstand, sah immer wieder denselben
      ersten Schlag. Genau deshalb war die Kombo nicht zu erkennen. */
   const stufe = player.stufe || 0;
+  /* M2: in der Luft, Luftkombo laeuft, Gegner daneben in der Luft - der
+     Tritt wird zum Luft-Finisher. */
+  if (type === 'kick' && !player.onGround && megaLuftFinisher()) return;
   /* In der Luft gibt es einen eigenen Sprungangriff – am Boden die Kombo. */
   /* Im Symbiontenanzug ersetzt der fliegende Kniestoss aus animation-1
      den Tritt. Er dauert laenger und trifft haerter - das ist der
@@ -20062,6 +20067,11 @@ function paradeTrifft(e) {
   SFX.swoosh();
   /* Die Gelegenheit: ein schneller Gegenschlag, aber angekuendigt. */
   e.attackCd = 0;
+  /* M2: Auch der Konter nach der Parade geht ueber die Kampfleitung -
+     schlagen schon zwei andere zu (KAMPF_GLEICHZEITIG), bleibt es bei der
+     Parade. Sonst kamen mit dem Waechter vorn gelegentlich drei Schlaege
+     auf einmal (gemessen in tools/pruef/mega-kampf.js, Teil rollen). */
+  if (!MEGA_KAMPF_ALT && !e.boss && kampfAndereNah(e) >= KAMPF_GLEICHZEITIG) { updateHUD(); return; }
   /* Der Boss antwortet mit einem Schlag aus seinem eigenen Buch, nicht
      mit einem Ganoven-Standardschlag. */
   if (e.boss) e.bossAngriff = BOSS_ANGRIFFE[0];
@@ -36804,6 +36814,16 @@ const KAMPF = {
 /* Mindestabstand zwischen zwei Angriffsstarts. Bei hohem Druck ruecken
    sie enger zusammen, bei Ruhe weiter auseinander. */
 const KAMPF_STAFFEL = 0.75;
+/* Wie viele ANDERE Nahkaempfer holen gerade aus oder schlagen zu? Der
+   Werfer zaehlt nicht - er hat kein Nahkampfrecht. (M2) */
+function kampfAndereNah(e) {
+  let n = 0;
+  for (const o of enemies) {
+    if (o === e || o.dead || o.target !== 'player' || (o.typ && o.typ.art === 'werfer')) continue;
+    if (o.attack || o.warnT > 0) n++;
+  }
+  return n;
+}
 function kampfErfolg(wieviel) {
   KAMPF.erfolge += wieviel;
   KAMPF.erfolgeT = 6;
@@ -36859,12 +36879,18 @@ function verteileAngriffsrechte(dt) {
   KAMPF_RECHT.clear();
   const anwaerter = [];
   const ring = [];
+  /* M2: Wer mitten im Angriff aus der Anwaerterliste faellt (Mut weg,
+     Rueckzug, Netz, benommen), schlaegt seinen Schlag trotzdem zu Ende -
+     und belegt solange einen der Plaetze. Ohne diese Zaehlung bekam ein
+     Dritter das Recht, und es schlugen drei gleichzeitig zu. */
+  let belegt = 0;
   for (const e of enemies) {
     if (e.dead || e.target !== 'player') continue;
     if (e.state === 'chase') ring.push({ e, w: winkelUmHelden(e) });
-    if (e.betaeubtT > 0 || e.rueckzugT > 0 || e.webT > 0) continue;
+    const imAngriff = !MEGA_KAMPF_ALT && e.typ.art !== 'werfer' && !e.boss && (e.attack || e.warnT > 0);
+    if (e.betaeubtT > 0 || e.rueckzugT > 0 || e.webT > 0) { if (imAngriff) belegt++; continue; }
     /* Wem der Mut fehlt, der greift nicht an - er haelt Abstand. */
-    if (e.flieht || (e.mut !== undefined && e.mut < MUT_ANGRIFF)) continue;
+    if (e.flieht || (e.mut !== undefined && e.mut < MUT_ANGRIFF)) { if (imAngriff) belegt++; continue; }
     const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
     /* Wer schon ausholt oder zuschlaegt, behaelt sein Recht - sonst
        bricht ein Angriff mitten in der Bewegung ab. */
@@ -36872,7 +36898,7 @@ function verteileAngriffsrechte(dt) {
        mit, nahm einem Schlaeger das Angriffsrecht weg und benutzte es
        nie - der Nahkampf wurde dadurch zaeh. */
     anwaerter.push({ e, w: winkelUmHelden(e), fern: e.typ.art === 'werfer',
-                     rang: (e.attack || e.warnT > 0 ? -1000 : 0) + d });
+                     rang: (e.attack || e.warnT > 0 ? -1000 : 0) + d + megaFlankeVorzug(e) });
   }
   /* ---- Plaetze rund um den Helden ----
      Jeder Ganove hatte bisher einen ZUFAELLIGEN Platz auf dem Ring. Bei
@@ -36885,24 +36911,32 @@ function verteileAngriffsrechte(dt) {
     ring.sort((a, b) => a.w - b.w);
     const schritt = TAU / ring.length;
     for (let i = 0; i < ring.length; i++) ring[i].e.ringZiel = ring[0].w + i * schritt;
+    /* M2: Rollentaktik - jede Rolle bekommt ihren Platz zur Blickrichtung. */
+    megaRollenRing(ring);
   }
   /* ---- Wer darf angreifen ----
      Der Naechste immer. Fuer den zweiten Platz wird bevorzugt, wer von
      einer ANDEREN Seite kommt: so kommt der zweite Schlag aus einer
      anderen Richtung, statt dass zwei nebeneinander dasselbe tun. */
   anwaerter.sort((a, b) => a.rang - b.rang);
+  const plaetze = Math.max(0, KAMPF_GLEICHZEITIG - belegt);
   for (const a of anwaerter) {
-    if (KAMPF_RECHT.size >= KAMPF_GLEICHZEITIG) break;
+    if (KAMPF_RECHT.size >= plaetze) break;
     if (a.fern) continue;
+    /* M2: Wer schon zuschlaegt, behaelt sein Recht auch dann, wenn er
+       neben einem anderen Angreifer steht. Vorher hat ihn die Flankenregel
+       hier uebersprungen, sein Platz ging an einen Dritten - und dann
+       schlugen drei gleichzeitig zu (gemessen, mega-kampf.js rollen). */
+    const laeuft = !MEGA_KAMPF_ALT && a.rang < -500;
     let zuNah = false;
-    for (const b of KAMPF_RECHT) if (winkelAbstand(a.w, winkelUmHelden(b)) < FLANKE_MIN) zuNah = true;
+    if (!laeuft) for (const b of KAMPF_RECHT) if (winkelAbstand(a.w, winkelUmHelden(b)) < FLANKE_MIN) zuNah = true;
     if (!zuNah) KAMPF_RECHT.add(a.e);
   }
   /* Bleibt ein Platz frei, weil alle Uebrigen aus derselben Richtung
      kommen, bekommt ihn doch der Naechste - sonst schlaegt bei einem
      Rudel auf einer Seite ueberhaupt niemand mehr zu. */
   for (const a of anwaerter) {
-    if (KAMPF_RECHT.size >= KAMPF_GLEICHZEITIG) break;
+    if (KAMPF_RECHT.size >= plaetze) break;
     if (a.fern) continue;
     KAMPF_RECHT.add(a.e);
   }
@@ -37091,6 +37125,9 @@ function updateEnemies(dtBild) {
       const gy = groundY(e.pos.x, e.pos.z);
       if (e.pos.y < gy) { e.pos.y = gy; e.vel.y = 0; }
       collideBody(e);
+      /* M2: Wand-Finisher unterwegs, Luft-Finisher beim Aufschlag. */
+      if (e.wandFinish) megaWandAnkunft(e, dt);
+      if (e.luftFinish && e.pos.y <= gy + 0.05) megaLuftAufschlag(e);
       /* Wer geworfen wurde und dabei gegen eine Wand knallt, kassiert
          zusätzlich – die Umgebung ist eine Waffe. */
       /* Der Aufprall zählt erst, wenn der Wurf wirklich unterwegs war –
@@ -37769,7 +37806,8 @@ function updateEnemies(dtBild) {
              ausgeholt, bricht die Kombo hier ab, statt sich in dessen
              Vorwarnung hineinzudraengen - genau das war die
              Angriffs-Kakophonie. */
-          if (darfAusholen(e)) {
+          /* M2: und nur, solange nicht schon zwei andere zuschlagen. */
+          if (darfAusholen(e) && (MEGA_KAMPF_ALT || e.boss || kampfAndereNah(e) < KAMPF_GLEICHZEITIG)) {
             e.komboRest--;
             e.warnT = 0.32; e.warnMax = 0.32;
             e.attackCd = 0;
@@ -40932,6 +40970,268 @@ function megaHartePruefung() {
   return f;
 }
 
+
+/* ======================= M2: Combat 2.0 =======================
+   Zwei Abschluesse, eine Rollentaktik fuer den vorhandenen Kampfregisseur
+   und ein leichter Kameraimpuls. Alles mit den vorhandenen Bewegungen des
+   Helden ('kick', 'luftangriff') - am Rig, an der Haut und an den Clips
+   aendert sich nichts. Getroffen, geschleudert, eingesponnen und an die
+   Wand geheftet wird ueber die vorhandenen Wege (damageEnemy, geworfen,
+   applyWeb mit naheWand), es gibt keine zweite Trefferrechnung.
+
+   Schalter fuer den Vergleich im Pruefstand: window.__WEBHERO_KAMPF_ALT
+   (alle M2-Teile aus, Stand vor dem Update). */
+const MEGA_KAMPF_ALT = typeof window !== 'undefined' && !!window.__WEBHERO_KAMPF_ALT;
+MEGA.kampf = { wandStart: 0, wandFinish: 0, wandFallback: 0, wandOhneWand: 0, wandNichtOffen: 0,
+               luftFinish: 0, luftWelle: 0, luftOhneKombo: 0, flankeAngriffe: 0, flankeRecht: 0,
+               rollenZuteilung: 0 };
+MEGA.kamImp = 0; MEGA.kamFovAdd = 0;
+
+/* ---- Liegt hinter dem Gegner eine echte, feste Wand? ----
+   Vom Gegner aus in Schlagrichtung, alle 0,3 m, bis maxD. Echt heisst:
+   ein Gebaeudeteil, mindestens 3 m hoch ueber seinen Fuessen und breiter
+   als ein Mast. Steht vorher etwas Kleines im Weg (Bank, Kiosk, Laterne,
+   Parkauto), gibt es keinen Wandabschluss - dann gilt der normale
+   Netzschuss. */
+function megaEchteWand(px, pz, fx, fz, maxD, yFuss) {
+  let ax = px, az = pz;
+  for (let s = 0.3; s <= maxD; s += 0.3) {
+    const x = px + fx * s, z = pz + fz * s;
+    for (const c of collidersNear(x, z)) {
+      if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
+      if (c.y0 !== undefined && c.y0 > yFuss + 1.6) continue;      // hoch darueber (Vordach)
+      if (c.klein || c.parkAuto) return null;
+      if ((c.h || 0) - yFuss < 3.0) return null;
+      if ((c.x1 - c.x0) < 1.5 || (c.z1 - c.z0) < 1.5) return null;
+      /* Eintrittsseite: wo stand der letzte freie Punkt? */
+      let nx = 0, nz = 0;
+      if (ax <= c.x0) nx = -1; else if (ax >= c.x1) nx = 1;
+      else if (az <= c.z0) nz = -1; else nz = 1;
+      const wx = nx ? (nx < 0 ? c.x0 : c.x1) : clamp(ax, c.x0, c.x1);
+      const wz = nz ? (nz < 0 ? c.z0 : c.z1) : clamp(az, c.z0, c.z1);
+      return { x: wx, z: wz, nx, nz, d: s, col: c };
+    }
+    ax = x; az = z;
+  }
+  return null;
+}
+
+/* ---- Wand-Finisher ----
+   Q am Boden, ein angeschlagener Gegner direkt vor dem Helden (taumelt,
+   drei Treffer in Folge oder unter 40 Prozent Leben) und hinter ihm
+   innerhalb von 6,5 m eine echte Wand: das Netz reisst ihn hinueber, er
+   schlaegt ein und wird mit dem dritten Netz dort festgeheftet - ueber
+   die vorhandene Wand-Haftung von applyWeb. Ohne Wand bleibt Q der
+   normale Netzschuss. */
+function megaWandFinisher() {
+  if (MEGA_KAMPF_ALT || !player.onGround) return false;
+  const e = nearestEnemy(3.6, 0.3, true);
+  if (!e || e.dead || e.boss || (e.webStufe || 0) >= 3 || e.anWand || e.gehalten) return false;
+  const offen = (e.staggerT || 0) > 0.05 || (player.combo || 0) >= 3 ||
+                e.hp <= (e.hpMax || CFG.enemyHP) * 0.4;
+  if (!offen) { MEGA.kampf.wandNichtOffen++; return false; }
+  const dx = e.pos.x - player.pos.x, dz = e.pos.z - player.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const fx = dx / d, fz = dz / d;
+  const W = megaEchteWand(e.pos.x, e.pos.z, fx, fz, 6.5, e.pos.y);
+  if (!W) { MEGA.kampf.wandOhneWand++; return false; }
+  const hand = wechsleNetzHand();
+  player.attack = { type: 'web', t: 0, hitDone: true };
+  player.attackCd = 0.55;
+  player.facing = Math.atan2(fx, fz);
+  if (heroVisual.attackOneShot) heroVisual.attackOneShot(0, 'kick', 0.6);
+  flashWebShot(heroHandPos(_v1, hand).clone(), V3(e.pos.x, e.pos.y + 1.1, e.pos.z));
+  brichAngriffAb(e);
+  e.vel.set(fx * 20, 3.2, fz * 20);
+  e.geworfen = 1.2;
+  e.staggerT = Math.max(e.staggerT, 2.0);
+  e.wandFinish = { x: W.x, z: W.z, nx: W.nx, nz: W.nz, t: 0 };
+  damageEnemy(e, 12, 'kick');
+  hitstop(0.06);
+  camShake = Math.max(camShake, 0.12);
+  SFX.web();
+  popupWorld('Netz-Wurf!', e.pos, '#bfe8ff');
+  MEGA.kampf.wandStart++;
+  return true;
+}
+/* Aus dem Flug des Gegners (updateEnemies, geworfen) je Bild. */
+function megaWandAnkunft(e, dt) {
+  const W = e.wandFinish;
+  W.t += dt;
+  const vor = (e.pos.x - W.x) * W.nx + (e.pos.z - W.z) * W.nz;   // Abstand vor der Wand
+  if (e.wall || vor < 0.75) {
+    e.wandFinish = null;
+    e.pos.x = W.x + W.nx * 0.5; e.pos.z = W.z + W.nz * 0.5;
+    e.vel.set(0, 0, 0);
+    e.geworfen = 0;
+    /* Das dritte Netz heftet ihn an - die vorhandene Haftung prueft die
+       Wand noch einmal selbst (naheWand). */
+    e.webStufe = Math.max(e.webStufe || 0, 2);
+    applyWeb(e);
+    if (!e.anWand) {
+      /* Wider Erwarten keine Wand gefunden: eingesponnen, aber am Boden. */
+      MEGA.kampf.wandFallback++;
+      return;
+    }
+    damageEnemy(e, 30, 'kick');
+    hitstop(0.13);
+    camShake = Math.max(camShake, 0.3);
+    megaKamImpuls(1);
+    treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.1, e.pos.z), 2.2, 0xbfe8ff);
+    netzKlatscher(V3(e.pos.x, e.pos.y + 1.2, e.pos.z));
+    staubWolke(_v2.set(e.pos.x, e.pos.y, e.pos.z), 1.2);
+    mutSenken(e.pos, 0.22, 12);
+    addScore(150 + Math.min(player.combo || 0, 10) * 10, 'Wand-Finisher!', e.pos);
+    popupWorld('Wand-Finisher!', e.pos, '#bfe8ff');
+    SFX.kick();
+    MEGA.kampf.wandFinish++;
+    return;
+  }
+  /* Nicht angekommen (gebremst, abgelenkt, gelandet): normaler Aufprall. */
+  if (W.t > 1.3 || (e.geworfen < 0.85 && e.pos.y <= groundY(e.pos.x, e.pos.z) + 0.05 && W.t > 0.3)) {
+    e.wandFinish = null;
+    MEGA.kampf.wandFallback++;
+  }
+}
+
+/* ---- Luft-Finisher ----
+   Nach dem Aufwaertshaken in der Luft: F (Tritt) mit einem Gegner in der
+   Luft daneben und laufender Luftkombo schmettert ihn schraeg nach unten.
+   Beim Aufschlag geht eine Druckwelle durch die Umstehenden (3,5 m). Der
+   Held federt kurz nach oben - die Bewegung bleibt in der Luft. */
+function megaLuftFinisher() {
+  if (MEGA_KAMPF_ALT || player.onGround) return false;
+  let z = null, best = 3.8;
+  for (const e of enemies) {
+    if (e.dead || e.boss || e.anWand || (e.webStufe || 0) >= 3) continue;
+    const boden = groundY(e.pos.x, e.pos.z, e.pos.y + 1);
+    const inLuft = (e.inDerLuft || 0) > 0 || e.pos.y > boden + 0.9;
+    if (!inLuft) continue;
+    const dd = Math.hypot(e.pos.x - player.pos.x, e.pos.y - player.pos.y, e.pos.z - player.pos.z);
+    if (dd < best) { best = dd; z = e; }
+  }
+  if (!z) return false;
+  if (!((player.luftKombo || 0) > 0 || (player.komboZahl || 0) >= 2 || player.luftZiel === z)) {
+    MEGA.kampf.luftOhneKombo++;
+    return false;
+  }
+  const dauer = (heroVisual.attackOneShot && heroVisual.attackOneShot(0, 'luftangriff', 0.55)) || 0.55;
+  player.attack = { type: 'kick', t: 0, arm: 'R', art: 'luftangriff', hitDone: true, finisher: true,
+                    stufe: 0, dauer, amBoden: false };
+  player.attackCd = dauer * 0.8;
+  const dx = z.pos.x - player.pos.x, dz = z.pos.z - player.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  player.facing = Math.atan2(dx, dz);
+  brichAngriffAb(z);
+  z.vel.set(dx / d * 9, -26, dz / d * 9);
+  z.geworfen = 1.0;
+  z.inDerLuft = 0;
+  z.staggerT = Math.max(z.staggerT, 2.2);
+  z.luftFinish = true;
+  damageEnemy(z, 30, 'kick');
+  player.vel.y = Math.max(player.vel.y, 7);
+  player.luftKombo = 0; player.luftZiel = null; player.luftFenster = 0;
+  hitstop(0.12);
+  camShake = Math.max(camShake, 0.26);
+  megaKamImpuls(0.8);
+  treffEffekt(_v1.set(z.pos.x, z.pos.y + 1.1, z.pos.z), 2.2, 0xffd23c);
+  addScore(140 + Math.min(player.komboZahl || 0, 8) * 15, 'Luft-Finisher!', z.pos);
+  popupWorld('Luft-Finisher!', z.pos, '#ffd23c');
+  player.komboZahl = 0;
+  SFX.kick(); SFX.swoosh();
+  MEGA.kampf.luftFinish++;
+  return true;
+}
+/* Aufschlag nach dem Luft-Finisher (updateEnemies, geworfen, gelandet). */
+function megaLuftAufschlag(e) {
+  e.luftFinish = false;
+  let n = 0;
+  for (const o of enemies) {
+    if (o === e || o.dead || o.anWand) continue;
+    const dx = o.pos.x - e.pos.x, dz = o.pos.z - e.pos.z;
+    const dd = Math.hypot(dx, dz);
+    if (dd > 3.5 || Math.abs(o.pos.y - e.pos.y) > 1.6) continue;
+    const f = 1 - dd / 3.5;
+    damageEnemy(o, 8 + 8 * f, 'kick');
+    o.vel.x += dx / (dd || 1) * (6 + 6 * f); o.vel.z += dz / (dd || 1) * (6 + 6 * f); o.vel.y += 3.5 * f;
+    o.staggerT = Math.max(o.staggerT, 0.9 + f * 0.6);
+    brichAngriffAb(o);
+    n++;
+  }
+  staubWolke(e.pos, 1.9);
+  treffEffekt(_v1.set(e.pos.x, e.pos.y + 0.3, e.pos.z), 2.6, 0xffd23c);
+  camShake = Math.max(camShake, 0.3);
+  hitstop(0.06);
+  megaKamImpuls(0.6);
+  if (n) popupWorld('Druckwelle x' + n, e.pos, '#ffd23c');
+  MEGA.kampf.luftWelle += n;
+}
+
+/* ---- Rollentaktik im Kampfregisseur ----
+   Die Plaetze auf dem Ring um den Helden verteilt verteileAngriffsrechte
+   schon gleichmaessig. Hier bekommt jede Rolle ihren Platz relativ zur
+   Blickrichtung des Helden: der Flinke flankiert von hinten, der Waechter
+   stellt sich vorn auf (er deckt die anderen), der Brecher kommt schraeg
+   von vorn, Schlaeger fuellen die Seiten. Der Werfer bleibt auf Abstand
+   (vorhandene Logik). Gezogen wird weiter auf dem Ring, nicht quer durch. */
+const MEGA_ROLLE_WUNSCH = { flink: Math.PI, waechter: 0, brecher: 0.7 };
+function megaRollenRing(ring) {
+  if (MEGA_KAMPF_ALT || ring.length < 2) return;
+  const vorn = player.facing;
+  const plaetze = ring.map((r) => r.e.ringZiel);
+  const frei = plaetze.map(() => true);
+  const vergeben = new Map();
+  for (const rolle of ['flink', 'waechter', 'brecher']) {
+    for (const r of ring) {
+      if (r.e.typ.art !== rolle || vergeben.has(r.e)) continue;
+      const ziel = vorn + MEGA_ROLLE_WUNSCH[rolle];
+      let bi = -1, bd = 1e9;
+      for (let i = 0; i < plaetze.length; i++) {
+        if (!frei[i]) continue;
+        const dw = winkelAbstand(plaetze[i], ziel);
+        if (dw < bd) { bd = dw; bi = i; }
+      }
+      if (bi < 0) continue;
+      frei[bi] = false;
+      vergeben.set(r.e, plaetze[bi]);
+    }
+  }
+  if (!vergeben.size) return;
+  /* Die Uebrigen behalten ihre Reihenfolge auf den restlichen Plaetzen. */
+  const rest = ring.filter((r) => !vergeben.has(r.e));
+  const restPlaetze = plaetze.filter((p, i) => frei[i]);
+  rest.forEach((r, i) => { r.e.ringZiel = restPlaetze[i % restPlaetze.length]; });
+  for (const [e, w] of vergeben) e.ringZiel = w;
+  MEGA.kampf.rollenZuteilung++;
+}
+/* Steht der Flinke hinter dem Helden, bekommt er beim Angriffsrecht den
+   Vorzug - der Angriff von hinten ist seine Rolle. Der vorhandene
+   Spinnensinn warnt davor (findeGefahr), man kann ihn kontern. */
+function megaFlankeVorzug(e) {
+  if (MEGA_KAMPF_ALT || !e.typ || e.typ.art !== 'flink') return 0;
+  const rel = winkelAbstand(winkelUmHelden(e), player.facing);
+  return rel > 2.0 ? -3 : 0;
+}
+
+/* ---- Leichter Kameraimpuls ----
+   Ein kurzer Ruck im Bildwinkel (hoechstens 2,6 Grad, 0,3 s) zusaetzlich
+   zum vorhandenen Wackeln. Er wird VOR updateCamera wieder abgezogen und
+   danach neu gesetzt, damit er sich nicht im Nachziehen des Bildwinkels
+   aufsummiert. */
+function megaKamImpuls(staerke) {
+  if (MEGA_KAMPF_ALT) return;
+  MEGA.kamImp = Math.max(MEGA.kamImp, clamp(staerke, 0, 1));
+}
+function megaKamVor() {
+  if (MEGA.kamFovAdd) { camera.fov -= MEGA.kamFovAdd; MEGA.kamFovAdd = 0; }
+}
+function megaKamNach(dt) {
+  if (MEGA.kamImp <= 0) return;
+  const add = 2.6 * MEGA.kamImp * MEGA.kamImp;
+  camera.fov += add; MEGA.kamFovAdd = add;
+  camera.updateProjectionMatrix();
+  MEGA.kamImp = Math.max(0, MEGA.kamImp - dt / 0.3);
+}
 
 /* ======================= Einsatzkräfte =======================
    Bis hierher endete jedes Ereignis so: Spider-Man gewinnt, das Ereignis
@@ -46649,7 +46949,9 @@ function simuliere(dt) {
       }
     }
   }
+  megaKamVor();
   updateCamera(dt);
+  megaKamNach(dt);
   poseLogSchreibe(dt);
   updateEffekte(dt);
   updateZiehObjekte(dt);
@@ -46985,6 +47287,12 @@ if (window.__WEBHERO_TEST__ === true) {
           rauch: e.rauchStufe || 0, tuer: e.tuer || null,
         }));
       },
+      kampf() { return Object.assign({}, MEGA.kampf); },
+      hatRecht(e) { return KAMPF_RECHT.has(e); },
+      kamImpuls() { return MEGA.kamImp; },
+      ganoven() { return GANOVEN; },
+      ladenListe() { return megaLaeden().map((l) => Object.assign({}, l)); },
+      wandHinter(x, z, fx, fz, maxD) { return megaEchteWand(x, z, fx, fz, maxD || 6.5, groundY(x, z, 2)); },
       /* Regisseur und Auftragssystem anhalten, damit ein Pruefablauf nicht
          von einem zufaelligen zweiten Ereignis gestoert wird. */
       blockiere(an) { EV.ruheCd = an ? 1e9 : 0; missionCd = an ? 1e9 : 18; },

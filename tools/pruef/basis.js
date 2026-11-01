@@ -143,6 +143,9 @@ async function starte(breite, hoehe, seed, opt) {
     /* Nur zum Messen: Kletterhaut nur ueber den Fussabdruck, ohne den
        Koerperrahmen der gezeigten Figur (Stand vor problem-2, Ueberhaenge). */
     if (ein.koerperHautAlt) window.__WEBHERO_KOERPERHAUT_ALT = 1;
+    /* Nur zum Messen: Kampf ohne die Teile des Mega-Updates M2
+       (Wand-/Luft-Finisher, Rollentaktik, Kameraimpuls). */
+    if (ein.kampfAlt) window.__WEBHERO_KAMPF_ALT = 1;
     /* Nur zum Messen: Tiefenversatz der Tafel in Stufen (0 = aus). */
     if (ein.neonVersatz !== null) window.__WEBHERO_NEON_VERSATZ = ein.neonVersatz;
     /* Nur zum Messen: Kletterhaut ohne die Leuchttafeln (Stand vor dem
@@ -242,6 +245,7 @@ async function starte(breite, hoehe, seed, opt) {
        neonAlt: !!(opt && opt.neonAlt),
        neonAn: !!(opt && opt.neonAn),
        koerperHautAlt: !!(opt && opt.koerperHautAlt),
+       kampfAlt: !!(opt && opt.kampfAlt),
        neonVersatz: opt && typeof opt.neonVersatz === 'number' ? opt.neonVersatz : null,
        neonUeberAlt: !!(opt && opt.neonUeberAlt),
        neonEbeneAlt: !!(opt && opt.neonEbeneAlt),
