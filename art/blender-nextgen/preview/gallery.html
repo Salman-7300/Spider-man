@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Next-Gen Abnahmegalerie</title>
+<style>
+  body { margin: 0; background: #14161a; color: #dde2e8; font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { padding: 18px 20px 6px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 26px 20px 8px; border-bottom: 1px solid #2c3138; padding-bottom: 4px; }
+  h3 { font-size: 13px; margin: 14px 20px 6px; color: #9aa3ad; font-weight: 600; }
+  p { margin: 4px 20px; color: #9aa3ad; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; padding: 0 20px; }
+  figure { margin: 0; background: #1d2026; border-radius: 6px; overflow: hidden; }
+  figure img, figure video { width: 100%; display: block; background: #0d0e10; }
+  figcaption { padding: 4px 8px; font-size: 12px; color: #aab2bc; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 3px; margin-right: 4px; }
+  .b { background: #3b2f5c; } .t { background: #224a3a; } .s { background: #4a3a22; }
+  a { color: #8fc1ff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CITY SWING – Blender Next Gen: Abnahmegalerie</h1>
+  <p><span class="tag b">Blender-Rendering</span> EEVEE, Studio-Licht ·
+     <span class="tag t">Three.js r128</span> exportiertes GLB im isolierten Viewer, Spiel-Licht ·
+     <span class="tag s">gestellte Testszene</span> keine Aufnahme aus dem Spiel.
+     Interaktiver Vergleich: <a href="index.html">Modellviewer</a>.</p>
+</header>
+<div id="root"></div>
+<script>
+const R = '../renders/';
+const sections = [
+  ['Urban Premium Sedan', [
+    ['Blender', 'b', 'sedan/', ['01_front','02_rear','03_left','04_right','05_threequarter_front','06_threequarter_rear','07_interior','08_detail_wheel_light','09_steering_left','10_night_front','11_night_rear']],
+    ['Three.js', 't', 'threejs/sedan/', ['01_new_threequarter_day','02_compare_threequarter_day','03_compare_side','04_compare_rear','05_new_city_day_driving','06_new_steer_left','07_new_steer_right','08_new_driver','09_compare_driver','10_new_city_night','11_compare_night','12_new_studio','paint_white','paint_black','paint_silver','paint_dark_blue','paint_muted_red']],
+    ['Video', 't', 'videos/', ['sedan-threejs-drive.mp4']]]],
+  ['Armored Street Enforcer', [
+    ['Blender', 'b', 'enforcer/', ['00_compare_old_left_new_right','01_front_tpose','02_side','03_back','04_threequarter','05_detail_head_shoulder','06_attack_pose_punch','07_strong_bend_kick','07b_idle','08_taunt_a_chest_up','09_taunt_b_point','10_taunt_c_point2']],
+    ['Three.js (alt links / neu rechts)', 't', 'threejs/enemy/', ['idle_compare','walk_compare','run_compare','punch_compare','kick_compare','block_compare','hit_compare','fall_compare','ausweichenL_compare','uppercut_compare','proto_threat_taunt_new','back_night_compare','studio_idle_new']],
+    ['Video', 't', 'videos/', ['enemy-threejs-compare.mp4']]]],
+  ['Web Hero Next-Gen', [
+    ['Blender', 'b', 'hero/', ['00_compare_old_left_new_right','00b_compare_run','01_front_bind','02_side','03_back','04_threequarter','05_detail_mask','06_idle','07_walk','08_run','09_combat_punch','10_combat_kick','11_strong_bend_roll','12_swing','13_climb','14_glide','15_dive_sturzflug','16_landing_a_fall','17_landing_b_impact','18_landing_c_hold','19_landing_d_rise']],
+    ['Three.js (alt links / neu rechts)', 't', 'threejs/hero/', ['idle_compare','walk_compare','run_compare','sprint_compare','jump_compare','land_compare','roll_compare','fall_compare','swing_compare','schwungpose_compare','zip_zug_compare','gleiten_compare','sturzflug_compare','sturzflug2_compare','klettern_compare','klettern_seit_compare','wandlauf_compare','kante_compare','punch_compare','kick_compare','uppercut_compare','hit_compare','luftangriff_compare','proto_landing_pose_new','back_night_compare','studio_idle_new']],
+    ['Video', 't', 'videos/', ['hero-threejs-compare.mp4']]]],
+];
+const root = document.getElementById('root');
+for (const [title, groups] of sections) {
+  root.insertAdjacentHTML('beforeend', `<h2>${title}</h2>`);
+  for (const [label, cls, dir, files] of groups) {
+    root.insertAdjacentHTML('beforeend', `<h3><span class="tag ${cls}">${cls === 'b' ? 'Blender' : 'Three.js'}</span><span class="tag s">gestellt</span>${label}</h3>`);
+    const g = document.createElement('div'); g.className = 'grid';
+    for (const f of files) {
+      const src = R + dir + f + (f.endsWith('.mp4') ? '' : '.jpg');
+      const media = f.endsWith('.mp4') ? `<video src="${src}" controls muted loop preload="metadata"></video>`
+                                       : `<a href="${src}"><img src="${src}" loading="lazy" alt="${f}"></a>`;
+      g.insertAdjacentHTML('beforeend', `<figure>${media}<figcaption>${f}</figcaption></figure>`);
+    }
+    root.appendChild(g);
+  }
+}
+</script>
+</body>
+</html>
