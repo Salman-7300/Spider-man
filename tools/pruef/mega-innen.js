@@ -247,6 +247,15 @@ function laufe(teil) {
 
 (async () => {
   const { b, page } = await starte(900, 540, KEIM, { frierSofort: true });
+  /* Seit M5 beginnt am Empfang die Nebenreihe. Dieser Pruefstand prueft
+     die Raeume - die Reihe gilt hier als erledigt, damit C am Empfang nur
+     spricht und kein Auftrag die Tueren sperrt (die Reihe selbst prueft
+     tools/pruef/mega-neben.js). */
+  await page.evaluate(() => {
+    if (!__dbg.neben) return;
+    const n = __dbg.prog.neben;
+    for (const id of ['s1', 's2', 's3']) if (!n.fertig.includes(id)) n.fertig.push(id);
+  });
   const R = await page.evaluate(laufe, TEIL);
   /* Last mit laufendem Bild: draussen, im Laden, im Buero */
   if (TEIL === 'alle' || TEIL === 'last') {

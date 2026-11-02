@@ -606,3 +606,218 @@ ansprechen); die Touch-Taste heißt „Handeln“ statt „1. Hilfe“.
   Versteck gewollt).
 * Draußen vor der Ladentür stehen oft Parkautos am Bordstein; man geht
   vom Gehweg aus hinein.
+
+---
+
+## 5. M5 – Nebenreihe „Die Schatten der Stadt“
+
+Drei verbundene Nebenaufträge um eine Bande, die Lieferungen am Kai
+abfängt und Zeugen einschüchtert. Sie beginnen am **Empfang im Kai 7**
+(der begehbare Ort aus M4): dort „Auftrag annehmen“, nach einer
+Unterbrechung „Weitermachen“. Akt 1 bleibt unberührt, Akt 2 bleibt zu.
+
+**Kein zweites Missionssystem.** Die Aufträge laufen im Storyläufer
+(`storyStarte`, `storyPhaseAuf`, `storyTakt`, `storyEnde`,
+`storyAufraeumen`) mit demselben Phasenformat, denselben Helfern
+(`stGang`, `stFunk`, `stNah`, `stAlleGangsTot`, `stGeflohenAufraeumen`),
+denselben Kontrollpunkten und demselben Auftragsslot
+(`MISSION.art = 'story'`). Damit gilt alles, was Akt 1 schon schützt,
+auch hier: im Kampf keine neuen Weltereignisse, keine Hygiene an
+Auftragsgegnern, kein Innenraum ohne Ausgang. Getrennt ist nur die
+Ablage (`PROG.neben` statt `PROG.story`) und die Zählung
+(`NEBEN.statistik` statt `STORY.statistik`).
+
+### 5.1 Die drei Aufträge
+
+| | I · Die Spur | II · Der Zugriff | III · Der Anführer |
+| --- | --- | --- | --- |
+| Frei | sofort | nach I | nach II |
+| Ort | Geschäftsviertel | Lagerhof am Kai (Ufer) | Platz im Park |
+| Phasen | Ort erreichen · drei Spuren mit C untersuchen (Marken, Leuchtturm zur nächsten) · den Beobachter finden (steht im Eingang, Leuchtturm, Funkbeschreibung) – ab 14 m flieht er, Netz (Q) oder Niederringen stellt ihn, er ergibt sich · seine zwei Leute abwehren | Lagerhof erreichen · Torwache ausschalten (ohne einen Treffer: +60) · in den Hof vordringen · Bande aus fünf Mann besiegen, einer davon Elite · Koffer sichern (C) | Treffpunkt erreichen · drei Leibwächter · Mini-Boss SCHATTEN |
+| Scheitern | K.o. · mehr als 140 m vom Einsatz weg · der Beobachter entkommt (70 s oder 95 m) | K.o. · Hof verlassen | K.o. · Treffpunkt verlassen |
+| Belohnung | 300 Punkte, Ruf +4 | 450 Punkte, Ruf +6 | 800 Punkte, Ruf +9 (dazu 400 für den Boss) |
+| Hinweis danach | „Ein Lagerhof am Kai …“ | „Frachtpläne und ein Name – SCHATTEN“ | „Die Leitstelle übernimmt …“ |
+
+Jede Phase hat ein Ziel in der Auftragszeile und einen **blauen**
+Leuchtturm (Akt 1 bleibt orange) auf dem Ort, der Spur, dem Beobachter
+bzw. dem nächsten Gegner; dazu kurze Funksprüche. Gescheitert heißt:
+alles wird aufgeräumt, der Kontrollpunkt bleibt auf genau der Phase,
+und am Empfang geht es dort weiter. Abbrechen (zweimal J) räumt auf und
+löscht den Kontrollpunkt.
+
+### 5.2 Mini-Boss SCHATTEN
+
+SCHATTEN ist ein Boss im vorhandenen Gerüst – `machBoss`, `updateBoss`,
+Angriffsbuch mit Vorwarnung, Phasen an der Lebensleiste, Bossleiste,
+Parade, Netzbalken, Spinnensinn und Konter. Neu ist nur ein **Profil**
+(`BOSS_PROFILE.schatten`); der ENFORCER ist jetzt das Standardprofil und
+liest dieselben Tabellen wie vorher.
+
+* **Rolle:** der Anführer, der nie dort steht, wo man ihn erwartet.
+  Schmaler und schneller als der ENFORCER (Größe 1,14, Tempo 5,0), 360
+  statt 520 Leben, weicht öfter aus (40 %), blockt seltener.
+* **Eigene Kombination:** Stich, Doppelschlag, Fegetritt (schwer, lange
+  Vorwarnung, danach 0,9 s offen); ab Phase 2 Sprungangriff, ab Phase 3
+  Wirbel (drei Schläge). Vorwarnzeit in keiner Phase unter dem
+  1,0-Fachen.
+* **Besondere Mechanik – der Rauchsprung:** Vorwarnung 0,85 s (× Phase):
+  er duckt sich, Rauch steigt auf, ein Zischen; beim ersten Mal ein
+  Hinweis. Dann ist er 0,55 s im Rauch – nicht zu sehen, nicht zu
+  treffen, das Netz geht ins Leere – und taucht 2,4 m **hinter** dem
+  Helden auf (nur auf freiem Boden auf Heldenhöhe, nie im Haus; sonst
+  schräg dahinter oder seitlich; ohne Platz kein Sprung) mit einem Stich,
+  der wieder vorgewarnt wird: der Spinnensinn zeigt die Richtung,
+  rechtzeitiges Ausweichen kontert. Abklingzeit 5,5 / 4,5 / 3,5 s je
+  Phase, ab Phase 2 häufiger. Wer ihn **bedrängt** (drei Treffer in
+  1,6 s), dem entwindet er sich genauso – sobald die Abklingzeit es
+  erlaubt; aus dem Netz heraus nie.
+* **Schwäche:** in den 0,8 s nach dem Auftauchen bringt ein Netz (Q) ihn
+  aus dem Tritt – „Aus dem Rauch gerissen“: 2,6 s eingesponnen und
+  taumelnd, Deckung und Standfestigkeit auf null, Treffer zählen
+  1,4-fach (die vorhandene Netzregel). Das ist das Erholungsfenster; der
+  Hinweis „Jetzt – Netz (Q)!“ erscheint bei den ersten beiden
+  Auftritten.
+* **Sieg:** Lebensleiste leer → er liegt wie jeder Gegner, die
+  Bossleiste verschwindet, der Auftrag endet sauber. Er zählt **nicht**
+  als ENFORCER (Statistik und Meilensteine bleiben).
+* **Aussehen:** dasselbe Ganovenmodell, größer, mit der vorhandenen
+  Ausrüstung der Duellanten; der Qualm ist ein eigener kleiner Vorrat
+  (vierzehn Sprites, ein gezeichneter dunkler Farbverlauf) – der helle
+  Unfallrauch aus M1 hob sich auf grauem Asphalt kaum ab und bleibt, wie
+  er war. Nichts geladen, keine fremden Modelle.
+* **Leuchtturm:** im Kampf mit SCHATTEN wird er ausgeblendet, sobald man
+  näher als 20 m ist – der halbtransparente Zylinder verdeckte sonst
+  alles Transparente in seinem Inneren, also gerade den Qualm der
+  Vorwarnung.
+
+### 5.3 Einbindung
+
+* **Konflikte:** ein Auftragsslot – während eine Storymission läuft,
+  lässt die Tür des Kai 7 niemanden hinein und der Empfang nimmt nichts
+  an; während ein Nebenauftrag läuft, bietet Akt 1 nichts an und J fragt
+  nur nach dem Abbruch. J nimmt weiter zuerst die Geschichte an; ein
+  unterbrochener Nebenauftrag wird mit J nur fortgesetzt, wenn Akt 1
+  gerade nichts anbietet. Keine Nebenmission schreibt in `PROG.story`,
+  keine setzt ein Storyflag. Ein umherlaufender ENFORCER wird beim
+  Auftritt von SCHATTEN dem Lebenszyklus übergeben (nie zwei Bosse).
+* **Orte:** je Auftrag ein fester Ort aus Weltkeim und Kennung (eigener
+  kleiner Zufallsgenerator), mindestens 80 m vom Kai 7, in den
+  gewünschten Stadtteilen, rundum frei für den Kampf. Derselbe Stand
+  findet ihn nach dem Neuladen wieder.
+* **Aufbau bei Ankunft:** Kampfphasen stellen ihre Gruppe erst auf, wenn
+  der Held 45 m heran ist – nach einem Wiedereinstieg am Empfang steht er
+  ja noch im Kai 7. Bis dahin zeigt der Leuchtturm auf den Ort.
+* **Sichtbar und erreichbar:** der Hof liegt „hinter dem Tor“ mit freier
+  gerader Strecke dorthin, der Beobachter steht mit freier Sicht vom
+  Spurenort aus – man soll ihn sehen und direkt hinkommen (Befund aus dem
+  Prüfstand: ein Hof hinter einem Haus war nur über einen Umweg
+  erreichbar).
+* **Der Kampf bleibt am Kampfort:** die Ganoven-KI jagt Passanten, sobald
+  der Held außer Sicht ist – im Prüfstand lief ein Elite-Wächter der
+  Hofbande 400 m weit und die Phase wartete auf ihn. Wer sich mehr als
+  22 m vom Kampfort entfernt, ohne zu fliehen, kommt zurück auf den
+  Helden; wer über 60 m weg ist, ist aus dem Kampf (dieselbe Regel wie
+  `stGeflohenAufraeumen` für Flüchtende). SCHATTEN selbst bleibt immer am
+  Helden.
+* **Zufall:** alle Gruppen, der Boss, Rauch, Marken und Koffer entstehen
+  in `MEGA_ZUFALL.klammer` – auch die three.js-Objekte (die Lehre aus M4).
+* **Ergeben:** der gestellte Beobachter und die ausgeschaltete Torwache
+  ergeben sich (die vorhandene Ergebung `policeCustody` aus
+  `stInnenAufgeben`) – sonst stünden sie nach dem Netz wieder auf und
+  zählten in der nächsten Phase als Gegner (Befund des ersten
+  Prüfstandslaufs).
+* **P-Ansicht:** unter der Geschichte ein Abschnitt „Nebenaufträge · Die
+  Schatten der Stadt“ (erledigt, läuft, unterbrochen, offen, gesperrt).
+  Am Kai 7 kommt einmal je Sitzung ein Funkhinweis auf den Empfang.
+
+### 5.4 Speicherstand
+
+`SAVE_VERSION` 3 → 4. Neu ist `neben: { fertig, checkpointId,
+checkpointPhase, flags }` und der Zähler `statistik.nebenAuftraege`.
+Ein alter Stand wird gehoben, ohne etwas zu verlieren (Punkte, Ruf,
+Fertigkeiten, Geschichte samt Kontrollpunkt, Statistik); die Nebenreihe
+beginnt dann offen. Beim Laden wird bereinigt: nur bekannte Kennungen,
+keine Dubletten, ein Kontrollpunkt nur für einen offenen Auftrag und nur
+mit einer Phase, die es gibt. Der Abschluss wird sofort geschrieben, ein
+Kontrollpunkt im normalen Takt (höchstens 30 s) – wie bei Akt 1.
+
+### 5.5 Prüfung
+
+`tools/pruef/mega-neben.js` – 72 Prüfungen mit echten Eingaben (Tasten,
+Schläge, Q, C, J, Enter). Abgekürzt wird nur die Anreise zu einem
+Einsatzort (der Bot startet 35 m davor); wie in den M1-Prüfständen wird
+der Bot unter 60 % geheilt – getestet wird der Ablauf, nicht wie lange
+ein Bot durchhält (außer im K.o.-Teil). Letzter Lauf: **72/72**.
+
+| Teil | Ergebnis |
+| --- | --- |
+| Orte | I Geschäftsviertel (−232,8 / 67,5), II Ufer (137,5 / 126,0), III Park (−191,7 / −129,7) – gültig, 153–255 m vom Kai 7 |
+| Reihe I → II → III | je Auftrag Tür, Empfang („Auftrag annehmen“) und Ausgang mit echten Eingaben; I in vier Phasen (drei Spuren mit C, Marken sichtbar, Beobachter flieht und wird mit Q gestellt), II in fünf (Koffer gezeigt und mit C gesichert), III in drei; Belohnung gutgeschrieben, Kontrollpunkt gelöscht, nichts bleibt stehen; `PROG.story` und die Story-Statistik unverändert; danach drei Nebenaufträge gezählt und der Empfang bietet nichts mehr an |
+| SCHATTEN | zwei Rauchsprünge (einer bei Bedrängnis), im Rauch 0 Bilder sichtbar und 0 Treffer, Auftauchen je 2,4 m neben dem Helden, nie in einem Haus; beide Male mit dem Netz aus dem Rauch gerissen; alle drei Bossphasen; Bossleiste; zählt nicht als ENFORCER |
+| Scheitern | Beobachter entkommt → gescheitert, Kontrollpunkt „Beobachter“, aufgeräumt, der Empfang bietet „Weitermachen“ und steigt genau dort ein, danach abgeschlossen; K.o. in II durch echte Treffer der Bande → gescheitert nach dem Aufstehen, Kontrollpunkt Phase 3, die Bande steht erst bei Ankunft, danach abgeschlossen; Wegrennen in III → gescheitert, Kontrollpunkt Phase 1 |
+| Abbruch | einmal J fragt nur, zweimal J bricht ab; Kontrollpunkt gelöscht, Auftrag bleibt offen, nichts bleibt stehen, Story-Statistik unberührt |
+| Konflikt mit Akt 1 | läuft eine Storymission, nimmt die Tür des Kai 7 niemanden auf und der Empfang bietet nichts an; läuft ein Nebenauftrag, kommt kein Storyangebot und J startet nichts; `PROG.story` unverändert; Akt 1 danach normal startbar |
+| Speichern | Version 4; ein Stand der Version 3 behält Punkte, Ruf, Fertigkeitspunkte, Geschichte samt Kontrollpunkt und Statistik, die Reihe beginnt offen; Dubletten, unbekannte Kennungen, der Kontrollpunkt eines erledigten Auftrags und eine zu große Phase werden bereinigt; echtes Neuladen mitten in II: Kontrollpunkt Phase 2, derselbe Einsatzort, Punkte erhalten, der Empfang setzt dort fort; der Abschluss steht sofort im Speicher |
+
+**Befunde aus den Prüfläufen und was sie geändert haben** (jeweils im
+Spiel behoben, nicht im Prüfstand umgangen):
+
+1. Der gestellte Beobachter und die ausgeschaltete Torwache blieben
+   eingesponnen am Leben und zählten in der nächsten Phase als Gegner –
+   die Phase hing. Sie ergeben sich jetzt.
+2. Ein Elite-Wächter der Hofbande jagte einen Passanten 400 m weit –
+   `nebenKampfHalten` holt Abtrünnige zurück bzw. nimmt sie aus dem Kampf.
+3. Ein Hof lag hinter einem Haus – Hof und Beobachter brauchen jetzt eine
+   freie gerade Strecke.
+4. Der Rauchsprung kam unter Dauerdruck nie zum Zug (nur ab 2,4 m
+   wählbar) – jetzt aus jeder Nähe mit Abklingzeit, dazu das Abtauchen bei
+   Bedrängnis.
+5. Im Rauch war SCHATTEN in 47 Bildern sichtbar (Taumel-Zweig der
+   Gegnerlogik) – beim Abtauchen lösen sich Taumeln und Netz, die
+   Unsichtbarkeit wird auch im Bosstakt gesetzt.
+6. Der Qualm war im Bild nicht zu sehen (heller Rauch, Leuchtturm-
+   Zylinder) – eigener dunkler Qualm, Leuchtturm nahe SCHATTEN aus.
+7. Ein letzter Gegner blieb in einem Gesamtlauf unerreichbar – das
+   Sicherheitsnetz (30 s, über 10 m) setzt ihn ab.
+
+Grenzen des Bots (kein Spielfehler, im Bot gelöst): geradeaus gegen eine
+Fassade gelaufen, klettert die Figur – der Bot startet daher nur von
+Punkten mit freier Strecke und springt bei ungewolltem Klettern ab; der
+Hinweis unten wird alle 0,1 s aufgefrischt, der Bot wartet dafür 8 Bilder.
+
+Bilder: `docs/abnahme-mega-1.0/m5-schatten-reihe.jpg` und
+`m5-schatten-boss.jpg` (`tools/pruef/mega-neben-bilder.js`).
+
+### 5.6 Regression und Leistung
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| `kernsysteme.js` | alles ok – Story Akt 1 8/8 gestartet und sauber beendet, Ereignisse, Boss-Lebenszyklus, Polizei/Rettung, Hygiene (mit dem Endstand wiederholt) |
+| ENFORCER, fester Kampfablauf, gleicher Keim (`m5/enforcer.js`) | **bitgleich** zu M4: Lebenskurve, Phasenwechsel bei Bild 383 und 636, Angriffe, Heldenpositionen, nächster Zufallswert – das Boss-Profil ändert am ENFORCER nichts |
+| `mega-kampf.js` | Wand- und Luft-Finisher ok; Rollentaktik mit exakt denselben Werten wie beim M2-Commit |
+| `mission6.js` | 26/26 betretbar und verlassbar, Spawns 520 gültig, Sicht durch Wände 0 |
+| `interior.js` | alles wie bisher (Ein-/Austritt, Weltpause, Dauerlauf, Kamera, Kontrollpunkt/Tod/Abbruch, Geisel) |
+| `mega-innen.js` | 30/30. Seit M5 beginnt am Empfang die Reihe; der Prüfstand setzt sie zu Beginn auf „erledigt“, damit C am Empfang nur spricht und kein Auftrag die Türen sperrt – die Reihe selbst prüft `mega-neben.js` |
+| Weltfingerabdruck | identisch (Hindernisse, Parkautos, 45 Wagen, 88 Passanten) |
+| Stadtzufallsstrom (die Lehre aus M4) | alle 88 Passanten nach 30 Bildern identisch zu M4, nächster Zufallswert gleich – M5 zieht keinen globalen Zufall |
+| `node --test` | 187/187 |
+| Zeichenaufrufe, 300 Stellen, `stadt-leistung.js ruhig` | Median 611 (M4: 610), Maximum 1676 (M4: 1677) – M5 baut nichts in die Szene, solange kein Auftrag läuft (Marken, Koffer und Qualm entstehen beim ersten Gebrauch) |
+| CPU je Schritt, freier Regisseur, 4 min, M5 und M4 gleichzeitig auf ruhiger Maschine | Median 5,03 ms (M5) gegen 5,11 ms (M4), Mittel 5,00 gegen 5,10 ms, bei derselben Ereignisfolge (ENFORCER, Dachrettung, Überfall) |
+
+### 5.7 Grenzen
+
+* Der Bot trifft immer und wird geheilt: er besiegt SCHATTEN in rund
+  zehn Sekunden. Wie schwer der Kampf für einen Menschen ist (360 Leben,
+  Rauchsprung alle 5,5 / 4,5 / 3,5 s), muss die Human-Abnahme zeigen.
+* Die drei Einsatzorte hängen am Weltkeim – im selben Stand immer
+  dieselben Plätze (gewollt: Wiedereinstieg am selben Ort).
+* Der Lagerhof ist ein freier Platz hinter dem Tor, kein eigenes
+  Gelände – es wird nichts in die Stadt gebaut.
+* Der gestellte Beobachter bleibt bis zum Ende des Auftrags stehen und
+  wird dann mit aufgeräumt; die Polizei holt ihn nicht eigens ab.
+* SCHATTEN trägt das Ganovenmodell mit der Ausrüstung der Duellanten –
+  ein eigenes Modell gibt es nicht (keine fremden Modelle, keine neuen
+  Assets).
+* Ein Kontrollpunkt wird wie bei Akt 1 im Takt gespeichert (höchstens
+  30 s); wer genau in diesen Sekunden das Spiel schließt, steigt eine
+  Phase früher wieder ein.

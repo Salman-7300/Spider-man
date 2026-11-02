@@ -84,6 +84,9 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `mega-bewegung-bilder.js` | Mega-Update M3: vier Momente der Dachkette mit Spielkamera und HUD plus Seitenansicht des Wandlaufs (`A=`, `B=`, `richtung=`, `alt`) |
 | `mega-innen.js` | Mega-Update M4: die beiden begehbaren Orte mit echten Eingaben (W, C): Türen und Gehweg, Besuch je Ort (Hinweis, Blende, Start, Kamera, Figuren, Handlung, Ausgang, freier Austrittspunkt), Außenwelt drinnen angehalten und danach weiter, 20 Besuche ohne Wachstum, Sperren (Storymission, Kampf, Wagen vor der Tür), 40 s Bot je Raum, Zeichenaufrufe draußen/drinnen; 30 Prüfungen, Exit 1 bei Fehler |
 | `mega-innen-bilder.js` | Mega-Update M4: Abnahmebilder beider Orte (Tür, Innenraum, Handlungspunkt, zweite Ansicht) mit Spielkamera und HUD |
+| `mega-neben.js` | Mega-Update M5: Nebenreihe „Die Schatten der Stadt“ mit echten Eingaben (Empfang im Kai 7, Spuren, Verfolgung, Kämpfe, Koffer, Mini-Boss SCHATTEN mit Rauchsprung und Netz-Schwäche), Scheitern/Wiedereinstieg, Abbruch, Konflikt mit Akt 1, Speicherstand (Migration 3→4, Bereinigung, echtes Neuladen); `teil=orte,reihe,scheitern,abbruch,konflikt,speichern`, Exit 1 bei Fehler |
+| `mega-neben-bot.js` | Der Prüf-Bot dafür (Browserseite): Laufen mit freier Strecke, Abspringen bei ungewolltem Klettern, Kämpfen, Netz beim Auftauchen |
+| `mega-neben-bilder.js` | Bilder der Nebenreihe für die Abnahme (`<ordner>`) |
 
 Aufruf jeweils aus diesem Ordner, z. B.
 

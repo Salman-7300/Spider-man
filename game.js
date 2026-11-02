@@ -20078,7 +20078,7 @@ function paradeTrifft(e) {
   if (!MEGA_KAMPF_ALT && !e.boss && kampfAndereNah(e) >= KAMPF_GLEICHZEITIG) { updateHUD(); return; }
   /* Der Boss antwortet mit einem Schlag aus seinem eigenen Buch, nicht
      mit einem Ganoven-Standardschlag. */
-  if (e.boss) e.bossAngriff = BOSS_ANGRIFFE[0];
+  if (e.boss) e.bossAngriff = bossProfil(e).angriffe[0];
   e.warnT = 0.34 * kampfWert(e, 'telegraph');
   e.warnMax = e.warnT;
   e.warnSchwer = false;
@@ -20542,7 +20542,7 @@ function stufeFrei(name) {
    laufende Herausforderungen. Nach dem Neuladen startet die Stadt
    sauber - nur der Fortschritt des Spielers bleibt. */
 const SAVE_KEY = 'WEB_HERO_SAVE';
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 /* Die alten Einzelschluessel. Sie werden gelesen und danach entfernt. */
 const ALT_KEYS = ['webhero_stand', 'webhero_best', 'webhero_ruf'];
 
@@ -20580,12 +20580,18 @@ function progLeer() {
        nicht wiederhergestellt. */
     story: { akt: 1, fertig: [], gescheitert: [], flags: {},
              checkpointId: null, checkpointPhase: 0 },
+    /* ---- M5: Nebenreihe "Die Schatten der Stadt" ----
+       Eigene Ablage, getrennt von der Geschichte: abgeschlossene
+       Auftraege und der Kontrollpunkt eines unterbrochenen. */
+    neben: { fertig: [], checkpointId: null, checkpointPhase: 0, flags: {} },
     statistik: {
       spielzeit: 0, crimes: 0, gerettet: 0, bosse: 0,
       herausforderungen: 0, poi: 0, marken: 0, besteKombo: 0, stufenAufstiege: 0,
       /* M3: Bewegungsfluss - fehlt in alten Staenden und startet dann bei 0
          (progPruefen geht ueber die Schluessel dieses Musters). */
       flowKetten: 0, besterFlow: 0,
+      /* M5: abgeschlossene Nebenauftraege */
+      nebenAuftraege: 0,
     },
   };
 }
@@ -20650,6 +20656,23 @@ function progPruefen(roh) {
     g.story.checkpointId = (ck && storyDef(ck)) ? ck : null;
     g.story.checkpointPhase = Math.round(zahl(st.checkpointPhase, 0, 20, 0));
   }
+  if (roh.neben && typeof roh.neben === 'object') {
+    /* M5: nur Kennungen, die es gibt; der Kontrollpunkt nur fuer einen
+       offenen Auftrag und nur mit einer Phase, die er hat. */
+    const nb = roh.neben;
+    g.neben.fertig = listeVonText(nb.fertig, 16).filter((id) => !!nebenDef(id));
+    const ck = typeof nb.checkpointId === 'string' ? nb.checkpointId : null;
+    const ckDef = ck ? nebenDef(ck) : null;
+    g.neben.checkpointId = (ckDef && g.neben.fertig.indexOf(ck) < 0) ? ck : null;
+    g.neben.checkpointPhase = g.neben.checkpointId
+      ? Math.round(zahl(nb.checkpointPhase, 0, ckDef.phasen.length - 1, 0)) : 0;
+    if (nb.flags && typeof nb.flags === 'object') {
+      for (const k in nb.flags) {
+        if (typeof k !== 'string' || k.length > 32) continue;
+        g.neben.flags[k] = !!nb.flags[k];
+      }
+    }
+  }
   if (roh.skills && typeof roh.skills === 'object') {
     for (const id in roh.skills) {
       const def = SKILLS[id];
@@ -20705,6 +20728,11 @@ function progMigrieren(roh) {
   if (!kopie.story || typeof kopie.story !== 'object') {
     kopie.story = { akt: 1, fertig: [], gescheitert: [], flags: {},
                     checkpointId: null, checkpointPhase: 0 };
+  }
+  /* Von 3 auf 4 (M5): die Nebenreihe kam dazu. Ein alter Stand hat sie
+     noch nicht - sie beginnt offen, alles andere bleibt, wie es ist. */
+  if (!kopie.neben || typeof kopie.neben !== 'object') {
+    kopie.neben = { fertig: [], checkpointId: null, checkpointPhase: 0, flags: {} };
   }
   kopie.version = SAVE_VERSION;
   PROG_INFO.migriertVon = v;
@@ -36129,16 +36157,26 @@ const BOSS_PHASEN = [
   { ab: 0.30, aggression: 1.35, telegraph: 1.10, kombo: 3, tempo: 1.12, name: 'Phase 2' },
   { ab: 0.00, aggression: 1.70, telegraph: 0.95, kombo: 4, tempo: 1.22, name: 'Phase 3' },
 ];
-function machBoss(e, name) {
+/* ---- M5: Boss-Profile ----
+   Der ENFORCER ist das erste Profil. Ein Auftrag kann einem Boss ein
+   anderes geben (machBoss(e, name, profil)) - eigene Werte, eigenes
+   Angriffsbuch, eigene Phasen und ein paar Einhaengepunkte (Ansatz und
+   Ausfuehrung eines Spezialangriffs, Takt, Netz, nach dem Angriff). Ohne
+   Profil liest jede Stelle dieselben drei Tabellen wie vorher. */
+const BOSS_PROFILE = { enforcer: { typ: BOSS_TYP, angriffe: BOSS_ANGRIFFE, phasen: BOSS_PHASEN } };
+function bossProfil(e) { return (e && e.bossProfil) || BOSS_PROFILE.enforcer; }
+function machBoss(e, name, profil) {
   if (!e) return null;
   if (e.boss) return e;
+  const P = profil || BOSS_PROFILE.enforcer;
   e.boss = true; e.elite = true; e.anfuehrer = true;
   e.bossName = name || 'ENFORCER';
+  e.bossProfil = P;
   /* Eigene Werte statt "Ganove mal fuenf". */
-  e.typ = BOSS_TYP;
-  e.hpMax = BOSS_TYP.hp; e.hp = e.hpMax;
-  e.guard = BOSS_TYP.guard;
-  e.poiseRest = BOSS_TYP.poise;
+  e.typ = P.typ;
+  e.hpMax = P.typ.hp; e.hp = e.hpMax;
+  e.guard = P.typ.guard;
+  e.poiseRest = P.typ.poise;
   e.bossPhase = -1;
   e.letzteSchlaege = [];
   e.webMeter = 0;
@@ -36148,8 +36186,8 @@ function machBoss(e, name) {
     /* Groesser - erkennbar, ohne ein neues Modell. Die Skalierung wird
        neu gesetzt, nicht multipliziert: sonst haengt die Endgroesse
        davon ab, welcher Art er vorher war. */
-    e.visual.root.scale.setScalar(BOSS_TYP.groesse);
-    e.radius = 0.4 * BOSS_TYP.groesse;
+    e.visual.root.scale.setScalar(P.typ.groesse);
+    e.radius = 0.4 * P.typ.groesse;
   }
   if (e.hpBar && e.hpBar.g) e.hpBar.g.visible = false;
   if (!e.eliteZeichen && e.visual && e.visual.root) {
@@ -36176,8 +36214,11 @@ function bossWaehltAngriff(e, d) {
   const letzte = e.letzteSchlaege || [];
   let summe = 0;
   const kandidaten = [];
-  for (const m of BOSS_ANGRIFFE) {
+  const erlaubt = bossProfil(e).erlaubt;
+  for (const m of bossProfil(e).angriffe) {
     if (m.phase > phase) continue;
+    if (m.boden && !player.onGround) continue;      // M5: nur gegen einen Helden am Boden
+    if (erlaubt && !erlaubt(e, m)) continue;        // M5: Abklingzeit eines Spezialangriffs
     if (d < m.nah[0] || d > m.nah[1]) continue;
     if (m.geschoss && (!pruefeSicht(e, 0) || kameradImWeg(e))) continue;
     let g = m.gewicht;
@@ -36211,20 +36252,21 @@ function bossMerkeAngriff(e, id) {
 function kampfWert(e, feld) {
   const grund = (e.typ && e.typ[feld] !== undefined) ? e.typ[feld] : 1;
   if (!e.boss || e.bossPhase === undefined || e.bossPhase < 0) return grund;
-  const p = BOSS_PHASEN[e.bossPhase];
+  const p = bossProfil(e).phasen[e.bossPhase];
   if (!p || p[feld] === undefined) return grund;
   return feld === 'telegraph' ? grund * p[feld] : grund * p[feld];
 }
 function updateBoss(e, dt) {
   if (!e.boss || e.dead) return;
+  const PH = bossProfil(e).phasen;
   const anteil = clamp(e.hp / (e.hpMax || 1), 0, 1);
   let neu = 0;
-  for (let i = 0; i < BOSS_PHASEN.length; i++) if (anteil <= BOSS_PHASEN[i].ab) neu = i + 1;
-  neu = Math.min(neu, BOSS_PHASEN.length - 1);
+  for (let i = 0; i < PH.length; i++) if (anteil <= PH[i].ab) neu = i + 1;
+  neu = Math.min(neu, PH.length - 1);
   if (neu !== e.bossPhase) {
     const ersteRunde = e.bossPhase < 0;
     e.bossPhase = neu;
-    const p = BOSS_PHASEN[neu];
+    const p = PH[neu];
     /* ---- Der Wechsel ist sichtbar ----
        Er weicht einen Schritt zurueck, richtet sich auf und greift
        waehrenddessen nicht an. In dieser Zeit nimmt der Spieler keinen
@@ -36236,7 +36278,7 @@ function updateBoss(e, dt) {
       e.attackCd = Math.max(e.attackCd, 1.3);
       brichAngriffAb(e);
       e.staggerT = 0;
-      e.poiseRest = BOSS_TYP.poise;
+      e.poiseRest = e.typ.poise;
       e.poiseSchutzT = 2.2;
       e.blockT = 0; e.blockCd = 0.9;
       e.paradeCd = 1.2;
@@ -36261,6 +36303,9 @@ function updateBoss(e, dt) {
     e.attackCd = Math.max(e.attackCd, 0.25);
   }
   if (e.poiseSchutzT > 0) e.poiseSchutzT -= dt;
+  /* M5: das Profil darf je Bild mitreden (SCHATTEN: Rauchsprung). */
+  const takt = bossProfil(e).takt;
+  if (takt) takt(e, dt);
   zeigeBossLeiste(e);
 }
 
@@ -36281,7 +36326,7 @@ function zeigeBossLeiste(e) {
   if (d > 45) { bossWrapEl.style.display = 'none'; return; }
   bossWrapEl.style.display = 'block';
   bossWrapEl.className = 'phase' + ((e.bossPhase || 0) + 1);
-  const p = BOSS_PHASEN[Math.max(0, e.bossPhase || 0)];
+  const p = bossProfil(e).phasen[Math.max(0, e.bossPhase || 0)];
   bossNameEl.textContent = e.bossName + '  ·  ' + (p ? p.name : '');
   bossBarEl.style.transform = 'scaleX(' + clamp(e.hp / (e.hpMax || 1), 0, 1).toFixed(3) + ')';
 }
@@ -36337,6 +36382,9 @@ function applyWeb(e) {
      fuellen einen eigenen Balken. Ist der voll, steht er wirklich fest.
      Das Netz bleibt also nuetzlich, ohne den Kampf zu ueberspringen. */
   if (e.boss) {
+    /* M5: ein Profil kann anders auf das Netz antworten (SCHATTEN). */
+    const netz = bossProfil(e).netz;
+    if (netz && netz(e)) return;
     e.webMeter = (e.webMeter || 0) + 1;
     e.webStufe = 1;
     e.webT = Math.max(e.webT, 1.0);
@@ -36447,7 +36495,7 @@ function damageEnemy(e, dmg, kind) {
       zeigeBossLeiste(null);
       popupScreen('★ ' + e.bossName + ' ausgeschaltet!');
       addScore(400, '', e.pos);
-      PROG.statistik.bosse++;
+      if (!e.miniBoss) PROG.statistik.bosse++;     // M5: SCHATTEN ist kein ENFORCER
       progSofort();
       SFX.boss(2);
       /* Faellt der Boss, ist der Rest der Gruppe fertig. */
@@ -36993,7 +37041,7 @@ function updateEnemies(dtBild) {
        Ambient-Ganoven der Stadt stehen unsichtbar draussen und werden
        eingefroren - nicht abgebaut. */
     if (MISSION_INTERIOR.active && !e.storyGegner) continue;
-    if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, e.boss ? 'enforcer' : e.typ.art);
+    if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, e.boss ? (bossProfil(e).look || 'enforcer') : e.typ.art);
     /* Siehe zeigeWickel: die Netzwickel haengen an den Knochen und
        folgen der Sichtbarkeit der Kokongruppe nicht von selbst. Hier
        oben, vor jedem continue - sonst bliebe ein Wickel an einem
@@ -37585,6 +37633,8 @@ function updateEnemies(dtBild) {
           e.wurfGeplant = !!m.geschoss;
           e.komboRest = m.kette ? m.kette - 1 : 0;
           meldeAngriff(e, !!m.schwer);
+          /* M5: ein Spezialangriff zeigt seinen Ansatz (SCHATTEN: Rauch). */
+          if (m.spezial && bossProfil(e).ansatz) bossProfil(e).ansatz(e, m);
         } else if (d > 1.25 || dy > 1.6) {
           /* Nicht alle auf denselben Punkt zulaufen – sonst stapeln sich
              die Ganoven zu einem einzigen Klumpen. Jeder steuert seinen
@@ -37828,7 +37878,7 @@ function updateEnemies(dtBild) {
             e.attackCd = 0;
             /* Beim Boss ist die Fortsetzung ein leichter Schlag aus
                seinem eigenen Buch, kein Ganoven-Standardschlag. */
-            if (e.boss) e.bossAngriff = BOSS_ANGRIFFE[0];
+            if (e.boss) e.bossAngriff = bossProfil(e).angriffe[0];
             meldeAngriff(e, false);
           } else {
             e.komboRest = 0;
@@ -37913,6 +37963,12 @@ function updateEnemies(dtBild) {
           e.finteT = 0.22;
           meldeAngriff(e, false);
           if (Math.random() < 0.5) popupWorld('Finte!', e.pos, '#ffd0a8');
+        } else if (e.bossAngriff && e.bossAngriff.spezial && bossProfil(e).spezial) {
+          /* M5: ein Spezialangriff aus dem Profil statt eines Schlags */
+          const b = e.bossAngriff;
+          e.bossAngriff = null;
+          e.finte = false;
+          bossProfil(e).spezial(e, b);
         } else if (e.bossAngriff) {
           /* ---- Boss: der gewaehlte Angriff wird ausgefuehrt ---- */
           const b = e.bossAngriff;
@@ -37931,9 +37987,10 @@ function updateEnemies(dtBild) {
             e.vel.x = (sx / sl) * b.satz; e.vel.z = (sz / sl) * b.satz;
             e.geworfen = 0;
           }
-          e.attackCd = rand(0.65, 1.15) / (BOSS_PHASEN[Math.max(0, e.bossPhase)].tempo || 1);
+          e.attackCd = rand(0.65, 1.15) / (bossProfil(e).phasen[Math.max(0, e.bossPhase)].tempo || 1);
           if (e.visual.attackOneShot) e.visual.attackOneShot(0, b.art, b.dauer * 0.9);
           SFX.swoosh();
+          if (bossProfil(e).nachAngriff) bossProfil(e).nachAngriff(e, b);
         } else {
           e.finte = false;
           /* Nach längerer Vorwarnung folgt der Klingenhieb. */
@@ -38193,6 +38250,8 @@ function updateEnemies(dtBild) {
       { phase: e.phase, speed01: clamp(speed / 5, 0, 1), speed,
         t: elapsed + e.phase,
         rueckwaerts: _punkt < -0.35 && ganovAnim === 'run' }, dt);
+    /* M5: im Rauch nicht zu sehen (play() schaltet die Figur sonst an). */
+    if (e.schatten && e.schatten.weg > 0) e.visual.root.visible = false;
     if (e.visual.procedural) overlayAttack(e.visual.human, e.attack, dt);
     else if (e.visual.bodenAusgleich) {
       e.visual.bodenAusgleich(Math.min(1, dt * 12));
@@ -40834,6 +40893,8 @@ function megaInteraktionKandidat() {
   if (player.dead) return null;
   const ort = megaOrtKandidat();          // M4: Tueren, Ausgang, Gespraeche
   if (ort) return ort;
+  const neben = nebenKandidat();          // M5: Spuren, Koffer
+  if (neben) return neben;
   for (const e of EV.liste) {
     if (e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN') continue;
     if (e.art === 'dachrettung' && e.person && e.person.dachRettung) {
@@ -41827,7 +41888,12 @@ function megaOrtHandlung(id, hid) {
     popupScreen(satz(ORT_SAETZE.inhaber) + ' Gesundheit voll.');
     return;
   }
-  if (hid === 'empfang') { popupScreen(satz(ORT_SAETZE.empfang)); return; }
+  if (hid === 'empfang') {
+    /* M5: am Empfang beginnt die Nebenreihe (und geht dort weiter). */
+    if (nebenAmEmpfang()) return;
+    popupScreen(satz(ORT_SAETZE.empfang));
+    return;
+  }
 }
 
 /* Interaktion: Tuer draussen, Ausgang und Handlungspunkte drinnen. */
@@ -41840,7 +41906,10 @@ function megaOrtKandidat() {
     const a = r.ausgang;
     if (a && Math.hypot(player.pos.x - a.x, player.pos.z - a.z) < a.r) return { text: a.text, tun: megaOrtVerlassen };
     for (const h of r.aktionen || []) {
-      if (Math.hypot(player.pos.x - h.x, player.pos.z - h.z) < h.r) return { text: h.text, tun: () => megaOrtHandlung(I.id, h.id) };
+      if (Math.hypot(player.pos.x - h.x, player.pos.z - h.z) < h.r) {
+        const text = (h.id === 'empfang' && nebenEmpfangText()) || h.text;      // M5
+        return { text, tun: () => megaOrtHandlung(I.id, h.id) };
+      }
     }
     return null;
   }
@@ -45931,10 +46000,14 @@ function storyAnbinden() {
   STORY.gescheitert = PROG.story.gescheitert;
   STORY.flags = PROG.story.flags;
   STORY.akt = PROG.story.akt || 1;
+  nebenAblage();                        // M5: Nebenreihe, eigene Ablage
 }
 function storyCheckpointSetzen(id, phase) {
-  PROG.story.checkpointId = id;
-  PROG.story.checkpointPhase = phase;
+  /* M5: die Nebenreihe hat ihre eigene Ablage - ein Kontrollpunkt dort
+     beruehrt den von Akt 1 nicht. */
+  const a = nebenDef(id) ? nebenAblage() : PROG.story;
+  a.checkpointId = id;
+  a.checkpointPhase = phase;
   progMerken();
 }
 function storyDef(id) { for (const d of STORY_DEF) if (d.id === id) return d; return null; }
@@ -45957,7 +46030,7 @@ function storyZustand(id) {
 
 /* Starten. Die Mission belegt den vorhandenen Auftragsslot. */
 function storyStarte(id, abPhase) {
-  const d = storyDef(id);
+  const d = laufDef(id);                // M5: auch die Nebenreihe
   if (!d || STORY.aktiv) return false;
   if (!d.frei()) return false;
   /* Ein laufender Zufallsauftrag wird sauber beendet, nicht ueberschrieben. */
@@ -45968,7 +46041,7 @@ function storyStarte(id, abPhase) {
   MISSION.daten = { story: true, gangs: [], wachen: [] };
   STORY.aktiv = d;
   STORY.phase = 0;
-  STORY.statistik.gestartet++;
+  (d.reihe ? NEBEN.statistik : STORY.statistik).gestartet++;
   STORY.angebot = null;
   ptMissionAuf(d);
   stFunk(d.start);
@@ -45976,7 +46049,7 @@ function storyStarte(id, abPhase) {
     /* Wiedereinstieg am Kontrollpunkt: die Phasen davor gelten als
        geschafft, aufgebaut wird nur die aktuelle. */
     STORY.phase = clamp(abPhase, 0, d.phasen.length - 1);
-    STORY.statistik.neustarts++;
+    (d.reihe ? NEBEN.statistik : STORY.statistik).neustarts++;
     if (PT.laufend) PT.laufend.neustarts++;
   }
   storyPhaseAuf();
@@ -45993,7 +46066,7 @@ function storyPhaseAuf() {
   MISSION.daten.zielPos = null;
   if (ph.auf) ph.auf(MISSION.daten);
   showObjective(d.titel + ' · ' + STORY.zielText);
-  STORY.statistik.checkpoints++;
+  (d.reihe ? NEBEN.statistik : STORY.statistik).checkpoints++;
   ptPhase(STORY.phase, STORY.zielText);
   /* Jede Phase ist ein Kontrollpunkt. Gespeichert wird nur, WELCHE - die
      Welt drumherum wird beim Wiedereinstieg neu aufgebaut. */
@@ -46003,6 +46076,8 @@ function storyPhaseAuf() {
 /* Alles wieder wegraeumen, was die Mission aufgestellt hat. */
 function storyAufraeumen() {
   const m = MISSION.daten;
+  /* M5: was ein Nebenauftrag selbst aufgestellt hat (Spurenmarken, Koffer) */
+  if (STORY.aktiv && STORY.aktiv.reihe) nebenAufraeumen();
   if (m) {
     if (m.gangs) {
       for (const g of m.gangs) {
@@ -46083,11 +46158,27 @@ function storyEnde(art) {
   const weich = art === 'weich' ||
                 (art === 'erfolg' && !!(MISSION.daten && MISSION.daten.weich));
   const abbruch = art === 'abbruch';
+  /* M5: die Nebenreihe legt in PROG.neben ab, zaehlt in NEBEN.statistik -
+     und kann scheitern (weiter ab der Phase, in der es passiert ist). */
+  const reihe = !!d.reihe;
+  const ablage = reihe ? nebenAblage() : PROG.story;
+  const stat = reihe ? NEBEN.statistik : STORY.statistik;
+  const fertigListe = reihe ? ablage.fertig : STORY.fertig;
+  const scheitern = reihe && art === 'scheitern';
+  const phaseJetzt = STORY.phase;
   /* Die letzte Phase darf noch aufraeumen (Fluchtauto zuruecksetzen). */
   const ph = d.phasen[STORY.phase];
   if (ph && ph.ende) ph.ende(MISSION.daten);
-  if (!abbruch) {
-    if (STORY.fertig.indexOf(d.id) < 0) STORY.fertig.push(d.id);
+  if (scheitern) {
+    stat.gescheitert++;
+    ptMissionZu('scheitern');
+    const grund = MISSION.daten && MISSION.daten.scheiterGrund;
+    storyAufraeumen();
+    stFunk(((d.scheiterTexte && d.scheiterTexte[grund]) || 'Der Einsatz ist gescheitert.') +
+           ' Weiter ab diesem Abschnitt: am Empfang im Kai 7.');
+  } else if (!abbruch) {
+    if (fertigListe.indexOf(d.id) < 0) fertigListe.push(d.id);
+    if (reihe) PROG.statistik.nebenAuftraege++;
     const b = (weich && d.weichBelohnung) ? d.weichBelohnung : d.belohnung;
     /* ---- Wer die Leute nicht schuetzt, bekommt weniger ----
        Die Mission scheitert daran NICHT. Aber ein verletzter Passant
@@ -46099,21 +46190,26 @@ function storyEnde(art) {
                              'Auftrag erfüllt', player.pos);
       if (b.ruf) setzeRuf(+b.ruf * (geschont ? 1 : 0.5));
     }
-    if (weich) STORY.statistik.weich++; else STORY.statistik.geschafft++;
+    if (weich) stat.weich = (stat.weich || 0) + 1; else stat.geschafft++;
     ptMissionZu(weich ? 'weich' : 'erfolg');
     const t = weich ? (d.weichText || d.erfolgText) : d.erfolgText;
     storyAufraeumen();
     if (t) stFunk(t);
     if (d.aktEnde) popupScreen('★ Akt 1 abgeschlossen');
   } else {
-    STORY.statistik.abgebrochen++;
+    stat.abgebrochen++;
     ptMissionZu('abbruch');
     storyAufraeumen();
     stFunk('Auftrag abgebrochen.');
   }
   STORY.angebotCd = 25;
-  PROG.story.checkpointId = null;
-  PROG.story.checkpointPhase = 0;
+  if (scheitern) {
+    ablage.checkpointId = d.id;
+    ablage.checkpointPhase = phaseJetzt;
+  } else {
+    ablage.checkpointId = null;
+    ablage.checkpointPhase = 0;
+  }
   progSofort();
 }
 
@@ -46304,6 +46400,8 @@ function storyTaste() {
   }
   const d = STORY.angebot || storyOffen();
   if (d) { storyStarte(d.id); return; }
+  /* M5: erst wenn Akt 1 nichts anbietet - ein unterbrochener Nebenauftrag. */
+  if (nebenWiedereinstiegJ()) return;
   popupScreen('Gerade kein Auftrag offen.');
 }
 
@@ -46353,6 +46451,9 @@ function storyTakt(dt) {
   } else if (r === 'hart') {
     storyEnde('abbruch');
     return;
+  } else if (r === 'scheitern') {
+    storyEnde('scheitern');             // M5: nur die Nebenreihe liefert das
+    return;
   }
 
   /* Zielanzeige und Leuchtturm */
@@ -46364,9 +46465,1041 @@ function storyTakt(dt) {
       if (zp) break;
     }
   }
-  setzeBeacon(zp || null, 0xffb03c);
+  /* M5: im Kampf mit SCHATTEN kein Leuchtturm auf ihm, sobald man nah
+     dran ist. Man braucht ihn dort nicht, und der halbtransparente
+     Zylinder verdeckt alles Transparente in seinem Inneren - auch den
+     Qualm, der die Vorwarnung des Rauchsprungs ist. */
+  if (d.reihe && m.boss && !m.boss.dead && Math.hypot(m.boss.pos.x - player.pos.x, m.boss.pos.z - player.pos.z) < 20) zp = null;
+  setzeBeacon(zp || null, d.reihe ? NEBEN_FARBE : 0xffb03c);
   showObjective(d.titel + ' · ' + STORY.zielText);
 }
+
+/* ================= M5: Nebenreihe "Die Schatten der Stadt" =================
+   Drei verbundene Nebenauftraege, die am Empfang im Kai 7 (M4) beginnen:
+     I   Die Spur       Ort erreichen, drei Spuren untersuchen, den
+                        Beobachter finden, einholen, seine Leute abwehren
+     II  Der Zugriff    Lagerhof am Kai, Torwache, Hof, Bande mit Elite,
+                        Koffer sichern
+     III Der Anfuehrer  Treffpunkt, Leibwache, Mini-Boss SCHATTEN
+
+   KEIN zweites Missionssystem: die Auftraege laufen im Storylaeufer
+   (storyStarte, storyPhaseAuf, storyTakt, storyEnde, storyAufraeumen) -
+   dasselbe Phasenformat, dieselben Helfer (stGang, stFunk, stNah,
+   stAlleGangsTot, stGeflohenAufraeumen), dieselben Kontrollpunkte und
+   derselbe Auftragsslot (MISSION.art = 'story'). Damit gilt alles, was
+   Akt 1 schon schuetzt, auch hier: keine neuen Weltereignisse im Kampf,
+   keine Hygiene an Auftragsgegnern, kein Innenraum ohne Ausgang.
+
+   Was die Reihe von Akt 1 trennt, ist allein die Ablage: PROG.neben statt
+   PROG.story. storyOffen() kennt die Reihe nicht, J nimmt weiter zuerst
+   die Geschichte an, und keine Nebenmission setzt ein Storyflag. Waehrend
+   eine Storymission laeuft, nimmt der Empfang keinen Auftrag an - und
+   umgekehrt startet keine Storymission, solange ein Nebenauftrag laeuft
+   (ein Auftragsslot).
+
+   Orte: je Auftrag EIN fester Ort, aus Weltkeim und Kennung abgeleitet
+   (eigener kleiner Zufallsgenerator - weder der Stadtstrom noch
+   MEGA_ZUFALL). Derselbe Stand findet den Ort nach dem Neuladen wieder,
+   und der Wiedereinstieg am Kontrollpunkt baut die Phase am selben Platz
+   neu auf. Gruppen entstehen im Strom MEGA_ZUFALL; Kampfphasen bauen sie
+   erst auf, wenn der Held angekommen ist. */
+const NEBEN = {
+  statistik: { gestartet: 0, geschafft: 0, gescheitert: 0, abgebrochen: 0, neustarts: 0,
+               checkpoints: 0, empfang: 0, spuren: 0, koffer: 0, verfolgt: 0, entkommen: 0,
+               lautlos: 0, rauchspruenge: 0, rauchBedraengt: 0, rauchOhneZiel: 0, rauchGerissen: 0,
+               rauchNetzLeer: 0, schattenBesiegt: 0, hinweise: 0 },
+  hinweisCd: 6,
+  marken: null,           // drei Spurenmarken (Ring und Raute), einmal gebaut
+  qualm: null,            // SCHATTENs Qualm (vierzehn Sprites), einmal gebaut
+  koffer: null,           // der Koffer aus Schatten II, einmal gebaut
+  orte: {},               // berechnete Einsatzorte je Kennung
+};
+const NEBEN_FARBE = 0x8fd4ff;          // Leuchtturm blau - Story bleibt orange
+const NEBEN_WEITE = 140;               // so weit darf man sich vom Einsatz entfernen
+const NEBEN_MIN_KAI = 80;              // Einsatzorte liegen nicht vor der Tuer des Kai 7
+const NEBEN_ANKUNFT = 45;              // ab hier steht die Gruppe einer Kampfphase
+
+function nebenLeer() { return { fertig: [], checkpointId: null, checkpointPhase: 0, flags: {} }; }
+function nebenAblage() {
+  if (!PROG.neben || typeof PROG.neben !== 'object') PROG.neben = nebenLeer();
+  return PROG.neben;
+}
+function nebenDef(id) { for (const d of NEBEN_DEF) if (d.id === id) return d; return null; }
+/* Der Storylaeufer fragt hier nach - Akt 1 zuerst, dann die Nebenreihe. */
+function laufDef(id) { return storyDef(id) || nebenDef(id); }
+function nebenFertig(id) { return nebenAblage().fertig.indexOf(id) >= 0; }
+function nebenLaeuft() { return !!(STORY.aktiv && STORY.aktiv.reihe); }
+function nebenOffen() {
+  for (const d of NEBEN_DEF) {
+    if (nebenFertig(d.id)) continue;
+    return d.frei() ? d : null;
+  }
+  return null;
+}
+function nebenZustand(id) {
+  if (STORY.aktiv && STORY.aktiv.id === id) return 'AKTIV';
+  if (nebenFertig(id)) return 'ERLEDIGT';
+  const d = nebenDef(id);
+  if (!d) return 'UNBEKANNT';
+  return d.frei() ? 'VERFUEGBAR' : 'GESPERRT';
+}
+/* Ein unterbrochener Auftrag (Neuladen, K.o., gescheitert): hier geht es
+   am Empfang weiter, ab genau dieser Phase. */
+function nebenUnterbrochen() {
+  const a = nebenAblage();
+  const d = a.checkpointId ? nebenDef(a.checkpointId) : null;
+  if (!d || nebenFertig(d.id)) return null;
+  return { d, phase: clamp(a.checkpointPhase || 0, 0, d.phasen.length - 1) };
+}
+
+/* ---- Orte ---- */
+function nebenZufall(id) {
+  let s = (WELT_KEIM ^ 0x53484144) >>> 0;
+  for (let i = 0; i < id.length; i++) s = Math.imul(s ^ id.charCodeAt(i), 0x9e3779b1) >>> 0;
+  if (!s) s = 0x9e3779b9;
+  return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
+}
+/* Wo man stehen und kaempfen kann: Strassenebene, kein Haus, kein Wasser,
+   keine Bruecke, freier Gehweg. Dasselbe Mass wie evOrtTauglich, nur ohne
+   dessen Ereigniszaehler. */
+function nebenPunktOk(x, z) {
+  if ((x < RAND_X0 || x > RAND_X1) && !(x > PROM_X0 && x < RIVER_X0)) return false;
+  if (inWater(x, z) || onBridge(x, z) || inGebaeude(x, z)) return false;
+  const y = groundY(x, z, 2);
+  if (y < -0.5 || y > 1.5) return false;
+  return gehPlatzFrei(x, z, 1.6);
+}
+function nebenRundumFrei(x, z, r) {
+  for (let k = 0; k < 8; k++) {
+    const a = k * Math.PI / 4;
+    const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+    if (inWater(px, pz) || onBridge(px, pz) || inGebaeude(px, pz)) return false;
+    const y = groundY(px, pz, 2);
+    if (y < -0.5 || y > 1.5) return false;
+  }
+  return true;
+}
+/* Der feste Einsatzort einer Kennung. arten: Stadtteile nach Vorrang,
+   frei: Radius, der rundum frei sein muss, ziel: Wunschabstand zum Kai 7. */
+function nebenOrtFest(id, arten, frei, ziel) {
+  if (NEBEN.orte[id]) return NEBEN.orte[id];
+  const zz = nebenZufall(id);
+  const T = megaOrtTueren();
+  const kai = T && T.buero ? { x: T.buero.qx, z: T.buero.qz } : { x: 0, z: 0 };
+  let best = null, bestW = -1e9;
+  for (let i = 0; i < 500; i++) {
+    const x = RASTER_X0 + 6 + zz() * (RIVER_X0 - 2 - RASTER_X0 - 6);
+    const z = RASTER_Z0 + 6 + zz() * (RASTER_Z1 - RASTER_Z0 - 12);
+    if (!nebenPunktOk(x, z)) continue;
+    if (frei && !nebenRundumFrei(x, z, frei)) continue;
+    const dk = Math.hypot(x - kai.x, z - kai.z);
+    if (dk < NEBEN_MIN_KAI) continue;
+    const art = stadtteilAn(x, z);
+    const ai = arten.indexOf(art);
+    const w = (ai < 0 ? -60 : -ai * 8) - Math.abs(dk - (ziel || 150)) * 0.08 + zz() * 3;
+    if (w > bestW) { bestW = w; best = { x, z, y: groundY(x, z, 2), art }; }
+  }
+  NEBEN.orte[id] = best || { x: kai.x, z: kai.z, y: groundY(kai.x, kai.z, 2), art: '?' };
+  return NEBEN.orte[id];
+}
+/* Gerade Strecke ohne Haus, Wasser oder Schacht dazwischen - der Hof
+   liegt "dahinter", man soll ihn vom Tor aus sehen und direkt hinkommen. */
+function nebenFreieStrecke(ax, az, bx, bz) {
+  const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 1.5));
+  for (let i = 0; i <= n; i++) {
+    const x = ax + (bx - ax) * i / n, z = az + (bz - az) * i / n;
+    if (inGebaeude(x, z) || inWater(x, z)) return false;
+    const y = groundY(x, z, 2);
+    if (y < -0.5 || y > 1.5) return false;
+  }
+  return true;
+}
+/* Feste Punkte um einen Ort (Spuren, Hof, Beobachter). sicht: nur Punkte
+   mit freier Strecke zum Ort. */
+function nebenUmOrt(id, basis, rMin, rMax, n, abstand, frei, sicht) {
+  const zz = nebenZufall(id);
+  const raus = [];
+  for (let i = 0; i < 400 && raus.length < n; i++) {
+    const a = zz() * TAU, r = rMin + zz() * (rMax - rMin);
+    const x = basis.x + Math.cos(a) * r, z = basis.z + Math.sin(a) * r;
+    if (!nebenPunktOk(x, z)) continue;
+    if (frei && !nebenRundumFrei(x, z, frei)) continue;
+    if (sicht && !nebenFreieStrecke(basis.x, basis.z, x, z)) continue;
+    if (raus.some((q) => Math.hypot(q.x - x, q.z - z) < abstand)) continue;
+    raus.push({ x, z, y: groundY(x, z, 2) });
+  }
+  return raus;
+}
+/* Ort, Hof und Spuren eines Auftrags - nach einem Wiedereinstieg fehlt
+   MISSION.daten alles aus den Phasen davor, deshalb zieht jede Phase das
+   hier nach (dasselbe Muster wie stVersteckSichern in Mission 6). */
+function nebenGrund(m) {
+  const d = STORY.aktiv;
+  if (!d || !m) return m;
+  if (!m.ort && d.ort) m.ort = d.ort();
+  if (d.id === 's2' && !m.hof) {
+    m.hof = nebenUmOrt('s2:hof', m.ort, 20, 32, 1, 0, 5, true)[0] ||
+            nebenUmOrt('s2:hof', m.ort, 20, 32, 1, 0, 5)[0] ||
+            { x: m.ort.x, z: m.ort.z, y: m.ort.y };
+  }
+  return m;
+}
+/* Kampfphasen bauen ihre Gruppe erst auf, wenn der Held in der Naehe ist -
+   nach einem Wiedereinstieg am Empfang steht er ja noch im Kai 7. Bis
+   dahin zeigt der Leuchtturm auf den Ort. */
+function nebenBeiAnkunft(m, ort, bau) {
+  if (m.aufgebaut) return true;
+  if (MISSION_INTERIOR.active || !stNah(ort, NEBEN_ANKUNFT)) {
+    m.zielPos = { x: ort.x, y: (ort.y || 0) + 1, z: ort.z };
+    return false;
+  }
+  m.aufgebaut = true;
+  m.zielPos = null;
+  bau();
+  return true;
+}
+/* Gemeinsame Regeln fuer das Scheitern:
+     - K.o. gegangen   -> gescheitert, weiter ab dieser Phase
+     - mehr als NEBEN_WEITE vom Einsatz weg (erst, wenn man einmal dort
+       war - wer am Empfang wieder einsteigt, kommt ja von weit her). */
+function nebenRaus(m, ort, weite) {
+  if (m.todGemeldet && !player.dead) { m.scheiterGrund = 'ko'; return 'scheitern'; }
+  if (player.dead || MISSION_INTERIOR.active) return null;
+  const o = ort || m.ort;
+  if (!o) return null;
+  const d = Math.hypot(player.pos.x - o.x, player.pos.z - o.z);
+  if (d < NEBEN_ANKUNFT) m.vorOrt = true;
+  if (m.vorOrt && d > (weite || NEBEN_WEITE)) { m.scheiterGrund = 'weg'; return 'scheitern'; }
+  return null;
+}
+/* Gestellt: wer eingesponnen oder niedergerungen ist, ergibt sich -
+   dieselbe Ergebung wie in stInnenAufgeben (policeCustody). */
+function nebenGestellt(e) {
+  if (!e || e.dead) return;
+  e.policeCustody = true;
+  e.flieht = false; e.eventFlucht = false; e.fluchtWeg = null;
+  e.state = 'idle'; e.target = null; e.attack = null;
+  popupWorld('Schon gut – ich rede!', e.pos, '#ffd0a8');
+}
+/* ---- Der Kampf bleibt am Kampfort ----
+   Erster Lauf des Pruefstands: ein Elite-Waechter der Hofbande lief einem
+   Passanten hinterher (die Ganoven-KI jagt Passanten, sobald der Held
+   ausser Sicht ist) - nach 100 s stand er 400 m entfernt, und "Die Bande
+   besiegen" wartete auf ihn. Wer sich mehr als 22 m vom Kampfort
+   entfernt, ohne zu fliehen, kommt deshalb zurueck auf den Helden; wer
+   trotzdem ueber 60 m weg ist, ist aus dem Kampf - dieselbe Regel, die
+   stGeflohenAufraeumen fuer Fluechtende hat. */
+function nebenKampfHalten(m, ort, dt) {
+  if (!m || !m.gangs || !ort) return;
+  const offen = [];
+  for (const g of m.gangs) {
+    for (let i = g.enemies.length - 1; i >= 0; i--) {
+      const e = g.enemies[i];
+      if (e.dead || e.policeCustody) continue;
+      offen.push(e);
+      if (e.flieht) continue;
+      const d = Math.hypot(e.pos.x - ort.x, e.pos.z - ort.z);
+      if (d > 60) { stEntferneGegner(e); continue; }
+      if (d > 22 && e.target !== 'player' && !player.dead) { e.state = 'chase'; e.target = 'player'; }
+    }
+  }
+  /* ---- Keine Phase haengt an einem einzelnen Unerreichbaren ----
+     Der letzte Gegner haelt sich 30 s lang mehr als 10 m (oder ein
+     Stockwerk) vom Helden fern - irgendwo festgelaufen, auf einem Vordach,
+     im Abgang: er setzt sich ab wie ein Fluechtender. Gemessen im
+     Pruefstand: eine Phase hing sonst bis zum Abbruch. */
+  if (offen.length !== 1 || player.dead) { m.einzelnT = 0; return; }
+  const e = offen[0];
+  const weg = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) > 10 || Math.abs(e.pos.y - player.pos.y) > 2.5;
+  m.einzelnT = weg ? (m.einzelnT || 0) + (dt || 0) : 0;
+  if (m.einzelnT > 30) {
+    m.einzelnT = 0;
+    popupWorld('Einer hat sich abgesetzt', e.pos, '#ffd0a8');
+    stEntferneGegner(e);
+  }
+}
+/* Eine Gruppe im eigenen Strom aufstellen, Rollen setzen, auf den Helden. */
+function nebenGruppe(x, z, rollen, aufHelden) {
+  return MEGA_ZUFALL.klammer(() => {
+    const g = stGang(x, z, rollen.length, 'story');
+    megaRollen(g, rollen);
+    if (aufHelden) for (const e of g.enemies) { e.state = 'chase'; e.target = 'player'; }
+    return g;
+  });
+}
+
+/* ---- Spurenmarken und Koffer: einmal gebaut, danach nur gezeigt ---- */
+function nebenMarken() {
+  if (NEBEN.marken) return NEBEN.marken;
+  MEGA_ZUFALL.klammer(() => {
+    const ringGeo = new THREE.RingGeometry(0.42, 0.6, 24);
+    const rauteGeo = new THREE.OctahedronGeometry(0.16);
+    const ringMat = new THREE.MeshBasicMaterial({ color: NEBEN_FARBE, transparent: true, opacity: 0.6,
+                                                  depthWrite: false, side: THREE.DoubleSide });
+    const rauteMat = new THREE.MeshBasicMaterial({ color: NEBEN_FARBE });
+    NEBEN.marken = [];
+    for (let i = 0; i < 3; i++) {
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      const raute = new THREE.Mesh(rauteGeo, rauteMat);
+      ring.visible = false; raute.visible = false;
+      scene.add(ring); scene.add(raute);
+      NEBEN.marken.push({ ring, raute });
+    }
+  });
+  return NEBEN.marken;
+}
+function nebenMarkenZeigen(punkte) {
+  if (!punkte && !NEBEN.marken) return;
+  const M = nebenMarken();
+  for (let i = 0; i < M.length; i++) {
+    const q = punkte && punkte[i];
+    const an = !!(q && !q.gefunden);
+    M[i].ring.visible = an; M[i].raute.visible = an;
+    if (!an) continue;
+    M[i].ring.position.set(q.x, q.y + 0.06, q.z);
+    M[i].raute.position.set(q.x, q.y + 1.2 + Math.sin(elapsed * 2.4 + i) * 0.08, q.z);
+    M[i].raute.rotation.y = elapsed * 1.8 + i;
+  }
+  if (punkte) M[0].ring.material.opacity = 0.45 + 0.2 * Math.sin(elapsed * 4);
+}
+function nebenKoffer() {
+  if (NEBEN.koffer) return NEBEN.koffer;
+  MEGA_ZUFALL.klammer(() => {
+    const g = new THREE.Group();
+    const leder = new THREE.MeshLambertMaterial({ color: 0x2b2320 });
+    const metall = new THREE.MeshLambertMaterial({ color: 0x9aa0a6 });
+    const k = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.4, 0.16), leder);
+    k.position.y = 0.2;
+    const griff = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.05), metall);
+    griff.position.y = 0.44;
+    g.add(k); g.add(griff);
+    g.visible = false;
+    scene.add(g);
+    NEBEN.koffer = g;
+  });
+  return NEBEN.koffer;
+}
+/* Beim Aufraeumen jedes Nebenauftrags: nichts bleibt sichtbar stehen. */
+function nebenAufraeumen() {
+  if (NEBEN.marken) nebenMarkenZeigen(null);
+  if (NEBEN.koffer) NEBEN.koffer.visible = false;
+  if (NEBEN.qualm) for (const w of NEBEN.qualm) { w.t = 0; w.s.visible = false; }
+}
+
+/* ---- Was man mit C tun kann ---- */
+const NEBEN_SPUREN = [
+  'Ein zerrissener Lieferschein: „Kai 7 · Tor 3 · heute Nacht".',
+  'Ein frisches Kreidezeichen an der Wand – ein Schatten mit zwei Augen.',
+  'Ein Funkgerät, noch warm. Hier hat jemand gewartet – und beobachtet.',
+];
+function nebenKandidat() {
+  if (!nebenLaeuft() || player.dead || MISSION_INTERIOR.active) return null;
+  const m = MISSION.daten;
+  if (!m) return null;
+  if (m.spurenAktiv && m.spuren) {
+    for (const q of m.spuren) {
+      if (q.gefunden) continue;
+      if (Math.hypot(q.x - player.pos.x, q.z - player.pos.z) < 2.4 && Math.abs(q.y - player.pos.y) < 2) {
+        return { text: 'Spur untersuchen', tun: () => nebenSpurUntersuchen(m, q) };
+      }
+    }
+  }
+  if (m.kofferAktiv && m.koffer && !m.kofferGesichert) {
+    const k = m.koffer;
+    if (Math.hypot(k.x - player.pos.x, k.z - player.pos.z) < 2.2 && Math.abs(k.y - player.pos.y) < 2) {
+      return { text: 'Koffer sichern', tun: () => nebenKofferSichern(m) };
+    }
+  }
+  return null;
+}
+function nebenSpurUntersuchen(m, q) {
+  if (q.gefunden) return false;
+  q.gefunden = true;
+  m.spurZahl = (m.spurZahl || 0) + 1;
+  NEBEN.statistik.spuren++;
+  MEGA_ZUFALL.klammer(() => addScore(40, 'Spur', player.pos));
+  popupWorld('Spur ' + m.spurZahl + '/' + m.spuren.length, player.pos, '#8fd4ff');
+  stFunk(NEBEN_SPUREN[(m.spurZahl - 1) % NEBEN_SPUREN.length]);
+  return true;
+}
+function nebenKofferSichern(m) {
+  if (m.kofferGesichert) return false;
+  m.kofferGesichert = true;
+  NEBEN.statistik.koffer++;
+  if (NEBEN.koffer) NEBEN.koffer.visible = false;
+  MEGA_ZUFALL.klammer(() => { addScore(80, 'Koffer gesichert', player.pos); SFX.web(); });
+  return true;
+}
+
+/* ---- Der Empfang im Kai 7 ---- */
+function nebenEmpfangText() {
+  if (STORY.aktiv) return null;
+  const u = nebenUnterbrochen();
+  if (u) return 'Weitermachen: ' + u.d.titel;
+  const d = nebenOffen();
+  return d ? 'Auftrag annehmen: ' + d.titel : null;
+}
+function nebenAmEmpfang() {
+  NEBEN.statistik.empfang++;
+  if (STORY.aktiv) {
+    popupScreen(STORY.aktiv.reihe ? '„Sie sind doch schon unterwegs – wir zählen auf Sie."'
+                                  : '„Erst Ihr anderer Einsatz. Wir laufen nicht weg."');
+    return true;
+  }
+  const u = nebenUnterbrochen();
+  if (u) return storyStarte(u.d.id, u.phase);
+  const d = nebenOffen();
+  if (d) return storyStarte(d.id);
+  if (NEBEN_DEF.every((x) => nebenFertig(x.id))) {
+    popupScreen('„Seit SCHATTEN gefasst ist, ist es ruhig am Kai. Danke – im Namen aller hier."');
+    return true;
+  }
+  return false;
+}
+
+/* Einmal je Bild. */
+function nebenTakt(dt) {
+  schattenQualmBild(dt);
+  const m = MISSION.daten;
+  if (nebenLaeuft() && m && m.spurenAktiv) nebenMarkenZeigen(m.spuren);
+  else if (NEBEN.marken && NEBEN.marken[0].ring.visible) nebenMarkenZeigen(null);
+  /* Ein Hinweis je Sitzung: wer am Kai 7 vorbeikommt, waehrend die Reihe
+     offen ist, hoert davon. Kein Zwang, kein Start. */
+  if (NEBEN.statistik.hinweise > 0 || STORY.aktiv || MISSION_INTERIOR.active) return;
+  NEBEN.hinweisCd -= dt;
+  if (NEBEN.hinweisCd > 0) return;
+  NEBEN.hinweisCd = 3;
+  const T = MEGA.orte && MEGA.orte.tueren, t = T && T.buero;
+  const u = nebenUnterbrochen(), d = u ? u.d : nebenOffen();
+  if (!t || !d || Math.hypot(player.pos.x - t.qx, player.pos.z - t.qz) > 70) return;
+  NEBEN.statistik.hinweise++;
+  popupScreen('📻 Kai 7 (Tür mit Lampe): Am Empfang fragt jemand nach dir – ' + d.titel);
+}
+
+/* ======================= SCHATTEN (Mini-Boss) =======================
+   Kein neues Kampfsystem: SCHATTEN ist ein Boss im vorhandenen Geruest -
+   machBoss, updateBoss, Angriffsbuch mit Vorwarnung, Phasen an der
+   Lebensleiste, Bossleiste, Parade, Netzbalken, Spinnensinn und Konter.
+   Neu ist nur sein Profil (BOSS_PROFILE.schatten):
+
+   * Rolle: der Anfuehrer, der nie da steht, wo man ihn erwartet. Schmaler
+     und schneller als der ENFORCER, weniger Leben (360 statt 520), mehr
+     Ausweichen.
+   * Eigene Kombination: Stich, Doppelschlag, Fegetritt (schwer, danach
+     steht er 0,9 s offen), ab Phase 2 Sprungangriff, ab Phase 3 Wirbel.
+   * Besondere Mechanik, lesbar: der RAUCHSPRUNG. Vorwarnung 0,85 s
+     (x Telegraph): er duckt sich, Rauch steigt auf, ein Zischen. Dann ist
+     er 0,55 s im Rauch - nicht zu treffen, nicht zu sehen - und taucht
+     2,4 m HINTER dem Helden auf, mit einem Stich, der wieder vorgewarnt
+     wird (Spinnensinn zeigt die Richtung, Ausweichen kontert). Wer ihn
+     bedraengt (drei Treffer in 1,6 s), dem entwindet er sich ebenso -
+     sobald die Abklingzeit es erlaubt (5,5 / 4,5 / 3,5 s je Phase).
+   * Schwaeche, verstaendlich: in den 0,8 s nach dem Auftauchen bringt ein
+     Netz (Q) ihn aus dem Tritt - "Aus dem Rauch gerissen": 2,6 s
+     eingesponnen und taumelnd, Deckung und Standfestigkeit weg, Treffer
+     zaehlen 1,4-fach (die vorhandene Netzregel). Das ist das
+     Erholungsfenster. Im Rauch selbst geht das Netz ins Leere.
+   * Sieg: Lebensleiste leer -> er liegt wie jeder Gegner, der Auftrag
+     endet sauber, die Leitstelle uebernimmt. Er zaehlt nicht als ENFORCER.
+   Aussehen: dasselbe Ganovenmodell, groesser, mit der Ruestung der
+   Duellanten; sein Qualm ist ein gezeichneter Farbverlauf - nichts
+   Fremdes, nichts Neues geladen. */
+const SCHATTEN_TYP = {
+  art: 'boss', groesse: 1.14, hp: 360, schaden: 10, tempo: 5.0,
+  blockChance: 0.22, standfest: 0.55, ausweichen: 0.40,
+  farbe: 0x1c2230, gewicht: 0,
+  poise: 60, guard: 70, reaktion: 0.34, aggression: 1.05, kombo: 2,
+  telegraph: 1.15, ringNah: 3.2,
+};
+const SCHATTEN_ANGRIFFE = [
+  { id: 'stich',  art: 'punch',  warn: 0.42, dauer: 0.48, treff: 0.38, reich: 2.0,
+    wucht: 0.9, nah: [0, 2.6], gewicht: 1.0, phase: 0 },
+  { id: 'doppel', art: 'punch3', warn: 0.55, dauer: 0.62, treff: 0.42, reich: 2.2,
+    wucht: 1.0, nah: [0, 2.8], gewicht: 0.9, phase: 0, kette: 2 },
+  { id: 'fegen',  art: 'kick',   warn: 0.95, dauer: 0.80, treff: 0.52, reich: 2.8,
+    wucht: 1.8, nah: [0, 3.2], gewicht: 0.6, phase: 0, schwer: true },
+  /* Der Rauchsprung geht auch aus der Naehe - gerade wer ihn bedraengt,
+     verliert ihn. Wie oft, regelt die Abklingzeit (SCHATTEN_RAUCH.cd). */
+  { id: 'rauch',  art: 'taunt',  warn: 0.85, dauer: 0.5, treff: 0.4, reich: 0,
+    wucht: 0, nah: [0, 15], gewicht: 1.4, phase: 0, spezial: true, boden: true },
+  /* Phase 2: zusaetzlich der Sprung - und der Rauch wird haeufiger
+     (zweiter Eintrag, eigenes Gedaechtnis) */
+  { id: 'sprung', art: 'luftangriff', warn: 0.75, dauer: 0.80, treff: 0.55, reich: 2.5,
+    wucht: 1.5, nah: [2.6, 8.0], gewicht: 0.9, phase: 1, satz: 9.0 },
+  { id: 'rauch2', art: 'taunt',  warn: 0.80, dauer: 0.5, treff: 0.4, reich: 0,
+    wucht: 0, nah: [0, 15], gewicht: 1.0, phase: 1, spezial: true, boden: true },
+  /* Phase 3 */
+  { id: 'wirbel', art: 'hook',   warn: 0.50, dauer: 0.58, treff: 0.40, reich: 2.3,
+    wucht: 1.2, nah: [0, 3.0], gewicht: 1.1, phase: 2, kette: 3 },
+];
+const SCHATTEN_PHASEN = [
+  { ab: 0.65, aggression: 1.00, telegraph: 1.25, kombo: 2, tempo: 1.00, name: 'Phase 1' },
+  { ab: 0.30, aggression: 1.25, telegraph: 1.12, kombo: 3, tempo: 1.10, name: 'Phase 2' },
+  { ab: 0.00, aggression: 1.50, telegraph: 1.00, kombo: 3, tempo: 1.18, name: 'Phase 3' },
+];
+/* Der Stich nach dem Auftauchen - in Phase 3 der Doppelschlag. */
+const SCHATTEN_AUFTAUCHEN = [
+  { id: 'rauchstich', art: 'punch', warn: 0.62, dauer: 0.48, treff: 0.38, reich: 2.1,
+    wucht: 1.0, nah: [0, 3], gewicht: 0, phase: 0 },
+  { id: 'rauchdoppel', art: 'punch3', warn: 0.62, dauer: 0.62, treff: 0.42, reich: 2.2,
+    wucht: 1.0, nah: [0, 3], gewicht: 0, phase: 0, kette: 2 },
+];
+const SCHATTEN_RAUCH = { weg: 0.55, fenster: 0.8, abstand: 2.4, taumel: 2.6, fegenOffen: 0.9,
+                         erster: 2.5, cd: [5.5, 4.5, 3.5],      // Abklingzeit je Bossphase
+                         bedraengtTreffer: 3, bedraengtZeit: 1.6 };
+
+/* ---- Sein Qualm ----
+   Ein eigener kleiner Vorrat (vierzehn Sprites, einmal gebaut): der helle
+   Unfallrauch aus M1 hob sich im ersten Bild auf grauem Asphalt kaum ab,
+   und die Vorwarnung muss man sehen. Dunkel, kurz, aufsteigend - und der
+   Unfallrauch bleibt, wie er war. */
+const SCHATTEN_QUALM_N = 14;
+function schattenQualm() {
+  if (NEBEN.qualm) return NEBEN.qualm;
+  MEGA_ZUFALL.klammer(() => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+    const g = cv.getContext('2d');
+    const gr = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+    gr.addColorStop(0, 'rgba(24,26,34,1)');
+    gr.addColorStop(0.55, 'rgba(34,36,46,0.85)');
+    gr.addColorStop(1, 'rgba(40,42,52,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(cv);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.95 });
+    NEBEN.qualm = [];
+    for (let i = 0; i < SCHATTEN_QUALM_N; i++) {
+      const sp = new THREE.Sprite(mat.clone());
+      sp.visible = false;
+      scene.add(sp);
+      NEBEN.qualm.push({ s: sp, t: 0, dauer: 1, vx: 0, vz: 0 });
+    }
+  });
+  return NEBEN.qualm;
+}
+function schattenWolke(pos, n) {
+  const R = schattenQualm();
+  let k = 0;
+  MEGA_ZUFALL.klammer(() => {
+    for (const w of R) {
+      if (w.t > 0) continue;
+      w.s.position.set(pos.x + rand(-0.6, 0.6), pos.y + rand(0.1, 1.4), pos.z + rand(-0.6, 0.6));
+      w.dauer = w.t = rand(0.7, 1.2);
+      w.vx = rand(-0.6, 0.6); w.vz = rand(-0.6, 0.6);
+      w.s.visible = true;
+      if (++k >= n) break;
+    }
+  });
+}
+function schattenQualmBild(dt) {
+  const R = NEBEN.qualm;
+  if (!R) return;
+  for (const w of R) {
+    if (w.t <= 0) continue;
+    w.t -= dt;
+    const a = clamp(w.t / w.dauer, 0, 1);
+    w.s.position.x += w.vx * dt; w.s.position.z += w.vz * dt;
+    w.s.position.y += (0.7 + (1 - a) * 0.9) * dt;
+    const gr = 1.1 + (1 - a) * 2.0;
+    w.s.scale.set(gr, gr, gr);
+    w.s.material.opacity = 0.95 * Math.min(1, a * 1.6);
+    if (w.t <= 0) w.s.visible = false;
+  }
+}
+/* Wohin er springt: hinter den Helden, sonst schraeg dahinter, sonst
+   seitlich. Nur auf freien Boden auf Hoehe des Helden - nie in ein Haus,
+   nie ins Wasser, nie auf ein Dach. */
+function schattenZiel() {
+  if (!player.onGround || player.dead) return null;
+  const f = player.facing;
+  for (const w of [Math.PI, Math.PI - 0.7, Math.PI + 0.7, Math.PI / 2, -Math.PI / 2]) {
+    const a = f + w;
+    const x = player.pos.x + Math.sin(a) * SCHATTEN_RAUCH.abstand;
+    const z = player.pos.z + Math.cos(a) * SCHATTEN_RAUCH.abstand;
+    if (inGebaeude(x, z) || inWater(x, z) || onBridge(x, z)) continue;
+    const y = groundY(x, z, player.pos.y + 1);
+    if (Math.abs(y - player.pos.y) > 0.6) continue;
+    if (!versteckFrei(x, z, y, 0.4)) continue;
+    return { x, y, z };
+  }
+  return null;
+}
+/* Vorwarnung des Rauchsprungs beginnt */
+function schattenAnsatz(e, m) {
+  const S = e.schatten || (e.schatten = { weg: 0, fenster: 0, hinweis: 0 });
+  if (e.visual && e.visual.attackOneShot) e.visual.attackOneShot(0, 'taunt', e.warnMax || 0.9);
+  schattenWolke(e.pos, 3);
+  MEGA_ZUFALL.klammer(() => SFX.swoosh());
+  if (S.hinweis < 1) {
+    S.hinweis++;
+    popupScreen('SCHATTEN zieht sich in den Rauch zurück – gleich taucht er hinter dir auf!');
+  }
+}
+/* Vorwarnung zu Ende - oder bedraengt (siehe schattenTakt): in den Rauch */
+function schattenSpezial(e, b, bedraengt) {
+  const S = e.schatten || (e.schatten = { weg: 0, fenster: 0, hinweis: 0 });
+  if (!schattenZiel()) {
+    /* Kein Platz hinter dem Helden (Wand, Kante, Held in der Luft): kein
+       Sprung, er sucht sich gleich einen anderen Angriff. */
+    NEBEN.statistik.rauchOhneZiel++;
+    e.attackCd = Math.max(e.attackCd, 0.45);
+    return;
+  }
+  NEBEN.statistik.rauchspruenge++;
+  if (bedraengt) {
+    NEBEN.statistik.rauchBedraengt++;
+    e.staggerT = 0;                                   // er entwindet sich
+    MEGA_ZUFALL.klammer(() => SFX.swoosh());
+    if (!S.hinweisBedraengt) {
+      S.hinweisBedraengt = true;
+      popupScreen('Bedrängt taucht SCHATTEN im Rauch ab – pass auf, wo er auftaucht!');
+    }
+  }
+  S.rauchCd = SCHATTEN_RAUCH.cd[clamp(e.bossPhase || 0, 0, 2)];
+  S.weg = SCHATTEN_RAUCH.weg;
+  S.fenster = 0;
+  S.von = { x: e.pos.x, y: e.pos.y, z: e.pos.z };
+  brichAngriffAb(e);
+  /* Er entwindet sich: kein Taumeln, kein Netz, nicht in der Luft - sonst
+     liefe er durch einen Zweig der Gegnerlogik, der die Figur zeigt. */
+  e.staggerT = 0; e.kippT = 0; e.inDerLuft = 0;
+  e.webT = 0; e.webStufe = 0; e.webMeter = 0; e.anWand = false;
+  if (e.cocoon) e.cocoon.visible = false;
+  e.vel.set(0, 0, 0);
+  e.iFrames = Math.max(e.iFrames || 0, S.weg + 0.05);
+  e.betaeubtT = Math.max(e.betaeubtT || 0, S.weg);       // steht im Rauch still
+  e.attackCd = Math.max(e.attackCd, S.weg + 0.1);
+  schattenWolke(e.pos, 6);
+}
+function schattenAuftauchen(e) {
+  const S = e.schatten;
+  const z = schattenZiel() || S.von;
+  e.pos.set(z.x, z.y, z.z);
+  e.vel.set(0, 0, 0);
+  e.facing = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
+  e.betaeubtT = 0;
+  e.iFrames = 0;
+  schattenWolke(e.pos, 5);
+  MEGA_ZUFALL.klammer(() => SFX.swoosh());
+  /* Der Stich aus dem Rauch - mit Vorwarnung wie jeder Angriff. */
+  const b = SCHATTEN_AUFTAUCHEN[(e.bossPhase || 0) >= 2 ? 1 : 0];
+  e.bossAngriff = b;
+  e.warnT = b.warn * kampfWert(e, 'telegraph');
+  e.warnMax = e.warnT;
+  e.warnSchwer = false;
+  e.warnKeinKonter = false;
+  e.komboRest = b.kette ? b.kette - 1 : 0;
+  e.attackCd = 0;
+  meldeAngriff(e, false);
+  S.fenster = SCHATTEN_RAUCH.fenster;
+  if (S.hinweis < 2) {
+    S.hinweis++;
+    popupScreen('Jetzt – Netz (Q)! Wer ihn beim Auftauchen trifft, reißt ihn aus dem Rauch.');
+  }
+}
+/* Jedes Bild aus updateBoss */
+function schattenTakt(e, dt) {
+  const S = e.schatten;
+  if (!S || e.dead) return;
+  if (S.rauchCd > 0) S.rauchCd -= dt;
+  /* Die Vorwarnung muss man SEHEN: waehrend er ansetzt, qualmt es um ihn. */
+  if (e.bossAngriff && e.bossAngriff.spezial && e.warnT > 0) {
+    S.qualmT = (S.qualmT || 0) - dt;
+    if (S.qualmT <= 0) { S.qualmT = 0.09; schattenWolke(e.pos, 2); }
+  }
+  /* Bedraengt: drei Treffer in 1,6 s, und er taucht ab - sobald der Rauch
+     wieder bereit ist. Nicht aus dem Netz heraus: das ist der Lohn fuers
+     Netz beim Auftauchen. */
+  if (S.hpLetzt === undefined) S.hpLetzt = e.hp;
+  if (e.hp < S.hpLetzt - 0.01) {
+    S.treffer = (S.treffer || []).filter((t) => elapsed - t < SCHATTEN_RAUCH.bedraengtZeit);
+    S.treffer.push(elapsed);
+  }
+  S.hpLetzt = e.hp;
+  if (!(S.weg > 0) && !(S.rauchCd > 0) && S.treffer && S.treffer.length >= SCHATTEN_RAUCH.bedraengtTreffer &&
+      !(e.webT > 0) && player.onGround && !player.dead) {
+    S.treffer.length = 0;
+    schattenSpezial(e, null, true);
+  }
+  if (S.weg > 0) {
+    S.weg -= dt;
+    if (e.visual && e.visual.root) e.visual.root.visible = false;
+    e.attack = null; e.warnT = 0;
+    e.vel.set(0, 0, 0);
+    e.iFrames = Math.max(e.iFrames || 0, 0.05);
+    if (S.von) { e.pos.x = S.von.x; e.pos.z = S.von.z; }
+    if (S.weg <= 0) { S.weg = 0; schattenAuftauchen(e); }
+  } else if (S.fenster > 0) {
+    S.fenster -= dt;
+  }
+}
+/* Netztreffer auf SCHATTEN. true = erledigt, der normale Netzbalken
+   zaehlt dann nicht. */
+function schattenNetz(e) {
+  const S = e.schatten;
+  if (!S) return false;
+  if (S.weg > 0) { NEBEN.statistik.rauchNetzLeer++; return true; }      // ins Leere
+  if (S.fenster <= 0) return false;
+  S.fenster = 0;
+  NEBEN.statistik.rauchGerissen++;
+  brichAngriffAb(e);
+  e.bossAngriff = null;
+  e.webMeter = 0;
+  e.webStufe = 2;
+  e.webT = Math.max(e.webT || 0, SCHATTEN_RAUCH.taumel);
+  e.staggerT = Math.max(e.staggerT || 0, SCHATTEN_RAUCH.taumel);
+  e.guard = 0;
+  e.poiseRest = 0;
+  e.poiseSchutzT = 0;
+  e.attackCd = Math.max(e.attackCd, SCHATTEN_RAUCH.taumel + 0.2);
+  if (e.cocoon && e.cocoon.userData.setzeStufe) e.cocoon.userData.setzeStufe(2);
+  popupWorld('Aus dem Rauch gerissen!', e.pos, '#bfe8ff');
+  MEGA_ZUFALL.klammer(() => {
+    treffEffekt(_v1.set(e.pos.x, e.pos.y + 1.3, e.pos.z), 2.0, 0xbfe8ff);
+    SFX.web();
+  });
+  camShake = Math.max(camShake, 0.18);
+  return true;
+}
+/* Der Rauchsprung erst nach seiner Abklingzeit. */
+function schattenErlaubt(e, m) {
+  if (!m.spezial) return true;
+  return !!e.schatten && !(e.schatten.rauchCd > 0);
+}
+/* Nach dem Fegetritt steht er kurz offen. */
+function schattenNach(e, b) {
+  if (b && b.id === 'fegen') e.attackCd += SCHATTEN_RAUCH.fegenOffen;
+}
+BOSS_PROFILE.schatten = {
+  typ: SCHATTEN_TYP, angriffe: SCHATTEN_ANGRIFFE, phasen: SCHATTEN_PHASEN, look: 'duellant',
+  ansatz: schattenAnsatz, spezial: schattenSpezial, takt: schattenTakt,
+  netz: schattenNetz, nachAngriff: schattenNach, erlaubt: schattenErlaubt,
+};
+
+/* ======================= Die drei Auftraege ======================= */
+const NEBEN_DEF = [
+  /* ---------------------------------------------------------------- */
+  { id: 's1', reihe: 'schatten', nr: 1, titel: 'Schatten I · Die Spur',
+    kurz: 'Gestohlene Lieferpapiere – und jemand, der das Kai 7 beobachtet.',
+    system: 'Spuren · Verfolgung · Kampf',
+    frei: () => true,
+    start: 'Empfang: „Unserer Spedition wurden die Lieferpapiere gestohlen. Ein Zeuge hat den Dieb im Geschäftsviertel gesehen."',
+    ort: () => nebenOrtFest('s1', ['GESCHAEFT', 'ZENTRUM', 'MISCHUNG'], 0, 140),
+    phasen: [
+      { ziel: 'Zum Ort des Diebstahls',
+        auf: (m) => { nebenGrund(m); m.zielPos = { x: m.ort.x, y: m.ort.y + 1, z: m.ort.z }; },
+        pruef: (m) => nebenRaus(m, null, 1e9) || (stNah(m.zielPos, 22) ? 'weiter' : null) },
+      { ziel: 'Spuren untersuchen (0/3)',
+        auf: (m) => {
+          nebenGrund(m);
+          m.spuren = nebenUmOrt('s1:spur', m.ort, 6, 17, 3, 6, 0).map((q) => Object.assign(q, { gefunden: false }));
+          m.spurenAktiv = true; m.spurZahl = 0;
+          stFunk('Drei Stellen sind markiert. Geh hin und untersuche sie mit C.');
+        },
+        pruef: (m) => {
+          const r = nebenRaus(m); if (r) return r;
+          let naechster = null, nd = 1e9;
+          for (const q of m.spuren) {
+            if (q.gefunden) continue;
+            const dd = Math.hypot(q.x - player.pos.x, q.z - player.pos.z);
+            if (dd < nd) { nd = dd; naechster = q; }
+          }
+          m.zielPos = naechster ? { x: naechster.x, y: naechster.y + 1, z: naechster.z } : null;
+          STORY.zielText = 'Spuren untersuchen (' + (m.spurZahl || 0) + '/' + m.spuren.length + ')';
+          return (m.spurZahl || 0) >= m.spuren.length ? 'weiter' : null;
+        },
+        ende: (m) => { m.spurenAktiv = false; nebenMarkenZeigen(null); } },
+      { ziel: 'Den Beobachter stellen',
+        auf: (m) => {
+          nebenGrund(m);
+          m.aufgebaut = false; m.flucht = false; m.beobT = 0; m.fluchtT = 0; m.beobachter = null;
+          /* Etwas abseits der Spuren: man soll ihn suchen und erkennen -
+             der Leuchtturm zeigt auf ihn, der Funk beschreibt ihn. */
+          m.beobOrt = nebenUmOrt('s1:beob', m.ort, 22, 34, 1, 0, 0, true)[0] ||
+                      nebenUmOrt('s1:beob', m.ort, 22, 34, 1, 0, 0)[0] || { x: m.ort.x, z: m.ort.z, y: m.ort.y };
+          stFunk('Da – der Mann im Hauseingang. Er beobachtet dich. Geh näher ran.');
+        },
+        pruef: (m, dt) => {
+          const r = nebenRaus(m); if (r) return r;
+          if (!nebenBeiAnkunft(m, m.beobOrt, () => {
+            const g = nebenGruppe(m.beobOrt.x, m.beobOrt.z, ['flink'], false);
+            const e = g.enemies[0];
+            if (e) {
+              e.pos.set(m.beobOrt.x, m.beobOrt.y, m.beobOrt.z);
+              e.vel.set(0, 0, 0);
+              e.state = 'idle'; e.target = null;
+              m.beobachter = e;
+            }
+          })) return null;
+          const e = m.beobachter;
+          if (!e || e.dead || e.policeCustody) return 'weiter';
+          if ((e.webT || 0) > 0 || e.hp < e.hpMax * 0.35) {
+            /* Gestellt: er gibt auf (die vorhandene Ergebung - steht still,
+               kaempft nicht mehr und zaehlt in keiner Phase als Gegner). */
+            nebenGestellt(e);
+            return 'weiter';
+          }
+          const d = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
+          if (!m.flucht) {
+            m.beobT += dt;
+            if (d < 14 || m.beobT > 25) {
+              m.flucht = true;
+              e.flieht = true; e.state = 'flee'; e.eventFlucht = true; e.target = null;
+              NEBEN.statistik.verfolgt++;
+              stFunk('Er rennt! Hol ihn ein – ein Netz (Q) hält ihn fest.');
+            } else {
+              /* Er steht und schaut - geht nicht auf den Helden los und
+                 nicht auf Passanten. */
+              e.state = 'idle'; e.target = null; e.vel.set(0, 0, 0);
+              e.facing = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
+            }
+            return null;
+          }
+          m.fluchtT += dt;
+          STORY.zielText = 'Den Beobachter einholen';
+          if (m.fluchtT > 70 || d > 95) {
+            NEBEN.statistik.entkommen++;
+            m.scheiterGrund = 'entkommen';
+            return 'scheitern';
+          }
+          return null;
+        } },
+      { ziel: 'Seine Leute abwehren',
+        auf: (m) => {
+          nebenGrund(m);
+          m.aufgebaut = false;
+          const b = m.beobachter && !m.beobachter.dead ? m.beobachter.pos : m.beobOrt || m.ort;
+          m.kampfOrt = nebenUmOrt('s1:kampf:' + Math.round(b.x) + ':' + Math.round(b.z), b, 4, 9, 1, 0, 0)[0] ||
+                       { x: b.x, z: b.z, y: groundY(b.x, b.z, 2) };
+        },
+        pruef: (m, dt) => {
+          const r = nebenRaus(m, m.kampfOrt); if (r) return r;
+          if (!nebenBeiAnkunft(m, m.kampfOrt, () => {
+            nebenGruppe(m.kampfOrt.x, m.kampfOrt.z, ['schlaeger', 'flink'], true);
+            stFunk('Er war nicht allein!');
+          })) return null;
+          stGeflohenAufraeumen(m, m.kampfOrt, 50);
+          nebenKampfHalten(m, m.kampfOrt, dt);
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
+    ],
+    erfolgText: 'Der Späher redet: „Ein Lagerhof am Kai. Dort wird heute umgeladen." Im Kai 7 wartet der nächste Schritt.',
+    scheiterTexte: { ko: 'K.o. – der Späher ist weg.', weg: 'Zu weit weg – die Spur ist kalt.',
+                     entkommen: 'Er ist entkommen.' },
+    belohnung: { punkte: 300, ruf: 4 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 's2', reihe: 'schatten', nr: 2, titel: 'Schatten II · Der Zugriff',
+    kurz: 'Ein Lagerhof am Kai, eine Wache am Tor und ein Koffer voller Antworten.',
+    system: 'Annäherung · Gruppenkampf · Sichern',
+    frei: () => nebenFertig('s1'),
+    start: 'Empfang: „Der Lagerhof, von dem der Späher sprach – heute wird dort umgeladen. Seien Sie vorsichtig."',
+    ort: () => nebenOrtFest('s2', ['UFER', 'MISCHUNG', 'GESCHAEFT'], 5, 170),
+    phasen: [
+      { ziel: 'Zum Lagerhof am Kai',
+        auf: (m) => { nebenGrund(m); m.zielPos = { x: m.ort.x, y: m.ort.y + 1, z: m.ort.z }; },
+        pruef: (m) => nebenRaus(m, null, 1e9) || (stNah(m.zielPos, 30) ? 'weiter' : null) },
+      { ziel: 'Die Torwache ausschalten',
+        auf: (m) => {
+          nebenGrund(m);
+          m.aufgebaut = false; m.wache = null;
+          stFunk('Eine Wache am Tor. Schalte sie aus, bevor sie die anderen warnt.');
+        },
+        pruef: (m) => {
+          const r = nebenRaus(m); if (r) return r;
+          if (!nebenBeiAnkunft(m, m.ort, () => {
+            const g = nebenGruppe(m.ort.x, m.ort.z, ['waechter'], false);
+            const w = g.enemies[0];
+            if (w) {
+              w.pos.set(m.ort.x, m.ort.y, m.ort.z); w.vel.set(0, 0, 0);
+              w.state = 'idle'; w.target = null;
+              m.wache = w;
+            }
+            m.hpVorher = player.hp;
+          })) return null;
+          const w = m.wache;
+          if (!w || w.dead || w.policeCustody || (w.webStufe || 0) >= 3 || w.hp < w.hpMax * 0.35) {
+            /* Ausgeschaltet: wer noch lebt, ergibt sich - sonst stuende er
+               nach dem Netz wieder auf und zaehlte im Hof mit. */
+            if (w && !w.dead && !w.policeCustody) nebenGestellt(w);
+            if (player.hp >= m.hpVorher - 0.01) {
+              NEBEN.statistik.lautlos++;
+              MEGA_ZUFALL.klammer(() => addScore(60, 'Ohne einen Treffer', player.pos));
+            }
+            return 'weiter';
+          }
+          m.zielPos = null;
+          return null;
+        } },
+      { ziel: 'In den Hof vordringen',
+        auf: (m) => {
+          nebenGrund(m);
+          m.zielPos = { x: m.hof.x, y: m.hof.y + 1, z: m.hof.z };
+          stFunk('Der Hof liegt dahinter. Dort laden sie um.');
+        },
+        pruef: (m) => nebenRaus(m) || (stNah(m.zielPos, 12) ? 'weiter' : null) },
+      { ziel: 'Die Bande im Hof besiegen',
+        auf: (m) => { nebenGrund(m); m.aufgebaut = false; },
+        pruef: (m, dt) => {
+          const r = nebenRaus(m, m.hof); if (r) return r;
+          if (!nebenBeiAnkunft(m, m.hof, () => {
+            /* Zwei Gruppen zu drei und zwei: so bekommt keine von ihnen
+               zufaellig einen ENFORCER (der kommt erst ab vier Mann). */
+            nebenGruppe(m.hof.x + 3, m.hof.z, ['schlaeger', 'werfer', 'brecher'], true);
+            const b = nebenGruppe(m.hof.x - 3, m.hof.z, ['flink', 'waechter'], true);
+            if (b.enemies[1]) MEGA_ZUFALL.klammer(() => machElite(b.enemies[1]));
+            stFunk('Fünf Mann – einer davon ist besser als der Rest.');
+          })) return null;
+          stGeflohenAufraeumen(m, m.hof, 50);
+          nebenKampfHalten(m, m.hof, dt);
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
+      { ziel: 'Den Koffer sichern',
+        auf: (m) => {
+          nebenGrund(m);
+          const p = nebenUmOrt('s2:koffer', m.hof, 0.5, 2.5, 1, 0, 0)[0] || m.hof;
+          m.koffer = { x: p.x, y: groundY(p.x, p.z, 2), z: p.z };
+          const k = nebenKoffer();
+          k.position.set(m.koffer.x, m.koffer.y, m.koffer.z);
+          k.rotation.y = 0.6;
+          k.visible = true;
+          m.kofferAktiv = true; m.kofferGesichert = false;
+          m.zielPos = { x: m.koffer.x, y: m.koffer.y + 1, z: m.koffer.z };
+          stFunk('Da liegt ein Koffer. Sichere ihn mit C.');
+        },
+        pruef: (m) => {
+          const r = nebenRaus(m, m.hof); if (r) return r;
+          return m.kofferGesichert ? 'weiter' : null;
+        },
+        ende: (m) => { m.kofferAktiv = false; if (NEBEN.koffer) NEBEN.koffer.visible = false; } },
+    ],
+    erfolgText: 'Im Koffer: Frachtpläne und ein Name – SCHATTEN. Der Empfang im Kai 7 weiß, wo er sich zeigt.',
+    scheiterTexte: { ko: 'K.o. – die Bande hat den Hof geräumt.', weg: 'Du hast den Hof verlassen – die Bande ist weg.' },
+    belohnung: { punkte: 450, ruf: 6 } },
+
+  /* ---------------------------------------------------------------- */
+  { id: 's3', reihe: 'schatten', nr: 3, titel: 'Schatten III · Der Anführer',
+    kurz: 'SCHATTEN zeigt sich selbst – mit Leibwache.',
+    system: 'Kampf · Mini-Boss',
+    frei: () => nebenFertig('s2'),
+    start: 'Empfang: „Die Frachtpläne nennen einen Platz. Dort trifft SCHATTEN heute seine Leute. Man sagt, er verschwindet im Rauch."',
+    ort: () => nebenOrtFest('s3', ['PARK', 'UFER', 'ZENTRUM', 'GESCHAEFT'], 8, 170),
+    phasen: [
+      { ziel: 'Zum Treffpunkt',
+        auf: (m) => { nebenGrund(m); m.zielPos = { x: m.ort.x, y: m.ort.y + 1, z: m.ort.z }; },
+        pruef: (m) => nebenRaus(m, null, 1e9) || (stNah(m.zielPos, 30) ? 'weiter' : null) },
+      { ziel: 'Die Leibwache ausschalten',
+        auf: (m) => { nebenGrund(m); m.aufgebaut = false; },
+        pruef: (m, dt) => {
+          const r = nebenRaus(m); if (r) return r;
+          if (!nebenBeiAnkunft(m, m.ort, () => {
+            nebenGruppe(m.ort.x + 4, m.ort.z + 2, ['waechter', 'flink', 'schlaeger'], true);
+            stFunk('Drei Leibwächter. SCHATTEN sieht zu.');
+          })) return null;
+          stGeflohenAufraeumen(m, m.ort, 50);
+          nebenKampfHalten(m, m.ort, dt);
+          return stAlleGangsTot() ? 'weiter' : null;
+        } },
+      { ziel: 'SCHATTEN besiegen',
+        auf: (m) => { nebenGrund(m); m.aufgebaut = false; m.boss = null; },
+        pruef: (m) => {
+          const r = nebenRaus(m); if (r) return r;
+          if (!nebenBeiAnkunft(m, m.ort, () => {
+            /* Ein fremder Boss raeumt das Feld - es laeuft nie mehr als
+               einer, die Bossleiste gehoert SCHATTEN. */
+            if (bossAktiv && !bossAktiv.storyGegner) bossNachEreignis(bossAktiv);
+            const g = nebenGruppe(m.ort.x, m.ort.z, ['flink'], false);
+            const s = g.enemies[0];
+            if (s) {
+              MEGA_ZUFALL.klammer(() => machBoss(s, 'SCHATTEN', BOSS_PROFILE.schatten));
+              s.miniBoss = true;
+              s.schatten = { weg: 0, fenster: 0, hinweis: 0, rauchCd: SCHATTEN_RAUCH.erster };
+              s.state = 'chase'; s.target = 'player';
+              m.boss = s;
+            }
+            stFunk('SCHATTEN: „Du hast meine Leute gestört." – Achte auf den Rauch: wenn er auftaucht, Netz (Q)!');
+          })) return null;
+          const b = m.boss;
+          /* Er ist hier, um den Helden zu stellen - keine Passantenjagd. */
+          if (b && !b.dead && b.target !== 'player' && !player.dead) { b.state = 'chase'; b.target = 'player'; }
+          if (!b || b.dead || enemies.indexOf(b) < 0) {
+            if (b && b.dead) NEBEN.statistik.schattenBesiegt++;
+            return 'weiter';
+          }
+          return null;
+        } },
+    ],
+    erfolgText: 'SCHATTEN liegt gefesselt am Boden. Die Leitstelle übernimmt – und im Kai 7 kann man aufatmen.',
+    scheiterTexte: { ko: 'K.o. – SCHATTEN ist im Rauch verschwunden.', weg: 'Du hast den Treffpunkt verlassen – SCHATTEN ist abgetaucht.' },
+    belohnung: { punkte: 800, ruf: 9 } },
+];
+
+/* Wiedereinstieg mit J - nur, wenn Akt 1 gerade nichts anbietet. */
+function nebenWiedereinstiegJ() {
+  const u = nebenUnterbrochen();
+  if (!u) return false;
+  return storyStarte(u.d.id, u.phase);
+}
+
+/* Fortschrittsansicht (P): die Reihe unter der Geschichte. */
+function nebenFortschrittHTML() {
+  let h = '<h3>NEBENAUFTRÄGE · DIE SCHATTEN DER STADT</h3>';
+  const u = nebenUnterbrochen();
+  for (const dd of NEBEN_DEF) {
+    const z = nebenZustand(dd.id);
+    const fertig = z === 'ERLEDIGT';
+    const status = fertig ? 'erledigt' : z === 'AKTIV' ? 'läuft'
+                 : (u && u.d === dd) ? 'unterbrochen' : z === 'VERFUEGBAR' ? 'offen' : 'gesperrt';
+    h += '<div class="zeile ' + (fertig ? '' : 'offen') + '"><span>' +
+         (fertig ? '<span class="fertig">✔ </span>' : '') + fsEntkomme(dd.titel) +
+         '<br><span class="klein">' + fsEntkomme(dd.system) + '</span></span>' +
+         '<span class="klein">' + status + '</span></div>';
+  }
+  h += '<div class="klein">Start und Wiedereinstieg: am Empfang im Kai 7 (Tür mit Lampe, Symbol auf der Karte).</div>';
+  return h;
+}
+
+/* Pruefstand (tools/pruef/mega-neben.js) - lesen, und dieselben Wege wie C. */
+const NEBEN_DBG = {
+  defs() { return NEBEN_DEF.map((d) => ({ id: d.id, titel: d.titel, phasen: d.phasen.map((p) => p.ziel) })); },
+  zustand(id) { return nebenZustand(id); },
+  ablage() { return JSON.parse(JSON.stringify(nebenAblage())); },
+  storyAblage() { return JSON.parse(JSON.stringify(PROG.story)); },
+  statistik() { return Object.assign({}, NEBEN.statistik); },
+  ort(id) { const d = nebenDef(id); return d && d.ort ? Object.assign({}, d.ort()) : null; },
+  punktOk(x, z) { return nebenPunktOk(x, z); },
+  empfang() { return nebenAmEmpfang(); },
+  empfangText() { return nebenEmpfangText(); },
+  kandidat() { const k = nebenKandidat(); return k ? k.text : null; },
+  daten() {
+    const m = MISSION.daten, d = STORY.aktiv;
+    if (!m || !d) return null;
+    const p = (v) => v ? { x: +v.x.toFixed(2), z: +v.z.toFixed(2), y: +(v.y || 0).toFixed(2) } : null;
+    const e = m.beobachter, w = m.wache, b = m.boss;
+    return {
+      id: d.id, reihe: d.reihe || null, phase: STORY.phase, ziel: STORY.zielText,
+      ort: p(m.ort), hof: p(m.hof), zielPos: p(m.zielPos), aufgebaut: !!m.aufgebaut,
+      spuren: m.spuren ? m.spuren.map((q) => ({ x: q.x, z: q.z, y: q.y, gefunden: q.gefunden })) : null,
+      beobachter: e ? { pos: p(e.pos), flucht: !!m.flucht, dead: !!e.dead, webT: e.webT || 0, state: e.state } : null,
+      wache: w ? { pos: p(w.pos), dead: !!w.dead } : null,
+      koffer: m.koffer ? Object.assign({ aktiv: !!m.kofferAktiv, gesichert: !!m.kofferGesichert,
+                                         sichtbar: !!(NEBEN.koffer && NEBEN.koffer.visible) }, p(m.koffer)) : null,
+      boss: b ? { hp: b.hp, hpMax: b.hpMax, phase: b.bossPhase, dead: !!b.dead, pos: p(b.pos),
+                  weg: b.schatten ? b.schatten.weg : 0, fenster: b.schatten ? b.schatten.fenster : 0,
+                  sichtbar: !!(b.visual && b.visual.root && b.visual.root.visible),
+                  warnT: b.warnT || 0, webT: b.webT || 0, staggerT: b.staggerT || 0,
+                  bossName: b.bossName, bossAktiv: bossAktiv === b, angriff: b.bossAngriff ? b.bossAngriff.id : null } : null,
+      gegner: (m.gangs || []).reduce((n, g) => n + g.enemies.filter((x) => !x.dead).length, 0),
+      scheiterGrund: m.scheiterGrund || null,
+    };
+  },
+  marken() { return NEBEN.marken ? NEBEN.marken.filter((k) => k.ring.visible).length : 0; },
+  qualm() { return NEBEN.qualm ? NEBEN.qualm.filter((w) => w.s.visible).map((w) => ({
+    x: +w.s.position.x.toFixed(2), y: +w.s.position.y.toFixed(2), z: +w.s.position.z.toFixed(2),
+    s: +w.s.scale.x.toFixed(2), o: +w.s.material.opacity.toFixed(2) })) : []; },
+  saveVersion() { return SAVE_VERSION; },
+  pruefe(roh) { return JSON.parse(JSON.stringify(progPruefen(progMigrieren(JSON.parse(JSON.stringify(roh)))))); },
+};
 
 /* ======================= Einstellungen =======================
    Mausempfindlichkeit, Lautstärke und Grafikstufe waren fest verdrahtet.
@@ -46461,7 +47594,7 @@ function baueFortschrittAnsicht() {
 
   /* --- Die Geschichte --- */
   h += '<h3>GESCHICHTE · AKT ' + (PROG.story ? PROG.story.akt : 1) + '</h3>';
-  if (STORY.aktiv) {
+  if (STORY.aktiv && !STORY.aktiv.reihe) {
     h += '<div class="zeile"><span><b>' + fsEntkomme(STORY.aktiv.titel) + '</b><br>' +
          '<span class="klein">' + fsEntkomme(STORY.zielText) + '</span></span>' +
          '<span class="fertig">Schritt ' + (STORY.phase + 1) + ' von ' +
@@ -46471,7 +47604,7 @@ function baueFortschrittAnsicht() {
     if (offen) {
       h += '<div class="zeile"><span><b>' + fsEntkomme(offen.titel) + '</b><br>' +
            '<span class="klein">' + fsEntkomme(offen.kurz) + '</span></span>' +
-           '<span class="klein">J zum Annehmen</span></div>';
+           '<span class="klein">' + (STORY.aktiv ? 'nach dem Nebenauftrag' : 'J zum Annehmen') + '</span></div>';
     } else {
       h += '<div class="klein">Akt 1 ist abgeschlossen. Die Organisation steht noch.</div>';
     }
@@ -46487,6 +47620,9 @@ function baueFortschrittAnsicht() {
          (fertig ? 'erledigt' : z === 'AKTIV' ? 'läuft' :
           z === 'VERFUEGBAR' ? 'offen' : 'gesperrt') + '</span></div>';
   }
+
+  /* --- M5: die Nebenreihe --- */
+  h += nebenFortschrittHTML();
 
   /* --- Fertigkeiten --- */
   h += '<h3>Fertigkeiten</h3>';
@@ -47606,6 +48742,7 @@ function simuliere(dt) {
   updatePlayer(dt);
   megaFlussTakt(dt);             // M3: liest nur, schreibt keine Bewegung
   megaOrtTakt(dt);               // M4: Figuren im aktiven Ort
+  nebenTakt(dt);                 // M5: Spurenmarken, Hinweis auf den Empfang
   if (welt) { updateWetter(dt); updateTagNacht(dt); updateCars(dt); }
   /* Zivilisten und Gegner laufen weiter, filtern drinnen aber selbst:
      nur die Geisel und nur Storygegner. Ein voelliger Stopp liesse die
@@ -47930,6 +49067,7 @@ if (window.__WEBHERO_TEST__ === true) {
     },
     evStarte,
     /* ---- Mega-Update 1.0 (nur Pruefstaende) ---- */
+    neben: NEBEN_DBG,             // M5: Nebenreihe (nur Pruefstand)
     mega: {
       ...MEGA_ORT_DBG,            // M4: Orte (nur Pruefstand)
       /* M3: Bewegungsfluss - Zaehler, laufende Kette, Sperre, Anzeige. */

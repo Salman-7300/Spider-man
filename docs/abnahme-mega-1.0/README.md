@@ -11,6 +11,8 @@ Doku: `docs/MEGA-UPDATE-1.0.md`. Alle Bilder aus dem echten Spiel
 | `m3-wandlauf-seite.jpg` | M3 | Dieselbe Kette, Seitenansicht während des Wandlaufs nach dem Zug – die Figur liegt an der sichtbaren Fassade |
 | `m4-laden.jpg` | M4 | Eckmarkt in vier Bildern (Spielkamera, HUD): Tür mit Lampe und Hinweis „C Eckmarkt betreten“, Laden nach dem Betreten („Hinausgehen“), Inhaber an der Theke („Mit dem Inhaber sprechen“), Regalgang mit Kühlregalen |
 | `m4-buero.jpg` | M4 | Kai 7 Bürohaus: Tür mit Lampe und Hinweis, Empfang, Wartebereich mit sitzendem Besucher, Arbeitsplätze mit sitzender Mitarbeiterin |
+| `m5-schatten-reihe.jpg` | M5 | Nebenreihe „Die Schatten der Stadt“ (Spielkamera, HUD): am Empfang im Kai 7 „Auftrag annehmen: Schatten I“, Spurenmarke mit „Spur untersuchen“, der Beobachter mit blauem Leuchtturm (Seitenkamera), der Koffer im Hof mit „Koffer sichern“ (`tools/pruef/mega-neben-bilder.js`) |
+| `m5-schatten-boss.jpg` | M5 | Mini-Boss SCHATTEN: Ansatz zum Rauchsprung im dunklen Qualm mit Warnpfeil (Seitenkamera), Auftauchen hinter dem Helden (Spinnensinn), eingesponnen nach dem Netz („Aus dem Rauch gerissen“), P-Ansicht mit dem Abschnitt der Nebenreihe |
 
 ## Selbst testen (Human-Abnahme)
 
@@ -57,3 +59,25 @@ Tür brennt eine warme Lampe. Davor stehen bleiben, C drücken.
 * Kai 7: C am Empfang.
 * An der Tür C – „Hinausgehen“: man steht wieder auf dem Gehweg, die
   Stadt läuft weiter, wo sie war.
+
+**M5 – Nebenreihe „Die Schatten der Stadt“.** Ins Kai 7 gehen (Tür mit
+Lampe, Türsymbol auf der Karte), am Empfang C: „Auftrag annehmen:
+Schatten I“. Hinausgehen und dem **blauen** Leuchtturm folgen.
+* I: am Ort drei Spurenmarken (Ring mit Raute) – davor C. Danach steht
+  ein Mann im Eingang: näher als 14 m, und er rennt – Q fängt ihn, er
+  ergibt sich. Seine zwei Leute abwehren.
+* II (wieder am Empfang annehmen): Torwache ausschalten (ohne Treffer gibt
+  es einen Bonus), in den Hof, fünf Mann (einer Elite), den Koffer mit C
+  sichern.
+* III: drei Leibwächter, dann SCHATTEN. Achten auf den dunklen Qualm mit
+  Warnpfeil: kurz danach verschwindet er und taucht **hinter** dir auf.
+  Genau dann Q – „Aus dem Rauch gerissen“, er hängt 2,6 s im Netz. Wer ihn
+  mit Schlägen bedrängt, dem entwindet er sich ebenso.
+* Scheitern ausprobieren: den Beobachter entkommen lassen, K.o. gehen oder
+  weit weglaufen – danach bietet der Empfang „Weitermachen“ ab genau
+  diesem Abschnitt an. Zweimal J bricht ab.
+* Speichern: mitten in einem Auftrag neu laden – der Kontrollpunkt bleibt
+  (er wird wie bei Akt 1 spätestens nach 30 s geschrieben), ein
+  Abschluss sofort. P zeigt den Stand der Reihe.
+* Akt 1 bleibt unberührt: läuft eine Storymission, lässt die Tür des
+  Kai 7 niemanden hinein; läuft ein Nebenauftrag, bietet Akt 1 nichts an.
