@@ -173,7 +173,9 @@ function gameCharacter(gltf) {
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) mats.add(m);
   });
   for (const m of mats) {
-    m.userData.orig = { metalness: m.metalness, roughness: m.roughness, map: m.map, emissive: m.emissive && m.emissive.getHex() };
+    // Klone teilen Materialien mit dem gecachten GLB: Originalwerte nur EINMAL merken,
+    // sonst wird die Schattenkurve bei jedem Neuaufbau erneut angewendet (Figur wird weiss).
+    if (!m.userData.orig) m.userData.orig = { metalness: m.metalness, roughness: m.roughness, map: m.map, emissive: m.emissive && m.emissive.getHex() };
   }
   const root = new THREE.Group(); root.add(inner);
   return { root, scene, mats: [...mats], scale: s, rawHeight: h };
@@ -243,7 +245,7 @@ async function buildItem(assetKey, which) {
       }
     });
     it.mats = [...mats];
-    for (const m of it.mats) m.userData.orig = { metalness: m.metalness, roughness: m.roughness };
+    for (const m of it.mats) if (!m.userData.orig) m.userData.orig = { metalness: m.metalness, roughness: m.roughness };
     it.paint = it.mats.find((m) => m.name === 'Sedan_Paint');
     it.wheels = ['FL', 'FR', 'RL', 'RR'].map((t) => ({ roll: root.getObjectByName('Wheel_' + t),
       steer: root.getObjectByName('Steer_' + t), front: t[0] === 'F' }));

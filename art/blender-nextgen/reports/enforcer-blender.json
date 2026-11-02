@@ -1,0 +1,89 @@
+{
+ "build": {
+  "gear_tris": 10264,
+  "body_tris": 14708,
+  "gear_groups": 67,
+  "rig": "Enforcer_Rig",
+  "removedSickleFaces": 100
+ },
+ "gates": {
+  "Enforcer_Body": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 8326,
+   "tris": 14708,
+   "nanVerts": 0,
+   "nonManifoldEdges": 1884,
+   "boundaryEdges": 1884,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Enf_Skin_Suit.011"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "Enforcer_Gear": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 5166,
+   "tris": 10264,
+   "nanVerts": 0,
+   "nonManifoldEdges": 0,
+   "boundaryEdges": 0,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Enf_Plate",
+    "Enf_Fabric",
+    "Enf_Accent"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  }
+ },
+ "glbBytes": 2489572,
+ "animBytes": 79852,
+ "blendBytes": 1277711,
+ "reimport": {
+  "objects": 4,
+  "missing": [],
+  "posDelta": {},
+  "materials": [
+   "Enf_Accent",
+   "Enf_Fabric",
+   "Enf_Plate",
+   "Enf_Skin_Suit"
+  ],
+  "meshTrisAfterImport": 25052
+ },
+ "taunt": {
+  "frames": 91,
+  "fps": 30,
+  "loopErrDeg": 0.0,
+  "startVsIdleDeg": 0.0,
+  "bonesKeyed": 22
+ },
+ "renders": [
+  "00_compare_old_left_new_right.jpg",
+  "01_front_tpose.jpg",
+  "02_side.jpg",
+  "03_back.jpg",
+  "04_threequarter.jpg",
+  "05_detail_head_shoulder.jpg",
+  "06_attack_pose_punch.jpg",
+  "07_strong_bend_kick.jpg",
+  "07b_idle.jpg",
+  "08_taunt_a_chest_up.jpg",
+  "09_taunt_b_point.jpg",
+  "10_taunt_c_point2.jpg"
+ ]
+}
