@@ -470,3 +470,139 @@ ruhiger Maschine steht im M4-Abschnitt.
 
 Noch nicht wiederholt (laufen beim Commit noch): `schwingen.js`,
 `topoutlandung.js`, `gleitflug.js` – Ergebnis im M4-Abschnitt.
+
+Nachtrag nach dem Commit: `schwingen.js`, `topoutlandung.js` und
+`gleitflug.js` sind ebenfalls **bitgleich** zum M2-Stand. Die
+CPU-Wiederholung auf ruhiger Maschine steht in 4.4: M3 und M4 zusammen
+kosten gegenüber M2 keine messbare Zeit.
+
+---
+
+## 4. M4 – Begehbare Orte
+
+Zwei optionale Orte nach dem Prinzip des Missionsinnenraums aus
+Mission 6: ein eigener Raum weit außerhalb der Stadt, kontrollierter
+Ein- und Austritt mit derselben Blende (2 × 0,13 s), die Außenwelt pausiert
+unverändert (`MISSION_INTERIOR.active`), dieselbe Kamera, dieselbe
+Kollision. **Kein zweites Innenraumsystem**: der Missionsinnenraum kennt
+jetzt mehrere Räume (`innenRaum(id)`); das Versteck aus Mission 6 bleibt
+Raum `hideout` und wird genau wie vorher gebaut (ohne Klammer um den
+Zufall, Mission 6 würfelt danach weiter wie bisher). Beginnt eine
+Innenraumphase von Mission 6, während der Held in einem M4-Ort steht, geht
+es zuerst hinaus.
+
+### 4.1 Die Orte
+
+| | Eckmarkt (Laden) | Kai 7 Bürohaus (Lobby) |
+| --- | --- | --- |
+| Raum | 16 × 14 m, Decke 3,8 m, Ursprung (1100, 0, 1000) | 22 × 16 m, Decke 4,2 m, Ursprung (1200, 0, 1000) |
+| Einrichtung | L-förmige Theke mit Kasse und Kartenleser, Rückregal, zwei offene Regalreihen mit Kopfregalen, Wandregal, Kühlregale mit Glastüren und Flaschenreihen, Zeitungsständer, Fußmatte, Schriftzug „ECKMARKT“, Milchglasfront | Empfangstresen mit Bildschirm und Schriftwand „KAI 7 · BÜROHAUS“, Wartebereich (zwei Sofas, Tisch, Zeitschriften, Teppich), vier Arbeitsplätze mit Bildschirmen, Stühlen und Trennwänden, Drucker, Wasserspender, zwei Aufzüge, Pflanzen, Fensterband |
+| Personen | Inhaber hinter der Theke, zwei Kunden (Regal, Kühlregal) | Empfang, Mitarbeiterin am Schreibtisch (sitzend), Besucher im Wartebereich (sitzend) |
+| Handlung | **Inhaber ansprechen**: volle Gesundheit (alle 2 Minuten), sonst ein Satz | Empfang ansprechen (in M5 Start der Nebenreihe) |
+| Zeichenaufrufe drinnen | 91–92 | 71–73 |
+
+Waren, Flaschen, Bildschirme und Blätter sind je Raum EINE Geometrie mit
+Eckfarben (ein Zeichenaufruf). Die Waren stehen in festen Reihen und
+Familien (eine Warengruppe je Regalboden, gleiche Größe, Farbwechsel in
+Dreiergruppen) – keine zufälligen Würfel. Licht: ein Halbkugellicht und
+sieben Punktlichter wie im Versteck; drinnen sind die Weltlichter aus,
+die Räume teilen sich damit die schon übersetzten Shader.
+
+### 4.2 Eingang, Ausgang, Personen
+
+* **Eingang**: eine echte Tür der Stadt. Türen gibt es nur an den
+  prozeduralen Häusern (Erdgeschosse aus Stufe 8A; gemessen 65
+  Büro-Erdgeschosse, keines mit Tür). Der Eckmarkt liegt hinter einer
+  Ladentür, die Lobby hinter der Tür eines Hauses mit gemischter Nutzung.
+  Gewählt wird fest (die geeignete Tür nächst der Stadtmitte, die
+  Bürotür mindestens 40 m entfernt), mit freiem Gehweg davor. Über der
+  Tür eine kleine warme Lampe, auf der Minikarte ein Türsymbol. Betreten
+  nur zu Fuß davor mit **C** („Eckmarkt betreten“), nicht im
+  Vorbeilaufen, nicht während einer Storymission, nicht mit Gegnern in
+  15 m Umkreis. Die Ladentür ist vom M1-Überfall ausgenommen.
+* **Ausgang**: im Raum an der Tür mit **C** („Hinausgehen“). Der
+  Austrittspunkt wird erst beim Hinausgehen geprüft – gegen genau den
+  Zustand von draußen: kein Haus, kein Wasser, kein Hindernis (auch kein
+  Parkauto), kein Wagen im Umkreis von 3,2 m; sonst wird längs der
+  Fassade ausgewichen (bis 4,8 m).
+* **Personen**: echte Zivilistenmodelle mit festem Aussehen (`ziviLook`,
+  Nummern außerhalb der Straßenpassanten), Bewegungen `idle` und
+  `sitzen` (Becken auf Sitzhöhe über `sitzMasse`). Sie hängen in der
+  Raumgruppe, entstehen beim ersten Betreten im eigenen Zufallsstrom und
+  werden nur aktualisiert, solange der Raum aktiv ist. Die 88
+  Straßenpassanten bleiben unberührt.
+* Der Hinweis unten in der Mitte wird im Raum aus dem Orts-Takt
+  aufgefrischt (draußen hängt er am Ereignistakt, der drinnen pausiert).
+
+### 4.3 Prüfung
+
+* `tools/test-orte.cjs` (node --test, 17 Tests): Felder, genau eine
+  Bodenfläche, geschlossene nicht kletterbare Wände und Deckel, Start/
+  Ausgang/Handlungspunkte frei, Wege frei, stehende Figuren frei und
+  sitzende auf einem Möbel in Sitzhöhe, jedes sichtbare Teil im Raum,
+  Lichtaufbau wie im Versteck, keine Überlappung mit Versteck und Stadt.
+* `tools/pruef/mega-innen.js` (30 Prüfungen, echte Eingaben W und C):
+
+| Teil | Ergebnis |
+| --- | --- |
+| Türen | Eckmarkt (−189,2 / 186,4, Wohngebiet), Kai 7 (−85,6 / 100,9, Mischgebiet), Gehweg frei, Lampen |
+| Besuch je Ort | Hinweis an der Tür, Blende 0,27 s, Start frei und auf dem Boden, Kamera im Raum und unter der Decke, 3/3 Figuren sichtbar, Handlungspunkt erreicht (Inhaber: Gesundheit 40 → 100), Hinweis am Ausgang, draußen frei (kein Haus, kein Hindernis, kein Wagen) |
+| Außenwelt | drinnen angehalten (Wagen, Passanten, Ereignisse identisch), danach läuft sie weiter |
+| 20 Besuche im Wechsel | 0 Fehler; Räume, Kollider, Figuren, Geometrien, Texturen unverändert |
+| Sperren | Storymission: kein Hinweis; Gegner in der Nähe: Betreten abgelehnt; Wagen vor der Tür: Austritt 4,8 m versetzt |
+| 40 s Bot je Raum | nie außerhalb, nie im Möbel, nie unter dem Boden, Kamera nie hinter einer Wand oder über der Decke |
+
+Bilder (Spielkamera mit HUD): `docs/abnahme-mega-1.0/m4-laden.jpg`
+(Tür mit Lampe und Hinweis, Laden nach dem Betreten, Inhaber an der Theke,
+Regalgang), `m4-buero.jpg` (Tür, Empfang, Wartebereich, Arbeitsplätze);
+erzeugt mit `tools/pruef/mega-innen-bilder.js`.
+
+Erster Spielbefund und Korrektur: im Spiel waren die Regale zunächst
+leer – die gebündelte Warengeometrie stand in Raumkoordinaten ohne
+Verschiebung an den Ursprung (in der Vorschau lag der Ursprung bei 0/0).
+Korrigiert und mit einem eigenen Test abgesichert.
+
+### 4.4 Regression und Leistung
+
+**Befund und Korrektur im eigenen Zufallsstrom.** Der Szenengraph-
+Vergleich mit M2 und M3 (gleicher Keim, je zweimal, je Stand
+reproduzierbar) zeigte nach 30 Bildern 14 von 88 Passanten an anderen
+Stellen. Ursache: three.js vergibt jedem Material, jeder Geometrie und
+jedem Objekt beim Anlegen eine Kennung aus `Math.random`
+(`generateUUID`). Zwei Lampenmaterialien wurden außerhalb von
+`MEGA_ZUFALL.klammer` angelegt und haben den Stadtstrom um acht Züge
+verschoben – genau das, was die Regel „keine globalen Zufallszüge“
+verhindern soll. Korrigiert (alles in der Klammer); danach sind alle 88
+Passanten nach 30 Bildern identisch zu M3, der nächste Zufallswert ist
+gleich, und im Szenengraph unterscheiden sich nur die zwei Türlampen
+(2 Gruppen, 4 Meshes). Gegenprobe: eine um 20 kB größere `game.js` bzw.
+`mission-interiors.js` ändert nichts – es war kein Ladezeiteffekt.
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| Weltfingerabdruck | identisch (Hindernisse, Parkautos, 45 Wagen, 88 Passanten) |
+| `tools/pruef/mega-innen.js` | 30/30 (nach der Korrektur wiederholt) |
+| `node --test` | 187/187 (170 + 17 neue in `test-orte.cjs`) |
+| `mission6.js` (Teile 1–3) | 26/26 betretbar und verlassbar, Sicht durch Wände 0 von 312, Spawns 520 gültig. Zwei Läufe je Stand: auch M2 schwankt (einmal 25/26, einmal 26/26) und die Hof-Spalte wechselt von Lauf zu Lauf – Bot-Streuung, keine Abweichung durch M4 |
+| `interior.js` (Versteck) | alles wie M2: Ein-/Austritt 0,27 s, Weltpause, 3600 Bilder Dauerlauf ohne Fehler, Kamera, 50 Zyklen, Kontrollpunkt/Tod/Abbruch, Geisel; einzig „sichtbare Szenenobjekte draußen“ +2 (die Lampen) |
+| `kernsysteme.js` | alles ok (Story 8/8, Ereignisse, Boss, Polizei/Rettung, Hygiene, Fortschritt) |
+| Zeichenaufrufe, 300 Stellen, `stadt-leistung.js ruhig` | Median 610 gegen 612 (M2), Maximum 1677 gegen 1675 – die Lampen kosten nur dort zwei bis vier Aufrufe, wo man sie sieht |
+| CPU je Schritt, freier Regisseur, 4 min, beide Stände gleichzeitig auf ruhiger Maschine (`m1/cpu.js`) | Median 6,02 ms (M3+M4) gegen 6,08 ms (M2), Mittel 5,93 gegen 6,18 ms, bei derselben Ereignisfolge (ENFORCER, Dachrettung, Überfall) |
+
+Vor der Korrektur lief die CPU-Messung mit einer anderen Ereignisfolge
+(der verschobene Strom) und ergab Median 6,16 gegen 5,94 ms – ein
+Vergleich zweier verschiedener Spielabläufe, kein Mehraufwand.
+
+Außerdem: Die Hilfe und die Kurzzeile nennen für C jetzt „Handeln“
+(Verletzten helfen, Tür mit Lampe betreten oder verlassen, Person
+ansprechen); die Touch-Taste heißt „Handeln“ statt „1. Hilfe“.
+
+### 4.5 Grenzen
+
+* Beide Türen liegen am Rand der Innenstadt (Wohn- und Mischgebiet), weil
+  nur die prozeduralen Häuser Türen haben. Lampe und Kartensymbol helfen
+  beim Finden.
+* Die Innenwelt passt nicht geometrisch in das Außenhaus (wie beim
+  Versteck gewollt).
+* Draußen vor der Ladentür stehen oft Parkautos am Bordstein; man geht
+  vom Gehweg aus hinein.

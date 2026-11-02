@@ -9,6 +9,8 @@ Doku: `docs/MEGA-UPDATE-1.0.md`. Alle Bilder aus dem echten Spiel
 | `m2-luft-finisher.jpg` | M2 | Luft-Finisher in vier Bildern: Treffer in der Luft, Schmettern, Aufschlag mit Druckwelle |
 | `m3-dachkette.jpg` | M3 | Dachparkour in vier Bildern (Spielkamera, HUD): Sprint über Dach A, Netz-Zip über die Straße, Wandlauf an der Fassade von B, auf Dach B mit Flow-Bonus „+44 FLOW ×4“ unter der Minikarte (`tools/pruef/mega-bewegung-bilder.js`) |
 | `m3-wandlauf-seite.jpg` | M3 | Dieselbe Kette, Seitenansicht während des Wandlaufs nach dem Zug – die Figur liegt an der sichtbaren Fassade |
+| `m4-laden.jpg` | M4 | Eckmarkt in vier Bildern (Spielkamera, HUD): Tür mit Lampe und Hinweis „C Eckmarkt betreten“, Laden nach dem Betreten („Hinausgehen“), Inhaber an der Theke („Mit dem Inhaber sprechen“), Regalgang mit Kühlregalen |
+| `m4-buero.jpg` | M4 | Kai 7 Bürohaus: Tür mit Lampe und Hinweis, Empfang, Wartebereich mit sitzendem Besucher, Arbeitsplätze mit sitzender Mitarbeiterin |
 
 ## Selbst testen (Human-Abnahme)
 
@@ -44,3 +46,14 @@ Spinnensinn warnt.
   Wandlauf, Hochziehen, Landung, Sprint). Rechts unter der Minikarte
   steht „×n“ mit der letzten Aktion; beim Stehenbleiben kommt „+P FLOW ×n“.
   Dieselbe Taste immer wieder bringt nichts; ein Treffer reißt die Kette.
+
+**M4 – Begehbare Orte.** Auf der Minikarte nach dem kleinen Türsymbol
+suchen (Eckmarkt im Wohngebiet im Westen, Kai 7 im Mischgebiet), über der
+Tür brennt eine warme Lampe. Davor stehen bleiben, C drücken.
+* Drinnen frei umherlaufen: nichts sollte durch Regale, Theke, Tische
+  oder Wände gehen, die Kamera bleibt im Raum.
+* Eckmarkt: mit wenig Gesundheit zum Inhaber an die Theke, C – Gesundheit
+  voll (danach 2 Minuten Pause).
+* Kai 7: C am Empfang.
+* An der Tür C – „Hinausgehen“: man steht wieder auf dem Gehweg, die
+  Stadt läuft weiter, wo sie war.

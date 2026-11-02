@@ -15406,7 +15406,7 @@ document.addEventListener('keydown', (e) => {
     case 'KeyR': uppercut(); break;
     case 'KeyG': packenUndWerfen(); break;
     case 'KeyV': katapultStart(); break;
-    case 'KeyC': if (!interagieren()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); break;
+    case 'KeyC': if (!interagieren()) popupScreen('Hier gibt es gerade nichts zu tun'); break;
     case 'KeyT': symbiontStart(); break;
     case 'Enter': if (player.dead) respawn(); break;
   }
@@ -15453,7 +15453,7 @@ const PAD_TASTEN = {
   4: () => webShot(),
   5: () => webZip(),
   6: () => uppercut(),
-  8: () => { if (!interagieren()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); },
+  8: () => { if (!interagieren()) popupScreen('Hier gibt es gerade nichts zu tun'); },
   9: () => zeigeEinstellungen(settingsEl.style.display !== 'flex'),
   11: () => packenUndWerfen(),
 };
@@ -15628,9 +15628,9 @@ function baueTouch() {
       tun: () => packenUndWerfen() },
     { id: 'tRolle', sym: '↻', bez: 'Rolle', reihe: 2, art: 'tipp',
       hilfe: 'Ausweichrolle – im richtigen Moment gibt es einen Konter', tun: () => dodge() },
-    { id: 'tHilfeC', sym: '✚', bez: '1. Hilfe', reihe: 2, art: 'tipp',
-      hilfe: 'Verletzten am roten Kreuz helfen',
-      tun: () => { if (!interagieren()) popupScreen('Niemand in der Nähe, dem du helfen könntest'); } },
+    { id: 'tHilfeC', sym: '✚', bez: 'Handeln', reihe: 2, art: 'tipp',
+      hilfe: 'Verletzten helfen, Tür mit Lampe betreten, Person ansprechen',
+      tun: () => { if (!interagieren()) popupScreen('Hier gibt es gerade nichts zu tun'); } },
     { id: 'tSymbiont', sym: '🕷', bez: 'Symbiont', reihe: 2, art: 'tipp',
       hilfe: 'Schwarzer Anzug: 22 Sekunden lang deutlich mehr Wucht. ' +
              'Der Balken fuellt sich beim Kaempfen; erst wenn er voll ist, geht es.',
@@ -39797,7 +39797,9 @@ function megaLaeden() {
 function megaLadenWahl() {
   let best = null, bestW = -1e9;
   const mitte = (EV_NAH + EV_FERN) / 2;
+  const eck = MEGA.orte && MEGA.orte.tueren && MEGA.orte.tueren.laden;
   for (const L of megaLaeden()) {
+    if (eck && L.nr === eck.nr) continue;    // M4: der Eckmarkt ist begehbar
     const d = Math.hypot(L.qx - player.pos.x, L.qz - player.pos.z);
     if (d < EV_NAH || d > EV_FERN) continue;
     if (!megaOrtFrei(L.qx, L.qz)) continue;
@@ -40830,6 +40832,8 @@ function megaAufraeumen(e) {
    erst wenn nichts davon in Reichweite ist, erste Hilfe wie bisher. */
 function megaInteraktionKandidat() {
   if (player.dead) return null;
+  const ort = megaOrtKandidat();          // M4: Tueren, Ausgang, Gespraeche
+  if (ort) return ort;
   for (const e of EV.liste) {
     if (e.zustand === 'FERTIG' || e.zustand === 'AUFRAEUMEN') continue;
     if (e.art === 'dachrettung' && e.person && e.person.dachRettung) {
@@ -41570,6 +41574,316 @@ function megaSchwungLos() {
   if (MEGA_FLUSS_ALT) return;
   if (MEGA.fluss.swingT >= 0.5) megaFluss('schwung');
 }
+
+/* ======================= M4: Begehbare Orte =======================
+   Zwei optionale Orte nach dem Prinzip des Missionsinnenraums (siehe
+   "Der Missions-Innenraum" weiter oben): ein eigener Raum weit ausserhalb
+   der Stadt, kontrollierter Ein- und Austritt mit derselben Blende, die
+   Aussenwelt pausiert unveraendert (MISSION_INTERIOR.active), dieselbe
+   Kamera, dieselbe Kollision. Kein zweites Innenraumsystem: der
+   Missionsinnenraum kennt jetzt mehrere Raeume (innenRaum(id)); das
+   Versteck aus Mission 6 bleibt Raum 'hideout' und wird wie bisher gebaut.
+
+     laden   Eckmarkt: Theke mit Inhaber, zwei Kunden. Der Inhaber
+             versorgt den Helden (volle Gesundheit, alle 2 Minuten).
+     buero   Kai 7 Buerohaus: Empfang, Mitarbeiter am Schreibtisch,
+             Besucher im Wartebereich.
+
+   Eingang ist eine echte Tuer der Stadt (Erdgeschosse aus Stufe 8A,
+   dieselbe Quelle wie die M1-Laeden): zu Fuss davor, Hinweis "C ... betreten",
+   kein Betreten im Vorbeilaufen. Auf der Minikarte ein Tuersymbol, ueber
+   der Tuer eine kleine warme Lampe. Figuren gibt es nur im Raum: sie
+   haengen in dessen Gruppe, entstehen beim ersten Betreten (ueber den
+   eigenen Zufallsstrom) und werden nur aktualisiert, solange er aktiv ist.
+   Die 88 Strassenpassanten bleiben unberuehrt. */
+const INNEN_ORTE = {
+  laden: { ursprung: { x: 1100, y: 0, z: 1000 }, bau: 'createLaden', name: 'Eckmarkt',
+           programme: /^laden$/ },
+  /* Die Erdgeschosse mit Buero-Programm haben keine Tuer (gemessen: 65
+     Buero-Sockel, 0 mit Tuer - Tueren gibt es nur an den prozeduralen
+     Haeusern). Die Lobby liegt deshalb hinter der Tuer eines Hauses mit
+     gemischter Nutzung: Laeden unten, Bueros darueber. */
+  buero: { ursprung: { x: 1200, y: 0, z: 1000 }, bau: 'createBuero', name: 'Kai 7 Bürohaus',
+           programme: /^gemischt$/ },
+};
+const ORT_TUER_WEITE = 2.2;      // so nah muss man vor der Tuer stehen
+const ORT_INHABER_CD = 120;      // s zwischen zwei Versorgungen
+MEGA.orte = { tueren: null, figuren: {}, lampen: null, inhaberCd: 0, zeile: 0, meldungT: 0,
+              statistik: { betreten: 0, verlassen: 0, ausgangVersetzt: 0, ausgangBlockiert: 0,
+                           versorgt: 0, gesprochen: 0, kampfAbgelehnt: 0, figuren: 0 } };
+
+/* ---- Die beiden Tueren ----
+   Aus den Erdgeschoss-Einsaetzen mit Tuer, wie megaLaeden: Laden-Programm
+   fuer den Eckmarkt, Buero-Programm fuer die Lobby. Gewaehlt wird fest
+   (kein Zufall): die geeignete Tuer, die der Stadtmitte am naechsten
+   liegt; die Buerotuer mindestens 40 m von der Ladentuer entfernt. Davor
+   muss Gehweg ohne Hindernis sein - dieselben Pruefungen wie fuer den
+   Inhaber im M1-Ueberfall. */
+function megaOrtTueren() {
+  const O = MEGA.orte;
+  if (O.tueren) return O.tueren;
+  if (!BI.fertig) return null;
+  const kand = { laden: [], buero: [] };
+  for (const e of BI.liste) {
+    if (e.art !== 'sockel' || !e.tueren || !e.tueren.length) continue;
+    let id = null;
+    for (const k in INNEN_ORTE) if (INNEN_ORTE[k].programme.test(e.programm || '')) id = k;
+    if (!id) continue;
+    const K = HAUS_KISTEN[e.haus];
+    if (!K) continue;
+    const n = e.nx ? e.nx : e.nz;
+    const ebene = e.nx ? K.x + e.nx * K.w / 2 : K.z + e.nz * K.d / 2;
+    const vor = ebene + n * (BI_VOR - (e.tiefe || 0));
+    const t = e.tueren[Math.floor(e.tueren.length / 2)];
+    const tx = e.nx ? vor : K.x + e.nz * t.l;
+    const tz = e.nx ? K.z - e.nx * t.l : vor;
+    const nx = e.nx || 0, nz = e.nz || 0;
+    const qx = tx + nx * 2.6, qz = tz + nz * 2.6;
+    if (inWater(qx, qz) || onBridge(qx, qz) || inGebaeude(qx, qz)) continue;
+    const y = groundY(qx, qz, 2);
+    if (y < -0.5 || y > 1.5) continue;
+    if (typeof gehPlatzFrei === 'function' && !gehPlatzFrei(qx, qz, 0.8)) continue;
+    const ex = tx + nx * 0.9, ez = tz + nz * 0.9;          // hier steht man vor der Tuer
+    if (Math.abs(groundY(ex, ez, 2) - y) > 0.25) continue;
+    kand[id].push({ nr: e.nr, tx, tz, qx, qz, ex, ez, y, nx, nz, bezirk: e.bezirk,
+                    teil: stadtteilAn(qx, qz), d: Math.hypot(qx, qz) });
+  }
+  for (const k in kand) kand[k].sort((a, b) => a.d - b.d || a.nr - b.nr);
+  const laden = kand.laden[0] || null;
+  const buero = kand.buero.find((b) => !laden || Math.hypot(b.qx - laden.qx, b.qz - laden.qz) > 40) || null;
+  O.tueren = { laden, buero };
+  megaOrtLampen();
+  return O.tueren;
+}
+
+/* Kleine warme Lampe ueber jeder Tuer - ein Hinweis, keine Leuchttafel. */
+function megaOrtLampen() {
+  const O = MEGA.orte;
+  if (O.lampen || !O.tueren) return;
+  O.lampen = [];
+  /* ALLES in der Klammer, auch die Materialien: three.js vergibt jedem
+     Material, jeder Geometrie und jedem Objekt eine Kennung aus
+     Math.random (generateUUID). Zwei Materialien ausserhalb haben den
+     Stadtstrom um acht Zuege verschoben - gemessen: 14 von 88 Passanten
+     liefen nach 30 Bildern anders als vor M4. */
+  MEGA_ZUFALL.klammer(() => {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd9a0 });
+    const halter = new THREE.MeshLambertMaterial({ color: 0x2c2f34 });
+    for (const id in O.tueren) {
+      const t = O.tueren[id];
+      if (!t) continue;
+      const g = new THREE.Group();
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.42), halter);
+      arm.position.set(0, 0, 0.21);
+      const kopf = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.26), mat);
+      kopf.position.set(0, -0.1, 0.42);
+      g.add(arm); g.add(kopf);
+      g.position.set(t.tx + t.nx * 0.02, t.y + 2.75, t.tz + t.nz * 0.02);
+      g.rotation.y = Math.atan2(t.nx, t.nz);
+      scene.add(g);
+      O.lampen.push(g);
+    }
+  });
+}
+
+/* Steht ein Gegner kampfbereit in der Naehe? Dann wird nicht betreten. */
+function megaOrtKampfNah() {
+  for (const e of enemies) {
+    if (e.dead || e.target !== 'player') continue;
+    if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 15) return true;
+  }
+  return false;
+}
+
+function megaOrtBetreten(id) {
+  const T = megaOrtTueren(), t = T && T[id];
+  if (!t || MISSION_INTERIOR.active || MISSION_INTERIOR.phase) return false;
+  if (megaOrtKampfNah()) { MEGA.orte.statistik.kampfAbgelehnt++; popupScreen('Erst den Kampf beenden'); return false; }
+  const ok = innenBetreten({ x: player.pos.x, y: player.pos.y, z: player.pos.z }, player.facing,
+                           { x: t.qx, y: t.y, z: t.qz }, Math.atan2(t.nx, t.nz), id);
+  if (ok) MEGA.orte.statistik.betreten++;
+  return ok;
+}
+
+/* ---- Austritt: freier Punkt vor der Tuer ----
+   Geprueft wird erst beim Hinausgehen - die Welt war waehrenddessen
+   angehalten, es zaehlt also genau der Zustand von draussen. Kein Haus,
+   kein Wasser, kein Hindernis (auch kein Parkauto), kein fahrender Wagen
+   im Umkreis von 3,2 m. Ist der Punkt vor der Tuer belegt, wird laengs
+   der Fassade ausgewichen. */
+function megaOrtAusgang(t) {
+  const lx = -t.nz, lz = t.nx;                     // laengs der Fassade
+  const versuche = [[0, 0], [1.6, 0], [-1.6, 0], [0, 1.2], [3.2, 0], [-3.2, 0], [1.6, 1.2], [-1.6, 1.2], [4.8, 0], [-4.8, 0]];
+  for (const [l, v] of versuche) {
+    const x = t.qx + lx * l + t.nx * v, z = t.qz + lz * l + t.nz * v;
+    if (inGebaeude(x, z) || inWater(x, z) || onBridge(x, z)) continue;
+    const y = groundY(x, z, 2);
+    if (y < -0.5 || y > 1.5) continue;
+    if (!versteckFrei(x, z, y, 0.45)) continue;
+    let wagen = false;
+    for (const c of cars) {
+      if (c.aus || !c.mesh) continue;
+      if (Math.hypot(c.mesh.position.x - x, c.mesh.position.z - z) < 3.2) { wagen = true; break; }
+    }
+    if (wagen) continue;
+    return { x, y, z, versetzt: l !== 0 || v !== 0 };
+  }
+  return null;
+}
+
+function megaOrtVerlassen() {
+  const I = MISSION_INTERIOR;
+  if (!I.active || I.phase || !INNEN_ORTE[I.id]) return false;
+  const T = megaOrtTueren(), t = T && T[I.id];
+  const a = t ? megaOrtAusgang(t) : null;
+  if (!a) {
+    MEGA.orte.statistik.ausgangBlockiert++;
+    popupScreen('Draußen ist gerade kein Platz – gleich noch einmal');
+    return false;
+  }
+  if (a.versetzt) MEGA.orte.statistik.ausgangVersetzt++;
+  const ok = innenVerlassen({ x: a.x, y: a.y, z: a.z }, Math.atan2(t.nx, t.nz));
+  if (ok) MEGA.orte.statistik.verlassen++;
+  return ok;
+}
+
+/* ---- Figuren des Raums ----
+   Echte Zivilistenmodelle mit festem Aussehen (ziviLook ueber Nummern
+   ausserhalb der Strassenpassanten) und den vorhandenen Bewegungen
+   'idle' und 'sitzen'. Gebaut im eigenen Zufallsstrom: three.js zieht
+   fuer jede neue Kennung Zufallszahlen. */
+function megaOrtFiguren(id, r) {
+  const O = MEGA.orte;
+  if (O.figuren[id]) return O.figuren[id];
+  if (typeof actorsReady !== 'undefined' && !actorsReady) return [];
+  const T = megaOrtTueren(), t = T && T[id];
+  const teil = t && t.teil ? t.teil : stadtteilAn(0, 0);
+  const liste = [];
+  MEGA_ZUFALL.klammer(() => {
+    r.personen.forEach((p, i) => {
+      const look = ziviLook(8800 + (id === 'laden' ? 0 : 40) + i * 3, teil, 0);
+      const v = makeCharacterVisual('civilian', look ? { zivi: look } : {});
+      if (!v || v.procedural) return;
+      if (CITY_LOOK) CITY_LOOK.dressCivilian(v, look ? look.outfit : undefined, true);
+      ziviKugel(v);
+      v.root.position.set(p.x, r.bodenY, p.z);
+      v.root.rotation.y = p.ry;
+      r.gruppe.add(v.root);
+      liste.push({ p, v, versatz: i * 1.7 + (id === 'laden' ? 0 : 0.9) });
+    });
+  });
+  O.figuren[id] = liste;
+  O.statistik.figuren += liste.length;
+  return liste;
+}
+
+/* Einmal je Bild - tut nur etwas, solange ein M4-Raum aktiv ist. */
+function megaOrtTakt(dt) {
+  const O = MEGA.orte;
+  if (O.inhaberCd > 0) O.inhaberCd -= dt;
+  const I = MISSION_INTERIOR;
+  if (!I.active || !INNEN_ORTE[I.id] || !I.raum) return;
+  /* Der Hinweis unten in der Mitte wird sonst im Ereignistakt der
+     Aussenwelt aufgefrischt - der pausiert drinnen. */
+  megaPromptBild(dt);
+  const r = I.raum;
+  for (const f of megaOrtFiguren(I.id, r)) {
+    const p = f.p, v = f.v;
+    const sitzt = p.sitz !== undefined;
+    const echt = sitzt && v.hatClip && v.hatClip('sitzen');
+    v.root.position.set(p.x, r.bodenY, p.z);
+    v.root.rotation.y = p.ry;
+    v.play(echt ? 'sitzen' : (p.clip === 'sitzen' ? 'idle' : (p.clip || 'idle')), { t: elapsed + f.versatz }, dt);
+    if (sitzt) {
+      if (!echt && v.poseSitzen) v.poseSitzen(1);
+      const m = v.sitzMasse ? v.sitzMasse() : null;
+      if (m) v.root.position.y += Math.max(p.sitz - m.huefte, r.bodenY - m.fuss);
+    }
+  }
+}
+
+/* ---- Was man im Raum tun kann ---- */
+const ORT_SAETZE = {
+  inhaber: ['„Wieder unterwegs? Hier, nimm was zu trinken."',
+            '„Seit du in der Gegend bist, traut sich hier keiner mehr an die Kasse."',
+            '„Pass auf dich auf da draußen."'],
+  inhaberSatt: ['„Du siehst fit aus – komm später wieder vorbei."'],
+  empfang: ['„Willkommen im Kai 7. Die Aufzüge sind heute nur für Mitarbeitende."',
+            '„Die Leute hier reden viel über die Überfälle in letzter Zeit."'],
+};
+function megaOrtHandlung(id, hid) {
+  const O = MEGA.orte;
+  O.statistik.gesprochen++;
+  const satz = (liste) => liste[(O.zeile++) % liste.length];
+  if (hid === 'inhaber') {
+    if (O.inhaberCd > 0 || player.hp >= CFG.playerHP) {
+      popupScreen(satz(ORT_SAETZE.inhaberSatt));
+      return;
+    }
+    player.hp = CFG.playerHP;
+    O.inhaberCd = ORT_INHABER_CD;
+    O.statistik.versorgt++;
+    updateHUD();
+    popupScreen(satz(ORT_SAETZE.inhaber) + ' Gesundheit voll.');
+    return;
+  }
+  if (hid === 'empfang') { popupScreen(satz(ORT_SAETZE.empfang)); return; }
+}
+
+/* Interaktion: Tuer draussen, Ausgang und Handlungspunkte drinnen. */
+function megaOrtKandidat() {
+  const I = MISSION_INTERIOR;
+  if (I.phase || player.dead) return null;
+  if (I.active) {
+    const r = I.raum;
+    if (!r || !INNEN_ORTE[I.id]) return null;
+    const a = r.ausgang;
+    if (a && Math.hypot(player.pos.x - a.x, player.pos.z - a.z) < a.r) return { text: a.text, tun: megaOrtVerlassen };
+    for (const h of r.aktionen || []) {
+      if (Math.hypot(player.pos.x - h.x, player.pos.z - h.z) < h.r) return { text: h.text, tun: () => megaOrtHandlung(I.id, h.id) };
+    }
+    return null;
+  }
+  if (!player.onGround || MISSION.art === 'story') return null;
+  const T = megaOrtTueren();
+  if (!T) return null;
+  for (const id in T) {
+    const t = T[id];
+    if (!t || Math.abs(player.pos.y - t.y) > 1.2) continue;
+    if (Math.hypot(player.pos.x - t.ex, player.pos.z - t.ez) > ORT_TUER_WEITE) continue;
+    return { text: INNEN_ORTE[id].name + ' betreten', tun: () => megaOrtBetreten(id) };
+  }
+  return null;
+}
+
+/* Tuersymbol auf der Minikarte (nur im Kartenausschnitt, nicht am Rand). */
+function megaOrtKarte(g, cx, cy, mp) {
+  const T = MEGA.orte.tueren;
+  if (!T || MISSION_INTERIOR.active) return;
+  for (const id in T) {
+    const t = T[id];
+    if (!t) continue;
+    const px = cx + (t.qx - player.pos.x) * mp, py = cy + (t.qz - player.pos.z) * mp;
+    if (Math.hypot(px - cx, py - cy) > cx - 6) continue;
+    g.fillStyle = 'rgba(10,14,22,0.85)';
+    g.fillRect(px - 5, py - 6, 10, 12);
+    g.fillStyle = '#ffd9a0';
+    g.fillRect(px - 3, py - 4, 6, 9);
+    g.fillStyle = 'rgba(10,14,22,0.9)';
+    g.fillRect(px + 1, py, 1.5, 1.5);
+  }
+}
+
+/* Pruefstand (tools/pruef/mega-innen.js) - nur lesen bzw. dieselben Wege wie C. */
+const MEGA_ORT_DBG = {
+  orteTueren() { return megaOrtTueren(); },
+  orteLampen() { return MEGA.orte.lampen ? MEGA.orte.lampen.length : 0; },
+  orteFiguren(id) { return MEGA.orte.figuren[id] || []; },
+  orteStatistik() { return Object.assign({}, MEGA.orte.statistik); },
+  orteVerlassen() { return megaOrtVerlassen(); },
+  orteBetreten(id) { return megaOrtBetreten(id); },
+  inGebaeude(x, z) { return inGebaeude(x, z); },
+};
 
 /* ======================= Einsatzkräfte =======================
    Bis hierher endete jedes Ereignis so: Spider-Man gewinnt, das Ereignis
@@ -43823,16 +44137,36 @@ const MISSION_INTERIOR = {
   zyklen: 0,
 };
 
-function innenRaum() {
+/* ---- Mehrere Raeume (Mega-Update M4) ----
+   'hideout' ist das Versteck aus Mission 6 und entsteht genau wie vorher
+   (ohne Klammer um den Zufall - Mission 6 wuerfelt danach weiter wie
+   bisher). Die M4-Orte (INNEN_ORTE) entstehen im eigenen Zufallsstrom.
+   Jeder Raum wird EINMAL gebaut und angemeldet; I.raum ist der aktive
+   Raum (ausserhalb: das Versteck, sobald es gebaut ist - wie bisher). */
+function innenRaum(id) {
   const I = MISSION_INTERIOR;
-  if (I.raum) return I.raum;
+  const k = id || 'hideout';
+  if (!I.raeume) I.raeume = {};
+  if (I.raeume[k]) return I.raeume[k];
   if (typeof WEB_HERO_INTERIORS === 'undefined' || !WEB_HERO_INTERIORS) return null;
-  const r = WEB_HERO_INTERIORS.createHideout(INNEN_ORT);
+  let r = null;
+  if (k === 'hideout') r = WEB_HERO_INTERIORS.createHideout(INNEN_ORT);
+  else {
+    const o = typeof INNEN_ORTE !== 'undefined' ? INNEN_ORTE[k] : null;
+    if (!o || typeof WEB_HERO_INTERIORS[o.bau] !== 'function') return null;
+    r = MEGA_ZUFALL.klammer(() => WEB_HERO_INTERIORS[o.bau](o.ursprung));
+  }
   r.gruppe.visible = false;
   scene.add(r.gruppe);
   for (const c of r.kollider) addCollider(c);
-  I.raum = r;
+  I.raeume[k] = r;
+  if (k === 'hideout' && !I.raum) I.raum = r;
   return r;
+}
+/* Nach dem Verlassen eines M4-Orts gilt fuer Mission 6 wieder das Versteck. */
+function innenRaumZurueck() {
+  const I = MISSION_INTERIOR;
+  if (I.raum && I.raum.id !== 'hideout') I.raum = (I.raeume && I.raeume.hideout) || null;
 }
 
 /* ---- Die Welt ausblenden ----
@@ -43907,8 +44241,9 @@ function innenSpielerSetzen(p, yaw) {
 function innenWechsel() {
   const I = MISSION_INTERIOR;
   if (I.ziel === 'rein') {
-    const r = innenRaum();
+    const r = innenRaum(I.zielId);
     if (!r) { I.ziel = null; return; }
+    I.raum = r;
     I.active = true; I.id = r.id;
     /* Die Kamera-Ausweichlage gilt nur drinnen und faengt bei null an -
        sonst uebernaehme ein neuer Besuch die Abweichung des letzten. */
@@ -43920,6 +44255,7 @@ function innenWechsel() {
   } else if (I.ziel === 'raus') {
     I.active = false; I.id = null;
     if (I.raum) I.raum.gruppe.visible = false;
+    innenRaumZurueck();
     innenWeltZeigen();
     const z = I.austritt || I.eintritt;
     if (z) innenSpielerSetzen(z, I.austrittYaw);
@@ -43966,9 +44302,10 @@ function innenEingabeSperren() {
   mouseDX = 0; mouseDY = 0;
 }
 
-function innenBetreten(aussenPos, aussenYaw, austrittPos, austrittYaw) {
+function innenBetreten(aussenPos, aussenYaw, austrittPos, austrittYaw, id) {
   const I = MISSION_INTERIOR;
   if (I.active || I.phase) return false;
+  I.zielId = id || 'hideout';
   I.eintritt = aussenPos ? { x: aussenPos.x, y: aussenPos.y, z: aussenPos.z }
                          : { x: player.pos.x, y: player.pos.y, z: player.pos.z };
   I.eintrittYaw = aussenYaw === undefined ? player.facing : aussenYaw;
@@ -43997,6 +44334,7 @@ function innenSofortRaus(zielPos, zielYaw) {
   if (!I.active) return false;
   I.active = false; I.id = null;
   if (I.raum) I.raum.gruppe.visible = false;
+  innenRaumZurueck();
   innenWeltZeigen();
   const z = zielPos || I.austritt || I.eintritt;
   if (z) innenSpielerSetzen(z, zielYaw === undefined ? I.austrittYaw : zielYaw);
@@ -44685,6 +45023,8 @@ function stFunkerAussenSetzen(m, von, ziel) {
    Bild danach nachgeholt. Gespeichert wird davon nichts - nur die
    Missionsphase, wie bisher. Der Raum entsteht jedes Mal gleich. */
 function innenPhase(m, aufbau) {
+  /* M4: steht der Held gerade in einem anderen Raum, erst hinaus. */
+  if (MISSION_INTERIOR.active && MISSION_INTERIOR.id !== 'hideout') innenSofortRaus();
   if (MISSION_INTERIOR.active) { aufbau(); return true; }
   m._innenAufbau = aufbau;
   if (!MISSION_INTERIOR.phase) {
@@ -46498,6 +46838,7 @@ function updateKarte() {
   for (const c of civilians) {
     if (c.state === 'hurt' && c.hilfeBar) zeichnePunkt(g, cx, cy, c.pos.x, c.pos.z, mp, '#ffffff', 3);
   }
+  megaOrtKarte(g, cx, cy, mp);           // M4: Tueren der begehbaren Orte
   const mz = MISSION.art ? missionZiel() : null;
   if (mz) {
     const px = cx + (mz.x - player.pos.x) * mp, py = cy + (mz.z - player.pos.z) * mp;
@@ -47264,6 +47605,7 @@ function simuliere(dt) {
   if (welt) updateHelis(dt);
   updatePlayer(dt);
   megaFlussTakt(dt);             // M3: liest nur, schreibt keine Bewegung
+  megaOrtTakt(dt);               // M4: Figuren im aktiven Ort
   if (welt) { updateWetter(dt); updateTagNacht(dt); updateCars(dt); }
   /* Zivilisten und Gegner laufen weiter, filtern drinnen aber selbst:
      nur die Geisel und nur Storygegner. Ein voelliger Stopp liesse die
@@ -47589,6 +47931,7 @@ if (window.__WEBHERO_TEST__ === true) {
     evStarte,
     /* ---- Mega-Update 1.0 (nur Pruefstaende) ---- */
     mega: {
+      ...MEGA_ORT_DBG,            // M4: Orte (nur Pruefstand)
       /* M3: Bewegungsfluss - Zaehler, laufende Kette, Sperre, Anzeige. */
       fluss() {
         const F = MEGA.fluss;

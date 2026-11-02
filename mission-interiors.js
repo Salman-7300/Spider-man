@@ -572,5 +572,584 @@
     };
   }
 
-  return { createHideout, MASSE: M };
+
+  /* ======================================================================
+     Mega-Update 1.0, M4: zwei begehbare Orte nach demselben Prinzip
+     ======================================================================
+     Ein eigener, getrennter Raum je Ort, gebaut um einen Ursprung weit
+     ausserhalb der Stadt - wie das Versteck. Ein Boden auf Ursprungshoehe,
+     geschlossene Waende (nicht kletterbar), ein Deckel gegen das
+     Herausspringen, Moebel als Kollisionskaesten. Was zum Raum gehoert,
+     kommt als Liste heraus: Spielerstart, Ausgang, Personenplaetze und
+     Handlungspunkte. Figuren baut game.js - hier gibt es nur Plaetze.
+
+     Licht: ein Halbkugellicht und sieben Punktlichter, genau wie im
+     Versteck. Drinnen sind die Weltlichter aus; mit derselben Zahl und Art
+     Lichter teilen sich die Raeume die schon uebersetzten Shader, und das
+     erste Betreten ruckelt nicht noch einmal. */
+
+  /* ---- Viele kleine Dinge, ein Zeichenaufruf ----
+     Waren im Regal, Flaschen im Kuehlregal, Bildschirme: einzeln gesetzt
+     waeren es hunderte Zeichenaufrufe. Gesammelt in EINE Geometrie mit
+     Eckfarben - ein Mesh je Raum und Material. */
+  function sammler() {
+    const pos = [], nor = [], col = [], idx = [];
+    const c = new THREE.Color();
+    const quad = (a, b, cc, d, n) => {
+      const s = pos.length / 3;
+      for (const v of [a, b, cc, d]) { pos.push(v[0], v[1], v[2]); nor.push(n[0], n[1], n[2]); col.push(c.r, c.g, c.b); }
+      idx.push(s, s + 1, s + 2, s, s + 2, s + 3);
+    };
+    return {
+      /* Kasten mit Unterkante bei y; ohne Boden (liegt immer auf etwas). */
+      kasten(x, y, z, bx, by, bz, farbe) {
+        c.set(farbe);
+        const x0 = x - bx / 2, x1 = x + bx / 2, y0 = y, y1 = y + by, z0 = z - bz / 2, z1 = z + bz / 2;
+        quad([x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], [1, 0, 0]);
+        quad([x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0], [-1, 0, 0]);
+        quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0]);
+        quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1]);
+        quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1]);
+      },
+      /* Stehender Zylinder (Dose, Flasche, Topf), n Seiten, mit Deckel. */
+      walze(x, y, z, r, h, farbe, n) {
+        c.set(farbe);
+        const k = n || 8;
+        for (let i = 0; i < k; i++) {
+          const a0 = i / k * Math.PI * 2, a1 = (i + 1) / k * Math.PI * 2, am = (a0 + a1) / 2;
+          const p0 = [x + Math.sin(a0) * r, z + Math.cos(a0) * r], p1 = [x + Math.sin(a1) * r, z + Math.cos(a1) * r];
+          quad([p0[0], y, p0[1]], [p1[0], y, p1[1]], [p1[0], y + h, p1[1]], [p0[0], y + h, p0[1]],
+               [Math.sin(am), 0, Math.cos(am)]);
+          const s = pos.length / 3;
+          for (const v of [[x, y + h, z], [p0[0], y + h, p0[1]], [p1[0], y + h, p1[1]]]) {
+            pos.push(v[0], v[1], v[2]); nor.push(0, 1, 0); col.push(c.r, c.g, c.b);
+          }
+          idx.push(s, s + 1, s + 2);
+        }
+      },
+      /* Die Eckpunkte stehen in RAUMkoordinaten (x/z relativ zum
+         Ursprung, y schon mit Bodenhoehe); das Mesh wird an den Ursprung
+         gestellt. Der erste Entwurf liess das weg - in der Vorschau lag der
+         Ursprung bei 0/0, im Spiel standen die Waren dadurch 1,5 km neben
+         dem Raum mitten in der Stadt, und die Regale waren leer. */
+      fertig(ziel, material, ursprung) {
+        if (!pos.length) return null;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+        g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+        g.setIndex(idx);
+        g.computeBoundingSphere();
+        const m = new THREE.Mesh(g, material);
+        if (ursprung) m.position.set(ursprung.x, 0, ursprung.z);
+        m.receiveShadow = true;
+        ziel.gruppe.add(m); ziel.sichtbar++;
+        return m;
+      },
+    };
+  }
+
+  /* Eine kleine Leinwand als Textur (Fliesen, Schriftzug). In node (Tests)
+     gibt es kein document - dann bleibt es bei der Grundfarbe. */
+  function leinwand(w, h, malen) {
+    if (typeof document === 'undefined' || !THREE.CanvasTexture) return null;
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+    malen(g, w, h);
+    const t = new THREE.CanvasTexture(cv);
+    t.anisotropy = 4;
+    return t;
+  }
+
+  /* Huelle eines Raums: Boden (genau eine Flaeche), Decke, vier Waende,
+     Deckel. Gibt die Umrechnung lokal -> Welt zurueck. */
+  function huelle(ziel, o, L, B, H, mats) {
+    const X = (v) => o.x + v, Z = (v) => o.z + v, oy = o.y;
+    const hx = L / 2, hz = B / 2, w = 0.4;
+    const boden = new THREE.Mesh(flaecheGeo, mats.boden);
+    boden.rotation.x = -Math.PI / 2;
+    boden.position.set(X(0), oy, Z(0));
+    boden.scale.set(L, B, 1);
+    boden.receiveShadow = true;
+    ziel.gruppe.add(boden); ziel.sichtbar++;
+    const decke = new THREE.Mesh(flaecheGeo, mats.decke);
+    decke.rotation.x = Math.PI / 2;
+    decke.position.set(X(0), oy + H, Z(0));
+    decke.scale.set(L, B, 1);
+    ziel.gruppe.add(decke); ziel.sichtbar++;
+    const WAND = [true, false, true];
+    bau(ziel, mats.wand, X(-hx - w / 2), oy, Z(0), w, H, B + w * 2, ...WAND);
+    bau(ziel, mats.wand, X(hx + w / 2), oy, Z(0), w, H, B + w * 2, ...WAND);
+    bau(ziel, mats.wand, X(0), oy, Z(-hz - w / 2), L, H, w, ...WAND);
+    bau(ziel, mats.wand, X(0), oy, Z(hz + w / 2), L, H, w, ...WAND);
+    ziel.kollider.push({ x0: X(-hx), x1: X(hx), z0: Z(-hz), z1: Z(hz),
+                         y0: oy + H, h: oy + H + 1.4, keinKlettern: true, innen: true });
+    return { X, Z, oy, hx, hz };
+  }
+
+  /* Ein Halbkugellicht und sieben Punktlichter (siehe Kopf dieses Teils). */
+  function raumLicht(ziel, X, Z, oy, H, himmel, boden, staerke, farbe, punkte) {
+    const hl = new THREE.HemisphereLight(himmel, boden, staerke);
+    hl.position.set(X(0), oy + H, Z(0));
+    ziel.gruppe.add(hl);
+    for (const [lx, lz, st] of punkte) {
+      const pl = new THREE.PointLight(farbe, st, 16, 1.6);
+      pl.position.set(X(lx), oy + H - 0.4, Z(lz));
+      ziel.gruppe.add(pl);
+      ziel.lichter = (ziel.lichter || 0) + 1;
+    }
+    ziel.lichter = (ziel.lichter || 0) + 1;
+  }
+
+  /* Leuchtfeld an der Decke (Basic: leuchtet ohne eigene Lichtquelle). */
+  function deckenFeld(ziel, mat, x, y, z, bx, bz) {
+    const m = new THREE.Mesh(kastenGeo, mat);
+    m.position.set(x, y - 0.03, z);
+    m.scale.set(bx, 0.05, bz);
+    ziel.gruppe.add(m); ziel.sichtbar++; ziel.klein++;
+  }
+
+  /* ---- Ein offenes Regal ----
+     Kollision ist der ganze Grundriss (man laeuft nicht hindurch),
+     sichtbar sind Rueckwand bzw. Mittelwand, Seitenteile, Sockel und
+     Boeden - die Waren stehen davor und sind zu sehen. Der erste Entwurf
+     hatte massive Kaesten, und die Waren steckten unsichtbar darin.
+       achse 'z': Regal laeuft in z, Tiefe in x; 'x' umgekehrt
+       seiten:   [+1] Waren auf der +Seite (Rueckwand auf der -Seite),
+                 [-1] umgekehrt, [-1, +1] doppelseitig (Gondel)
+     fuellen(seite, ebene, von, bis, mitteQuer) setzt die Waren. */
+  function regalOffen(ziel, mats, X, Z, oy, cx, cz, laenge, tiefe, hoehe, achse, seiten, ebenen, fuellen) {
+    const ax = achse === 'z';
+    const bx = ax ? tiefe : laenge, bz = ax ? laenge : tiefe;
+    ziel.kollider.push({ x0: X(cx - bx / 2), x1: X(cx + bx / 2), z0: Z(cz - bz / 2), z1: Z(cz + bz / 2),
+                         h: oy + hoehe, y0: oy, klein: true, keinKlettern: true, innen: true });
+    ziel.massiv++;
+    const doppelt = seiten.length > 1;
+    /* Rueck- bzw. Mittelwand */
+    const wandQ = doppelt ? 0 : -seiten[0] * (tiefe / 2 - 0.03);
+    if (ax) deko(ziel, mats.regal, X(cx + wandQ), oy, Z(cz), 0.06, hoehe, laenge);
+    else deko(ziel, mats.regal, X(cx), oy, Z(cz + wandQ), laenge, hoehe, 0.06);
+    /* Seitenteile an beiden Enden */
+    for (const e of [-1, 1]) {
+      if (ax) deko(ziel, mats.regal, X(cx), oy, Z(cz + e * (laenge / 2 - 0.02)), tiefe, hoehe, 0.04);
+      else deko(ziel, mats.regal, X(cx + e * (laenge / 2 - 0.02)), oy, Z(cz), 0.04, hoehe, tiefe);
+    }
+    /* Sockel und Boeden je Seite */
+    for (const sd of seiten) {
+      const q0 = doppelt ? 0.03 : -tiefe / 2 + 0.06, q1 = tiefe / 2;
+      const qm = sd * (q0 + q1) / 2, qb = q1 - q0;
+      if (ax) deko(ziel, mats.sockel, X(cx + qm), oy, Z(cz), qb, 0.12, laenge - 0.06);
+      else deko(ziel, mats.sockel, X(cx), oy, Z(cz + qm), laenge - 0.06, 0.12, qb);
+      for (let lev = 0; lev < ebenen; lev++) {
+        const y = oy + 0.12 + lev * ((hoehe - 0.25) / ebenen);
+        if (lev > 0) {
+          if (ax) deko(ziel, mats.regal, X(cx + qm), y - 0.03, Z(cz), qb, 0.03, laenge - 0.06);
+          else deko(ziel, mats.regal, X(cx), y - 0.03, Z(cz + qm), laenge - 0.06, 0.03, qb);
+        }
+        /* Preisleiste an der Vorderkante */
+        if (ax) deko(ziel, mats.regalKante, X(cx + sd * (q1 - 0.01)), y - 0.06, Z(cz), 0.02, 0.05, laenge - 0.06);
+        else deko(ziel, mats.regalKante, X(cx), y - 0.06, Z(cz + sd * (q1 - 0.01)), laenge - 0.06, 0.05, 0.02);
+        if (fuellen) fuellen(sd, lev, y, -laenge / 2 + 0.12, laenge / 2 - 0.12, sd * (q0 + q1) / 2);
+      }
+    }
+  }
+
+  /* Wege beim Bauen pruefen (wie im Versteck). */
+  function wegePruefen(ziel, wege) {
+    const fehler = [];
+    for (const [name, kette] of wege) {
+      for (let i = 1; i < kette.length; i++) {
+        const a = kette[i - 1], b = kette[i];
+        if (!wegFrei(ziel.kollider, a, b, 0.5)) {
+          fehler.push(name + ': ' + a.x.toFixed(1) + '/' + a.z.toFixed(1) + ' -> ' + b.x.toFixed(1) + '/' + b.z.toFixed(1));
+        }
+      }
+    }
+    return fehler;
+  }
+
+  /* =================== Ort A: der kleine Laden ===================
+     16 x 14 m, Decke 3,8 m. Eingang in der Suedwand (+z) links, Theke
+     rechts vorn, zwei Regalreihen und ein Wandregal, Kuehlregale an der
+     Rueckwand. Die Gaenge sind 2,4 bis 4,0 m breit - genug fuer die
+     Innenkamera (4,6 m hinter der Figur, sie schaut ueber 1,7-m-Regale). */
+  const LADEN = { laenge: 16, breite: 14, hoehe: 3.8 };
+  function createLaden(opt) {
+    const o = { x: (opt && opt.x) || 0, y: (opt && opt.y) || 0, z: (opt && opt.z) || 0 };
+    const ziel = { gruppe: new THREE.Group(), kollider: [], sichtbar: 0, massiv: 0, klein: 0 };
+    ziel.gruppe.name = 'WEB_HERO_Interior_Laden';
+    const fliesen = leinwand(256, 256, (g, w, h) => {
+      g.fillStyle = '#b9b2a4'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#aaa294'; g.fillRect(0, 0, w / 2, h / 2); g.fillRect(w / 2, h / 2, w / 2, h / 2);
+      g.strokeStyle = 'rgba(70,60,50,0.35)'; g.lineWidth = 3;
+      g.strokeRect(0, 0, w / 2, h / 2); g.strokeRect(w / 2, 0, w / 2, h / 2);
+      g.strokeRect(0, h / 2, w / 2, h / 2); g.strokeRect(w / 2, h / 2, w / 2, h / 2);
+    });
+    if (fliesen) { fliesen.wrapS = fliesen.wrapT = THREE.RepeatWrapping; fliesen.repeat.set(LADEN.laenge / 1.2, LADEN.breite / 1.2); }
+    const mats = {
+      boden: new THREE.MeshLambertMaterial(fliesen ? { map: fliesen } : { color: 0xcbc4b6 }),
+      decke: new THREE.MeshLambertMaterial({ color: 0xf2efe8 }),
+      wand: new THREE.MeshLambertMaterial({ color: 0xd2c6b0 }),
+      sockel: new THREE.MeshLambertMaterial({ color: 0x5a4d40 }),
+      regal: new THREE.MeshLambertMaterial({ color: 0xcfcbc3 }),
+      regalKante: new THREE.MeshLambertMaterial({ color: 0x2f5d8a }),
+      theke: new THREE.MeshLambertMaterial({ color: 0x7b5a3c }),
+      platte: new THREE.MeshPhongMaterial({ color: 0x3b3e44, shininess: 40, specular: 0x333333 }),
+      kuehl: new THREE.MeshLambertMaterial({ color: 0xd9dde2 }),
+      kuehlLicht: new THREE.MeshBasicMaterial({ color: 0xe9f3ff }),
+      glas: new THREE.MeshPhongMaterial({ color: 0xbfd6e6, transparent: true, opacity: 0.22, shininess: 90,
+                                          specular: 0xffffff, depthWrite: false }),
+      fenster: new THREE.MeshBasicMaterial({ color: 0xdde8ef }),
+      rahmen: new THREE.MeshLambertMaterial({ color: 0x3a3d42 }),
+      lampe: new THREE.MeshBasicMaterial({ color: 0xfff6e2 }),
+      ware: new THREE.MeshLambertMaterial({ vertexColors: true }),
+      schirm: new THREE.MeshBasicMaterial({ color: 0x163a52 }),
+    };
+    const H = LADEN.hoehe;
+    const { X, Z, oy, hx, hz } = huelle(ziel, o, LADEN.laenge, LADEN.breite, H, mats);
+    const M = [true, true, true];      // Moebel: Kollision, klein, nicht kletterbar
+    const W = sammler();
+
+    /* Sockelleiste rundum, dunkel - die Wand steht sonst ohne Kante auf dem Boden. */
+    deko(ziel, mats.sockel, X(0), oy, Z(-hz + 0.03), LADEN.laenge, 0.12, 0.06);
+    deko(ziel, mats.sockel, X(-hx + 0.03), oy, Z(0), 0.06, 0.12, LADEN.breite);
+    deko(ziel, mats.sockel, X(hx - 0.03), oy, Z(0), 0.06, 0.12, LADEN.breite);
+
+    /* ---- Front (Suedwand): Tuer links, Schaufenster aus Milchglas ----
+       Hinter Milchglas muss keine Strasse zu sehen sein; das helle Feld
+       liest sich als Tageslicht. */
+    const tuerX = -5.0;
+    const fz = hz - 0.04;
+    deko(ziel, mats.rahmen, X(tuerX), oy, Z(fz), 2.0, 2.45, 0.08);
+    deko(ziel, mats.fenster, X(tuerX), oy + 0.05, Z(fz - 0.05), 1.7, 2.3, 0.02);
+    deko(ziel, mats.rahmen, X(tuerX + 0.55), oy + 1.0, Z(fz - 0.09), 0.06, 0.32, 0.05);   // Griff
+    for (const [fx, fb] of [[-1.2, 4.6], [4.4, 6.4]]) {
+      deko(ziel, mats.rahmen, X(fx), oy + 0.7, Z(fz), fb + 0.16, 2.1, 0.08);
+      deko(ziel, mats.fenster, X(fx), oy + 0.78, Z(fz - 0.05), fb, 1.94, 0.02);
+      for (let s = -fb / 2 + fb / 3; s < fb / 2 - 0.1; s += fb / 3) deko(ziel, mats.rahmen, X(fx + s), oy + 0.78, Z(fz - 0.07), 0.05, 1.94, 0.03);
+    }
+
+    /* ---- Theke rechts vorn, L-foermig, dahinter der Inhaber ---- */
+    bau(ziel, mats.theke, X(4.9), oy, Z(4.1), 1.0, 1.0, 3.6, ...M);
+    bau(ziel, mats.theke, X(6.6), oy, Z(2.55), 2.4, 1.0, 0.8, ...M);
+    deko(ziel, mats.platte, X(4.9), oy + 1.0, Z(4.1), 1.1, 0.05, 3.7);
+    deko(ziel, mats.platte, X(6.6), oy + 1.0, Z(2.55), 2.5, 0.05, 0.9);
+    /* Kasse: Gehaeuse, Bildschirm, Kartenleser */
+    deko(ziel, mats.rahmen, X(4.85), oy + 1.05, Z(3.4), 0.42, 0.14, 0.36);
+    deko(ziel, mats.rahmen, X(4.95), oy + 1.19, Z(3.4), 0.06, 0.28, 0.34);
+    deko(ziel, mats.schirm, X(4.91), oy + 1.22, Z(3.4), 0.02, 0.22, 0.28);
+    deko(ziel, mats.rahmen, X(4.7), oy + 1.05, Z(3.95), 0.12, 0.06, 0.2);
+    /* Suessigkeiten am Thekenrand */
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 3; j++) W.kasten(4.55, oy + 1.05 + j * 0.09, 4.5 + i * 0.32, 0.22, 0.08, 0.26,
+        [0xc0392b, 0xe6b422, 0x2a7ab0, 0x7b3fa0][(i + j) % 4]);
+    }
+    /* Rueckregal hinter dem Inhaber (Ostwand), offen nach Westen */
+    regalOffen(ziel, mats, X, Z, oy, 7.7, 4.6, 3.6, 0.6, 2.2, 'z', [-1], 5, (sd, lev, y, von, bis, q) => {
+      let k = 0;
+      for (let z = von; z < bis; z += 0.24, k++) W.kasten(7.7 + q, y, 4.6 + z, 0.18, 0.26 - (k % 3) * 0.03, 0.2,
+        [0xe8e4da, 0xb13a2f, 0x2b4f86, 0xd9b44a, 0x3f7f5a, 0xefefef][(k * 7 + lev) % 6]);
+    });
+
+    /* ---- Zwei Regalreihen (Gondeln), laengs in z ----
+       Vier Boeden je Seite, Waren in festen Reihen und Familien - keine
+       Wuerfel durcheinander: je Boden eine Warengruppe mit gleicher Groesse. */
+    const FAMILIEN = [
+      { w: 0.22, h: 0.30, t: 0.08, farben: [0xd94f2b, 0xf0c33c, 0x4a7fc1, 0x5aa05a] },   // Muesli
+      { r: 0.045, h: 0.12, farben: [0xb8352e, 0x2e6fb8, 0xe8c547, 0x9aa1a8] },           // Dosen
+      { w: 0.12, h: 0.18, t: 0.12, farben: [0xe8e2d4, 0xc9a46a, 0x6f8f3a] },              // Packungen
+      { r: 0.04, h: 0.27, farben: [0x2f7d4a, 0xa83232, 0xf2f2f2, 0x2c4a7a] },             // Flaschen
+    ];
+    const gondel = (gx, z0, z1) => {
+      const len = z1 - z0, zm = (z0 + z1) / 2;
+      regalOffen(ziel, mats, X, Z, oy, gx, zm, len, 1.2, 1.7, 'z', [-1, 1], 4, (sd, lev, y, von, bis, q) => {
+        const f = FAMILIEN[(lev + (sd > 0 ? 1 : 0) + Math.round(gx)) & 3];
+        const schritt = f.r ? f.r * 2.4 : f.w + 0.02;
+        let i = 0;
+        for (let z = von; z < bis; z += schritt, i++) {
+          const farbe = f.farben[Math.floor(i / 3) % f.farben.length];
+          if (f.r) W.walze(gx + q, y, zm + z, f.r, f.h, farbe, 8);
+          else W.kasten(gx + q, y, zm + z, f.t * 2.2, f.h, f.w, farbe);
+        }
+      });
+      /* Kopfregal zur Tuer hin: Angebotsstapel */
+      bau(ziel, mats.regal, X(gx), oy, Z(z1 + 0.35), 1.2, 0.9, 0.7, ...M);
+      for (let a = 0; a < 3; a++) for (let b = 0; b < 4; b++)
+        W.kasten(gx - 0.42 + b * 0.28, oy + 0.9, z1 + 0.15 + a * 0.2, 0.24, 0.18, 0.16, a % 2 ? 0xe2532d : 0xf4d23e);
+    };
+    gondel(-3.6, -4.4, 1.6);
+    gondel(0.0, -4.4, 1.6);
+
+    /* ---- Wandregal (Westwand), offen nach Osten ---- */
+    regalOffen(ziel, mats, X, Z, oy, -hx + 0.3, -0.4, 8.4, 0.6, 2.0, 'z', [1], 5, (sd, lev, y, von, bis, q) => {
+      const f = FAMILIEN[(lev + 2) & 3];
+      let i = 0;
+      for (let z = von; z < bis; z += f.r ? f.r * 2.4 : f.w + 0.02, i++) {
+        const farbe = f.farben[Math.floor(i / 4) % f.farben.length];
+        if (f.r) W.walze(-hx + 0.3 + q, y, -0.4 + z, f.r, f.h, farbe, 8);
+        else W.kasten(-hx + 0.3 + q, y, -0.4 + z, f.t * 2.2, f.h, f.w, farbe);
+      }
+    });
+
+    /* ---- Kuehlregale an der Rueckwand (Nord), Glastueren ----
+       Offener Schrank: leuchtende Rueckwand, Flaschenreihen, vorn Glas.
+       Kollision ist der ganze Schrank bis zur Glasfront. */
+    const k0 = -6.2, k1 = 5.4, kt = 0.85, kz = -hz + kt / 2;
+    ziel.kollider.push({ x0: X(k0), x1: X(k1), z0: Z(-hz), z1: Z(-hz + kt + 0.02),
+                         h: oy + 2.15, y0: oy, klein: true, keinKlettern: true, innen: true });
+    ziel.massiv++;
+    deko(ziel, mats.kuehlLicht, X((k0 + k1) / 2), oy + 0.15, Z(-hz + 0.05), k1 - k0 - 0.1, 1.85, 0.02);
+    deko(ziel, mats.kuehl, X((k0 + k1) / 2), oy, Z(kz), k1 - k0, 0.14, kt);                   // Sockel
+    deko(ziel, mats.kuehl, X((k0 + k1) / 2), oy + 2.0, Z(kz), k1 - k0, 0.15, kt);             // Kopf
+    deko(ziel, mats.kuehlLicht, X((k0 + k1) / 2), oy + 2.03, Z(-hz + kt + 0.005), k1 - k0 - 0.3, 0.06, 0.01);
+    for (const sx of [k0, k1]) deko(ziel, mats.kuehl, X(sx), oy, Z(kz), 0.06, 2.15, kt);
+    for (let lev = 0; lev < 4; lev++) {
+      const y = oy + 0.14 + lev * 0.46;
+      if (lev > 0) deko(ziel, mats.kuehl, X((k0 + k1) / 2), y - 0.02, Z(kz - 0.05), k1 - k0 - 0.12, 0.02, kt - 0.15);
+      let i = 0;
+      for (let x = k0 + 0.2; x < k1 - 0.15; x += 0.13, i++) {
+        const fam = Math.floor((x - k0) / 2.9);
+        const farbe = [[0x2a8c4a, 0x37a65a], [0xd6402f, 0xe9573f], [0xf0b429, 0xf6cc54], [0x2d6db5, 0x4a8ad0]][fam & 3][i & 1];
+        for (let r = 0; r < 2; r++) W.walze(x, y, -hz + 0.3 + r * 0.16, 0.045, lev % 2 ? 0.26 : 0.17, farbe, 8);
+      }
+    }
+    for (let x = k0 + 1.45; x < k1; x += 2.9) {
+      deko(ziel, mats.glas, X(x), oy + 0.14, Z(-hz + kt), 2.8, 1.86, 0.02);
+      deko(ziel, mats.rahmen, X(x - 1.42), oy + 0.14, Z(-hz + kt + 0.01), 0.05, 1.86, 0.05);
+      deko(ziel, mats.rahmen, X(x + 1.2), oy + 0.85, Z(-hz + kt + 0.04), 0.03, 0.5, 0.05);   // Griff
+    }
+
+    /* ---- Schriftzug ueber dem Rueckregal, Fussmatte am Eingang ---- */
+    const ladenSchild = leinwand(512, 128, (g, w, h) => {
+      g.fillStyle = '#7a2a22'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#f3e3c3'; g.font = 'bold 62px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('ECKMARKT', w / 2, h / 2 + 3);
+    });
+    const schildMat = new THREE.MeshBasicMaterial(ladenSchild ? { map: ladenSchild } : { color: 0x7a2a22 });
+    const sm = new THREE.Mesh(kastenGeo, schildMat);
+    sm.position.set(X(hx - 0.05), oy + 2.85, Z(4.6)); sm.scale.set(0.04, 0.55, 2.2);
+    sm.rotation.y = 0;
+    ziel.gruppe.add(sm); ziel.sichtbar++; ziel.klein++;
+    deko(ziel, mats.sockel, X(tuerX), oy + 0.005, Z(hz - 1.0), 1.6, 0.012, 1.0);
+
+    /* ---- Zeitungsstaender neben der Tuer ---- */
+    bau(ziel, mats.rahmen, X(-7.2), oy, Z(5.6), 0.8, 1.1, 0.5, ...M);
+    for (let i = 0; i < 4; i++) W.kasten(-7.2, oy + 1.1, 5.42 + i * 0.12, 0.6, 0.02 + i * 0.004, 0.09, [0xf2efe6, 0xe0d8c4, 0xd94f2b, 0x3a3a3a][i]);
+
+    /* ---- Licht: Leuchtfelder an der Decke, sieben Punktlichter ---- */
+    for (const [lx, lz] of [[-5.5, -3], [-1.8, -3], [2, -3], [-5.5, 2.5], [-1.8, 2.5], [2, 2.5], [6, 4.2]]) deckenFeld(ziel, mats.lampe, X(lx), oy + H, Z(lz), 1.2, 0.6);
+    raumLicht(ziel, X, Z, oy, H, 0xe9e4da, 0x6f675c, 0.62, 0xffecc8,
+      [[-5.5, -3, 0.42], [-1.8, -3, 0.42], [2, -3, 0.42], [-5.5, 2.5, 0.38], [-1.8, 2.5, 0.38], [2, 2.5, 0.38], [6, 4.2, 0.45]]);
+
+    W.fertig(ziel, mats.ware, o);
+
+    /* ---- Plaetze und Wege ---- */
+    const P = (x, z) => ({ x: X(x), y: oy, z: Z(z) });
+    const spielerStart = P(tuerX, hz - 1.4);
+    const ausgang = { x: X(tuerX), z: Z(hz - 0.6), r: 1.6, text: 'Hinausgehen' };
+    const personen = [
+      { rolle: 'inhaber', x: X(6.6), z: Z(4.3), ry: -Math.PI / 2, clip: 'idle' },
+      { rolle: 'kunde', x: X(-1.8), z: Z(-1.4), ry: Math.PI / 2, clip: 'idle' },
+      { rolle: 'kunde', x: X(2.6), z: Z(-5.2), ry: Math.PI, clip: 'idle' },
+    ];
+    const aktionen = [
+      { id: 'inhaber', x: X(3.9), z: Z(4.1), r: 1.8, text: 'Mit dem Inhaber sprechen' },
+    ];
+    const wegFehler = wegePruefen(ziel, [
+      ['zurTheke', [spielerStart, P(-1.8, 4.0), P(3.9, 4.1)]],
+      ['gangMitte', [P(-1.8, 4.0), P(-1.8, -1.4), P(-1.8, -5.3)]],
+      ['zumKuehlregal', [P(-1.8, -5.3), P(2.6, -5.3)]],
+      ['gangOst', [P(3.0, 3.6), P(2.6, -5.3)]],
+      ['gangWest', [P(-6.0, 4.0), P(-6.0, -5.3)]],
+      ['zurTuer', [P(3.9, 4.1), spielerStart]],
+    ]);
+    return {
+      id: 'laden', gruppe: ziel.gruppe, kollider: ziel.kollider, bodenY: oy,
+      grenzen: { x0: X(-hx) + 0.5, x1: X(hx) - 0.5, z0: Z(-hz) + 0.5, z1: Z(hz) - 0.5 },
+      spielerStart, spielerBlick: Math.PI, ausgang, personen, aktionen,
+      masse: { laenge: LADEN.laenge, breite: LADEN.breite, hoehe: H },
+      wegFehler,
+      zahlen: { sichtbar: ziel.sichtbar, massiv: ziel.massiv, klein: ziel.klein,
+                kollider: ziel.kollider.length, lichter: ziel.lichter || 0, wegFehler: wegFehler.length,
+                personen: personen.length },
+    };
+  }
+
+  /* =================== Ort B: Buero-Lobby ===================
+     22 x 16 m, Decke 4,2 m. Doppeltuer mittig in der Suedwand, Empfang
+     gegenueber, links ein Wartebereich mit Sofas und Pflanzen, rechts vier
+     Arbeitsplaetze mit Trennwaenden, hinten die Aufzuege. */
+  const BUERO = { laenge: 22, breite: 16, hoehe: 4.2 };
+  function createBuero(opt) {
+    const o = { x: (opt && opt.x) || 0, y: (opt && opt.y) || 0, z: (opt && opt.z) || 0 };
+    const ziel = { gruppe: new THREE.Group(), kollider: [], sichtbar: 0, massiv: 0, klein: 0 };
+    ziel.gruppe.name = 'WEB_HERO_Interior_Buero';
+    const stein = leinwand(256, 256, (g, w, h) => {
+      g.fillStyle = '#a7a49d'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#9e9b94'; g.fillRect(0, 0, w, h / 2);
+      g.strokeStyle = 'rgba(60,60,60,0.22)'; g.lineWidth = 2;
+      g.strokeRect(0, 0, w, h / 2); g.strokeRect(0, h / 2, w, h / 2);
+    });
+    if (stein) { stein.wrapS = stein.wrapT = THREE.RepeatWrapping; stein.repeat.set(BUERO.laenge / 1.6, BUERO.breite / 1.6); }
+    const schild = leinwand(512, 128, (g, w, h) => {
+      g.fillStyle = '#20262e'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#d8c7a0'; g.font = 'bold 54px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('KAI 7  ·  BÜROHAUS', w / 2, h / 2 + 2);
+    });
+    const mats = {
+      boden: new THREE.MeshLambertMaterial(stein ? { map: stein } : { color: 0xb6b3ac }),
+      decke: new THREE.MeshLambertMaterial({ color: 0xeeeeea }),
+      wand: new THREE.MeshLambertMaterial({ color: 0xc9c4b9 }),
+      holz: new THREE.MeshLambertMaterial({ color: 0x7a5a3e }),
+      hell: new THREE.MeshLambertMaterial({ color: 0xe9e6df }),
+      dunkel: new THREE.MeshLambertMaterial({ color: 0x2e3238 }),
+      stoff: new THREE.MeshLambertMaterial({ color: 0x4d6273 }),
+      teppich: new THREE.MeshLambertMaterial({ color: 0x55606b, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      trenn: new THREE.MeshLambertMaterial({ color: 0x7f8c8a }),
+      metall: new THREE.MeshPhongMaterial({ color: 0x9aa0a6, shininess: 60, specular: 0x666666 }),
+      fenster: new THREE.MeshBasicMaterial({ color: 0xdde7ee }),
+      glas: new THREE.MeshPhongMaterial({ color: 0xbfd6e6, transparent: true, opacity: 0.25, shininess: 90,
+                                          specular: 0xffffff, depthWrite: false }),
+      lampe: new THREE.MeshBasicMaterial({ color: 0xf7f9ff }),
+      schild: new THREE.MeshBasicMaterial(schild ? { map: schild } : { color: 0x20262e }),
+      teile: new THREE.MeshLambertMaterial({ vertexColors: true }),
+      schirm: new THREE.MeshBasicMaterial({ color: 0x1f4c6e }),
+      blatt: new THREE.MeshLambertMaterial({ color: 0x3f7f3e, flatShading: true }),
+    };
+    const H = BUERO.hoehe;
+    const { X, Z, oy, hx, hz } = huelle(ziel, o, BUERO.laenge, BUERO.breite, H, mats);
+    const M = [true, true, true];
+    const T = sammler();
+
+    /* ---- Front: Doppeltuer aus Glas, Fensterband aus Milchglas ---- */
+    const fz = hz - 0.04;
+    deko(ziel, mats.dunkel, X(0), oy, Z(fz), 3.0, 2.8, 0.08);
+    deko(ziel, mats.fenster, X(0), oy + 0.05, Z(fz - 0.05), 2.7, 2.65, 0.02);
+    deko(ziel, mats.dunkel, X(0), oy + 0.05, Z(fz - 0.08), 0.06, 2.65, 0.04);
+    for (const fx of [-6.5, 6.5]) {
+      deko(ziel, mats.dunkel, X(fx), oy + 0.5, Z(fz), 7.2, 3.0, 0.08);
+      deko(ziel, mats.fenster, X(fx), oy + 0.58, Z(fz - 0.05), 7.0, 2.84, 0.02);
+      for (let s = -3.5 + 1.4; s < 3.4; s += 1.4) deko(ziel, mats.dunkel, X(fx + s), oy + 0.58, Z(fz - 0.07), 0.05, 2.84, 0.03);
+    }
+
+    /* ---- Empfang: Tresen mit erhoehter Ablage, Schriftwand dahinter ---- */
+    bau(ziel, mats.holz, X(0), oy, Z(1.4), 4.6, 1.1, 0.9, ...M);
+    deko(ziel, mats.hell, X(0), oy + 1.1, Z(1.62), 4.7, 0.05, 0.5);
+    bau(ziel, mats.holz, X(-2.75), oy, Z(0.75), 0.9, 1.1, 2.2, ...M);
+    deko(ziel, mats.hell, X(-2.75), oy + 1.1, Z(0.75), 1.0, 0.05, 2.3);
+    deko(ziel, mats.dunkel, X(0.8), oy + 1.1, Z(1.25), 0.5, 0.32, 0.04);      // Bildschirm am Empfang
+    deko(ziel, mats.schirm, X(0.8), oy + 1.12, Z(1.225), 0.44, 0.27, 0.01);
+    bau(ziel, mats.wand, X(0), oy, Z(-1.4), 7.0, 3.1, 0.4, ...M);
+    deko(ziel, mats.schild, X(0), oy + 1.8, Z(-1.18), 3.6, 0.9, 0.03);
+
+    /* ---- Wartebereich links: zwei Sofas, Tisch, Pflanzen, Teppich ---- */
+    deko(ziel, mats.teppich, X(-7.4), oy, Z(3.6), 5.6, 0.02, 4.2);
+    const sofa = (sx, sz, quer) => {
+      const bx = quer ? 0.9 : 2.4, bz = quer ? 2.4 : 0.9;
+      bau(ziel, mats.stoff, X(sx), oy, Z(sz), bx, 0.45, bz, ...M);
+      const rx = quer ? sx - 0.35 : sx, rz = quer ? sz : sz - 0.35;
+      bau(ziel, mats.stoff, X(rx), oy + 0.45, Z(rz), quer ? 0.2 : 2.4, 0.45, quer ? 2.4 : 0.2, ...M);
+    };
+    sofa(-7.4, 1.7, false);           // Lehne nach Norden, Blick nach Sueden
+    sofa(-9.9, 3.9, true);            // Lehne nach Westen, Blick nach Osten
+    bau(ziel, mats.holz, X(-7.4), oy, Z(3.7), 1.4, 0.4, 0.8, ...M);
+    T.kasten(-7.65, oy + 0.4, 3.6, 0.3, 0.015, 0.22, 0xe7e1d2);
+    T.kasten(-7.2, oy + 0.4, 3.85, 0.26, 0.012, 0.2, 0xc8402f);
+    /* Pflanze: runder Topf und drei niedrigpolige Blattbuesche (flach
+       schattiert). Wuerfelstapel lasen sich im ersten Bild als Kisten. */
+    const blattGeo = new THREE.IcosahedronGeometry(0.5, 0);
+    const pflanze = (px, pz, gross) => {
+      const s = gross ? 1.0 : 0.75;
+      ziel.kollider.push({ x0: X(px - 0.32 * s), x1: X(px + 0.32 * s), z0: Z(pz - 0.32 * s), z1: Z(pz + 0.32 * s),
+                           h: oy + 0.6 * s, y0: oy, klein: true, keinKlettern: true, innen: true });
+      ziel.massiv++;
+      T.walze(px, oy, pz, 0.3 * s, 0.55 * s, 0x3a3e44, 10);
+      T.walze(px, oy + 0.5 * s, pz, 0.27 * s, 0.03, 0x4a3a2c, 10);
+      for (const [bx, by, bz, br] of [[0, 1.05, 0, 0.46], [0.16, 0.8, 0.1, 0.34], [-0.14, 0.86, -0.12, 0.36]]) {
+        const m = new THREE.Mesh(blattGeo, mats.blatt);
+        m.position.set(X(px + bx * s), oy + by * s, Z(pz + bz * s));
+        m.scale.setScalar(br * 2 * s);
+        m.rotation.set(bx * 3, by * 2, bz * 3);
+        ziel.gruppe.add(m); ziel.sichtbar++; ziel.klein++;
+      }
+    };
+    pflanze(-10.3, 0.6, true); pflanze(-4.6, 6.9, true); pflanze(10.3, -7.2, false); pflanze(10.3, 6.9, true);
+
+    /* ---- Arbeitsplaetze rechts: vier Tische, Trennwaende, Stuehle ---- */
+    deko(ziel, mats.teppich, X(7.6), oy, Z(-3.4), 6.0, 0.02, 6.6);
+    const tisch = (tx, tz, blick) => {
+      bau(ziel, mats.hell, X(tx), oy, Z(tz), 1.6, 0.75, 0.8, ...M);
+      const mz = tz + blick * 0.22;
+      deko(ziel, mats.dunkel, X(tx), oy + 0.75, Z(mz), 0.56, 0.36, 0.04);
+      deko(ziel, mats.schirm, X(tx), oy + 0.78, Z(mz - blick * 0.025), 0.5, 0.3, 0.01);
+      T.kasten(tx, oy + 0.75, tz - blick * 0.12, 0.42, 0.02, 0.14, 0x2a2d31);   // Tastatur
+      /* Stuhl: Sitz, Lehne, Saeule - eine Kollision fuer den Sitz */
+      const sz = tz - blick * 0.75;
+      bau(ziel, mats.dunkel, X(tx), oy, Z(sz), 0.55, 0.48, 0.55, ...M);
+      deko(ziel, mats.dunkel, X(tx), oy + 0.48, Z(sz - blick * 0.26), 0.5, 0.55, 0.06);
+      return { x: tx, z: sz };
+    };
+    const platz1 = tisch(6.0, -1.6, -1);    // Blick nach Norden (Bildschirm im Norden)
+    tisch(9.0, -1.6, -1);
+    tisch(6.0, -5.2, 1);                    // Blick nach Sueden
+    tisch(9.0, -5.2, 1);
+    bau(ziel, mats.trenn, X(7.5), oy, Z(-3.4), 3.4, 1.25, 0.08, ...M);
+    bau(ziel, mats.trenn, X(7.5), oy, Z(-3.4), 0.08, 1.25, 4.4, ...M);
+    /* Drucker und Wasserspender an der Ostwand */
+    bau(ziel, mats.hell, X(10.4), oy, Z(1.6), 0.8, 0.9, 0.6, ...M);
+    deko(ziel, mats.dunkel, X(10.4), oy + 0.9, Z(1.6), 0.6, 0.18, 0.45);
+    bau(ziel, mats.hell, X(10.55), oy, Z(3.2), 0.4, 1.05, 0.4, ...M);
+    T.walze(10.55, oy + 1.05, 3.2, 0.14, 0.42, 0x9cc8e6, 10);
+
+    /* ---- Aufzuege an der Rueckwand (Nord) ---- */
+    for (const ax of [-6.0, -3.2]) {
+      deko(ziel, mats.dunkel, X(ax), oy, Z(-hz + 0.04), 1.6, 2.6, 0.08);
+      deko(ziel, mats.metall, X(ax - 0.4), oy + 0.02, Z(-hz + 0.1), 0.78, 2.45, 0.03);
+      deko(ziel, mats.metall, X(ax + 0.4), oy + 0.02, Z(-hz + 0.1), 0.78, 2.45, 0.03);
+      deko(ziel, mats.lampe, X(ax), oy + 2.75, Z(-hz + 0.08), 0.5, 0.12, 0.03);
+    }
+    deko(ziel, mats.metall, X(-4.6), oy + 1.1, Z(-hz + 0.06), 0.12, 0.3, 0.03);   // Rufknopf
+
+    /* ---- Licht ---- */
+    for (const [lx, lz] of [[-7.5, 3.5], [0, 3.8], [0, -4.5], [-5, -4.5], [6, -1.6], [9, -1.6], [6, -5.2], [9, -5.2]])
+      deckenFeld(ziel, mats.lampe, X(lx), oy + H, Z(lz), 1.4, 0.7);
+    raumLicht(ziel, X, Z, oy, H, 0xe8edf4, 0x6f6a62, 0.62, 0xf3efe6,
+      [[-7.5, 3.5, 0.42], [0, 3.8, 0.42], [0, -4.5, 0.36], [-5, -4.5, 0.36], [6, -1.6, 0.4], [9, -5.2, 0.4], [9, 3.2, 0.34]]);
+
+    T.fertig(ziel, mats.teile, o);
+
+    /* ---- Plaetze und Wege ---- */
+    const P = (x, z) => ({ x: X(x), y: oy, z: Z(z) });
+    const spielerStart = P(0, hz - 1.6);
+    const ausgang = { x: X(0), z: Z(hz - 0.7), r: 1.8, text: 'Hinausgehen' };
+    const personen = [
+      { rolle: 'empfang', x: X(0), z: Z(0.55), ry: 0, clip: 'idle' },
+      { rolle: 'mitarbeiter', x: X(platz1.x), z: Z(platz1.z), ry: Math.PI, clip: 'sitzen', sitz: oy + 0.48 },
+      { rolle: 'besucher', x: X(-7.4), z: Z(1.85), ry: 0, clip: 'sitzen', sitz: oy + 0.45 },
+    ];
+    const aktionen = [
+      { id: 'empfang', x: X(0), z: Z(2.6), r: 1.8, text: 'Am Empfang fragen' },
+    ];
+    const wegFehler = wegePruefen(ziel, [
+      ['zumEmpfang', [spielerStart, P(0, 2.6)]],
+      ['zumWarten', [spielerStart, P(-4.0, 5.6), P(-7.4, 5.6)]],
+      ['zumBuero', [spielerStart, P(4.0, 5.0), P(4.0, -6.6)]],
+      ['zuAufzug', [P(4.0, -6.6), P(-4.6, -6.6)]],
+      ['zurTuer', [P(0, 2.6), spielerStart]],
+    ]);
+    return {
+      id: 'buero', gruppe: ziel.gruppe, kollider: ziel.kollider, bodenY: oy,
+      grenzen: { x0: X(-hx) + 0.5, x1: X(hx) - 0.5, z0: Z(-hz) + 0.5, z1: Z(hz) - 0.5 },
+      spielerStart, spielerBlick: Math.PI, ausgang, personen, aktionen,
+      masse: { laenge: BUERO.laenge, breite: BUERO.breite, hoehe: H },
+      wegFehler,
+      zahlen: { sichtbar: ziel.sichtbar, massiv: ziel.massiv, klein: ziel.klein,
+                kollider: ziel.kollider.length, lichter: ziel.lichter || 0, wegFehler: wegFehler.length,
+                personen: personen.length },
+    };
+  }
+
+  return { createHideout, createLaden, createBuero, MASSE: M, LADEN, BUERO };
 });
