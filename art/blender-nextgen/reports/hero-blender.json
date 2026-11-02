@@ -1,0 +1,184 @@
+{
+ "gates": {
+  "WH_WH_Soles.005": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 537,
+   "tris": 556,
+   "nanVerts": 0,
+   "nonManifoldEdges": 440,
+   "boundaryEdges": 440,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH_Soles.005"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "WH_WH_GloveL.005": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 1109,
+   "tris": 1835,
+   "nanVerts": 0,
+   "nonManifoldEdges": 351,
+   "boundaryEdges": 351,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH_GloveL.005"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "WH_WH_Suit.005": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 5722,
+   "tris": 10193,
+   "nanVerts": 0,
+   "nonManifoldEdges": 1233,
+   "boundaryEdges": 1233,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH_Suit.005"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "WH_WH_LensFrame.005": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 481,
+   "tris": 448,
+   "nanVerts": 0,
+   "nonManifoldEdges": 436,
+   "boundaryEdges": 436,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH_LensFrame.005"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "WH_WH_LensGlass.005": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 144,
+   "tris": 224,
+   "nanVerts": 0,
+   "nonManifoldEdges": 60,
+   "boundaryEdges": 60,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH_LensGlass.005"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "WH_WH_DeviceL.005": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 118,
+   "tris": 72,
+   "nanVerts": 0,
+   "nonManifoldEdges": 118,
+   "boundaryEdges": 118,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH_DeviceL.005"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "WH_WH_DeviceR.005": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 118,
+   "tris": 72,
+   "nanVerts": 0,
+   "nonManifoldEdges": 118,
+   "boundaryEdges": 118,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH_DeviceR.005"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  }
+ },
+ "normalizeScale": 0.5559617698547727,
+ "animBytes": 133096,
+ "blendBytes": 2603070,
+ "landing": {
+  "frames": 63,
+  "fps": 30,
+  "landFrac": 0.0,
+  "endVsIdleDeg": 0.0,
+  "keys": [
+   0,
+   7,
+   12,
+   26,
+   44,
+   62
+  ]
+ },
+ "renders": [
+  "00_compare_old_left_new_right.jpg",
+  "00b_compare_run.jpg",
+  "01_front_bind.jpg",
+  "02_side.jpg",
+  "03_back.jpg",
+  "04_threequarter.jpg",
+  "05_detail_mask.jpg",
+  "06_idle.jpg",
+  "07_walk.jpg",
+  "08_run.jpg",
+  "09_combat_punch.jpg",
+  "10_combat_kick.jpg",
+  "11_strong_bend_roll.jpg",
+  "12_swing.jpg",
+  "13_climb.jpg",
+  "14_glide.jpg",
+  "15_dive_sturzflug.jpg",
+  "16_landing_a_fall.jpg",
+  "17_landing_b_impact.jpg",
+  "18_landing_c_hold.jpg",
+  "19_landing_d_rise.jpg"
+ ]
+}

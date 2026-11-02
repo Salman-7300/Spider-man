@@ -1,0 +1,774 @@
+{
+ "asset": "hero",
+ "clips": {
+  "idle": {
+   "duration": 9.933333396911621,
+   "at": 3.973,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 9.933333396911621,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 30,
+    "textures": 41,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "walk": {
+   "duration": 1.0333333015441895,
+   "at": 0.31,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 1.0333333015441895,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 33,
+    "textures": 62,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "run": {
+   "duration": 0.699999988079071,
+   "at": 0.175,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.699999988079071,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 36,
+    "textures": 83,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "sprint": {
+   "duration": 0.5333333611488342,
+   "at": 0.16,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.5333333611488342,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 39,
+    "textures": 104,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "jump": {
+   "duration": 0.8333333134651184,
+   "at": 0.333,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.8333333134651184,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 42,
+    "textures": 125,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "land": {
+   "duration": 1.0666667222976685,
+   "at": 0.32,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 1.0666667222976685,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 45,
+    "textures": 146,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "roll": {
+   "duration": 2.366666555404663,
+   "at": 0.947,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 2.366666555404663,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 48,
+    "textures": 167,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "fall": {
+   "duration": 0.699999988079071,
+   "at": 0.35,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.699999988079071,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 51,
+    "textures": 188,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "swing": {
+   "duration": 4.699999809265137,
+   "at": 1.41,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 4.699999809265137,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 54,
+    "textures": 209,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "schwungpose": {
+   "duration": 2.0333333015441895,
+   "at": 1.017,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 2.0333333015441895,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 57,
+    "textures": 230,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "zip_zug": {
+   "duration": 0.6363563537597656,
+   "at": 0.318,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.6363563537597656,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 60,
+    "textures": 251,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "gleiten": {
+   "duration": 3,
+   "at": 1.5,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 3,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 63,
+    "textures": 272,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "sturzflug": {
+   "duration": 0.03333333507180214,
+   "at": 0.017,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.03333333507180214,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 66,
+    "textures": 293,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "sturzflug2": {
+   "duration": 0.03333333507180214,
+   "at": 0.017,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.03333333507180214,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 69,
+    "textures": 314,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "klettern": {
+   "duration": 3.8333332538604736,
+   "at": 1.15,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 3.8333332538604736,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 72,
+    "textures": 335,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "klettern_seit": {
+   "duration": 1.1666666269302368,
+   "at": 0.583,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 1.1666666269302368,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 75,
+    "textures": 356,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "wandlauf": {
+   "duration": 0.9333333373069763,
+   "at": 0.467,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 0.9333333373069763,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 78,
+    "textures": 377,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "kante": {
+   "duration": 4,
+   "at": 2.4,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 4,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 81,
+    "textures": 398,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "punch": {
+   "duration": 1.6666666269302368,
+   "at": 0.7,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 1.6666666269302368,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 84,
+    "textures": 419,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "kick": {
+   "duration": 2.5,
+   "at": 1,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 2.5,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 87,
+    "textures": 440,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "uppercut": {
+   "duration": 1.3333333730697632,
+   "at": 0.6,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 1.3333333730697632,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 90,
+    "textures": 461,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "hit": {
+   "duration": 1.2666666507720947,
+   "at": 0.38,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 1.2666666507720947,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 93,
+    "textures": 482,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "luftangriff": {
+   "duration": 3.799999952316284,
+   "at": 1.9,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 3.799999952316284,
+      "clipTracks": 22,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 96,
+    "textures": 503,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 22,
+     "missing": []
+    }
+   ]
+  },
+  "proto:landing_pose": {
+   "duration": 2.066666603088379,
+   "at": 0.723,
+   "stats": {
+    "per": [
+     {
+      "old": false,
+      "loadMs": 54,
+      "clipDuration": 2.066666603088379,
+      "clipTracks": 52,
+      "meshes": 7,
+      "drawCalls": 7,
+      "tris": 13400,
+      "materials": 7,
+      "textures": 8,
+      "texMB": 30.7,
+      "bones": 66
+     }
+    ],
+    "rendererCalls": 22,
+    "rendererTris": 40202,
+    "geometries": 97,
+    "textures": 510,
+    "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+   },
+   "bones": [
+    {
+     "tracks": 52,
+     "missing": []
+    }
+   ]
+  }
+ },
+ "videoFrames": 426
+}

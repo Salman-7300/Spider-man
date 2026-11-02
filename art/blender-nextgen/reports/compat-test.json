@@ -1,0 +1,91 @@
+{
+ "checks": [
+  {
+   "name": "hero: gleiche Knotenanzahl und -namen",
+   "pass": true
+  },
+  {
+   "name": "hero: Knoten-Transformationen identisch",
+   "pass": true
+  },
+  {
+   "name": "hero: Skin (Gelenke, Skelettwurzel) identisch",
+   "pass": true
+  },
+  {
+   "name": "hero: inverse Bind-Matrizen bytegleich",
+   "pass": true
+  },
+  {
+   "name": "hero: Geometrie, UV, Gewichte, Gelenkindizes bytegleich (ausser Linsenform)",
+   "pass": true,
+   "detail": []
+  },
+  {
+   "name": "enforcer: gleiche Gelenkmenge wie thug",
+   "pass": true,
+   "detail": {
+    "old": 67,
+    "new": 67
+   }
+  },
+  {
+   "name": "enforcer: Ruhe-Rotationen wie thug (< 0,1 Grad)",
+   "pass": true,
+   "detail": {
+    "deg": 0.0382,
+    "worst": "mixamorigLeftShoulder"
+   }
+  },
+  {
+   "name": "taunt: erstes Bild = thug@idle Bild 0 (< 0,5 Grad)",
+   "pass": true,
+   "detail": {
+    "deg": 0.0479,
+    "worst": "mixamorigLeftShoulder"
+   }
+  },
+  {
+   "name": "taunt: letztes Bild = thug@idle Bild 0 (< 0,5 Grad)",
+   "pass": true,
+   "detail": {
+    "deg": 0.0449,
+    "worst": "mixamorigLeftShoulder"
+   }
+  },
+  {
+   "name": "taunt: nur Knochen, die das Rig kennt",
+   "pass": true,
+   "detail": []
+  },
+  {
+   "name": "landing: letztes Bild = hero@idle Bild 0 (< 0,5 Grad)",
+   "pass": true,
+   "detail": {
+    "deg": 0.0343,
+    "worst": "mixamorigSpine2"
+   }
+  },
+  {
+   "name": "landing: steuert alle 22 Koerperknochen",
+   "pass": true,
+   "detail": []
+  }
+ ],
+ "ok": true,
+ "hero": {
+  "trisOld": 13400,
+  "images": [
+   "image/jpeg",
+   "image/webp",
+   "image/jpeg",
+   "image/png",
+   "image/jpeg",
+   "image/webp",
+   "image/jpeg",
+   "image/webp"
+  ],
+  "bytesOld": 2173216,
+  "bytesNew": 2596132
+ }
+}

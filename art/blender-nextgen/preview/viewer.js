@@ -409,6 +409,17 @@ function step(dt) {
     if (it.kind === 'char') {
       if (it.mixer) it.mixer.setTime(it.clip ? t % Math.max(it.clip.duration, 0.001) : 0);
       it.root.position.set(0, 0, 0);
+      // Bodenausgleich wie im Spiel (Fussknochen): tiefster Zehenballen auf 3,5 cm
+      it.root.updateMatrixWorld(true);
+      if (!it.feet) { it.feet = []; it.scene.traverse((o) => { if (o.isBone && /(Left|Right)ToeBase$/.test(o.name)) it.feet.push(o); }); }
+      if (it.feet.length) {
+        let lo = Infinity;
+        for (const f of it.feet) { f.getWorldPosition(_v); lo = Math.min(lo, _v.y); }
+        it.root.position.y = 0.035 - lo;
+      }
+      // waagerecht auf die Huefte zentrieren (Positionsspuren sind ohnehin entfernt)
+      if (!it.hips) it.hips = it.scene.getObjectByName('mixamorigHips');
+      if (it.hips) { it.hips.getWorldPosition(_v); it.root.position.x -= _v.x; it.root.position.z -= _v.z; }
     } else {
       const R = it.old ? 0.35 : 0.335;
       for (const w of it.wheels) {
@@ -423,7 +434,7 @@ function step(dt) {
 // ---------------------------------------------------------------- Kamera & Zeichnen
 function frameCamera() {
   const a = ASSETS[state.asset];
-  const target = a.kind === 'car' ? new THREE.Vector3(0, 0.7, 0) : new THREE.Vector3(0, 0.95, 0);
+  const target = a.kind === 'car' ? new THREE.Vector3(0, 0.7, 0) : new THREE.Vector3(0, state.asset === 'hero' ? 1.1 : 0.95, 0);
   if (state.target) target.copy(state.target);
   const d = state.dist / 10;
   const yaw = THREE.MathUtils.degToRad(state.yaw), pitch = THREE.MathUtils.degToRad(state.pitch);

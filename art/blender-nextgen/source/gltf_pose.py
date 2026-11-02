@@ -75,6 +75,36 @@ def clip_locals(path, t=None, frac=None):
         out[name] = q
     return out, dur
 
+def _mat4(vals):
+    m = Matrix([vals[0:4], vals[4:8], vals[8:12], vals[12:16]]).transposed()   # glTF spaltenweise
+    return m
+
+def bind_rest(path):
+    """Wie node_rest, aber Ruhe = Bind-Pose aus den inverseBindMatrices (der glTF-Importer nimmt sie
+    als Knochen-Ruhe). Lokale Bind-Rotation relativ zum Elternknoten in derselben Bind-Pose."""
+    js, bn = read_glb(path)
+    rest = node_rest(path)
+    skin = js["skins"][0]
+    a = js["accessors"][skin["inverseBindMatrices"]]; v = js["bufferViews"][a["bufferView"]]
+    base = v.get("byteOffset", 0) + a.get("byteOffset", 0)
+    par = {}
+    for i, nd in enumerate(js["nodes"]):
+        for c in nd.get("children", []): par[c] = i
+    mesh_node = next(i for i, nd in enumerate(js["nodes"]) if "skin" in nd)
+    def world_q(i):
+        return rest[norm(js["nodes"][i].get("name"))][1]
+    Mq = world_q(mesh_node)
+    W = {}
+    for k, j in enumerate(skin["joints"]):
+        ibm = _mat4(struct.unpack_from("<16f", bn, base + 64 * k))
+        W[j] = Mq @ ibm.inverted().to_3x3().normalized().to_quaternion()
+    out = dict(rest)
+    for j, wq in W.items():
+        p = par.get(j)
+        pw = W[p] if p in W else (world_q(p) if p is not None else Quaternion())
+        out[norm(js["nodes"][j]["name"])] = (pw.inverted() @ wq, wq)
+    return out
+
 C_GL2BL = Quaternion((1, 0, 0), math.radians(90))   # glTF Y-oben -> Blender Z-oben
 
 def axis_corrections(rig, rest):
