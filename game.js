@@ -822,73 +822,182 @@ function dampAngle(cur, target, k) {
 }
 
 /* ======================= Audio (WebAudio, winzig) ======================= */
+/* ---- Mega-Update 1.0, M6: eigener Zufall fuer den Ton ----
+   Bisher fuellte jeder Effekt seinen Rauschpuffer aus Math.random - und
+   Math.random ist in diesem Spiel der Zufallsstrom der Stadt. Jeder
+   Schritt und jeder Schlag verschob damit, was danach in der Stadt
+   passierte. Der Ton zieht jetzt nur noch aus diesem eigenen kleinen
+   Generator; am Weltaufbau aendert das nichts. */
+const KLANG_ZUFALL = (() => {
+  let s = 0x6b6c616e;
+  return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
+})();
+function kz(a, b) { return a + (b - a) * KLANG_ZUFALL(); }
+
 const SFX = (() => {
   let ctx = null, muted = false, lautstaerke = 0.7;
+  /* ---- Erst nach der ersten Nutzeraktion ----
+     Frueher legte der erste Effekt den Klangkontext an, auch wenn noch
+     niemand geklickt hatte. Der Browser haelt so einen Kontext an; alles,
+     was in der Zeit "gespielt" wurde, stand still in der Warteschlange
+     und kam beim ersten Klick auf einmal heraus. Jetzt gibt es vor dem
+     Klick auf "Spielen" (SFX.init) gar keinen Kontext und keinen Knoten. */
+  let freigegeben = false;
   /* Ausgang aller Effekte. Frueher haben sie einzeln auf den Lautsprecher
      gezeigt - dadurch klangen sie unter der Erde genau wie oben auf der
      Strasse: trocken, hell, ohne jeden Raum. Jetzt laufen alle ueber einen
      gemeinsamen Ausgang mit Tiefpass und einer kurzen Verzoegerung. Im
      Tunnel macht der Tiefpass zu und die Verzoegerung auf: dumpf mit Hall,
      wie in einer Roehre. */
-  let aus = null, dumpf = null, hallG = null;
+  let aus = null, dumpf = null, hallG = null, verz = null, rueck = null;
+  /* M6: Geraeusche von draussen (Sirene, Hupe, Alarm, Unfall, Motor,
+     Hilferufe, Rauferei, Zug) haben einen eigenen Zweig mit Tiefpass. Im
+     Innenraum macht er zu - die Sirene draussen klingt dann gedaempft
+     und leiser, die eigenen Schlaege drinnen nicht. */
+  let aussen = null, aussenF = null;
+  let raumArt = '', innenWert = -1;
+  /* Wie viele Einzelklaenge gerade spielen. Jeder endet von selbst; die
+     Grenze verhindert nur, dass sich in einem Ausnahmefall (Tab im
+     Hintergrund, zehn Sirenen) Hunderte Knoten stapeln. */
+  let laufend = 0, ausgelassen = 0, gespielt = 0;
+  const LAUFEND_MAX = 48;
   function ausgang() {
     const c = ac(); if (!c) return null;
     if (aus) return aus;
     aus = c.createGain();
     dumpf = c.createBiquadFilter();
     dumpf.type = 'lowpass'; dumpf.frequency.value = 20000;
-    aus.connect(dumpf); dumpf.connect(c.destination);
-    const verz = c.createDelay(0.5); verz.delayTime.value = 0.135;
-    const rueck = c.createGain(); rueck.gain.value = 0.33;
+    /* M6: ein weicher Begrenzer vor dem Lautsprecher. Drei Sirenen,
+       Alarm und Kampf zugleich summieren sich sonst ungebremst. Unter
+       der Schwelle greift er nicht ein. */
+    const grenze = c.createDynamicsCompressor ? c.createDynamicsCompressor() : null;
+    aus.connect(dumpf);
+    if (grenze) {
+      grenze.threshold.value = -9; grenze.knee.value = 8; grenze.ratio.value = 4;
+      grenze.attack.value = 0.004; grenze.release.value = 0.25;
+      dumpf.connect(grenze); grenze.connect(c.destination);
+    } else dumpf.connect(c.destination);
+    verz = c.createDelay(0.5); verz.delayTime.value = 0.135;
+    rueck = c.createGain(); rueck.gain.value = 0.33;
     hallG = c.createGain(); hallG.gain.value = 0;
     aus.connect(verz); verz.connect(rueck); rueck.connect(verz);
-    verz.connect(hallG); hallG.connect(c.destination);
+    verz.connect(hallG); hallG.connect(grenze || c.destination);
+    aussen = c.createGain();
+    aussenF = c.createBiquadFilter();
+    aussenF.type = 'lowpass'; aussenF.frequency.value = 20000;
+    aussen.connect(aussenF); aussenF.connect(aus);
     return aus;
   }
   function ac() {
+    if (!freigegeben) return null;
     if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
     if (ctx && ctx.state === 'suspended') ctx.resume();
     return ctx;
   }
-  function tone(freq, dur, type, vol, slide) {
-    const c = ac(); if (!c || muted) return;
-    const o = c.createOscillator(), g = c.createGain();
-    o.type = type || 'sine'; o.frequency.value = freq;
-    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), c.currentTime + dur);
-    g.gain.value = Math.max(0.0001, (vol || 0.15) * lautstaerke);
-    g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
-    o.connect(g); g.connect(ausgang() || c.destination);
-    o.start(); o.stop(c.currentTime + dur);
+  /* Ziel eines Einzelklangs: Haupt- oder Aussenzweig, auf Wunsch mit
+     Richtung (o.pan: -1 links .. 1 rechts). */
+  function ziel(c, o) {
+    const a = ausgang(); if (!a) return c.destination;
+    const basis = o && o.aussen ? aussen : a;
+    if (o && o.pan && c.createStereoPanner) {
+      const p = c.createStereoPanner();
+      p.pan.value = clamp(o.pan, -1, 1);
+      p.connect(basis);
+      return p;
+    }
+    return basis;
   }
-  function noise(dur, vol, hp) {
+  function zaehle(q) {
+    laufend++; gespielt++;
+    q.onended = () => { laufend--; };
+  }
+  function tone(freq, dur, type, vol, slide, o) {
     const c = ac(); if (!c || muted) return;
-    const n = Math.floor(c.sampleRate * dur);
-    const buf = c.createBuffer(1, n, c.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-    const s = c.createBufferSource(); s.buffer = buf;
-    const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp || 800;
-    const g = c.createGain(); g.gain.value = Math.max(0.0001, (vol || 0.12) * lautstaerke);
-    s.connect(f); f.connect(g); g.connect(ausgang() || c.destination); s.start();
+    if (laufend >= LAUFEND_MAX) { ausgelassen++; return; }
+    const t = c.currentTime + (o && o.bei || 0);
+    const osz = c.createOscillator(), g = c.createGain();
+    osz.type = type || 'sine'; osz.frequency.setValueAtTime(freq, t);
+    if (slide) osz.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), t + dur);
+    g.gain.setValueAtTime(Math.max(0.0001, (vol || 0.15) * lautstaerke), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osz.connect(g); g.connect(ziel(c, o));
+    zaehle(osz);
+    osz.start(t); osz.stop(t + dur);
+  }
+  /* Ein gemeinsamer Rauschpuffer statt eines neuen je Effekt. Der Abfall,
+     der frueher in den Puffer gerechnet war, steckt jetzt in der
+     Lautstaerkekurve - gleicher Klang, kein Puffer je Schritt. */
+  let weiss = null;
+  function weissPuffer(c) {
+    if (weiss) return weiss;
+    const n = Math.floor(c.sampleRate * 2);
+    weiss = c.createBuffer(1, n, c.sampleRate);
+    const d = weiss.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = KLANG_ZUFALL() * 2 - 1;
+    return weiss;
+  }
+  function noise(dur, vol, hp, o) {
+    const c = ac(); if (!c || muted) return;
+    if (laufend >= LAUFEND_MAX) { ausgelassen++; return; }
+    const t = c.currentTime + (o && o.bei || 0);
+    const s = c.createBufferSource(); s.buffer = weissPuffer(c);
+    const f = c.createBiquadFilter(); f.type = o && o.tp ? 'lowpass' : 'highpass';
+    f.frequency.value = o && o.tp ? o.tp : (hp || 800);
+    const g = c.createGain();
+    g.gain.setValueAtTime(Math.max(0.0001, (vol || 0.12) * lautstaerke), t);
+    g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(ziel(c, o));
+    zaehle(s);
+    s.start(t, kz(0, Math.max(0, 1.95 - dur)), dur);
   }
   return {
-    init: ac,
+    /* Der Klick auf "Spielen" - erst ab hier gibt es Ton. */
+    init() { freigegeben = true; return ac(); },
     /* Für die Musik: laufender Kontext und die aktuelle Lautstärke. */
     kontext: ac,
     pegel() { return muted ? 0 : lautstaerke; },
-    /* 0 = draussen, 1 = tief im Tunnel. */
-    raum(v) {
+    stumm() { return muted; },
+    /* Fuer die Pruefstaende: was gerade klingt. */
+    stand() {
+      return { freigegeben, kontext: ctx ? ctx.state : null, laufend, gespielt, ausgelassen,
+               innen: +Math.max(0, innenWert).toFixed(2),
+               raum: !hallG || hallG.gain.value < 0.001 ? 'aussen' : raumArt,
+               aussenFrequenz: aussenF ? Math.round(aussenF.frequency.value) : null,
+               aussenPegel: aussen ? +aussen.gain.value.toFixed(3) : null };
+    },
+    /* 0 = draussen, 1 = tief im Tunnel; drin = im Innenraum (0..1).
+       Tunnel: dumpf, langes Echo. Innenraum: kurzer, heller Raumhall -
+       der eigene Schlag klingt nach Zimmer, nicht nach Roehre. */
+    raum(v, drin) {
       if (!ausgang()) return;
-      const t = clamp(v, 0, 1);
+      const t = clamp(v, 0, 1), r = clamp(drin || 0, 0, 1);
       dumpf.frequency.value = 20000 - t * 17200;
-      hallG.gain.value = t * 0.32;
+      const art = t >= r ? 'tunnel' : 'innen';
+      if (art !== raumArt) {
+        raumArt = art;
+        const jetzt = ctx.currentTime;
+        verz.delayTime.setTargetAtTime(art === 'tunnel' ? 0.135 : 0.052, jetzt, 0.05);
+        rueck.gain.setTargetAtTime(art === 'tunnel' ? 0.33 : 0.24, jetzt, 0.05);
+      }
+      hallG.gain.value = art === 'tunnel' ? t * 0.32 : r * 0.17;
+    },
+    /* Wie weit der Aussenzweig zu ist: 0 = draussen, 1 = im Innenraum. */
+    innen(v) {
+      if (!ausgang()) return;
+      const w = clamp(v, 0, 1);
+      if (Math.abs(w - innenWert) < 0.002) return;
+      innenWert = w;
+      aussenF.frequency.value = 20000 * Math.pow(620 / 20000, w);
+      aussen.gain.value = 1 - w * 0.7;
     },
     /* ---- Sirenenton (SFX) ----
        Ein einzelner Ton des Zweiklangs. Die Abfolge und die Lautstaerke
        nach Entfernung macht der Aufrufer (respSirene) - hier wird nur
-       gespielt. Kein Doppler, keine Datei. */
-    sirene(freq, vol) {
+       gespielt. Kein Doppler, keine Datei. M6: mit Richtung und ueber den
+       Aussenzweig. */
+    sirene(freq, vol, pan) {
       const c = ac(); if (!c || muted) return;
+      if (laufend >= LAUFEND_MAX) { ausgelassen++; return; }
       const o = c.createOscillator(), g = c.createGain();
       o.type = 'square'; o.frequency.value = freq;
       const t = c.currentTime;
@@ -900,7 +1009,8 @@ const SFX = (() => {
          die Sirene durch alles andere hindurch. */
       const f = c.createBiquadFilter();
       f.type = 'lowpass'; f.frequency.value = 1800;
-      o.connect(f); f.connect(g); g.connect(ausgang() || c.destination);
+      o.connect(f); f.connect(g); g.connect(ziel(c, { aussen: true, pan }));
+      zaehle(o);
       o.start(t); o.stop(t + 0.62);
     },
     setLautstaerke(v) { lautstaerke = clamp(v, 0, 1); },
@@ -943,7 +1053,7 @@ const SFX = (() => {
     schritt(wucht, tief) {
       const v = clamp(wucht === undefined ? 0.6 : wucht, 0, 1);
       noise(0.05 + v * 0.03, 0.05 + v * 0.09, tief ? 220 : 420);
-      tone(70 + Math.random() * 25, 0.05, 'sine', 0.03 + v * 0.05, 0.6);
+      tone(70 + KLANG_ZUFALL() * 25, 0.05, 'sine', 0.03 + v * 0.05, 0.6);
     },
     /* Aufkommen nach einem Sprung oder Fall. */
     landung(wucht) {
@@ -954,47 +1064,69 @@ const SFX = (() => {
     },
     ko() { tone(300, 0.3, 'square', 0.1, 0.25); },
     web() { noise(0.15, 0.09, 1200); tone(1400, 0.18, 'sine', 0.05, 0.2); },
-    score() { tone(660, 0.09, 'sine', 0.12); setTimeout(() => tone(880, 0.12, 'sine', 0.12), 90); },
+    score() { tone(660, 0.09, 'sine', 0.12); tone(880, 0.12, 'sine', 0.12, 0, { bei: 0.09 }); },
     zip() { tone(500, 0.22, 'sine', 0.08, 2.2); },
     splash() { noise(0.4, 0.2, 200); },
     /* Auffliegender Schwarm: drei kurze Rauschstoesse, nicht einer -
        ein einzelner klang nach Windboe, drei nach Fluegeln. */
     fluegel() {
       noise(0.10, 0.055, 1400);
-      setTimeout(() => noise(0.09, 0.045, 1200), 90);
-      setTimeout(() => noise(0.11, 0.035, 1000), 190);
+      noise(0.09, 0.045, 1200, { bei: 0.09 });
+      noise(0.11, 0.035, 1000, { bei: 0.19 });
     },
-    hupe() { tone(430, 0.28, 'square', 0.07); setTimeout(() => tone(360, 0.22, 'square', 0.06), 60); },
+    /* M6: mit Entfernung und Richtung. Frueher hupte jeder blockierte
+       Wagen der ganzen Stadt in voller Lautstaerke. */
+    hupe(v, pan) {
+      const w = v === undefined ? 1 : v;
+      const o = { aussen: true, pan };
+      tone(430, 0.28, 'square', 0.07 * w, 0, o);
+      tone(360, 0.22, 'square', 0.06 * w, 0, { aussen: true, pan, bei: 0.06 });
+    },
     /* U-Bahn: dumpfes Rollen, das mit der Naehe lauter wird. */
     zug(nah) {
       const v = clamp(nah, 0, 1);
-      noise(0.7, 0.16 * v, 180);
-      tone(70, 0.6, 'sawtooth', 0.09 * v, 0.6);
+      noise(0.7, 0.16 * v, 180, { aussen: true });
+      tone(70, 0.6, 'sawtooth', 0.09 * v, 0, { aussen: true });
     },
     /* ---- Mega-Update 1.0: Geraeusche der neuen Ereignisse ----
        Alles aus Oszillatoren und Rauschen wie der Rest, keine Datei.
        Jeder Ton haelt an und wird danach vom Browser eingesammelt - es
        bleibt kein Knoten haengen. Die Lautstaerke nach Entfernung
-       rechnet der Aufrufer. */
-    alarmGlocke(v) {
-      for (let i = 0; i < 6; i++) setTimeout(() => tone(1180, 0.06, 'triangle', v), i * 75);
+       rechnet der Aufrufer (klangLage), ab M6 auch die Richtung. */
+    alarmGlocke(v, pan) {
+      for (let i = 0; i < 6; i++) tone(1180, 0.06, 'triangle', v, 0, { aussen: true, pan, bei: i * 0.075 });
     },
-    autoAlarm(v) {
-      tone(620, 0.36, 'sawtooth', v * 0.8, 1.55);
-      setTimeout(() => tone(620, 0.36, 'sawtooth', v * 0.8, 1.55), 440);
+    autoAlarm(v, pan) {
+      tone(620, 0.36, 'sawtooth', v * 0.8, 1.55, { aussen: true, pan });
+      tone(620, 0.36, 'sawtooth', v * 0.8, 1.55, { aussen: true, pan, bei: 0.44 });
     },
-    motor(v) { tone(85, 0.7, 'sawtooth', v, 2.4); noise(0.5, v * 0.7, 260); },
-    crash(v) {
-      noise(0.4, v, 260);
-      tone(68, 0.45, 'sine', v * 1.3, 0.5);
-      setTimeout(() => noise(0.3, v * 0.55, 2400), 70);
+    motor(v, pan) {
+      tone(85, 0.7, 'sawtooth', v, 2.4, { aussen: true, pan });
+      noise(0.5, v * 0.7, 260, { aussen: true, pan });
     },
-    schrei(v) { tone(820, 0.42, 'triangle', v, 0.62); },
+    crash(v, pan) {
+      noise(0.4, v, 260, { aussen: true, pan });
+      tone(68, 0.45, 'sine', v * 1.3, 0.5, { aussen: true, pan });
+      noise(0.3, v * 0.55, 2400, { aussen: true, pan, bei: 0.07 });
+    },
+    schrei(v, pan) { tone(820, 0.42, 'triangle', v, 0.62, { aussen: true, pan }); },
+    /* M6: ein Schlag in einer Rauferei, die nicht die eigene ist - dumpf,
+       ohne den hellen Knall des eigenen Treffers. */
+    rauferei(v, pan) {
+      tone(120 + KLANG_ZUFALL() * 30, 0.09, 'sine', v, 0.5, { aussen: true, pan });
+      noise(0.07, v * 0.8, 0, { aussen: true, pan, tp: 700 });
+    },
+    /* M6: ein Hilferuf - zwei kurze, steigend-fallende Silben, kein
+       Sprachfetzen und keine Aufnahme. */
+    ruf(v, pan) {
+      tone(520, 0.20, 'triangle', v, 1.35, { aussen: true, pan });
+      tone(690, 0.30, 'triangle', v * 0.9, 0.7, { aussen: true, pan, bei: 0.22 });
+    },
     /* Spinnensinn: ein feines, schnell aufsteigendes Kribbeln. */
     sinn() {
       tone(1750, 0.07, 'sine', 0.05, 1.5);
-      setTimeout(() => tone(2300, 0.06, 'sine', 0.045, 1.4), 55);
-      setTimeout(() => tone(2900, 0.05, 'sine', 0.035, 1.3), 105);
+      tone(2300, 0.06, 'sine', 0.045, 1.4, { bei: 0.055 });
+      tone(2900, 0.05, 'sine', 0.035, 1.3, { bei: 0.105 });
     },
   };
 })();
@@ -1003,7 +1135,9 @@ const SFX = (() => {
    Alles wird im Browser erzeugt – das Spiel soll ohne Downloads offline
    laufen, deshalb keine MP3-Dateien. Zwei Schichten:
    1. Stadtklang: dumpfes Verkehrsrauschen unten, Wind weit oben, dazu
-      gelegentlich eine Hupe oder eine ferne Sirene.
+      gelegentlich eine Hupe oder eine ferne Sirene. Seit M6 auch: ferne
+      Stadt, Regen, Grillen nachts im Gruenen, Innenraumklang und ein
+      Aussenzweig, der drinnen gedaempft wird (siehe klangUmgebung).
    2. Musik: eine ruhige Schleife beim Streifzug, die im Kampf auf eine
       schnellere Variante mit Schlagzeug umschaltet. */
 const MUSIK = (() => {
@@ -1011,6 +1145,17 @@ const MUSIK = (() => {
   let melodieBus = null;
   let rausch = null, rauschFilter = null, wind = null, windFilter = null;
   let tunnel = null, tunnelG = null;
+  /* M6: Aussenzweig und die neuen Schichten. */
+  let aussenBus = null, aussenFilter = null;
+  let ferne = null, ferneFilter = null, ferneG = null;
+  let regenQ = null, regenF = null, regenG = null;
+  let hoehenQ = null, hoeheF = null, hoeheG = null;
+  let raumQ = null, raumG = null, brumm = null, brummG = null;
+  let grilleCd = 2, atem = 0;
+  const zaehler = { hupen: 0, sirenen: 0, grillen: 0, zuege: 0 };
+  /* Weich nachgefuehrte Lage des Hoerers (0..1). */
+  const lage = { drin: 0, nacht: 0, verkehr: 0.5, einsatz: 0, regen: 0, oben: 0 };
+  const OHNE_UMGEBUNG = { drin: 0, nacht: 0, verkehr: 0.5, einsatz: 0, regenStaerke: 0, gruen: 0 };
   let naechsterTakt = 0, takt = 0, an = false;
   let intensitaetZiel = 0, intensitaet = 0;
   let ereignisCd = 6, tunnelCd = 4;
@@ -1053,7 +1198,7 @@ const MUSIK = (() => {
     const d = buf.getChannelData(0);
     let letzter = 0;
     for (let i = 0; i < n; i++) {
-      const w = Math.random() * 2 - 1;
+      const w = KLANG_ZUFALL() * 2 - 1;
       letzter = (letzter + 0.02 * w) / 1.02;   // braunes Rauschen: tiefer, weicher
       d[i] = letzter * 3.5;
     }
@@ -1081,23 +1226,76 @@ const MUSIK = (() => {
     melodieBus.connect(verz); verz.connect(rueck); rueck.connect(verz);
     verz.connect(hall); hall.connect(musikBus);
     stadtBus = c.createGain(); stadtBus.gain.value = 0.0; stadtBus.connect(bus);
+    /* ---- M6: Aussenzweig ----
+       Alles, was von draussen kommt - Verkehr, Wind, ferne Stadt, Regen,
+       Hupen, ferne Sirenen, Grillen - laeuft ueber einen Tiefpass. Im
+       Innenraum macht er zu: die Stadt ist noch da, aber wie durch eine
+       geschlossene Tuer. */
+    aussenBus = c.createGain(); aussenBus.gain.value = 1;
+    aussenFilter = c.createBiquadFilter();
+    aussenFilter.type = 'lowpass'; aussenFilter.frequency.value = 20000;
+    aussenBus.connect(aussenFilter); aussenFilter.connect(stadtBus);
 
     const buf = dauerRauschen(4);
     rausch = c.createBufferSource(); rausch.buffer = buf; rausch.loop = true;
     rauschFilter = c.createBiquadFilter();
     rauschFilter.type = 'lowpass'; rauschFilter.frequency.value = 320;
     const rg = c.createGain(); rg.gain.value = 0.9;
-    rausch.connect(rauschFilter); rauschFilter.connect(rg); rg.connect(stadtBus);
+    rausch.connect(rauschFilter); rauschFilter.connect(rg); rg.connect(aussenBus);
     rausch.start();
     rausch.__g = rg;
 
     wind = c.createBufferSource(); wind.buffer = buf; wind.loop = true;
     windFilter = c.createBiquadFilter();
     windFilter.type = 'bandpass'; windFilter.frequency.value = 700; windFilter.Q.value = 0.6;
-    const wg = c.createGain(); wg.gain.value = 0.0; wg.connect(stadtBus);
+    const wg = c.createGain(); wg.gain.value = 0.0; wg.connect(aussenBus);
     wind.connect(windFilter); windFilter.connect(wg);
     wind.start();
     wind.__g = wg;
+
+    /* Ferne Stadt: ein breites, leises Murmeln hinter dem Verkehr - die
+       Stadt hinter den naechsten Haeusern. Oben auf dem Dach hoert man
+       sie eher als unten in der Strassenschlucht. Derselbe Puffer, aber
+       an anderer Stelle gestartet, damit er nicht mit dem Verkehr
+       gleichlaeuft. */
+    ferne = c.createBufferSource(); ferne.buffer = buf; ferne.loop = true;
+    ferneFilter = c.createBiquadFilter();
+    ferneFilter.type = 'bandpass'; ferneFilter.frequency.value = 380; ferneFilter.Q.value = 0.8;
+    ferneG = c.createGain(); ferneG.gain.value = 0;
+    ferne.connect(ferneFilter); ferneFilter.connect(ferneG); ferneG.connect(aussenBus);
+    ferne.start(0, 1.7);
+
+    /* Regen: helles Rauschen, nach Regenstaerke. */
+    const weissB = c.createBuffer(1, Math.floor(c.sampleRate * 2), c.sampleRate);
+    { const d = weissB.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = KLANG_ZUFALL() * 2 - 1; }
+    regenQ = c.createBufferSource(); regenQ.buffer = weissB; regenQ.loop = true;
+    const rh = c.createBiquadFilter(); rh.type = 'highpass'; rh.frequency.value = 1400;
+    regenF = c.createBiquadFilter(); regenF.type = 'lowpass'; regenF.frequency.value = 7000;
+    regenG = c.createGain(); regenG.gain.value = 0;
+    regenQ.connect(rh); rh.connect(regenF); regenF.connect(regenG); regenG.connect(aussenBus);
+    regenQ.start();
+
+    /* Hoehenwind: oben auf dem Dach ein heller, boeiger Wind. Der alte
+       Wind (oben) laeuft auf dem dunklen Rauschen und ist vor allem das
+       Rauschen im Schwung - im Stand auf dem Dach war er kaum zu hoeren
+       (gemessen: im Band 250 Hz - 2,5 kHz leiser als die Strasse). */
+    hoehenQ = c.createBufferSource(); hoehenQ.buffer = weissB; hoehenQ.loop = true;
+    hoeheF = c.createBiquadFilter(); hoeheF.type = 'bandpass'; hoeheF.frequency.value = 900; hoeheF.Q.value = 0.5;
+    hoeheG = c.createGain(); hoeheG.gain.value = 0;
+    hoehenQ.connect(hoeheF); hoeheF.connect(hoeheG); hoeheG.connect(aussenBus);
+    hoehenQ.start(0, 0.6);
+
+    /* Innenraum: Lueftung und das leise Brummen von Licht und Kuehlung.
+       Am Stadtzweig, aber nicht am Aussenfilter - es ist ja drinnen. */
+    raumQ = c.createBufferSource(); raumQ.buffer = buf; raumQ.loop = true;
+    const rf = c.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 240;
+    raumG = c.createGain(); raumG.gain.value = 0;
+    raumQ.connect(rf); rf.connect(raumG); raumG.connect(stadtBus);
+    raumQ.start(0, 0.9);
+    brumm = c.createOscillator(); brumm.type = 'sine'; brumm.frequency.value = 100;
+    brummG = c.createGain(); brummG.gain.value = 0;
+    brumm.connect(brummG); brummG.connect(stadtBus);
+    brumm.start();
 
     /* Eigene Spur fuer unter der Erde: ein sehr tiefes Grollen. Vorher lief
        unten derselbe Strassenlaerm weiter, samt Hupen und Sirenen - genau
@@ -1135,7 +1333,7 @@ const MUSIK = (() => {
     const n = Math.floor(c.sampleRate * dauer);
     const b = c.createBuffer(1, n, c.sampleRate);
     const d = b.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.5);
+    for (let i = 0; i < n; i++) d[i] = (KLANG_ZUFALL() * 2 - 1) * Math.pow(1 - i / n, 2.5);
     const s = c.createBufferSource(); s.buffer = b;
     const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
     const g = c.createGain(); g.gain.value = vol;
@@ -1197,12 +1395,26 @@ const MUSIK = (() => {
     /* 0 = Streifzug, 1 = Kampf. */
     setIntensitaet(v) { intensitaetZiel = clamp(v, 0, 1); },
     setModus(v) { modus = v || 'an'; },
-    status() { return { an, modus, intensitaet: +intensitaet.toFixed(2), takt,
-      bus: bus ? +bus.gain.value.toFixed(3) : null,
-      stadt: stadtBus ? +stadtBus.gain.value.toFixed(3) : null,
-      unten: +untenAnteil.toFixed(2) }; },
-    update(dt, hoehe, tempo01, regen) {
+    status() {
+      const r = (x) => +x.toFixed(3);
+      return { an, modus, intensitaet: +intensitaet.toFixed(2), takt,
+        bus: bus ? +bus.gain.value.toFixed(3) : null,
+        stadt: stadtBus ? +stadtBus.gain.value.toFixed(3) : null,
+        unten: +untenAnteil.toFixed(2),
+        /* M6: Lage und die Pegel der Schichten (fuer die Pruefstaende). */
+        zaehler: Object.assign({}, zaehler),
+        lage: { drin: r(lage.drin), nacht: r(lage.nacht), verkehr: r(lage.verkehr),
+                einsatz: r(lage.einsatz), regen: r(lage.regen), oben: r(lage.oben) },
+        pegel: an ? { verkehr: r(rausch.__g.gain.value), verkehrFilter: Math.round(rauschFilter.frequency.value),
+                      wind: r(wind.__g.gain.value), hoehenwind: r(hoeheG.gain.value),
+                      ferne: r(ferneG.gain.value), regen: r(regenG.gain.value),
+                      raum: r(raumG.gain.value), tunnel: r(tunnelG.gain.value),
+                      aussenFilter: Math.round(aussenFilter.frequency.value), aussen: r(aussenBus.gain.value) } : null };
+    },
+    laeuft() { return an; },
+    update(dt, hoehe, tempo01, regen, u) {
       if (!an || !c) return;
+      u = u || OHNE_UMGEBUNG;
       intensitaet += (intensitaetZiel - intensitaet) * Math.min(1, dt * 1.2);
 
       const p = modus === 'aus' ? 0 : SFX.pegel();
@@ -1214,37 +1426,99 @@ const MUSIK = (() => {
       /* Wie weit ist die Figur unter der Strasse? */
       untenAnteil = clamp((-1.0 - hoehe) / 4.0, 0, 1);
 
-      /* Stadtklang: unten Verkehr, oben Wind. Unter der Erde faellt beides
-         weg und es bleibt das Grollen im Tunnel. */
-      const obenAnteil = clamp((hoehe - 18) / 45, 0, 1);
+      /* ---- M6: Lage des Hoerers, weich nachgefuehrt ----
+         drin: im Innenraum (schnell, der Wechsel liegt ohnehin unter der
+         Blende); Einsatz: kommt in gut einer Sekunde, klingt in rund
+         zwei Sekunden aus - so endet nichts mit einem Schnitt. */
+      const k = Math.min(1, dt * 2.5);
+      const einsatzZiel = u.einsatz || 0;
+      lage.drin += ((u.drin || 0) - lage.drin) * Math.min(1, dt * 4);
+      lage.nacht += ((u.nacht || 0) - lage.nacht) * k;
+      lage.verkehr += ((u.verkehr === undefined ? 0.5 : u.verkehr) - lage.verkehr) * Math.min(1, dt * 0.8);
+      lage.einsatz += (einsatzZiel - lage.einsatz) * Math.min(1, dt * (einsatzZiel > lage.einsatz ? 1.2 : 0.45));
+      lage.regen += ((u.regenStaerke !== undefined ? u.regenStaerke : (regen ? 0.6 : 0)) - lage.regen) * k;
+      const drin = lage.drin, nacht = lage.nacht, verkehr = lage.verkehr, einsatz = lage.einsatz, nass = lage.regen;
+
+      /* Hoehe ueber der Strasse: ab 10 m beginnt das Dach, ab 45 m ist man
+         ganz oben. Vorher begann "oben" erst bei 18 m und war bei 63 m
+         voll - auf einem normalen Dach (25-30 m) klang es fast wie unten. */
+      const obenAnteil = clamp((hoehe - 10) / 35, 0, 1);
+      lage.oben = obenAnteil;
+      atem += dt;
       stadtBus.gain.value = 0.55;
-      rauschFilter.frequency.value = (320 - obenAnteil * 200) * (1 - untenAnteil * 0.75);
-      rausch.__g.gain.value = 0.9 * (1 - untenAnteil * 0.8);
+      aussenFilter.frequency.value = 20000 * Math.pow(650 / 20000, drin);
+      aussenBus.gain.value = 1 - drin * 0.7;
+
+      /* Stadtklang: unten Verkehr, oben Wind. Unter der Erde faellt beides
+         weg und es bleibt das Grollen im Tunnel.
+         M6: dichter Verkehr in der Naehe ist lauter, nachts ist es ruhiger,
+         auf dem Dach leiser und dunkler, bei Regen zischen die Reifen
+         heller. Nahe einem Einsatz tritt der Verkehr etwas zurueck. */
+      rauschFilter.frequency.value = (300 + verkehr * 60 + nass * 110) *
+                                     (1 - obenAnteil * 0.6) * (1 - untenAnteil * 0.75);
+      rausch.__g.gain.value = 0.9 * (0.55 + 0.45 * verkehr) * (1 - 0.35 * nacht) *
+                              (1 - 0.6 * obenAnteil) * (1 - untenAnteil * 0.8) * (1 - 0.25 * einsatz);
       windFilter.frequency.value = 620 + tempo01 * 900;
-      wind.__g.gain.value = (obenAnteil * 0.35 + tempo01 * 0.3 + (regen ? 0.12 : 0)) *
-                            (1 - untenAnteil);
+      wind.__g.gain.value = (obenAnteil * 0.35 + tempo01 * 0.3 + nass * 0.12) *
+                            (1 - untenAnteil) * (1 - drin * 0.8);
+      /* Hoehenwind in Boeen: zwei langsame Wellen, nie ganz weg. */
+      const boe = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(atem * 0.71)) * (0.5 + 0.5 * Math.sin(atem * 0.23 + 2.1));
+      hoeheF.frequency.value = 780 + 260 * boe;
+      hoeheG.gain.value = obenAnteil * 0.5 * boe * (1 - untenAnteil) * (1 - drin);
+      /* Ferne Stadt: atmet langsam, nachts leiser und tiefer. */
+      const welle = 0.82 + 0.12 * Math.sin(atem * 0.13) + 0.06 * Math.sin(atem * 0.41 + 1.3);
+      ferneFilter.frequency.value = 380 - 90 * nacht;
+      ferneG.gain.value = 0.22 * welle * (1 - 0.4 * nacht) * (0.8 + 0.2 * obenAnteil) * (1 - untenAnteil);
+      /* Regen: oben etwas lauter und heller, drinnen nur gedaempft (der
+         Aussenzweig), unter der Erde gar nicht. */
+      regenG.gain.value = nass * 0.34 * (1 + 0.3 * obenAnteil) * (1 - untenAnteil);
+      regenF.frequency.value = 6500 + 1500 * obenAnteil;
+      /* Innenraum: Lueftung und Brummen. */
+      raumG.gain.value = drin * 0.22;
+      brummG.gain.value = drin * 0.012;
       tunnelG.gain.value = untenAnteil * 0.55;
-      /* Auch die Effekte bekommen den Raum: unten dumpf und mit Hall. */
-      if (SFX.raum) SFX.raum(untenAnteil);
+      /* Auch die Effekte bekommen den Raum: unten dumpf und mit Hall,
+         drinnen kurzer Zimmerhall und gedaempfte Aussengeraeusche. */
+      if (SFX.raum) SFX.raum(untenAnteil, drin);
+      if (SFX.innen) SFX.innen(drin);
 
       /* Ferne Geraeusche der Stadt - ueber der Erde Hupen und Sirenen,
-         unten stattdessen ein vorbeifahrender Zug in der Ferne. */
+         unten stattdessen ein vorbeifahrender Zug in der Ferne.
+         M6: Hupen nach Verkehrsdichte, nachts seltener; drinnen nichts. */
       ereignisCd -= dt;
       if (ereignisCd <= 0 && untenAnteil < 0.5) {
-        ereignisCd = rand(7, 20);
+        ereignisCd = kz(6, 16) * (1.6 - verkehr * 0.8) * (1 + 0.8 * nacht);
         const t = c.currentTime;
-        if (Math.random() < 0.55) {
-          note(330 + rand(-30, 30), t, 0.3, 'square', 0.02 * (1 - obenAnteil), stadtBus);
-        } else {
-          /* Sirene: zwei abwechselnde Toene */
-          for (let i = 0; i < 6; i++) {
-            note(i % 2 ? 760 : 620, t + i * 0.45, 0.4, 'sine', 0.012 * (1 - obenAnteil), stadtBus);
+        if (drin < 0.5) {
+          if (KLANG_ZUFALL() < 0.55 + verkehr * 0.2) {
+            zaehler.hupen++;
+            note(330 + kz(-30, 30), t, 0.3, 'square',
+                 0.02 * (1 - obenAnteil * 0.85) * (0.5 + 0.5 * verkehr), aussenBus);
+          } else {
+            /* Sirene: zwei abwechselnde Toene */
+            zaehler.sirenen++;
+            for (let i = 0; i < 6; i++) {
+              note(i % 2 ? 760 : 620, t + i * 0.45, 0.4, 'sine', 0.012 * (1 - obenAnteil * 0.6), aussenBus);
+            }
           }
+        }
+      }
+      /* M6: nachts im Gruenen (Park, Ufer) zirpen Grillen - drei kurze,
+         sehr leise Toene. Nicht bei Regen, nicht oben, nicht drinnen. */
+      grilleCd -= dt;
+      if (grilleCd <= 0) {
+        grilleCd = kz(0.9, 2.6);
+        const g = clamp((nacht - 0.55) / 0.3, 0, 1) * (u.gruen ? 1 : 0) * (1 - drin) *
+                  (1 - obenAnteil) * (1 - untenAnteil) * (1 - nass);
+        if (g > 0.05) {
+          zaehler.grillen++;
+          const t = c.currentTime, f = 4300 + kz(-250, 250);
+          for (let i = 0; i < 3; i++) note(f, t + i * 0.075, 0.05, 'sine', 0.0065 * g, aussenBus);
         }
       }
       tunnelCd -= dt;
       if (tunnelCd <= 0) {
-        tunnelCd = rand(9, 22);
+        tunnelCd = kz(9, 22);
         if (untenAnteil > 0.5) {
           /* Anschwellendes Grollen: ein Zug im Nachbartunnel. */
           const t = c.currentTime;
@@ -20592,6 +20866,10 @@ function progLeer() {
       flowKetten: 0, besterFlow: 0,
       /* M5: abgeschlossene Nebenauftraege */
       nebenAuftraege: 0,
+      /* M6: geloeste besondere Einsaetze je Art und die neuen
+         Kampfabschluesse. Fehlen in alten Staenden und starten bei 0. */
+      evUeberfall: 0, evGang: 0, evUnfall: 0, evLaden: 0, evAutodieb: 0, evDach: 0,
+      wandFinisher: 0, luftFinisher: 0,
     },
   };
 }
@@ -20787,15 +21065,15 @@ const SKILLS = {
     text: 'Der Netz-Zug findet Halt auf 20 % größerer Entfernung.',
     stelle: 'Tastweite von zipHaltepunkt (60 m)' },
   schwungkunst: { zweig: 'bewegung', name: 'Schwungkunst', stufen: 1, wert: [1, 1.5],
-    text: 'Perfekte Absprünge, Katapultstarts und Strecken geben halb so viel mehr Punkte.',
-    stelle: 'Punkte fuer Absprung, Katapult und Herausforderung' },
+    text: 'Perfekte Absprünge, Katapultstarts, Strecken und saubere Bewegungsketten geben halb so viel mehr Punkte.',
+    stelle: 'Punkte fuer Absprung, Katapult, Herausforderung und (M6) Bewegungskette' },
   /* --- Zweig 2: Kampf --- */
   deckungsbrecher: { zweig: 'kampf', name: 'Deckungsbrecher', stufen: 1, wert: [1, 1.25],
     text: 'Schläge nehmen die Deckung eines Gegners 25 % schneller herunter.',
     stelle: 'Deckungsabzug in resolveAttackHit' },
   abschluss: { zweig: 'kampf', name: 'Sauberer Abschluss', stufen: 1, wert: [1, 1.15],
-    text: 'Abschlussschläge treffen 15 % härter.',
-    stelle: 'Finisher-Faktor 1,5 im Schadensweg' },
+    text: 'Abschlussschläge treffen 15 % härter – auch Wand- und Luft-Finisher.',
+    stelle: 'Finisher-Faktor 1,5 im Schadensweg, (M6) Schaden von Wand- und Luft-Finisher' },
   kombogespuer: { zweig: 'kampf', name: 'Kombogespür', stufen: 1, wert: [1, 1.4],
     text: 'Lange Ketten geben deutlich mehr Punkte.',
     stelle: 'Punkte des Schmetterers (40 + Kombo x 10)' },
@@ -20891,10 +21169,39 @@ const MEILEN = [
     text: 'Einen ENFORCER besiegt',   zahl: 'bosse', ziel: 1, punkte: 200, ruf: 6 },
   { id: 'boss5',    gruppe: 'Held', name: 'Kein Zufall',
     text: 'Fünf ENFORCER besiegt',   zahl: 'bosse', ziel: 5, punkte: 750, ruf: 10 },
+  /* --- M6: die neuen Inhalte des Mega-Updates ---
+     Dieselbe Mechanik wie alle anderen (genau einmal, alle zwei Sekunden
+     geprueft); gezaehlt wird nur, was der Speicherstand ohnehin fuehrt. */
+  { id: 'einsatz10', gruppe: 'Einsätze', name: 'Die Stadt kennt dich',
+    text: '10 besondere Einsätze gelöst (Laden, Fluchtauto, Dach, Unfall)',
+    summe: ['evLaden', 'evAutodieb', 'evDach', 'evUnfall'], ziel: 10, punkte: 250, ruf: 5 },
+  { id: 'jagd3',    gruppe: 'Einsätze', name: 'Kein Entkommen',
+    text: '3 Autodiebe gestoppt',     zahl: 'evAutodieb', ziel: 3, punkte: 200, ruf: 4 },
+  { id: 'dach3',    gruppe: 'Einsätze', name: 'Sicherer Griff',
+    text: '3 Menschen vom Dach gerettet', zahl: 'evDach', ziel: 3, punkte: 200, ruf: 5 },
+  { id: 'wand5',    gruppe: 'Kampf', name: 'An die Wand',
+    text: '5 Wand-Finisher',          zahl: 'wandFinisher', ziel: 5, punkte: 150, ruf: 3 },
+  { id: 'luft5',    gruppe: 'Kampf', name: 'Aus der Luft',
+    text: '5 Luft-Finisher',          zahl: 'luftFinisher', ziel: 5, punkte: 150, ruf: 3 },
+  { id: 'flow10',   gruppe: 'Bewegung', name: 'Im Fluss',
+    text: '10 Bewegungsketten',       zahl: 'flowKetten', ziel: 10, punkte: 150, ruf: 3 },
+  { id: 'innen2',   gruppe: 'Erkunden', name: 'Hinter den Fassaden',
+    text: 'Beide begehbaren Orte besucht (Laden und Kai 7)',
+    einmalig: ['innen:laden', 'innen:buero'], punkte: 100, ruf: 2 },
+  { id: 'schatten', gruppe: 'Nebenaufträge', name: 'Die Schatten der Stadt',
+    text: 'Alle drei Nebenaufträge abgeschlossen – SCHATTEN gestellt',
+    nebenAlle: true, punkte: 400, ruf: 8 },
 ];
 
+/* M6: Zaehler einer Summe, besuchte einmalige Orte, Nebenreihe. */
+function meilenSumme(m) { let s = 0; for (const k of m.summe) s += PROG.statistik[k] || 0; return s; }
+function meilenEinmalig(m) { let n = 0; for (const k of m.einmalig) if (PROG.einmalig.indexOf(k) >= 0) n++; return n; }
+function meilenNeben() { return (PROG.neben && PROG.neben.fertig) ? PROG.neben.fertig.length : 0; }
 function meilenErfuellt(m) {
   if (m.zahl) return (PROG.statistik[m.zahl] || 0) >= m.ziel;
+  if (m.summe) return meilenSumme(m) >= m.ziel;
+  if (m.einmalig) return meilenEinmalig(m) >= m.einmalig.length;
+  if (m.nebenAlle) return meilenNeben() >= NEBEN_DEF.length;
   if (m.bezirke) return bezirkeGemeistert() >= m.bezirke;
   if (m.alleHer) {
     const arten = HER_ARTEN_IDS;
@@ -20906,6 +21213,9 @@ function meilenErfuellt(m) {
 /* Fortschritt eines Meilensteins als 0..1 - fuer die Anzeige. */
 function meilenAnteil(m) {
   if (m.zahl) return clamp((PROG.statistik[m.zahl] || 0) / m.ziel, 0, 1);
+  if (m.summe) return clamp(meilenSumme(m) / m.ziel, 0, 1);
+  if (m.einmalig) return meilenEinmalig(m) / m.einmalig.length;
+  if (m.nebenAlle) return clamp(meilenNeben() / NEBEN_DEF.length, 0, 1);
   if (m.bezirke) return clamp(bezirkeGemeistert() / m.bezirke, 0, 1);
   if (m.alleHer) {
     let n = 0;
@@ -29485,7 +29795,7 @@ function updateCars(dt) {
       if (RESP.trace) car.bremse = 'hindernis ' + hindernis.toFixed(1);
       ziel = Math.min(ziel, Math.max(0, (hindernis - 4) * 1.2));
       car.hupCd -= dt;
-      if (car.hupCd <= 0) { SFX.hupe(); car.hupCd = rand(1.4, 3); }
+      if (car.hupCd <= 0) { klangHupe(px, pz); car.hupCd = rand(1.4, 3); }
     } else if (car.hupCd > 0) car.hupCd -= dt;
 
     /* ---- Sicherheitsabstand bei der Verfolgung ----
@@ -35340,6 +35650,7 @@ function updateCivilians(dtBild) {
 function hurtCivilian(c, attacker) {
   c.hp -= 10;
   popupWorld('Hilfe!', c.pos, '#ff9b9b');
+  klangZivilTreffer(c.pos, c.hp <= 0);   // M6: Schlag und Hilferuf, nach Entfernung
   if (c.hp <= 0) {
     c.state = 'hurt';
     /* Verletzte stehen nicht mehr von allein auf – sie warten auf Hilfe.
@@ -35348,7 +35659,6 @@ function hurtCivilian(c, attacker) {
     c.hilfeBar = true;
     setzeRuf(-6, 'Ruf −6', c.pos, 25);
     addScore(-40, 'Zivilist verletzt', c.pos);
-    SFX.hurt && SFX.hurt();
   } else {
     c.state = 'flee'; c.fleeT = 4;
     setzeRuf(-1, null, null, 40);
@@ -39278,6 +39588,9 @@ function evPruefeEnde(e) {
   }
 }
 
+/* M6: Zaehler im Speicherstand je Ereignisart (ENFORCER zaehlt als Boss). */
+const EV_STAT_SCHLUESSEL = { ueberfall: 'evUeberfall', gang: 'evGang', unfall: 'evUnfall',
+                             laden: 'evLaden', autodieb: 'evAutodieb', dachrettung: 'evDach' };
 function evEnde(e, erfolg, text) {
   if (e.zustand === 'GELOEST' || e.zustand === 'GESCHEITERT' ||
       e.zustand === 'AUFRAEUMEN' || e.zustand === 'FERTIG') return;
@@ -39289,17 +39602,25 @@ function evEnde(e, erfolg, text) {
        fuer den Bezirk aber wie jeder andere geklaerte Vorfall. */
     if (e.art === 'dachrettung') PROG.statistik.gerettet++;
     else PROG.statistik.crimes++;
+    /* M6: je Art mitzaehlen - fuer die Uebersicht "Besondere Einsaetze". */
+    const sk = EV_STAT_SCHLUESSEL[e.art];
+    if (sk) PROG.statistik[sk] = (PROG.statistik[sk] || 0) + 1;
     bezirkZaehle(e.ort.x, e.ort.z, 'crime');
     bezirkPruefen(e.ort.x, e.ort.z);
     progSofort();
   }
   if (!e.entdeckt) EV.statistik.ignoriert++;
-  if (e.entdeckt && text) popupScreen(text);
+  /* M6: die Belohnung steht im Abschlusshinweis - vorher stieg nur still
+     die Punktzahl oben links. */
+  let belohnung = '';
   if (e.entdeckt && erfolg) {
-    const p = e.schwere * 70;
+    const p = e.schwere * 70, vorP = player.score, vorR = ruf;
     addScore(p, '', e.ort);
     setzeRuf(e.schwere * 2);
+    const dp = player.score - vorP, dr = Math.round(ruf - vorR);
+    belohnung = (dp > 0 ? '  +' + dp + ' Punkte' : '') + (dr > 0 ? ' · Ruf +' + dr : '');
   }
+  if (e.entdeckt && text) popupScreen(text + belohnung);
   /* Eine kurze Nachphase: nicht alles verschwindet im selben Bild. */
   e.nachphase = erfolg ? 6 : 3;
   /* ---- Haken fuer spaeter ----
@@ -39549,9 +39870,17 @@ function updateWeltEreignisse(dt) {
   const wichtig = evWichtigstes();
   if (wichtig) {
     const p = evBrennpunkt(wichtig);
-    /* Der Boss bekommt einen anderen Ton in der Farbe. */
-    setzeBeacon(p, wichtig.art === 'enforcer' ? 0xff8a1e : 0xff2233);
-    if (!MISSION.art) showObjective(wichtig.ziel);
+    /* Der Boss bekommt einen anderen Ton in der Farbe.
+       M6: Leuchtturm und Zieltext nur, wenn kein Auftrag laeuft. Vorher
+       setzte das Ereignis den Leuchtturm trotzdem - es wird nach Mission
+       und Geschichte gerechnet und gewann damit jedes Bild: der Text
+       zeigte den Auftrag, der Leuchtturm das Ereignis. Vorrang hat jetzt
+       immer der Auftrag (Geschichte, Nebenauftrag, Mission), dann das
+       wichtigste Ereignis, dann die freiwilligen Angebote. */
+    if (!MISSION.art) {
+      setzeBeacon(p, wichtig.art === 'enforcer' ? 0xff8a1e : 0xff2233);
+      showObjective(wichtig.ziel + zielAbstandText(p));
+    }
     EV.zeigt = wichtig.id;
   } else if (EV.zeigt) {
     EV.zeigt = null;
@@ -40056,7 +40385,7 @@ function megaLadenBild(e, dt) {
       e.alarmCd = 1.15;
       const d = Math.hypot(e.ort.x - player.pos.x, e.ort.z - player.pos.z);
       const v = clamp(1 - d / EV_HOER, 0, 1);
-      if (v > 0.02 && SFX.alarmGlocke) SFX.alarmGlocke(0.07 * v);
+      if (v > 0.02 && SFX.alarmGlocke) SFX.alarmGlocke(0.07 * v, klangLage(e.ort.x, e.ort.z, EV_HOER).pan);
     }
   }
 }
@@ -40170,7 +40499,8 @@ function megaDiebSteigtEin(e) {
     if (g === T || megaGestoppt(g)) continue;
     g.bewacht = null; g.flieht = true; g.mut = Math.min(g.mut || 0.5, 0.15);
   }
-  if (SFX.motor) SFX.motor(clamp(1 - megaAbstand(e, car.mesh.position) / 80, 0, 1) * 0.12);
+  if (SFX.motor) SFX.motor(clamp(1 - megaAbstand(e, car.mesh.position) / 80, 0, 1) * 0.12,
+                          klangLage(car.mesh.position.x, car.mesh.position.z, 80).pan);
   popupScreen('🚗 Er fährt los – Verfolgungsjagd!');
 }
 function megaDiebSteigtAus(e) {
@@ -40324,7 +40654,7 @@ function megaAutodiebBild(e, dt) {
       e.alarmCd = 0.9;
       const d = Math.hypot(car.mesh.position.x - player.pos.x, car.mesh.position.z - player.pos.z);
       const v = clamp(1 - d / EV_HOER, 0, 1);
-      if (v > 0.02 && SFX.autoAlarm) SFX.autoAlarm(0.06 * v);
+      if (v > 0.02 && SFX.autoAlarm) SFX.autoAlarm(0.06 * v, klangLage(car.mesh.position.x, car.mesh.position.z, EV_HOER).pan);
     }
   }
 }
@@ -40489,7 +40819,7 @@ function evAblaufDach(e) {
         evPhase(e, 'eskalation');
         e.ziel = 'Er rutscht ab – schnell hin! (C)';
         popupScreen('⚠️ Er rutscht ab und hängt an der Kante!');
-        if (SFX.schrei) SFX.schrei(clamp(1 - d / 90, 0, 1) * 0.08);
+        if (SFX.schrei) SFX.schrei(clamp(1 - d / 90, 0, 1) * 0.08, klangLage(e.ort.x, e.ort.z, 90).pan);
       }
       break;
     case 'eskalation':
@@ -40742,7 +41072,7 @@ function evAblaufUnfall(e) {
       if (e.entdeckt) {
         evPhase(e, 'entdeckt');
         if (f && !MEGA.rauchBesitzer) { megaRauch(); MEGA.rauchBesitzer = e; e.rauchStufe = 1; }
-        if (SFX.crash) SFX.crash(clamp(1 - d / EV_HOER, 0, 1) * 0.12);
+        if (SFX.crash) SFX.crash(clamp(1 - d / EV_HOER, 0, 1) * 0.12, klangLage(e.ort.x, e.ort.z, EV_HOER).pan);
       }
       break;
     case 'entdeckt':
@@ -41153,7 +41483,8 @@ function megaWandAnkunft(e, dt) {
       MEGA.kampf.wandFallback++;
       return;
     }
-    damageEnemy(e, 30, 'kick');
+    /* M6: "Sauberer Abschluss" gilt auch fuer diesen Abschluss. */
+    damageEnemy(e, 30 * skillWert('abschluss'), 'kick');
     hitstop(0.13);
     camShake = Math.max(camShake, 0.3);
     megaKamImpuls(1);
@@ -41165,6 +41496,7 @@ function megaWandAnkunft(e, dt) {
     popupWorld('Wand-Finisher!', e.pos, '#bfe8ff');
     SFX.kick();
     MEGA.kampf.wandFinish++;
+    PROG.statistik.wandFinisher = (PROG.statistik.wandFinisher || 0) + 1;
     return;
   }
   /* Nicht angekommen (gebremst, abgelenkt, gelandet): normaler Aufprall. */
@@ -41208,7 +41540,7 @@ function megaLuftFinisher() {
   z.inDerLuft = 0;
   z.staggerT = Math.max(z.staggerT, 2.2);
   z.luftFinish = true;
-  damageEnemy(z, 30, 'kick');
+  damageEnemy(z, 30 * skillWert('abschluss'), 'kick');   // M6: Sauberer Abschluss
   player.vel.y = Math.max(player.vel.y, 7);
   player.luftKombo = 0; player.luftZiel = null; player.luftFenster = 0;
   hitstop(0.12);
@@ -41220,6 +41552,7 @@ function megaLuftFinisher() {
   player.komboZahl = 0;
   SFX.kick(); SFX.swoosh();
   MEGA.kampf.luftFinish++;
+  PROG.statistik.luftFinisher = (PROG.statistik.luftFinisher || 0) + 1;
   return true;
 }
 /* Aufschlag nach dem Luft-Finisher (updateEnemies, geworfen, gelandet). */
@@ -41504,7 +41837,8 @@ function megaFlussEnde(grund) {
   }
   const punkte = FLUSS_PUNKTE[Math.min(n, FLUSS_PUNKTE.length - 1)];
   const vor = player.score;
-  MEGA_ZUFALL.klammer(() => addScore(punkte, '', null));
+  /* M6: "Schwungkunst" gilt auch fuer saubere Bewegungsketten. */
+  MEGA_ZUFALL.klammer(() => addScore(Math.round(punkte * skillWert('schwungkunst')), '', null));
   const gutschrift = player.score - vor;
   F.statistik.ausgezahlt++;
   F.statistik.punkte += gutschrift;
@@ -41762,7 +42096,12 @@ function megaOrtBetreten(id) {
   if (megaOrtKampfNah()) { MEGA.orte.statistik.kampfAbgelehnt++; popupScreen('Erst den Kampf beenden'); return false; }
   const ok = innenBetreten({ x: player.pos.x, y: player.pos.y, z: player.pos.z }, player.facing,
                            { x: t.qx, y: t.y, z: t.qz }, Math.atan2(t.nx, t.nz), id);
-  if (ok) MEGA.orte.statistik.betreten++;
+  if (ok) {
+    MEGA.orte.statistik.betreten++;
+    /* M6: fuer den Meilenstein "Hinter den Fassaden" - einmal je Ort. */
+    const k = 'innen:' + id;
+    if (PROG.einmalig.indexOf(k) < 0) { PROG.einmalig.push(k); progTakt(); }
+  }
   return ok;
 }
 
@@ -42846,7 +43185,7 @@ function respSirene(ein, dt) {
   /* Polizei zweitoenig hoeher, Rettungswagen etwas tiefer und langsamer. */
   const f = ein.art === 'ems' ? (ein.sirHoch ? 640 : 480)
                               : (ein.sirHoch ? 880 : 660);
-  if (SFX.sirene) SFX.sirene(f, v);
+  if (SFX.sirene) SFX.sirene(f, v, klangLage(car.mesh.position.x, car.mesh.position.z, 170).pan);
 }
 
 /* ---- Der Einsatz-Ablauf ----
@@ -43674,6 +44013,10 @@ function taktBetrieb() {
   }
   if (AKT.liste.length) return true;
   if (HER.aktiv || HER.angebot) return true;
+  /* M6: ein laufender Auftrag (Geschichte, Nebenauftrag, Mission) will
+     auch Aufmerksamkeit - sonst tauchte mitten darin ein Streckenring
+     mit eigenem Ziel und eigener Uhr auf. */
+  if (MISSION.art || STORY.aktiv) return true;
   return false;
 }
 
@@ -46469,9 +46812,10 @@ function storyTakt(dt) {
      dran ist. Man braucht ihn dort nicht, und der halbtransparente
      Zylinder verdeckt alles Transparente in seinem Inneren - auch den
      Qualm, der die Vorwarnung des Rauchsprungs ist. */
+  const zpText = zp ? zielAbstandText(zp) : '';
   if (d.reihe && m.boss && !m.boss.dead && Math.hypot(m.boss.pos.x - player.pos.x, m.boss.pos.z - player.pos.z) < 20) zp = null;
   setzeBeacon(zp || null, d.reihe ? NEBEN_FARBE : 0xffb03c);
-  showObjective(d.titel + ' · ' + STORY.zielText);
+  showObjective(d.titel + ' · ' + STORY.zielText + zpText);
 }
 
 /* ================= M5: Nebenreihe "Die Schatten der Stadt" =================
@@ -47573,6 +47917,53 @@ function fsEntkomme(t) {
   return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/* ---- M6: "Als Naechstes" in der Fortschrittsansicht ---- */
+function fortschrittNaechstes() {
+  const z = [];
+  if (PROG.fertigkeitspunkte > 0) {
+    z.push('✦ ' + PROG.fertigkeitspunkte + ' Fertigkeitspunkt' + (PROG.fertigkeitspunkte > 1 ? 'e' : '') +
+           ' frei – unten bei „Fertigkeiten“ ausgeben');
+  }
+  if (STORY.aktiv) {
+    z.push('▶ Läuft: <b>' + fsEntkomme(STORY.aktiv.titel) + '</b> – ' + fsEntkomme(STORY.zielText || ''));
+  } else {
+    const s = storyOffen();
+    if (s) z.push('Geschichte: <b>' + fsEntkomme(s.titel) + '</b> – J zum Annehmen');
+    const u = nebenUnterbrochen(), n = nebenOffen();
+    if (u) z.push('Nebenauftrag: <b>' + fsEntkomme(u.d.titel) + '</b> – am Empfang im Kai 7 weitermachen');
+    else if (n) z.push('Nebenauftrag: <b>' + fsEntkomme(n.titel) + '</b> – am Empfang im Kai 7');
+  }
+  let best = null, bestA = 0;
+  for (const m of MEILEN) {
+    if (PROG.meilensteine.indexOf(m.id) >= 0) continue;
+    const a = meilenAnteil(m);
+    if (a > bestA && a < 1) { bestA = a; best = m; }
+  }
+  if (best) z.push('Meilenstein: <b>' + fsEntkomme(best.name) + '</b> – ' + fsEntkomme(best.text) +
+                   ' (' + Math.round(bestA * 100) + ' %)');
+  if (!z.length) return '';
+  return '<h3>Als Nächstes</h3>' + z.slice(0, 4).map((t) => '<div class="zeile"><span>' + t + '</span></div>').join('');
+}
+
+/* ---- M6: Uebersicht der besonderen Einsaetze ----
+   Was geloest wurde, je Art - aus den Zaehlern des Speicherstands. */
+function einsaetzeFortschrittHTML() {
+  const S = PROG.statistik;
+  const schatten = (PROG.neben && PROG.neben.fertig || []).indexOf('s3') >= 0;
+  const k = (titel, n, klein) => '<div class="kachel' + (n ? ' fertig' : '') + '">' + titel + '<br><b>' + n + '</b>' +
+                                 (klein ? '<span class="klein"> ' + klein + '</span>' : '') + '</div>';
+  return '<h3>Besondere Einsätze</h3><div class="gitter">' +
+    k('Ladenüberfälle', S.evLaden || 0) +
+    k('Autodiebe gestoppt', S.evAutodieb || 0) +
+    k('Dachrettungen', S.evDach || 0) +
+    k('Unfälle versorgt', S.evUnfall || 0) +
+    k('Überfälle', S.evUeberfall || 0) +
+    k('Bandenstreits', S.evGang || 0) +
+    k('ENFORCER besiegt', S.bosse || 0) +
+    '<div class="kachel' + (schatten ? ' fertig' : '') + '">SCHATTEN<br><b>' + (schatten ? '✔ gestellt' : 'offen') + '</b></div>' +
+    '</div>';
+}
+
 function baueFortschrittAnsicht() {
   const ziel = document.getElementById('fsInhalt');
   if (!ziel) return;
@@ -47591,6 +47982,12 @@ function baueFortschrittAnsicht() {
   h += '<div class="klein">Punkte jetzt ' + player.score +
        ' · Bestwert ' + PROG.bestPunkte +
        ' · Fertigkeitspunkte <b>' + PROG.fertigkeitspunkte + '</b></div>';
+
+  /* --- M6: Als Naechstes ---
+     Hoechstens vier kurze Zeilen: was man gerade tun kann und was am
+     naechsten dran ist. Nichts davon ist neu - es steht nur an einer
+     Stelle zusammen. */
+  h += fortschrittNaechstes();
 
   /* --- Die Geschichte --- */
   h += '<h3>GESCHICHTE · AKT ' + (PROG.story ? PROG.story.akt : 1) + '</h3>';
@@ -47623,6 +48020,9 @@ function baueFortschrittAnsicht() {
 
   /* --- M5: die Nebenreihe --- */
   h += nebenFortschrittHTML();
+
+  /* --- M6: besondere Einsaetze --- */
+  h += einsaetzeFortschrittHTML();
 
   /* --- Fertigkeiten --- */
   h += '<h3>Fertigkeiten</h3>';
@@ -47702,6 +48102,12 @@ function baueFortschrittAnsicht() {
     '<div class="kachel">Orte entdeckt<br><b>' + S.poi + '/' + POI.liste.length + '</b></div>' +
     '<div class="kachel">Marken<br><b>' + S.marken + '/' + SAM.liste.length + '</b></div>' +
     '<div class="kachel">Beste Kombo<br><b>' + S.besteKombo + '</b></div>' +
+    /* M6: die neuen Inhalte */
+    '<div class="kachel">Nebenaufträge<br><b>' + (S.nebenAuftraege || 0) + '</b></div>' +
+    '<div class="kachel">Wand-Finisher<br><b>' + (S.wandFinisher || 0) + '</b></div>' +
+    '<div class="kachel">Luft-Finisher<br><b>' + (S.luftFinisher || 0) + '</b></div>' +
+    '<div class="kachel">Bewegungsketten<br><b>' + (S.flowKetten || 0) +
+      '</b><span class="klein"> · beste ' + (S.besterFlow || 0) + '</span></div>' +
     '</div>';
 
   ziel.innerHTML = h;
@@ -48099,6 +48505,14 @@ function spawnPopup(text, x, y, color) {
   setTimeout(() => el.remove(), 950);
 }
 
+/* M6: Entfernung zum Ziel, erst ab 25 m (daneben braucht man sie nicht),
+   ab 100 m auf zehn Meter gerundet - sonst zappelt die Zahl. */
+function zielAbstandText(p) {
+  if (!p || MISSION_INTERIOR.active) return '';
+  const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+  if (d < 25) return '';
+  return '  · ' + (d < 100 ? Math.round(d) : Math.round(d / 10) * 10) + ' m';
+}
 function showObjective(text) {
   objectiveEl.textContent = text;
   objectiveEl.style.display = 'block';
@@ -48231,9 +48645,105 @@ function animate() {
    Darstellung sonst mit wenigen Bildern pro Sekunde und jede Messung, die
    von der Zeit abhängt, wird unbrauchbar. */
 let zeitlupe = 0;
+/* ======================= M6: Klang der Stadt =======================
+   Die Stadt klingt nach dem, wo man gerade ist: unten auf der Strasse
+   Verkehr nach Dichte und gelegentlich eine Hupe, oben auf dem Dach mehr
+   Wind und weniger Strasse, nahe einem Einsatz Sirenen, Schlaege und
+   Hilferufe, drinnen gedaempft mit eigenem Raumklang, nachts ruhiger und
+   bei Regen nass. Alles mit den vorhandenen WebAudio-Bausteinen (SFX,
+   MUSIK); hier wird nur die Lage gemessen und weitergegeben.
+   Gemessen wird alle 0,5 s, nicht in jedem Bild - und nur, wenn der Ton
+   ueberhaupt laeuft (nach dem ersten Klick). */
+const KLANG = { cd: 0, rufCd: 0,
+                u: { drin: 0, nacht: 0, verkehr: 0.5, einsatz: 0, regenStaerke: 0, gruen: 0 },
+                statistik: { treffer: 0, rufe: 0, hupen: 0, hupenStill: 0 } };
+const _klangVor = new THREE.Vector3();
+
+/* Lautstaerke (quadratisch nach Entfernung zum Helden) und Richtung
+   (relativ zur Kamera, -1 links .. 1 rechts) einer Geraeuschquelle. */
+function klangLage(x, z, weite) {
+  const dx = x - player.pos.x, dz = z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  const l = clamp(1 - d / weite, 0, 1);
+  let pan = 0;
+  if (d > 1.5) {
+    camera.getWorldDirection(_klangVor);
+    const h = Math.hypot(_klangVor.x, _klangVor.z) || 1;
+    pan = clamp((dx * -_klangVor.z + dz * _klangVor.x) / (d * h), -1, 1) * 0.8;
+  }
+  return { v: l * l, pan, d };
+}
+
+/* Ein Zivilist wird getroffen: dumpfer Schlag, oft ein Hilferuf. Das ist
+   der Kampflaerm, nach dem die Ereignisse "gehoert" werden (EV_HOER) -
+   bisher war dort nichts zu hoeren. */
+function klangZivilTreffer(pos, liegt) {
+  if (!SFX.kontext()) return;
+  const L = klangLage(pos.x, pos.z, EV_HOER + 15);
+  if (L.v < 0.01) return;
+  KLANG.statistik.treffer++;
+  KLANG.statistik.letzter = { d: +L.d.toFixed(1), v: +L.v.toFixed(4), pan: +L.pan.toFixed(2) };
+  SFX.rauferei(0.16 * L.v, L.pan);
+  if (liegt || (KLANG.rufCd <= 0 && KLANG_ZUFALL() < 0.5)) {
+    SFX.ruf((liegt ? 0.09 : 0.05) * L.v, L.pan);
+    KLANG.rufCd = 1.2;
+    KLANG.statistik.rufe++;
+  }
+}
+
+/* Ein blockierter Wagen hupt - nur noch hoerbar, wenn er in der Naehe ist. */
+function klangHupe(x, z) {
+  const L = klangLage(x, z, 90);
+  if (L.v < 0.01) { KLANG.statistik.hupenStill++; return; }
+  KLANG.statistik.hupen++;
+  SFX.hupe(L.v, L.pan);
+}
+
+/* Die Lage des Hoerers fuer MUSIK.update. */
+function klangUmgebung(dt) {
+  const u = KLANG.u;
+  KLANG.rufCd -= dt;
+  u.drin = MISSION_INTERIOR.active ? 1 : imKitHaus(player.pos) ? 0.8 : 0;
+  KLANG.cd -= dt;
+  if (KLANG.cd > 0) return u;
+  KLANG.cd = 0.5;
+  /* Tag und Nacht wie in updateTagNacht: 0 = Mittag, 1 = tiefe Nacht. */
+  const hoch = -Math.cos(TAG.zeit * Math.PI * 2);
+  u.nacht = 1 - clamp((hoch + 0.25) / 1.1, 0, 1);
+  u.regenStaerke = REGEN.staerke;
+  const art = stadtteilAn(player.pos.x, player.pos.z);
+  u.gruen = art === 'PARK' || art === 'UFER' ? 1 : 0;
+  /* Verkehr in der Naehe: fahrende Wagen im Umkreis von 80 m, nach
+     Entfernung gewichtet (nachts fahren ohnehin weniger). */
+  let s = 0;
+  for (const car of cars) {
+    if (car.aus || !car.mesh) continue;
+    const d = Math.abs(car.mesh.position.x - player.pos.x) + Math.abs(car.mesh.position.z - player.pos.z);
+    if (d < 80) s += 1 - d / 80;
+  }
+  u.verkehr = clamp(s / 5, 0, 1);
+  /* Einsatz: ein entdecktes, laufendes Ereignis in der Naehe oder ein
+     Streifenwagen mit Sirene. Endet das Ereignis, faellt der Wert und
+     MUSIK blendet in rund zwei Sekunden aus. */
+  let e = 0;
+  for (const ev of EV.liste) {
+    if (!ev.entdeckt || (ev.zustand !== 'AKTIV' && ev.zustand !== 'ESKALIERT')) continue;
+    const p = evBrennpunkt(ev);
+    e = Math.max(e, clamp(1 - (Math.hypot(p.x - player.pos.x, p.z - player.pos.z) - 25) / 110, 0, 1));
+  }
+  for (const r of RESP.liste) {
+    const w = r.wagen;
+    if (!w || !w.sirene || !w.mesh) continue;
+    e = Math.max(e, 0.6 * clamp(1 - Math.hypot(w.mesh.position.x - player.pos.x, w.mesh.position.z - player.pos.z) / 120, 0, 1));
+  }
+  u.einsatz = e;
+  return u;
+}
+
 /* Musikstimmung: sobald Gegner den Helden verfolgen, wird es lauter und
    schneller; nach dem Kampf beruhigt sich alles wieder von allein. */
 function updateKlang(dt) {
+  if (!MUSIK.laeuft()) return;
   let kampf = 0;
   for (const e of enemies) {
     if (e.dead) continue;
@@ -48243,9 +48753,12 @@ function updateKlang(dt) {
     }
   }
   if (MISSION.art && kampf < 0.45) kampf = Math.max(kampf, 0.4);
+  const u = klangUmgebung(dt);
+  /* M6: Einsatzklang - nahe einem Einsatz zieht die Musik leicht an. */
+  if (u.einsatz > 0.05) kampf = Math.max(kampf, 0.3 * u.einsatz);
   MUSIK.setIntensitaet(kampf);
   const tempo = Math.hypot(player.vel.x, player.vel.z, player.vel.y);
-  MUSIK.update(dt, player.pos.y, clamp((tempo - 12) / 26, 0, 1), REGEN.staerke > 0.3);
+  MUSIK.update(dt, player.pos.y, clamp((tempo - 12) / 26, 0, 1), REGEN.staerke > 0.3, u);
 }
 
 /* ---- Gehaltener Gegner und Luftkombo ----
@@ -50300,7 +50813,17 @@ if (window.__WEBHERO_TEST__ === true) {
       resolveAttackHit();
       player.attack = null;
     },
-    musikStart() { MUSIK.starte(); },
+    /* Nur fuer Pruefstaende: wie der Klick auf "Spielen" (Ton freigeben
+       und Musik starten). Der Klangpruefstand nimmt den echten Klick. */
+    musikStart() { SFX.init(); MUSIK.starte(); },
+    klangStand() { return { sfx: SFX.stand(), musik: MUSIK.status(), umgebung: Object.assign({}, KLANG.u),
+                       statistik: Object.assign({}, KLANG.statistik) }; },
+    /* Messton fuer den Klangpruefstand: ein Sirenenton ueber den
+       Aussenzweig, gerade vor dem Helden - wie eine Sirene draussen. */
+    klangMesston() { SFX.sirene(880, 0.05, 0); },
+    /* M6: HUD-Vorrang fuer tools/pruef/mega-fortschritt.js */
+    beaconStand() { return { sichtbar: !!beacon.visible, farbe: beacon.material.color.getHexString() }; },
+    taktBetriebJetzt() { return taktBetrieb(); },
     get istTouch() { return istTouch; },
     get touchAktiv() { return touchAktiv; },
     get swingHeld() { return swingHeld; },

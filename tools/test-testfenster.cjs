@@ -127,8 +127,10 @@ test('Das Testfenster hat keine doppelten Schluessel', () => {
      renderKosten und bildDaten fuer die Pruefstaende - knapp ueber 395.
      Bis problem-2 (Neon Climb Overlay) 420. CITY V2 Stufe 6A:
      strassenDetails und strassenDetailInfo fuer street-details.js und
-     freigang.js - 422. */
-  assert.ok(k.length >= 340 && k.length <= 440,
+     freigang.js - 422. Mega-Update 1.0 bis M5: 440. M6: klangStand,
+     klangMesston, beaconStand und taktBetriebJetzt fuer mega-klang.js und
+     mega-fortschritt.js - 444. */
+  assert.ok(k.length >= 340 && k.length <= 460,
     k.length + ' Eintraege gefunden, erwartet rund 370 - der Parser stimmt nicht');
   const zahl = {};
   for (const n of k) zahl[n] = (zahl[n] || 0) + 1;

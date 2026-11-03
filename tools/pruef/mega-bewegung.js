@@ -36,6 +36,9 @@ const TEIL = arg('teil', 'alle');
 const KEIM = Number(arg('keim', 4711));
 const AUS = arg('aus', null);
 const ARM_EIN = arg('armEin', null);      // nur zur Abstimmung: Einblendzeit der Schusshaltung
+/* M6: Fertigkeiten vor dem Lauf kaufen (z. B. skill=schwungkunst) - fuer
+   den Vergleich in tools/pruef/mega-fortschritt.js. */
+const SKILL = arg('skill', null);
 
 /* ---------------- im Browser ---------------- */
 function laufe(teil) {
@@ -532,6 +535,7 @@ function laufe(teil) {
   for (const modus of ['alt', 'neu']) {
     const { b, page } = await starte(900, 540, KEIM, { frierSofort: true, flussAlt: modus === 'alt' });
     const t0 = Date.now();
+    if (SKILL) await page.evaluate((ids) => { __dbg.punkteGeben(ids.length); for (const id of ids) __dbg.skillKaufen(id); }, SKILL.split(','));
     ergebnis[modus] = await page.evaluate(laufe, ARM_EIN ? { teil: TEIL, armEin: Number(ARM_EIN) } : TEIL);
     ergebnis[modus].sekunden = +((Date.now() - t0) / 1000).toFixed(1);
     await b.close();

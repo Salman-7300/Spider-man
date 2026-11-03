@@ -27,6 +27,9 @@ const { starte } = require('./basis');
 const arg = (k, def) => { const a = process.argv.find((v) => v.indexOf(k + '=') === 0); return a === undefined ? def : a.slice(k.length + 1); };
 const TEIL = arg('teil', 'alle');
 const AUS = arg('aus', null);
+/* M6: Fertigkeiten vor dem Lauf kaufen (z. B. skill=abschluss) - fuer den
+   Vergleich in tools/pruef/mega-fortschritt.js. */
+const SKILL = arg('skill', null);
 
 const seitenCode = () => {
   const d = __dbg, P = d.player;
@@ -146,14 +149,16 @@ const seitenCode = () => {
     const bHpVor = b.hp;
     K.bereit();
     spur.push(['vorF', +P.pos.y.toFixed(2), P.onGround, +a.pos.y.toFixed(2), +(a.inDerLuft || 0).toFixed(2)]);
+    const aHpVor = a.hp;
     d.tryAttack('kick');
+    const schadenFinisher = +(aHpVor - a.hp).toFixed(2);   // M6: Schaden des Finishers selbst
     let imp = 0, landung = null;
     for (let i = 0; i < 120; i++) {
       K.schritt(1); imp = Math.max(imp, d.mega.kamImpuls());
       if (landung === null && a.pos.y <= d.groundYAt(a.pos.x, a.pos.z, 2) + 0.05) landung = i;
     }
     const nach = d.mega.kampf();
-    return { finisher: nach.luftFinish - vor.luftFinish, welle: nach.luftWelle - vor.luftWelle,
+    return { finisher: nach.luftFinish - vor.luftFinish, welle: nach.luftWelle - vor.luftWelle, schadenFinisher,
              ohneKombo: nach.luftOhneKombo - vor.luftOhneKombo,
              zweiterGetroffen: b.hp < bHpVor, zweiterTaumel: +(b.staggerT || 0).toFixed(2),
              landungNachBildern: landung, kamImpulsMax: +imp.toFixed(2), spur,
@@ -260,6 +265,7 @@ const seitenCode = () => {
   const seitenFehler = [];
   page.on('pageerror', (e) => seitenFehler.push(String(e)));
   await page.evaluate(seitenCode);
+  if (SKILL) await page.evaluate((ids) => { __dbg.punkteGeben(ids.length); for (const id of ids) __dbg.skillKaufen(id); }, SKILL.split(','));
   for (const t of teile) {
     if (t === 'wand') {
       const r = await page.evaluate(() => window.__mk.wand(6));
