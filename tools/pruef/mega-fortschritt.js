@@ -56,6 +56,11 @@ const ok = (name, bed, wert) => {
     await E((t) => { if (t === null) localStorage.clear(); else __dbg.progSchreib(t); }, text);
     await page.reload();
     await page.waitForFunction(() => window.__dbg && window.__dbg.actorsReady, null, { timeout: 240000 });
+    /* Die Hausmodelle laden asynchron; erst danach stehen die Erdgeschosse
+       und damit die Tueren der begehbaren Orte (megaOrtTueren). starte()
+       wartet darauf, ein Neuladen bisher nicht - unter Volllast fehlten
+       die Tueren dann noch (Endlauf 2: Abbruch im Teil meilen). */
+    await page.waitForFunction(() => window.__dbg.mega.orteTueren() !== null, null, { timeout: 240000 });
     await E(() => { __dbg.frier(true); const o = document.getElementById('overlay'); if (o) o.style.display = 'none';
                     const h = document.getElementById('hud'); if (h) h.style.display = 'block'; });
   };
@@ -277,14 +282,21 @@ const ok = (name, bed, wert) => {
       beob.observe(document.getElementById('hud'), { childList: true });
       d.evStarte('ueberfall');
       let ev = d.mega.ereignisse().find((x) => x.art === 'ueberfall');
-      /* hingehen, entdecken, die Taeter niederringen (Netz + Schlaege wie im Spiel) */
+      /* hingehen, entdecken, die Taeter niederringen (Schlaege wie im Spiel).
+         Geprueft wird hier nur, was der Abschluss anzeigt - nicht der Weg:
+         der Held wird deshalb dicht an den naechsten Taeter gestellt. Im
+         Endlauf ging er sonst aus 25 m los, stieg unterwegs in die Hochbahn
+         ("Mitfahren") und kam nie an (Pruefbot-Fehler, kein Spielfehler). */
       for (let i = 0; i < 60 * 90; i++) {
         ev = d.mega.ereignisse().find((x) => x.art === 'ueberfall');
         if (!ev || ev.zustand === 'GELOEST' || ev.zustand === 'GESCHEITERT') break;
         const g = ev.gegner.find((x) => !x.tot);
         const ziel = g || ev.ort;
         const dx = ziel.x - P.pos.x, dz = ziel.z - P.pos.z, dist = Math.hypot(dx, dz);
-        if (dist > 30) P.pos.set(ziel.x - dx / dist * 25, d.groundYAt(ziel.x - dx / dist * 25, ziel.z - dz / dist * 25, 2), ziel.z - dz / dist * 25);
+        if (dist > 3 || P.state !== 'ground') {
+          const sx = ziel.x - dx / (dist || 1) * 1.5, sz = ziel.z - dz / (dist || 1) * 1.5;
+          P.pos.set(sx, d.groundYAt(sx, sz, 2), sz); P.vel.set(0, 0, 0); P.state = 'ground'; P.onGround = true;
+        }
         P.facing = Math.atan2(dx, dz);
         d.kamStart(Math.atan2(-dx, -dz), 0.2);
         if (dist > 1.6) { d.taste('KeyW', true); } else { d.taste('KeyW', false); if (i % 12 === 0) d.tryAttack('punch'); }

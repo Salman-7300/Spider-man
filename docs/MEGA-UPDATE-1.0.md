@@ -26,6 +26,15 @@ geprüft ist und was ausdrücklich offen bleibt. Abnahmeunterlagen
   eigenen Strom umstellt. Gemessen: Weltfingerabdruck nach jedem Paket
   identisch mit `e05d424` (Häuser/Hindernisse, Parkautos, erste 45 Wagen,
   88 Passanten).
+* **Der Ton würfelt nicht im Stadtstrom (seit M6).** Bis M5 füllte jeder
+  Rauscheffekt seinen Puffer aus `Math.random`, und schon der erste Effekt
+  legte den Klangkontext an – auch ohne Klick. Seit M6 würfelt der Ton mit
+  einem eigenen Generator (`KLANG_ZUFALL`) und beginnt erst mit dem Klick
+  auf „Spielen“. Die Ausgangswelt ändert das nicht (Fingerabdruck
+  identisch). In Prüfläufen ohne Klick verlaufen Kämpfe und Wege aber ab
+  dem ersten Effekt anders als bis M5; Vergleiche „vorher/nachher“ laufen
+  deshalb gegen M5 mit ebenso isoliertem Klangzufall (Arbeitsbaum „M5k“,
+  nur diese eine Änderung) – siehe 6.7.
 * **Bekannte Fehler bleiben getrennt**: Kletterkontakte an
   Modellüberhängen, Brutal_1-Kernkante, ModernOffice_1-Nachbarspalt,
   schneller Wandgriff, Dachkronen-Griff, fliehende Passanten im Helden,
@@ -821,3 +830,506 @@ Bilder: `docs/abnahme-mega-1.0/m5-schatten-reihe.jpg` und
 * Ein Kontrollpunkt wird wie bei Akt 1 im Takt gespeichert (höchstens
   30 s); wer genau in diesen Sekunden das Spiel schließt, steigt eine
   Phase früher wieder ein.
+
+---
+
+## 6. M6 – Atmosphäre, Klang, Fortschritt, HUD, Abschluss
+
+M6 bindet die fünf Pakete zusammen: die Stadt klingt nach dem Ort, an dem
+man gerade ist, die P-Ansicht zeigt die neuen Inhalte, das HUD hat eine
+klare Rangfolge, und die Integrationsfälle des Auftrags laufen als
+Prüfstand. Kein neues Menü, kein neues Fortschrittssystem, keine neue
+Datei außer Prüfwerkzeugen – alles hängt an `SFX`, `MUSIK`, `PROG`,
+`MEILEN`, `SKILLS`, dem Storyläufer und den M4-Orten.
+
+### 6.1 Klang der Stadt
+
+**Vorher:** `SFX` (Einzelklänge aus Oszillatoren und Rauschen) und `MUSIK`
+(Musikschleife plus Stadtklang: Verkehrsrauschen, Wind ab 18 m, gelegentlich
+Hupe oder ferne Sirene, Tunnelgrollen). Befund am Stand M5 (Messlauf im
+Browser, Knoten und Zufallszüge gezählt):
+
+* Der erste Effekt legte den Klangkontext an – auch ohne Klick. Ein Browser
+  hält so einen Kontext an; was in der Zeit „gespielt“ wurde, wartet und
+  kommt beim ersten Klick auf einmal heraus.
+* Jeder Rauscheffekt füllte einen neuen Puffer aus `Math.random` – dem
+  Stadtzufallsstrom. Jeder Schritt und Schlag verschob damit, was danach in
+  der Stadt passierte.
+* Ein blockierter Wagen hupte **überall in der Stadt in voller Lautstärke**
+  (`SFX.hupe()` ohne Entfernung), ein umgeworfener Passant ebenso (`SFX.hurt`).
+* Überfall, Bandenstreit und ENFORCER galten als „hörbar“ (Entdeckung bis
+  95 m, `EV_HOER`) – es war aber gar nichts zu hören.
+* Kein Unterschied zwischen drinnen und draußen; Dach erst ab 18 m (auf
+  einem normalen Dach von 25–30 m klang es fast wie unten).
+
+**Jetzt** (alles in `SFX`/`MUSIK`, gesteuert von `klangUmgebung()`):
+
+| Lage | Was man hört |
+| --- | --- |
+| Straße | Verkehr nach Dichte (fahrende Wagen im Umkreis von 80 m, alle 0,5 s gemessen), Hupen nach Verkehr, ferne Stadt als leises, langsam atmendes Murmeln; echte Hupen blockierter Wagen nur bis 90 m, mit Richtung |
+| Dach (ab 10 m, voll ab 45 m) | Verkehr leiser und dunkler (bis −60 %), eigener heller Höhenwind in Böen, ferne Stadt etwas präsenter |
+| Einsatz in der Nähe | Sirenen der Streifenwagen mit Entfernung **und Richtung** (Stereo); Schläge auf Passanten und Hilferufe (abstrakte Zweisilber aus dem Oszillator) mit `(1 − d/110)²`; Alarmglocke, Autoalarm, Motor, Unfall mit Richtung; die Musik zieht leicht an, der Verkehr tritt zurück („Einsatzklang“), am Ende blendet das in rund zwei Sekunden aus |
+| Innenraum (M4, Mission 6, Baukastenhäuser) | Außenzweig zu: Stadt, Sirenen, Hupen hinter einem Tiefpass (650 Hz) und um 70 % leiser; eigener Raumklang (Lüftung, leises Brummen); kurzer Zimmerhall statt Tunnelhall für die eigenen Schläge und Schritte |
+| Nacht | Verkehr ruhiger (−35 %, dazu fahren nachts ohnehin weniger), Hupen seltener, ferne Stadt tiefer und leiser; im Park und am Ufer zirpen Grillen |
+| Regen | helles Regenrauschen (oben etwas lauter, drinnen gedämpft, unter der Erde nicht), Reifen zischen heller, mehr Wind |
+
+**Regeln** (8.2): Ton erst nach dem Klick auf „Spielen“ – vorher gibt es
+weder Kontext noch Knoten. Stumm (M) wirkt auf alles. Ein weicher Begrenzer
+vor dem Lautsprecher fängt Häufungen ab (drei Sirenen, Alarm und Kampf
+zugleich). Höchstens 48 Einzelklänge zugleich; jeder endet von selbst. Alle
+Pegel werden aus begrenzten Größen neu gesetzt, nicht aufaddiert. Der Ton
+würfelt mit einem eigenen kleinen Generator, nie mit dem Stadtstrom.
+Keine Datei, keine Musik von außen, kein Dienst.
+
+**Prüfstand `tools/pruef/mega-klang.js`** – der Ton wird im Gleichschritt
+mit der Simulation gerechnet (`tools/pruef/klang-takt.js`: ein
+`OfflineAudioContext`, der genau so weit rechnet, wie das Spiel gekommen
+ist) und am Ende **im gerechneten Signal** vermessen. Ergebnis 36/36:
+
+| Prüfung (im gerechneten Signal bzw. an den Knoten) | Ergebnis | Schwelle |
+| --- | --- | --- |
+| Vor dem Klick: 15 s Spiel mit Schlägen und Ereignis | kein Klangkontext, **0 Knoten** | 0 |
+| Klick auf „Spielen“ | genau **1** Kontext, nach echter Nutzeraktivierung; Musik und Stadtklang laufen | 1 |
+| Straße hörbar | −28,2 dBFS | über −50 |
+| Dach (28 m) gegen Straße darunter: Tiefen (Verkehr) | −33,8 gegen −29,3 dB (**−4,5 dB**); Verkehrsschicht 0,55 → 0,33, Filter 316 → 207 Hz | ≥ 3 dB weniger |
+| Dach heller (Mitte gegenüber Tiefe) | −4,6 gegen −7,8 dB (**+3,2 dB**); Wind 0 → 0,18, Höhenwind 0 → 0,16 | ≥ 3 dB |
+| Nacht gegen Tag (gleicher Ort) | Verkehrsschicht 0,55 → 0,34; gesamt −28,2 → −32,4 dBFS, Höhen −60,9 → −80,9 dB | ≤ 80 % |
+| Regen: Höhen auf der Straße / im Park | −60,9 → −26,4 dB (**+34 dB**) / −52,8 → −26,4 dB (**+26 dB**) | +6 / +15 dB |
+| Grillen im Park | Tag 0, Nacht 6 Zirpfolgen | nur nachts |
+| Drinnen (Kai 7) gegen vor der Tür | Mitte −41,6 → −48,4 dB (**−6,8 dB**), Höhen −78,2 → −100 dB; Außenzweig 650 Hz und 30 %, Raumklang an, Zimmerhall | ≥ 6 dB |
+| Messton (Sirenenlage) draußen → drinnen, über dem Hintergrund | −29,1 → −44,3 dB (**−15,2 dB**) | ≥ 10 dB |
+| Schlag auf einen Passanten in 54 m, rechts / links / 125 m | Pegel 0,2582 (Formel 0,2582), Stereo +0,78 / −0,80; in 125 m wird nichts erzeugt | Formel, Seite |
+| Einsatz in der Nähe, danach | Einsatzwert 0,95, Musik zieht an (0,97); nach 9 s 0,02, keine hängenden Einzelklänge | < 0,05 |
+| Stumm (M) | −120 dBFS, keine neuen Einzelklänge; M wieder: 21 neue, Bus offen | unter −70 |
+| 5 min Spiel mit Kampf und Ereignissen | höchstens 33 Quellen zugleich, 0 ausgelassen, erste/zweite Hälfte 17,0/15,8 im Mittel, nach 6 s Ruhe 9 (nach dem Klick 19) | ≤ 60, kein Anstieg |
+| Spitze über den ganzen Lauf | −3,1 dBFS, 0 übersteuerte Abtastwerte | unter −1 dBFS |
+| Seitenfehler | 0 | 0 |
+
+Die Pegel hängen vom Augenblick ab (wie viel Verkehr gerade fährt, wo das
+Ereignis entsteht): ein Lauf am Vortag mit einem Zwischenstand ergab
+z. B. Dach −4,3 dB, Messton −14,4 dB, Spitze −1,5 dBFS – alle Prüfungen
+halten in beiden Läufen.
+
+### 6.2 Fortschritt (P-Ansicht), Meilensteine, Fertigkeiten
+
+* **Als Nächstes** (oben in der P-Ansicht, höchstens vier Zeilen): freie
+  Fertigkeitspunkte, die laufende oder nächste Mission (J), der
+  Nebenauftrag (Kai 7, auch „weitermachen“), der nächstgelegene
+  Meilenstein mit Anteil.
+* **Besondere Einsätze**: gelöste Ladenüberfälle, gestoppte Autodiebe,
+  Dachrettungen, versorgte Unfälle, Überfälle, Bandenstreits, ENFORCER,
+  SCHATTEN – aus neuen Zählern im Speicherstand (`evLaden`, `evAutodieb`,
+  `evDach`, `evUnfall`, `evUeberfall`, `evGang`), gezählt in `evEnde`.
+* **Statistik**: dazu Nebenaufträge, Wand- und Luft-Finisher,
+  Bewegungsketten (mit bester Kette).
+* **Acht neue Meilensteine** in der vorhandenen Mechanik (genau einmal,
+  alle zwei Sekunden geprüft, sofort gespeichert): Die Stadt kennt dich
+  (10 besondere Einsätze), Kein Entkommen (3 Autodiebe), Sicherer Griff
+  (3 Dachrettungen), An die Wand (5 Wand-Finisher), Aus der Luft (5
+  Luft-Finisher), Im Fluss (10 Bewegungsketten), Hinter den Fassaden (beide
+  begehbaren Orte besucht), Die Schatten der Stadt (alle drei
+  Nebenaufträge). Zusammen 1 600 Punkte und 33 Ruf – bei 52 000 Punkten bis
+  zur höchsten Stufe verschiebt das die Kurve kaum.
+* **Fertigkeiten – Entscheidung: die neun bleiben.** Zehn Stufen geben
+  neun Punkte; zwei zusätzliche kaufbare Upgrades wären ohne neue Stufen
+  oder Punktequellen nie für alle erreichbar gewesen (8.4). Statt dessen
+  wirken zwei vorhandene Fertigkeiten jetzt auch auf die neuen Aktionen –
+  gemessen, nicht nur behauptet:
+  * **Sauberer Abschluss** (Abschlussschläge +15 %) gilt für Wand- und
+    Luft-Finisher: Schaden des Luft-Finishers 30 → 34,5
+    (`mega-kampf.js teil=luft`, ohne/mit `skill=abschluss`).
+  * **Schwungkunst** (Punkte ×1,5) gilt für saubere Bewegungsketten:
+    dieselbe Kette (4 Glieder) 44 → 66 Punkte
+    (`mega-bewegung.js teil=fluss`, ohne/mit `skill=schwungkunst`).
+  Die Texte der beiden Fertigkeiten sagen das. Gekaufte Fertigkeiten
+  alter Stände bleiben (siehe 6.5).
+
+### 6.3 HUD und Rangfolge
+
+* **Zieltext und Leuchtturm gehören immer EINEM Auftrag**, Rangfolge:
+  Geschichte/Nebenauftrag/Mission vor dem wichtigsten Ereignis vor den
+  freiwilligen Angeboten. Befund vorher: das Ereignis wurde nach Mission
+  und Geschichte gerechnet und setzte den Leuchtturm trotzdem – der Text
+  zeigte den Auftrag, der Leuchtturm das Ereignis (`mega-fortschritt.js`,
+  Teil hud: jetzt orange beim Auftrag, rot beim Ereignis ohne Auftrag).
+* **Keine Streckenangebote während eines Auftrags** (der Taktgeber gilt
+  dann als besetzt) – vorher konnte mitten in einer Mission ein Streckenring
+  mit eigener Uhr auftauchen.
+* **Entfernung im Zieltext** ab 25 m („Überfall stoppen · 120 m“), über
+  100 m auf zehn Meter gerundet; bei Geschichte und Nebenreihe genauso.
+* **Belohnung sichtbar:** der Abschluss eines Ereignisses nennt Punkte und
+  Ruf („✅ Ladenüberfall vereitelt +163 Punkte · Ruf +4“) – vorher stieg nur
+  oben links die Zahl. Auch ein Ende ohne eigenen Text nennt sie.
+* **Kombo-Anzeige unter der Minikarte** (in den ersten M6-Prüfbildern
+  stand sie bei `top:90px` mitten in der Karte, gerade im Kampf; jetzt
+  darunter, siehe `m6-hud.jpg`); die Bewegungsketten-Anzeige rückt
+  darunter.
+* Visuelles Feintuning darüber hinaus: keines nötig (geprüft an den
+  Bildern `m6-hud.jpg`, `m6-fortschritt.jpg`, `m6-tag-nacht.jpg`); keine
+  Fassaden, keine Leuchttafeln.
+
+### 6.4 Nebenauftrag und Innenraum (Integrationsfall 2)
+
+Bis M5 sperrte jeder Storyläufer-Auftrag die Türen. Der Auftrag verlangt
+ausdrücklich „mitten in einer Nebenmission einen Innenraum betreten“. Die
+Räume liegen am Kartenrand (x 1100/1200) – ohne Vorkehrung hätte die
+Entfernungsregel des Auftrags („mehr als 140 m weg“) sofort zugeschlagen,
+und seine Gegner wären dem Helden nachgelaufen. Jetzt: während eines
+**Nebenauftrags** bieten die Türen den Eintritt an (Akt 1 sperrt weiter),
+und drinnen **ruht** der Auftrag (`nebenDrinnen()`): keine Phasenprüfung,
+seine Gegner frieren ein wie die übrige Welt, Kontrollpunkte unverändert,
+Zieltext „… ruht, solange du drinnen bist“. Draußen geht es an der Tür
+genau dort weiter (`mega-last.js` b2).
+
+### 6.5 Speicherstand
+
+Keine neue Version (bleibt 4): die neuen Zähler fehlen in alten Ständen
+und starten bei 0 (wie die Zähler von M3), die Prüfung beim Laden geht
+über die Schlüssel des Musters. Geprüft mit **echten** alten Ständen
+(`tools/pruef/daten/`): einer mit dem Code vor dem Mega-Update (`e05d424`,
+Version 3) gespielt und gespeichert, einer mit M5 (Version 4) –
+`mega-fortschritt.js` Teil altstand:
+
+| Prüfung (Beispiel 4 des Auftrags) | v3 (vor dem Mega-Update) | v4 (M5) |
+| --- | --- | --- |
+| Punkte und Bestwert | 19 688 / 19 688 – unverändert | ebenso |
+| Stufe | Stufe 6 · Ikone (aus dem Bestwert), so im HUD | ebenso |
+| Fertigkeiten | Weiter Schwung, Sauberer Abschluss, Helferhand gekauft, 2 freie Punkte – bleiben und wirken (Faktoren 1,15 / 1,15) | ebenso |
+| Akt 1 | Mission 1 und 2 fertig, Kontrollpunkt Mission 3, Phase 2 | ebenso |
+| Bezirk, Meilensteine, Statistik | Bezirk B2-3 gemeistert (3 Orte, 2 Marken, 1 Herausforderung, 5 Verbrechen), Meilensteine crime10, rett5, boss1, bezirk1, 23 Verbrechen – bleiben | ebenso |
+| Neue Zähler, Nebenreihe | acht neue Zähler 0, Nebenreihe im Anfangszustand, Version 4 | ebenso |
+| P-Ansicht | zeigt Stufe, freie Punkte, Fertigkeiten, Geschichte, Nebenreihe, Einsätze | ebenso |
+| Speichern und Neuladen | derselbe Stand | ebenso |
+
+Dazu: „Kein Entkommen“ (3 Autodiebe) wird genau einmal vergeben (200
+Punkte, mit dem Ruf-Faktor des Stands +250; sofort gespeichert), nach
+dem Neuladen keine zweite Belohnung; kein anderer neuer Meilenstein ohne
+Grund; „Hinter den Fassaden“ erst nach echten Besuchen von Eckmarkt und
+Kai 7.
+
+### 6.6 Integrationsfälle und Langlauf (`tools/pruef/mega-last.js`)
+
+Die fünf Beispiele aus dem Auftrag laufen als Prüfstand im echten Spiel
+(Keim 4711). Beispiel 4 (alter Speicherstand) steht in 6.5.
+
+**Beispiel 1 – Schwung, Ladenüberfall, Flucht, Polizei (b1).** Echter
+Netzschwung mit der Leertaste (146 Bilder am Seil); danach setzt der
+Prüfbot aus M1 den Ladenüberfall an (die Anreise ist abgekürzt), entdeckt
+ihn und kämpft; ein Täter flieht und wird gestellt.
+
+| Erwartung | Ergebnis |
+| --- | --- |
+| keine doppelten Gegner | keine, höchstens 3 zugleich |
+| kein verlorener Leuchtturm | 1 023 Bilder entdeckt und laufend, in keinem fehlt er |
+| korrekte Belohnung | genau eine, im Hinweis: „✅ Ladenüberfall vereitelt +163 Punkte · Ruf +4“ |
+| Polizei fährt ab | 2 Wagen kamen, alle wieder weg |
+| Straße wieder frei | keine Ereignisrollen und keine Einsatzwagen übrig, der Verkehr rollt |
+| harte Fehler des Ablaufs | 0 (hängt, doppelt, Wagen blockiert, Marker ohne Ereignis, Gegner nach dem Aufräumen, Wagen im Haus) |
+
+**Beispiel 2 – Nebenauftrag und Innenraum (b2).** Schatten I läuft
+(Phase 2, Kontrollpunkt geschrieben), der Held betritt den Eckmarkt.
+
+| Erwartung | Ergebnis |
+| --- | --- |
+| Auftrag bleibt korrekt aktiv | drinnen derselbe Auftrag in derselben Phase, Zieltext „… ruht, solange du drinnen bist“ |
+| kein neues Weltereignis in der Innenphase | 30 s drinnen, kein Ereignis gestartet |
+| draußen nichts gelöscht | 12 Gegner, 80 Wagen, 88 Passanten vorher und nachher |
+| Rückkehrpunkt | an der Tür (0,7 m), der Auftrag läuft weiter und lässt sich regulär beenden |
+| Kontrollpunkte | Nebenreihe und Akt 1 unverändert |
+
+Vor der Korrektur in M6 ging das nicht: die Tür bot während eines
+Auftrags keinen Eintritt an (siehe 6.4).
+
+**Beispiel 3 – Luft-Finisher an einer Fassade (b3).** An drei Ladenfronten
+(Läden 21, 35, 46) wird der Gegner direkt vor der Wand in die Luft
+gezogen und mit dem Luft-Finisher geschmettert.
+
+| Erwartung | Ergebnis |
+| --- | --- |
+| Gegner nicht in der Wand | nie; Abstand zur Wand danach 5,7 / 7,2 / 2,8 m |
+| Held nicht im Kletterzustand | nie |
+| Kamera lesbar | nie im Haus, höchstens 6,8 m vom Helden |
+| danach normale Bewegung | 1 s W: 4,4 / 6,1 / 6,1 m |
+
+**Beispiel 5 – 30 Minuten Spielzeit mit Ton (b5).** Freier Regisseur,
+Tag und Nacht. Ein einfacher Bot läuft und sprintet zwischen sieben
+Wegpunkten (klettert, wo er hängen bleibt), kämpft gegen Angreifer, geht
+zu entdeckten Ereignissen in der Nähe und betritt alle gut fünf Minuten
+abwechselnd Eckmarkt und Kai 7 (an die Tür versetzt, 15 s drinnen); bei
+wenig Leben wird er geheilt. Der Ton läuft im Gleichschritt mit
+(`klang-takt.js`). 31 Stichproben.
+
+| Erwartung | Ergebnis |
+| --- | --- |
+| keine steigende Zahl verwaister Gegner | 0 am Anfang, 0 am Schluss |
+| keine Leichen ohne Ende | Gegnerliste im Mittel 15,2 → 14,6, Gewahrsam wird abgeholt (0 / 0) |
+| lebende Gegner begrenzt | höchstens 18 |
+| keine endlos aktiven Ereignisse | höchstens 2 zugleich, keins länger als seine Höchstdauer + 90 s |
+| keine dauerhaft belegten Innenräume | 6 Besuche (Eckmarkt, Kai 7 im Wechsel), jeder endet draußen |
+| keine zunehmende Zahl von Klangknoten | laufende Quellen 19,1 → 17,6 im Mittel, höchstens 37, 0 ausgelassen; nach der Ruhe 9 |
+| keine endlosen Effekte | Objekte in der Szene 17 070 → 17 394 (je nach Lage, kein Anstieg), höchstens 1 Hinweis zugleich |
+| keine doppelten Belohnungen | 4 gelöste Ereignisse = 4 gezählte; 3 davon entdeckt = 3 Belohnungshinweise |
+| Lecks am Ende | 0 Ereignisrollen, 0 Einsatzwagen, 0 Aktivitäten |
+| Speicher ohne Anstieg | JS-Heap im ersten Drittel 343 MB, im letzten 320 MB (zwischen 272 und 460 MB) |
+| Zeichenaufrufe unter Last | Median der zehn Stichproben unter 899 (546 … 1 137) |
+| Seitenfehler | 0 |
+
+Ergebnis 35/35. CPU je Schritt im 30-Minuten-Lauf (unter Volllast der
+Maschine, nur als Größenordnung): Median 6,6 ms, 90 % unter 10,8 ms.
+
+### 6.7 Regression und Leistung
+
+Endregression mit dem Endstand, gleicher Keim (4711), alle Prüfstände
+frisch gelaufen. „zeilengleich“ heißt: die Ausgabe ist Zeile für Zeile
+dieselbe wie beim Lauf mit dem M3-Stand (der seinerseits bitgleich zu M2
+war).
+
+| Prüfstand | Endstand M6 | Referenz |
+| --- | --- | --- |
+| `node --test` | 187/187 | 187/187 |
+| `kernsysteme.js` | Story Akt 1: 8 gestartet, 8 sauber beendet, 24 Phasen, 0 hängen; Ereignisregie ohne Leck; Boss-Lebenszyklus; Polizei/Rettung ohne Aufräumfehler; Welthygiene; Fortschritt; Seitenfehler 0 | Story 8/8 |
+| `mission6.js` | 520 Spawns gültig, 0 ungültig; durch eine Wand sichtbar 0 von 312 | 520 / 0 |
+| `interior.js` | alles ok; drinnen 94 Zeichenaufrufe (draußen 985 / 789) | gleich |
+| `spielstand.js` | 0 fehlerhafte Prüfungen | 0 |
+| `zeilenuebergang.js` | Naht 221/221/221, Außenecke 150/150 – **zeilengleich** | 221/221/221, 150/150 |
+| `innenklettern.js` | innen 108 Läufe 0/0/0/0; außen 91 / 85 / 85, ein ungültiger Start (Startpunkt verfehlt) – wie in der Referenz | 0/0/0/0 |
+| `kletterproxy.js` (MO1 und 15 weitere Typen) | MO1 0/0/0 – **zeilengleich** | MO1 0/0/0 |
+| `kletterstetigkeit.js` | Foreign 0 (auch im Eckbogen) – **zeilengleich** | 0 |
+| `topoutlandung.js` | Problemfälle 13/13, Kontrolle 8/8, Versatz 0,000 m – **zeilengleich** | 13/13, 8/8 |
+| `brutal-halle.js` | gehen 30/30, rennen 30/30, unsichtbare Kollision 0 | 30/30 |
+| `schwingen.js`, `gleitflug.js`, `wandlauf.js` | Schwingen und Wandlauf **zeilengleich**; Gleitflug zeilengleich zu M5 (gegenüber dem M3-Lauf ein Wert 0,002 → 0,003 m Gliedersprung, schon in M5 so), 0 Beanstandungen | bitgleich |
+| Weltfingerabdruck | identisch zu `e05d424`: Hindernisse `910b52f4` (10 706), 575 Parkautos `46a47dc7`, 45 Wagen `d96ebb1b`, 88 Passanten `2edb351f` | `e05d424` |
+| `street-details.js` | bestanden, 0 harte Fehler; Gehweg neben den Details mindestens 1,85 m; Gehnetz unverändert (30 Inseln) | 0 harte Fehler |
+| `street-life.js`, `street-life-activities.js` | harte Geometriefehler 0; Aktivitäten: harte Fehler 0, 48 Sitzproben, nichts schwebt | 0 harte Fehler |
+| `freigang.js` | 572 Ideallinien gestreift, 0 gesperrt, kleinste Gehbreite 1,60 m | 0 gesperrt |
+| `npc-wege.js` | A 0, B 0, C 0, D 92/100, E 86/100 (Befund E wie bisher, frühere Läufe 78–85) | A/B/C 0 |
+| `parkautos.js` | 575 parkend (STREET 482, LOCAL 93), Ausschlusszonen ohne Befund | 575 |
+| `strassen-markierung.js`, `stadtraster.js`, `determinismus.js` | Markierung 0 harte Fehler (1 300 Striche, 482 Zebraflächen); Raster unverändert; derselbe Keim baut dieselbe Stadt (617 Häuser, 11 281 Kollider, alle Prüfsummen gleich) | 0 · unverändert · gleich |
+| `verkehr-dichte.js` | 80 Fahrzeuge gleichzeitig aktiv in allen drei Läufen, 0 Geisterfahrer | 80 |
+| `mega-ereignisse.js` | 5/5 gelöst (Laden 15,8 s, Autodieb 9,2, direkt 5,9, Dach 37, Unfall 19,2), harte Fehler 0 | 5/5 |
+| `mega-kampf.js` | Wand-Finisher 6/6, Rückfall ohne Wand, Luft-Finisher (Schaden 30); Rollentaktik Keim 4711 ok, **Keim 2024 rot** (siehe unten) | M2: alles ok |
+| `mega-bewegung.js` | 20/21 – **Arm-Ruck rot** (siehe unten) | 21/21 bei M3 |
+| `mega-innen.js` | 30/30 | 30/30 |
+| `mega-neben.js` | 71/72 – **Rauchsprünge rot** (siehe unten) | 72/72 bei M5 |
+| `mega-klang.js` | 36/36 | neu |
+| `mega-fortschritt.js` | 30/30 (nach zwei Korrekturen am Prüfbot, siehe unten) | neu |
+| `mega-last.js` | 35/35 (Beispiele 1, 2, 3 und 5) | neu |
+
+**Drei rote Prüfpunkte – alle in Prüfständen älterer Pakete, keiner durch
+eine Verhaltensänderung in M6.** Gemeinsame Ursache: der Zufallsablauf
+eines Prüflaufs ist seit M6 ein anderer (der Ton zieht ohne Klick keine
+Stadtzufallszahlen mehr, siehe 6.1). Drei Prüfpunkte waren an genau
+einem Ablauf geeicht und kippen mit dem neuen. Sie bleiben, wie sie sind
+– rot, mit Beleg:
+
+1. **`mega-kampf.js`, Rollentaktik, Keim 2024: „Wächter vorn ≥ 45 %“** –
+   gemessen 32 % (ohne Rollentaktik 16 %). Gegenprobe mit M5, an dem nur
+   der Klangzufall isoliert ist (Arbeitsbaum „M5k“): **exakt dieselben
+   Werte** (Keim 4711: Flinker hinten 0,81, Wächter vorn 0,57, 27/23
+   Angriffe; Keim 2024: 0,74 / 0,32, 21/20). Der unveränderte M5-Stand
+   liefert weiter die Werte aus M2 (0,87 / 0,52; 0,70 / 0,65). Die
+   Rollentaktik selbst ist also unverändert; sie verdoppelt den Anteil
+   „Wächter vorn“ gegenüber ohne Taktik, erreicht die Schwelle aber nicht
+   in jedem Ablauf.
+2. **`mega-bewegung.js`, Kette: „kein neuer Arm-Ruck > 0,35 m“** – ein
+   Fall mit 0,62 m. Der **unveränderte M5-Stand fällt ebenso** (zwei
+   Fälle, 0,52 und 0,43 m), M5k besteht, und zwei Läufe desselben
+   M6-Codes zeigen verschiedene Fälle (0,62 bzw. 0,54 m) – der Prüfstand
+   ist unter Last nicht bitgenau wiederholbar. Betroffen ist immer
+   dieselbe Wand (1590): beim Zugbeginn läuft ein Salto (dort greift der
+   Arm seit M3 absichtlich ohne Blende), und der kurze Zug geht noch im
+   Messfenster in den Wandlauf über. Offener Randfall aus M3.
+3. **`mega-neben.js`, SCHATTEN: „springt mindestens zweimal in den
+   Rauch“** – einmal. Der Bot trifft immer und wird geheilt; er besiegt
+   SCHATTEN in rund zehn Sekunden, bevor der zweite Sprung fällig ist.
+   Alles andere am Rauchsprung hält (im Rauch unsichtbar und nicht zu
+   treffen, Auftauchen 2,4 m neben dem Helden, das Netz reißt ihn heraus,
+   alle drei Phasen erreicht; 71/72). Gegenprobe mit Keim 7 (Teil
+   „reihe“): SCHATTEN springt in M6 zweimal (40/40), in M5 ebenfalls
+   zweimal – die Zahl hängt am Ablauf, nicht am Stand.
+
+Was **nicht** rot ist, obwohl sich die Abläufe ändern: alle Ausgänge
+(gelöst, gescheitert, Belohnungen, Aufräumen, Kontrollpunkte), die
+Weltgleichheit und alle Kletter-, Straßen- und Stadtprüfungen.
+
+**Zwei Korrekturen am eigenen M6-Prüfstand `mega-fortschritt.js`** (am
+Prüfbot, nicht an den Prüfungen): Im ersten Endlauf ging der Held aus
+25 m zum Überfall, stieg unterwegs in die Hochbahn („Mitfahren“) und kam
+nie an – die Prüfung „Abschluss nennt die Belohnung“ war rot, ohne dass
+ein Abschluss stattfand. Jetzt wird er dicht an den Täter gestellt (den
+Weg prüft `mega-last.js` b1 mit echtem Ablauf). Im zweiten Lauf fehlten
+nach einem Neuladen die Türen der begehbaren Orte noch, weil der
+Prüfstand nicht auf die asynchron geladenen Hausmodelle wartete. Lauf 3:
+30/30.
+
+**Leistung** (Endstand gegen den Ausgangsstand `e05d424`, gleicher Keim,
+gleiche Maschine, dieselbe Sitzung; SwiftShader – Zeichenaufrufe und
+Dreiecke sind dieselben wie auf einer Grafikkarte, Bildraten werden nicht
+gewertet):
+
+| Messung | `e05d424` | Endstand M6 |
+| --- | --- | --- |
+| Zeichenaufrufe, Median über 300 Stellen (`stadt-leistung.js`) | 864,5 | **870** (Grenze 899) |
+| – Straße / Dach / Luft | 794,5 / 791,5 / 896 | 799,5 / 796,5 / 904 |
+| – Maximum | 2 427 | 2 436 |
+| Dreiecke, Median / Maximum | 3 692 592 / 5 402 007 | 3 688 458 / 5 398 560 |
+| Zeichenaufrufe „ruhig“ (ohne Wagen, Passanten, Gegner) | 605 (M2 609, M5 615) | 616 |
+| Szenenobjekte | 16 193 | 16 200 |
+| JS-Speicher nach dem Laden (nach Müllsammlung) | 63,7 MB | 63,9 MB |
+| JS-Speicher nach 3 min mit Ton | 68,6 MB | 68,2 MB (M5k 68,0) |
+| CPU je Schritt, freier Regisseur, Ton an (gepaart, 4 min Spielzeit) | Median 7,47 ms · Mittel 7,42 · p90 8,36 | Median 7,72 ms (+3 %) · Mittel 8,23 (+11 %) · p90 10,53 (+26 %) |
+| CPU je Schritt ohne Ereignisse (Regisseur ruht), Ton an (gepaart) | Median 5,62 ms · Mittel 5,66 · p90 6,39 | Median 5,81 ms (+3 %) · Mittel 6,14 (+8 %) · p90 7,58 (+19 %) |
+| CPU je Schritt ohne Ereignisse, ohne Klick (gepaart) | Median 5,39 ms · Mittel 5,46 · p90 6,03 | Median 5,80 ms (+8 %) · Mittel 6,26 (+15 %) · p90 8,73 (+45 %) |
+| Ladezeit (Median aus 3 Läufen nacheinander): alle Dateien / erste volle Szene / Szene ruhig | 24,0 / 36,0 / 57,7 s | 26,3 / 37,6 / 59,4 s (M5: 27,7 / 38,9 / 61,0) |
+| 30 min mit Ton (`mega-last.js` b5) | – | Heap 343 → 320 MB, Quellen 19 → 18, Objekte ohne Anstieg, Zeichenaufrufe unter Last Median unter 899 |
+
+Die Standardmessung streut je Lauf um drei bis vier Aufrufe (Wagen und
+Passanten stehen beim Einfrieren jedes Mal woanders). Die ruhige Messung
+zeigt, woher der Rest kommt: M1 und M2 zusammen +4, M3 bis M5 +6 (u. a.
+die beiden Türlampen aus M4), **M6 +1**. Die Luftansicht, die schon vorher
+nahe an der Grenze lag, steigt mit dem ganzen Mega-Update um 8 Aufrufe
+(+0,9 %); die Grenze gilt für den Gesamtmedian und hält mit 29 Aufrufen
+Abstand.
+
+**CPU.** Gemessen wird die Zeit je Simulationsschritt (ohne Zeichnen): der
+Held läuft eine feste Runde durch sieben Orte der Stadt, 14 400 Schritte
+(4 min Spielzeit), beide Stände gleichzeitig auf derselben Maschine, nach
+dem Klick auf „Spielen“ – also mit Ton. Mit freiem Regisseur liegt der
+Endstand gegen `e05d424` bei Median +3 %, Mittel +11 %, p90 +26 %. Die
+Ereignisfolgen sind dabei **nicht** gleich: `e05d424` startete Enforcer,
+Unfall und Überfall (13 Gegner am Ende), der Endstand Unfall, zwei
+Überfälle und einen Ladenüberfall (17 Gegner) – den Ladenüberfall gibt es
+erst seit M1, und mehr Gegner kosten mehr Zeit. Gegen M5k (M5 mit
+isoliertem Klangzufall): mit Ton Median +10 %, Mittel +11 %; ohne Klick
+Median +5 %, Mittel +9 % – auch dort mit anderer Ereignisfolge (M5k:
+Laden, Überfall, Autodieb, Gang, Dachrettung bzw. Unfall, Gang, zwei
+Überfälle). Derselbe Endstand mit und ohne Klick (gleiche Ereignisfolge,
+zeitversetzt gemessen): der Ton kostet Median +2 bis +9 %, Mittel +5 bis
++7 %. Ohne Ereignisse (der Regisseur ruht, sonst derselbe Ablauf;
+gemessen in Kopien beider Stände mit einem zusätzlichen Prüfhaken
+`evRuheLang`, der nicht im Spiel steht): mit Ton Median +3 %, Mittel
++8 %; ohne Klick Median +8 %, Mittel +15 %, p90 +45 %. Woher die Spitzen
+kommen, zeigt eine Blockanalyse – derselbe Aufbau ohne Klick noch einmal
+gemessen (Endstand p90 7,91 gegen 5,69 ms), dazu je 10 s Spielzeit
+Rechenzeit, Gegner im Kampf, fliehende Passanten, Ort und Zustand des
+Helden: In beiden Ständen
+steckt der Held zunächst in einer Prügelei mit 8–12 Straßenganoven fest.
+Im Ausgangsstand bleibt er die ganzen 4 Minuten dort, im Endstand löst er
+sich nach 160 s, klettert eine 57 m hohe Fassade hinauf und läuft weiter
+– genau diese Blöcke (Klettern, neue Straßen) sind die langsamsten
+(9,5 / 9,7 / 6,9 / 7,9 ms). Auf dem vergleichbaren Abschnitt (die ersten
+16 Blöcke, beide in derselben Prügelei) braucht der Endstand 5,54 gegen
+5,18 ms (+7 %). Ein Profil der ersten zwei Minuten (Chrome-Profiler,
+Takt 0,25 ms) ergibt +4,2 % Gesamtzeit, verteilt auf Passanten (Eigenzeit
++8,6 %), Gegner, Animation und Müllsammlung – kein einzelner neuer
+Brennpunkt; die M6-Teile fallen nicht ins Gewicht (`updateHUD` −14 %).
+Bei vergleichbarer Last kostet das ganze Mega-Update damit etwa +4 bis
++7 %, mit Ton und Ereignissen im Mittel rund +11 % – im Rahmen von
++10–15 %, eine Optimierung ist nicht nötig. Die p90-Werte der gepaarten
+Läufe vergleichen verschiedene Wege und sind deshalb kein Maß für den
+Mehraufwand. Bildraten werden nicht gewertet (SwiftShader).
+
+**Ladezeit.** Dieselben 247 Dateien; `game.js` ist um 0,2 MB größer
+(2,33 → 2,53 MB). Die Mediane liegen 1,6–2,3 s über `e05d424` und unter
+M5; die Läufe desselben Stands streuen um bis zu 6,5 s (`e05d424`: Szene
+ruhig nach 55,8 / 57,7 / 62,4 s). Gemessen mit SwiftShader, wo das
+Übersetzen der Shader den größten Teil ausmacht.
+
+### 6.8 Grenzen
+
+* Der Ton ist synthetisch (Oszillatoren, Rauschen) – Sirenen, Hupen,
+  Hilferufe sind erkennbar, aber keine Aufnahmen. So verlangt (keine
+  fremden Klänge, keine Dienste).
+* Richtung gibt es links/rechts (Stereo), kein Vorne/Hinten.
+* Drinnen steht die Welt still (schon seit M4) – Sirenen sind dort
+  deshalb nicht leiser, sondern gar nicht zu hören; der Messton des
+  Prüfstands zeigt, wie stark der Außenzweig dämpft.
+* Die Prüfstände rechnen den Ton im Gleichschritt; im Browser läuft er in
+  Echtzeit. Das Verhalten der Knoten ist dasselbe, die Pegel auch – ob es
+  gut klingt, kann nur ein Mensch beurteilen (Abnahmevideos mit Ton).
+* Der Ton zieht keinen Stadtzufall mehr. Prüfläufe ohne Klick zogen
+  vorher bei jedem Effekt Zufallszahlen; deshalb weichen Kampf- und
+  Laufabläufe in Prüfläufen ab dem ersten Ton von M5 ab (nicht die
+  Ausgangswelt – siehe 6.7).
+
+### 6.9 Abnahmeunterlagen
+
+In `docs/abnahme-mega-1.0/` (Übersicht und Testanleitung in der README
+dort):
+
+* `m6-atmosphaere.mp4` (1:23, mit Spielton) – Straße, Dach, Kai 7, Nacht
+  mit Regen, Park bei Nacht, Ladenüberfall mit Einsatzklang.
+* `m6-zusammenhang.mp4` (1:01, mit Spielton) – Schwung-Kette (M3),
+  Ladenüberfall (M1/M6), Luft-Finisher (M2), Kai 7 und Schatten I (M4/M5).
+* `m1-ereignisse.mp4` (0:54, ohne Ton) – Dachrettung, Unfall,
+  Autodieb mit Jagd und direkt gestoppt, alles im Endstand.
+* Bilder `m6-hud.jpg`, `m6-fortschritt.jpg`, `m6-tag-nacht.jpg` (gestellt,
+  im Bild vermerkt) und die Bilder aus M2–M5.
+
+Gestellt ist jeweils der Anfang eines Abschnitts (Ort, Zeit, Ereignis
+oder Auftrag gesetzt); was danach geschieht, sind echte Eingaben bzw. die
+Prüfbots. Das steht dauerhaft unten im Bild.
+
+---
+
+## 7. Abschluss: offene Punkte und bekannte Restfehler
+
+Stand nach M6. Nichts davon ist mit einer unsichtbaren Fläche, einer
+abgeschalteten Prüfung oder einem gestellten Bild verdeckt.
+
+**Aus der Endregression (siehe 6.7)**
+
+* **Drei rote Prüfpunkte in Prüfständen älterer Pakete** (Einzelheiten
+  und Belege in 6.7): Rollentaktik „Wächter vorn ≥ 45 %“ bei Keim 2024
+  (32 %; M5 mit isoliertem Klangzufall liefert exakt dieselben Werte),
+  Arm-Ruck beim Netz-Zug im Salto an Wand 1590 (0,54–0,62 m; fällt auch
+  im unveränderten M5), SCHATTEN springt im Bot-Kampf nur einmal in den
+  Rauch (mit Keim 7 zweimal, in M5 wie in M6). Alle drei hängen am
+  Zufallsablauf des Prüflaufs, der sich mit M6 ändert; keiner an einer
+  Verhaltensänderung. Sie sind nicht abgeschaltet und nicht umgeeicht.
+* **Zwei Prüfbot-Fehler im eigenen M6-Prüfstand behoben** (nicht die
+  Prüfungen): `mega-fortschritt.js` ließ den Helden zum Überfall laufen –
+  er stieg unterwegs in die Hochbahn; und nach einem Neuladen wartete er
+  nicht auf die asynchron geladenen Hausmodelle (Türen fehlten noch).
+* `npc-wege.js` meldet wie bisher den Befund E (alarmierte Gegner
+  erreichen den Helden an U-Bahn-Abgängen und an der Brücke nicht immer:
+  86/100) – bekannte Fehlerart, nicht angefasst.
+* `mega-bewegung.js` ist nicht bitgenau wiederholbar: zwei Läufe desselben
+  M6-Codes zeigten verschiedene Einzelfälle (Ursache nicht weiter
+  verfolgt). Kletter-, Naht- und Top-out-Prüfstände sind zeilengleich zu
+  M3, die Stadtprüfungen gleich.
+
+**Grenzen der neuen Inhalte (Einzelheiten in den Abschnitten)**
+
+* M1: Prüfbot-Grenzen (läuft geradeaus, schwingt bei Verfolgungen nicht);
+  die vorhandene erste Hilfe prüft keine Höhe; die Person bei der
+  Dachrettung hängt in der Jubelhaltung an der Kante.
+* M2: an Arkaden und Ladenfronten mit zurückgesetztem Erdgeschoss hängt
+  der Gegner vor der Flucht der oberen Fassade.
+* M3: vorbestehend Fußruck bis 0,58 m beim Zug aus der Landung,
+  Handsprung im Clip `zip_zug`, Haltungswechsel beim Angreifen an der Wand.
+* M4: beide Türen am Rand der Innenstadt; die Innenwelt passt nicht
+  geometrisch in das Außenhaus; Parkautos stehen oft vor der Ladentür.
+* M5: wie schwer SCHATTEN für einen Menschen ist, kann nur die
+  Human-Abnahme zeigen (der Bot trifft immer); Einsatzorte hängen am
+  Weltkeim; ein Kontrollpunkt wird höchstens 30 s spät geschrieben.
+* M6: Ton synthetisch, nur links/rechts; drinnen steht die Welt still;
+  ob es gut klingt, beurteilt ein Mensch (Videos mit Ton).
+
+**Vorbestehend und ausdrücklich nicht angefasst (Auftrag)**
+
+Kletterkontakte an Modellüberhängen, Brutal_1-Kernkante,
+ModernOffice_1-Nachbarspalt, schneller Wandgriff, Dachkronen-Griff,
+fliehende Passanten im Helden (`kernsysteme.js`: `playerNpcOverlap`),
+Brücken-Flucht, bestehende visuelle Stadtfehler; aus PROBLEM-2 die
+Restbefunde an Brutal_1 und der ModernOffice_1-Rückseite sowie einzelne
+Becken- und Schulterbilder. Die dokumentierten Kletter-Randfälle bleiben
+offen.
+
+**Nicht gebaut (so beauftragt):** keine neue Hauptstory, kein Akt 2.
+
+**Commits des Mega-Updates** (Branch `claude/spider-man-game-dev-8cepen`,
+Ausgangsstand `e05d424`): M1 `8bef1da`, M2 `f0f92ee`, M3 `063ef57`,
+M4 `689126a`, M5 `49dba92`, M6 `ce08e4e` und `1e67096` (Zwischenstände)
+sowie der Abschluss-Commit „mega-1.0 m6: atmosphere progression and
+release polish“ mit Endregression, Leistung, Videos und dieser Doku.
