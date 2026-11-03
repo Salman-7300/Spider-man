@@ -149,12 +149,14 @@ const seitenCode = () => {
     const bHpVor = b.hp;
     K.bereit();
     spur.push(['vorF', +P.pos.y.toFixed(2), P.onGround, +a.pos.y.toFixed(2), +(a.inDerLuft || 0).toFixed(2)]);
-    const aHpVor = a.hp;
     d.tryAttack('kick');
-    const schadenFinisher = +(aHpVor - a.hp).toFixed(2);   // M6: Schaden des Finishers selbst
+    /* M6: Schaden des Finishers selbst - im Bild, in dem er zaehlt */
+    let schadenFinisher = null;
     let imp = 0, landung = null;
     for (let i = 0; i < 120; i++) {
+      const hpVor = a.hp, lfVor = d.mega.kampf().luftFinish;
       K.schritt(1); imp = Math.max(imp, d.mega.kamImpuls());
+      if (schadenFinisher === null && d.mega.kampf().luftFinish > lfVor) schadenFinisher = +(hpVor - a.hp).toFixed(2);
       if (landung === null && a.pos.y <= d.groundYAt(a.pos.x, a.pos.z, 2) + 0.05) landung = i;
     }
     const nach = d.mega.kampf();

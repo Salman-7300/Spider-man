@@ -87,6 +87,13 @@ Liegt Chromium schon irgendwo, hilft `PLAYWRIGHT_CHROMIUM=/pfad/zu/chromium`.
 | `mega-neben.js` | Mega-Update M5: Nebenreihe „Die Schatten der Stadt“ mit echten Eingaben (Empfang im Kai 7, Spuren, Verfolgung, Kämpfe, Koffer, Mini-Boss SCHATTEN mit Rauchsprung und Netz-Schwäche), Scheitern/Wiedereinstieg, Abbruch, Konflikt mit Akt 1, Speicherstand (Migration 3→4, Bereinigung, echtes Neuladen); `teil=orte,reihe,scheitern,abbruch,konflikt,speichern`, Exit 1 bei Fehler |
 | `mega-neben-bot.js` | Der Prüf-Bot dafür (Browserseite): Laufen mit freier Strecke, Abspringen bei ungewolltem Klettern, Kämpfen, Netz beim Auftauchen |
 | `mega-neben-bilder.js` | Bilder der Nebenreihe für die Abnahme (`<ordner>`) |
+| `klang-takt.js` | Mega-Update M6: Init-Skript, das `AudioContext` durch EINEN `OfflineAudioContext` ersetzt, der im Gleichschritt mit der Simulation rechnet (`K.bis(t)`); zählt Kontexte, Knoten, laufende Quellen; misst den gerechneten Ton (Pegel, Bänder, Oktaven, Ton über dem Hintergrund) und speichert ihn als WAV |
+| `mega-klang.js` | Mega-Update M6: Klang der Stadt – kein Ton vor dem Klick, Schichten (Straße, Dach, Nacht, Regen, Park), Einsatzklang mit Ausblenden, Schlag/Hilferuf mit Entfernung und Richtung, Innenraum (Außenzweig zu, Messton −10 dB), M (stumm), Dauerlauf ohne Anstieg; gemessen im gerechneten Signal; `dauer=s`, `wav=datei`, Exit 1 bei Fehler |
+| `mega-fortschritt.js` | Mega-Update M6: echte alte Spielstände (v3 vor dem Mega-Update, v4 aus M5; `daten/`) laden, P-Ansicht mit der echten Taste P, neue Meilensteine genau einmal, die zwei angebundenen Fertigkeiten (über `mega-kampf.js`/`mega-bewegung.js` mit `skill=`), HUD-Vorrang; `teil=altstand,meilen,fertigkeit,hud` |
+| `mega-last.js` | Mega-Update M6: Integrationsfälle des Auftrags – b1 Schwung → Ladenüberfall → Flucht → Polizei, b2 Nebenauftrag → Innenraum → zurück → Abschluss, b3 Luft-Finisher an Fassaden, b5 30 Minuten mit Ton (Gegner, Ereignisse, Innenräume, Quellen, Effekte, Belohnungen, CPU, Draw Calls); `teil=`, `minuten=` |
+| `mega-m6-bilder.js` | Abnahmebilder M6 (HUD-Vorrang, Belohnung, P-Ansicht, Tag/Nacht), gestellt |
+| `mega-m6-video.js` | Abnahmevideos M6 MIT Spielton (Bilder + `ton.wav`, 15 Bilder/s, Ton im Gleichschritt); `film=atmo` oder `film=lang` |
+| `daten/` | Zwei echte alte Spielstände: `spielstand-v3-vor-mega.json` (mit `e05d424` gespielt und gespeichert), `spielstand-v4-m5.json` (mit M5) |
 
 Aufruf jeweils aus diesem Ordner, z. B.
 

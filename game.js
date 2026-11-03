@@ -37351,6 +37351,10 @@ function updateEnemies(dtBild) {
        Ambient-Ganoven der Stadt stehen unsichtbar draussen und werden
        eingefroren - nicht abgebaut. */
     if (MISSION_INTERIOR.active && !e.storyGegner) continue;
+    /* M6: in einem begehbaren Ort (M4) wartet auch ein Nebenauftrag
+       draussen - seine Gegner frieren ein wie alle anderen, statt dem
+       Helden zu den Raeumen am Kartenrand nachzulaufen. */
+    if (nebenDrinnen()) continue;
     if (CITY_LOOK) CITY_LOOK.dressEnemy(e.visual, e.boss ? (bossProfil(e).look || 'enforcer') : e.typ.art);
     /* Siehe zeigeWickel: die Netzwickel haengen an den Knochen und
        folgen der Sichtbarkeit der Kokongruppe nicht von selbst. Hier
@@ -39620,7 +39624,9 @@ function evEnde(e, erfolg, text) {
     const dp = player.score - vorP, dr = Math.round(ruf - vorR);
     belohnung = (dp > 0 ? '  +' + dp + ' Punkte' : '') + (dr > 0 ? ' · Ruf +' + dr : '');
   }
-  if (e.entdeckt && text) popupScreen(text + belohnung);
+  /* Auch ein Ende ohne eigenen Text (die Unfallstelle wird geraeumt) nennt
+     die Belohnung, wenn es eine gab. */
+  if (e.entdeckt && (text || belohnung)) popupScreen((text || '✅ Einsatz beendet') + belohnung);
   /* Eine kurze Nachphase: nicht alles verschwindet im selben Bild. */
   e.nachphase = erfolg ? 6 : 3;
   /* ---- Haken fuer spaeter ----
@@ -42252,7 +42258,10 @@ function megaOrtKandidat() {
     }
     return null;
   }
-  if (!player.onGround || MISSION.art === 'story') return null;
+  /* M6: waehrend eines Nebenauftrags darf man hinein (Integrationsfall 2
+     des Auftrags) - der Auftrag ruht drinnen, siehe nebenDrinnen(). Eine
+     Storymission von Akt 1 sperrt die Tueren weiterhin. */
+  if (!player.onGround || (MISSION.art === 'story' && !(STORY.aktiv && STORY.aktiv.reihe))) return null;
   const T = megaOrtTueren();
   if (!T) return null;
   for (const id in T) {
@@ -46750,8 +46759,22 @@ function storyTaste() {
 
 /* Der Takt. Laeuft nur, wenn eine Storymission aktiv ist - sonst prueft
    er hoechstens alle paar Sekunden, ob es etwas anzubieten gibt. */
+/* M6: Held in einem begehbaren Ort (M4), waehrend ein Nebenauftrag laeuft.
+   Die Raeume liegen am Kartenrand (x 1100/1200) - jede Entfernungsregel
+   des Auftrags ("mehr als 140 m weg", "Beobachter entkommt") schluege
+   dort sofort zu, und seine Gegner liefen dem Helden nach. Drinnen ruht
+   der Auftrag deshalb ganz: keine Phasenpruefung, Gegner eingefroren,
+   Kontrollpunkt unveraendert. Draussen geht es genau dort weiter. */
+function nebenDrinnen() {
+  return !!(MISSION_INTERIOR.active && STORY.aktiv && STORY.aktiv.reihe &&
+            typeof INNEN_ORTE !== 'undefined' && INNEN_ORTE[MISSION_INTERIOR.id]);
+}
 function storyTakt(dt) {
   if (STORY.abbruchFrage > 0) STORY.abbruchFrage -= dt;
+  if (nebenDrinnen()) {
+    showObjective(STORY.aktiv.titel + ' · ruht, solange du drinnen bist');
+    return;
+  }
   if (!STORY.aktiv) {
     STORY.angebotCd -= dt;
     if (STORY.angebotCd <= 0) {
@@ -50865,6 +50888,12 @@ if (window.__WEBHERO_TEST__ === true) {
     get innenZyklen() { return MISSION_INTERIOR.zyklen; },
     /* Wie viele Objekte direkt an der Szene gerade sichtbar sind - die
        Zahl, an der sich Weltausblendung und Rueckkehr messen lassen. */
+    /* M6: alle Objekte der Szene (fuer den Langlauf: wachsen Effekte?) */
+    szeneObjekte() {
+      let n = 0;
+      scene.traverse(() => { n++; });
+      return n;
+    },
     szeneSichtbar() {
       let n = 0;
       for (const o of scene.children) if (o.visible) n++;
