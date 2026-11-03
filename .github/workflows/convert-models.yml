@@ -1,0 +1,118 @@
+name: 3D-Charaktere aus Release umwandeln (FBX zu GLB)
+
+# Holt die FBX-Dateien aus einem GitHub-Release (bis 2 GB pro Datei!),
+# wandelt sie in kleine GLB-Dateien um und committet sie nach assets/.
+# Der Push löst danach automatisch das Pages-Deployment aus.
+#
+# AUTOMATIK: Einfach ALLE Mixamo-Dateien an EIN Release hängen – das Skript
+# erkennt selbst, was Modell und was Animation ist, und verteilt alles.
+# Die Dateinamen dürfen bleiben, wie Mixamo sie vergibt
+# ("Running (7).fbx", "Warrok W Kurniawan.fbx", ...).
+#
+# Optional: Enthält der Release-Tag einen Figurennamen (z. B. "thug-1"),
+# gehören alle Dateien des Releases zu genau dieser Figur.
+
+# HINWEIS: Der Workflow startet NICHT mehr automatisch beim Veröffentlichen
+# eines Releases. Er lief dabei immer mit dem Stand des Umwandlers, der zum
+# Zeitpunkt des Releases im Branch lag – also noch ohne die Zuordnungen für
+# die gerade hochgeladenen Bewegungen. Ergebnis waren dreimal hintereinander
+# falsch einsortierte Dateien (zuletzt landete das Gegnermodell als Zivilist
+# und der Ausweichschritt als Rolle) und jedes Mal ein Merge-Konflikt.
+# Starten über "Actions" -> diesen Workflow -> "Run workflow" mit dem Tag.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release-Tag mit den FBX-Dateien"
+        required: true
+      slot:
+        description: "Figur (hero, civilian, civilian2, civilian3, thug)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Spiel-Branch auschecken
+        uses: actions/checkout@v4
+        with:
+          ref: claude/spider-man-game-dev-8cepen
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: FBX-Dateien aus dem Release herunterladen
+        id: dl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          mkdir -p tools/input
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir tools/input --pattern "*.fbx" --pattern "*.FBX" || true
+          ls -la tools/input
+          if [ -z "$(ls -A tools/input 2>/dev/null)" ]; then
+            echo "Keine FBX-Dateien in diesem Release - nichts zu tun."
+            echo "leer=ja" >> "$GITHUB_OUTPUT"
+          else
+            echo "leer=nein" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Figur aus dem Release-Tag bestimmen
+        if: steps.dl.outputs.leer != 'ja'
+        id: slot
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          SLOT_INPUT: ${{ inputs.slot }}
+        run: |
+          SLOT="$SLOT_INPUT"
+          if [ -z "$SLOT" ]; then
+            LOWER=$(echo "$TAG" | tr '[:upper:]' '[:lower:]')
+            case "$LOWER" in
+              *civilian2*) SLOT=civilian2 ;;
+              *civilian3*) SLOT=civilian3 ;;
+              *civilian*)  SLOT=civilian ;;
+              *hero*)      SLOT=hero ;;
+              *thug*|*gegner*) SLOT=thug ;;
+            esac
+          fi
+          if [ -z "$SLOT" ]; then
+            echo "Keine Figur im Tag '$TAG' genannt -> Automatik:"
+            echo "Modelle und Animationen werden selbst erkannt und zugeordnet."
+          else
+            echo "Alle Dateien gehören zur Figur: $SLOT"
+          fi
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+
+      - name: Abhängigkeiten installieren
+        if: steps.dl.outputs.leer != 'ja'
+        run: npm install --prefix tools --no-audit --no-fund
+
+      - name: FBX nach GLB umwandeln
+        if: steps.dl.outputs.leer != 'ja'
+        env:
+          SLOT: ${{ steps.slot.outputs.slot }}
+        run: |
+          if [ -n "$SLOT" ]; then
+            node tools/convert-mixamo.mjs tools/input assets "--slot=$SLOT"
+          else
+            node tools/convert-mixamo.mjs tools/input assets
+          fi
+
+      - name: Umgewandelte Modelle committen
+        if: steps.dl.outputs.leer != 'ja'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/*.glb
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen an den Modellen."
+            exit 0
+          fi
+          git commit -m "3D-Charaktere aus Release umgewandelt (FBX zu GLB)"
+          git push origin claude/spider-man-game-dev-8cepen

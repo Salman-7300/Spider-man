@@ -1,0 +1,34 @@
+== e92110a: Episoden 200, ungueltig 0
+   Leute im 10-m-Kreis bei Gangbeginn: {"gafft":98,"gehen:-":12,"begegnung":11,"gehen:gehen":4,"gehen:queren":1}
+   Fluchtbegegnungen < 2 m: 16 (nach Gangbeginn 16), Vorzustand {"gafft":15,"gehen:gehen":1}, aus Aufenthalt 0
+   Ueberschneidungen gesamt 16: mit Fliehenden 6 (davon tief < 0,45 m: 2), ohne Flucht 10
+   Fliehende: Dauer 0.117..0.333 s (Median 0.317), Tiefe 0.056..0.735 m (Median 0.262)
+   Vorzustand {"gafft":6}, aus Aufenthalt 0, Flucht seit (s) 0.12, 0.62, 0.75, 0.27, 1.12, 0.42
+   Spielzaehler playerNpcOverlap 92, Held versetzt max 0 m
+== 7B (aktuell): Episoden 200, ungueltig 0
+   Leute im 10-m-Kreis bei Gangbeginn: {"gafft":74,"gehen:queren":1,"gehen:warten":1,"gehen:-":17,"gehen:gehen":5,"aufenthalt:sitzen":10,"aufenthalt:umschauen":1,"aufenthalt:handy":4,"aufenthalt:reden":1}
+   Fluchtbegegnungen < 2 m: 13 (nach Gangbeginn 13), Vorzustand {"gafft":5,"aufenthalt:sitzen:da":2,"gehen:gehen":1,"aufenthalt:sitzen:route":1,"aufenthalt:sitzen:zurueck":3,"aufenthalt:handy:route":1}, aus Aufenthalt 7
+   Ueberschneidungen gesamt 13: mit Fliehenden 6 (davon tief < 0,45 m: 1), ohne Flucht 7
+   Fliehende: Dauer 0.133..0.3 s (Median 0.25), Tiefe 0.102..0.519 m (Median 0.302)
+   Vorzustand {"gafft":3,"aufenthalt:sitzen:da":2,"aufenthalt:sitzen:route":1}, aus Aufenthalt 3, Flucht seit (s) 0.78, 0.47, 0.83, 1.35, 3.65, 0.23
+   Spielzaehler playerNpcOverlap 84, Held versetzt max 0 m
+
+PRIMAER Ueberschneidungen mit Fliehenden: 7B 6, e92110a 6; einseitig p(7B >= 6 | 12) = 0.6128; Ratenverhaeltnis 1.00 (95 %: 0.27 .. 3.74)
+Fluchtbegegnungen: 7B 13, e92110a 16; einseitig p(7B >= 13 | 29) = 0.7709; Ratenverhaeltnis 0.81 (95 %: 0.36 .. 1.80)
+tiefe Ueberschneidungen (< 0,45 m): 7B 1, e92110a 2; einseitig p(7B >= 1 | 3) = 0.8750; Ratenverhaeltnis 0.50 (95 %: 0.01 .. 9.60)
+Spielzaehler-Bilder: 7B 84, e92110a 92; einseitig p(7B >= 84 | 176) = 0.7512; Ratenverhaeltnis 0.91 (95 %: 0.67 .. 1.24)
+gepaart je Episode, Ueberschneidungen: 7B mehr 6, weniger 6, gleich 188; Vorzeichentest einseitig p = 0.6128
+gepaart je Episode, Begegnungen: 7B mehr 11, weniger 13; einseitig p = 0.7294
+ENTSCHEIDUNG B (Regel aus plan.txt): unklar
+  ref {"keim":4711,"ort":"10-avenue","ci":55,"start":30.117,"bilder":9,"minD":0.675,"tiefe":0.125,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.117,"ausAufenthalt":false,"gangDa":true,"dauer":0.15}
+  ref {"keim":2026,"ort":"02-geschaeft","ci":59,"start":30.617,"bilder":20,"minD":0.065,"tiefe":0.735,"unter045":11,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.617,"ausAufenthalt":false,"gangDa":true,"dauer":0.333}
+  ref {"keim":16,"ort":"01-zentrum","ci":89,"start":30.75,"bilder":19,"minD":0.538,"tiefe":0.262,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.75,"ausAufenthalt":false,"gangDa":true,"dauer":0.317}
+  ref {"keim":16,"ort":"10-avenue","ci":60,"start":30.267,"bilder":7,"minD":0.744,"tiefe":0.056,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.267,"ausAufenthalt":false,"gangDa":true,"dauer":0.117}
+  ref {"keim":19,"ort":"05-parkrand","ci":66,"start":31.117,"bilder":9,"minD":0.701,"tiefe":0.099,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":1.117,"ausAufenthalt":false,"gangDa":true,"dauer":0.15}
+  ref {"keim":22,"ort":"02-geschaeft","ci":55,"start":30.417,"bilder":19,"minD":0.138,"tiefe":0.662,"unter045":11,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.417,"ausAufenthalt":false,"gangDa":true,"dauer":0.317}
+  neu {"keim":1234,"ort":"01-zentrum","ci":81,"start":30.783,"bilder":15,"minD":0.455,"tiefe":0.345,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.783,"ausAufenthalt":false,"gangDa":true,"dauer":0.25}
+  neu {"keim":14,"ort":"05-parkrand","ci":67,"start":30.467,"bilder":15,"minD":0.498,"tiefe":0.302,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"aufenthalt:sitzen:da","fluchtSeit":0.467,"ausAufenthalt":true,"gangDa":true,"dauer":0.25}
+  neu {"keim":15,"ort":"05-parkrand","ci":69,"start":30.833,"bilder":14,"minD":0.506,"tiefe":0.294,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.833,"ausAufenthalt":false,"gangDa":true,"dauer":0.233}
+  neu {"keim":18,"ort":"03-mischung","ci":21,"start":31.35,"bilder":8,"minD":0.698,"tiefe":0.102,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"aufenthalt:sitzen:route","fluchtSeit":1.35,"ausAufenthalt":true,"gangDa":true,"dauer":0.133}
+  neu {"keim":19,"ort":"01-zentrum","ci":82,"start":33.65,"bilder":17,"minD":0.616,"tiefe":0.184,"unter045":0,"zustand":"flee","gz":"gehen","sa":null,"vor":"aufenthalt:sitzen:da","fluchtSeit":3.65,"ausAufenthalt":true,"gangDa":true,"dauer":0.283}
+  neu {"keim":27,"ort":"01-zentrum","ci":87,"start":30.233,"bilder":18,"minD":0.281,"tiefe":0.519,"unter045":9,"zustand":"flee","gz":"gehen","sa":null,"vor":"gafft","fluchtSeit":0.233,"ausAufenthalt":false,"gangDa":true,"dauer":0.3}

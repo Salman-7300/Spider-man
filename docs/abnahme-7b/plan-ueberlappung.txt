@@ -1,0 +1,18 @@
+Gepaarter Vergleich Spieler-Passanten-Ueberlappung - Festlegung vor den Hauptlaeufen (2026-10-22T12:30:54Z)
+Skript: scratchpad/s7b/abn/flucht/paar3.js (md5 a7f04e69a6fa)
+Staende: e92110a (Kopie von e92110a im Arbeitsordner) und aktueller Stand 27d4793 (game.js unveraendert seit e1fac97)
+Keime (20): 4711 1234 2026 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27
+Orte: die zehn Strassenorte aus street-life-activities.js, je Keim alle zehn, gleiche Reihenfolge
+Ablauf je Ort: Held steht 30 s still (unverwundbar, keine Taste), dann spawnGang 10 m voraus (Zufall je Keim*1000+Ort+1 gesetzt), 10 s Flucht, Messung 40 s
+Pilotlaeufe (nur e92110a, nur Ereignisrate, gehen nicht in die Auswertung ein): pilot-ref-4711 (30 Knoten, 10 s): 0 Begegnungen; pilot3-ref-4711 (dieser Plan): 1 Begegnung, 1 Ueberschneidung
+Primaere Groesse: Ueberschneidungsereignisse (Koerperkontakt, Hoehen ueberlappen) mit FLIEHENDEN Passanten nach Erscheinen der Gang
+Test: exakter bedingter Binomialtest n7B gegen nRef bei gleicher Exposition (200 Episoden je Stand), einseitig 7B > Ref
+Entscheidung B: "erhoeht" wenn p < 0,05; "nicht nachgewiesen" wenn nicht signifikant UND obere 95-%-Grenze des Ratenverhaeltnisses 7B/Ref <= 2; sonst "unklar"
+Sekundaer: Fluchtbegegnungen (< 2 m), tiefe Ueberschneidungen (< 0,45 m Mittenabstand), Dauer, Tiefe, Vorzustand, Flucht aus Aufenthalt, Spielzaehler playerNpcOverlap, Leute im 10-m-Kreis bei Gangbeginn; je Episode gepaart (Vorzeichentest)
+Keine Laeufe werden nachtraeglich weggelassen; ungueltige Episoden (Heldenstart) werden gemeldet.
+
+Nachtrag bei der Uebergabe: das Skript liegt jetzt als
+tools/pruef/flucht-ueberlappung.js im Repo - Programmteil unveraendert,
+nur Kopfkommentar und Aufrufzeile angepasst; die Auswertung als
+tools/pruef/flucht-ueberlappung-auswertung.js (gleiches Ergebnis wie die
+Arbeitskopie, siehe ergebnis-ueberlappung.txt).
