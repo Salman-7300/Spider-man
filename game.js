@@ -7742,6 +7742,10 @@ const GLB_SLOTS = {
   civilian5: 'assets/civilian5.glb',
 
   thug: 'assets/thug.glb',
+  /* Visual-Update 1.1: schwerer Gegner "Armored Street Enforcer" (art/blender-nextgen,
+     enemy-armored-enforcer-v2). thug-Skelett unveraendert; die Bewegungen kommen ueber
+     cfg.model von thug wie bei duellant/stuermer. Fehlt die Datei, bleibt es beim thug. */
+  enforcer: 'assets/enforcer.glb',
 };
 /* Alle Zivilistenmodelle - fuer die Auswahl beim Erzeugen und fuer die
    Weitergabe der Bewegungen. */
@@ -14407,6 +14411,10 @@ function makeCharacterVisual(kind, cfg) {
     m = glbModels[kind];
   }
   const v = m ? makeGlbVisual(m) : makeProceduralVisual(cfg);
+  /* Der Enforcer traegt seine Ausruestung im Modell: dressEnemy darf keine zweite Weste an
+     den Brustknochen haengen. Ein Platzhalter genuegt - dressEnemy setzt bei vorhandenem
+     cityGear nur dessen .geometry. */
+  if (cfg && cfg.model === 'enforcer' && glbModels.enforcer && m) v.cityGear = { geometry: null };
   if ((kind === 'civilian' || (cfg && cfg.model)) && m) {
     if (cfg && cfg.zivi) ziviFaerben(v, cfg.zivi); else faerbeKleidung(v);
   }
@@ -14418,7 +14426,9 @@ function makeCharacterVisual(kind, cfg) {
      das nicht: evSetzeRollen kann einem fertigen Koerper eine andere
      Rolle geben, und dann darf ihm nicht die Haut eines fremden Modells
      aufgezogen werden. */
-  v.modell = (kind === 'thug' && cfg && cfg.model) ? cfg.model
+  /* Nur ein WIRKLICH geladenes Modell zaehlt. Fehlt enforcer.glb, steckt ein thug-Koerper
+     dahinter - dann muss er auch als thug gelten, sonst bekaeme er keine Rollenhaut. */
+  v.modell = (kind === 'thug' && cfg && cfg.model && glbModels[cfg.model]) ? cfg.model
            : (m ? (Object.keys(glbModels).find((k) => glbModels[k] === m) || kind) : null);
   v.quelle = m ? (m.__quelle || null) : 'prozedural';
   scene.add(v.root);
@@ -36099,7 +36109,7 @@ const GANOVEN = [
     standfest: 0.0, ausweichen: 0.10, farbe: 0x000000, gewicht: 46,
     poise: 10, guard: 55,  reaktion: 0.42, aggression: 1.00, kombo: 2,
     telegraph: 1.00, ringNah: 3.0 },
-  { art: 'brecher',   groesse: 1.22, hp: 62, schaden: 14, tempo: 3.9, blockChance: 0.20,
+  { art: 'brecher',   model: 'enforcer', groesse: 1.22, hp: 62, schaden: 14, tempo: 3.9, blockChance: 0.20,
     standfest: 0.85, ausweichen: 0.0, farbe: 0x2a1410, gewicht: 18,
     poise: 34, guard: 40,  reaktion: 0.62, aggression: 0.85, kombo: 1,
     telegraph: 1.55, ringNah: 2.6 },
@@ -39286,11 +39296,20 @@ function bossLebenszyklus(dt) {
 function evSetzeRollen(gang, schwere) {
   const wunsch = EV_ROLLEN[schwere] || EV_ROLLEN[1];
   const lebende = gang.enemies.filter((e) => !e.dead);
+  /* Visual-Update 1.1: Der Koerper bleibt beim Rollenwechsel, wie er gebaut wurde. Damit ein
+     Enforcer-Koerper nicht zum Schlaeger wird und ein thug zum Brecher, bekommen Enforcer-
+     Koerper zuerst die Brecher-Plaetze. Kein Zufall; ohne Enforcer-Koerper bleibt die
+     Reihenfolge genau wie bisher. */
+  const namen = lebende.map((_, i) => wunsch[i % wunsch.length]);
+  const istEnf = (e) => !!(e.visual && e.visual.modell === 'enforcer');
+  const enf = lebende.filter(istEnf), sonst = lebende.filter((e) => !istEnf(e));
+  const zuteilung = namen.map((n) => (n === 'brecher' && enf.length ? enf.shift() : null));
+  for (let i = 0; i < zuteilung.length; i++) if (!zuteilung[i]) zuteilung[i] = sonst.length ? sonst.shift() : enf.shift();
   for (let i = 0; i < lebende.length; i++) {
-    const name = wunsch[i % wunsch.length];
+    const name = namen[i];
     const typ = GANOVEN.find((g) => g.art === name);
     if (!typ) continue;
-    const e = lebende[i];
+    const e = zuteilung[i];
     e.typ = typ;
     e.hp = typ.hp; e.hpMax = typ.hp;
     e.radius = 0.4 * typ.groesse;
