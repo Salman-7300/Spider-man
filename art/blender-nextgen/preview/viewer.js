@@ -26,6 +26,12 @@ const ASSETS = {
       'proto:threat_taunt'],
     protos: { threat_taunt: NG + 'animations/enemy-threat-taunt-v1.glb' },
   },
+  sedan2: {
+    label: 'Sedan v1 -> v2', kind: 'car',
+    oldUrl: NG + 'exports/vehicle-urban-sedan-v1.glb', newUrl: NG + 'exports/vehicle-urban-sedan-v2.glb',
+    lod1Url: NG + 'exports/vehicle-urban-sedan-v2-lod1.glb',
+    clips: ['stand', 'vorwaerts', 'rueckwaerts', 'links', 'rechts', 'fahrer'],
+  },
   enemy2: {
     label: 'Enforcer v1 -> v2', kind: 'char', slot: 'thug',
     oldUrl: NG + 'exports/enemy-armored-enforcer-v1.glb', newUrl: NG + 'exports/enemy-armored-enforcer-v2.glb',
@@ -249,7 +255,7 @@ async function loadClip(asset, name) {
 async function buildItem(assetKey, which) {
   const a = ASSETS[assetKey];
   if (a.kind === 'car') {
-    if (which === 'old') {
+    if (which === 'old' && !a.oldUrl) {
       const V = window.WEB_HERO_VISUALS;
       const car = V.createCar(PAINT.neutral_graphite, 0);
       const it = { kind: 'car', root: car, old: true, loadMs: 0, bytes: 0, mats: [] };
@@ -258,9 +264,9 @@ async function buildItem(assetKey, which) {
       it.seat = { x: -0.44, y: 0.96, z: 0.12 };
       return it;
     }
-    const g = await loadGLB(a.newUrl);
+    const g = await loadGLB(which === 'old' ? a.oldUrl : (which === 'lod1' ? a.lod1Url : a.newUrl));
     const root = g.scene.clone(true);
-    const it = { kind: 'car', root, old: false, loadMs: g.loadMs, mats: [] };
+    const it = { kind: 'car', root, old: which === 'old', loadMs: g.loadMs, mats: [] };
     const mats = new Set();
     root.traverse((o) => {
       if (o.isMesh) {
@@ -270,9 +276,9 @@ async function buildItem(assetKey, which) {
     });
     it.mats = [...mats];
     for (const m of it.mats) if (!m.userData.orig) m.userData.orig = { metalness: m.metalness, roughness: m.roughness };
-    it.paint = it.mats.find((m) => m.name === 'Sedan_Paint');
+    it.paint = it.mats.find((m) => /Sedan2?_Paint/.test(m.name));
     it.wheels = ['FL', 'FR', 'RL', 'RR'].map((t) => ({ roll: root.getObjectByName('Wheel_' + t),
-      steer: root.getObjectByName('Steer_' + t), front: t[0] === 'F' }));
+      steer: root.getObjectByName('Steer_' + t), front: t[0] === 'F' })).filter((w) => w.roll);
     const seat = root.getObjectByName('DriverSeat');
     it.seat = seat ? { x: seat.position.x, y: seat.position.y, z: seat.position.z } : null;
     it.extras = (g.scene.userData && g.scene.userData.citySwing) ||
@@ -445,7 +451,7 @@ function step(dt) {
       if (!it.hips) it.hips = it.scene.getObjectByName('mixamorigHips');
       if (it.hips) { it.hips.getWorldPosition(_v); it.root.position.x -= _v.x; it.root.position.z -= _v.z; }
     } else {
-      const R = it.old ? 0.35 : 0.335;
+      const R = (it.old && !ASSETS[state.asset].oldUrl) ? 0.35 : 0.335;
       for (const w of it.wheels) {
         w.roll.rotation.x = (state.speed * t / R) % (Math.PI * 2);
         if (w.front) w.steer.rotation.y = state.steer;
@@ -618,14 +624,14 @@ window.T = {
     const b = new THREE.Box3().setFromObject(it.root);
     return { min: b.min.toArray().map((v) => +v.toFixed(3)), max: b.max.toArray().map((v) => +v.toFixed(3)) };
   },
-  async perfCars(n, which, frames) {
+  async perfCars(n, which, frames, assetKey) {
     // Mehrere Exemplare in einer isolierten Szene: Zeichenaufrufe und Bildzeit messen
     const st = stages[0];
     st.holder.clear();
-    const base = await buildItem('sedan', which);
+    const base = await buildItem(assetKey || 'sedan', which);
     const g = new THREE.Group();
     for (let i = 0; i < n; i++) {
-      const c = which === 'old' ? window.WEB_HERO_VISUALS.createCar(PAINT.silver, i % 3) : base.root.clone(true);
+      const c = (which === 'old' && !(ASSETS[assetKey || 'sedan'].oldUrl)) ? window.WEB_HERO_VISUALS.createCar(PAINT.silver, i % 3) : base.root.clone(true);
       c.position.set((i % 10) * 5.5 - 25, 0, Math.floor(i / 10) * 7 - 25);
       g.add(c);
     }

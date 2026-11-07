@@ -1,0 +1,731 @@
+{
+ "shots": {
+  "01_v1_v2_threequarter": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 56,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 77,
+   "rendererTris": 96346,
+   "geometries": 22,
+   "textures": 4,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "02_v1_v2_front": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 56,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 77,
+   "rendererTris": 96346,
+   "geometries": 24,
+   "textures": 4,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "03_v1_v2_rear": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 56,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 77,
+   "rendererTris": 96346,
+   "geometries": 26,
+   "textures": 4,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "04_v1_v2_side": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 56,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 77,
+   "rendererTris": 96346,
+   "geometries": 28,
+   "textures": 4,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "05_v2_city_driving": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 38,
+   "rendererTris": 44234,
+   "geometries": 39,
+   "textures": 9,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "06_v2_steer_left": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 28,
+   "rendererTris": 44144,
+   "geometries": 40,
+   "textures": 9,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "07_v2_steer_right": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 28,
+   "rendererTris": 44144,
+   "geometries": 41,
+   "textures": 9,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "08_v2_driver": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 49907,
+     "materials": 11,
+     "textures": 15,
+     "texMB": 72,
+     "bones": 67
+    }
+   ],
+   "rendererCalls": 49,
+   "rendererTris": 149723,
+   "geometries": 49,
+   "textures": 31,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+   "driver": {
+    "headTop": 1.424,
+    "roofHitAbove": 1.474,
+    "clearance": 0.05,
+    "hitMesh": "Sedan2_Body002",
+    "hitMaterial": "Sedan2_Paint"
+   }
+  },
+  "09_v1_v2_night": {
+   "per": [
+    {
+     "old": true,
+     "loadMs": 56,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 16,
+     "drawCalls": 16,
+     "tris": 17400,
+     "materials": 8,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    },
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 95,
+   "rendererTris": 96502,
+   "geometries": 69,
+   "textures": 39,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "10_v2_night_front": {
+   "per": [
+    {
+     "old": false,
+     "loadMs": 6,
+     "clipDuration": null,
+     "clipTracks": null,
+     "meshes": 9,
+     "drawCalls": 9,
+     "tris": 14714,
+     "materials": 5,
+     "textures": 0,
+     "texMB": 0,
+     "bones": 0
+    }
+   ],
+   "rendererCalls": 46,
+   "rendererTris": 44260,
+   "geometries": 88,
+   "textures": 45,
+   "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  }
+ },
+ "wheels": {
+  "stand": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0
+   }
+  ],
+  "vorwaerts": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 1.194
+   }
+  ],
+  "rueckwaerts": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": -0.448
+   }
+  ],
+  "links": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     -0.408
+    ],
+    "steerY": 0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     -0.408
+    ],
+    "steerY": 0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   }
+  ],
+  "rechts": [
+   {
+    "name": "Wheel_FL",
+    "pos": [
+     -0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     0.408
+    ],
+    "steerY": -0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_FR",
+    "pos": [
+     0.795,
+     0.335,
+     1.39
+    ],
+    "rollAxis": [
+     0.913,
+     0,
+     0.408
+    ],
+    "steerY": -0.42,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RL",
+    "pos": [
+     -0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   },
+   {
+    "name": "Wheel_RR",
+    "pos": [
+     0.795,
+     0.335,
+     -1.43
+    ],
+    "rollAxis": [
+     1,
+     0,
+     0
+    ],
+    "steerY": 0,
+    "rollX": 0.746
+   }
+  ]
+ },
+ "perf": [
+  {
+   "n": 1,
+   "which": "old",
+   "calls": 10,
+   "tris": 1938,
+   "medianMs": 0.1,
+   "p95Ms": 0.2,
+   "geometries": 112,
+   "modell": "Spielauto createCar"
+  },
+  {
+   "n": 1,
+   "which": "old",
+   "calls": 17,
+   "tris": 17402,
+   "medianMs": 0.2,
+   "p95Ms": 0.3,
+   "geometries": 113,
+   "modell": "Sedan v1"
+  },
+  {
+   "n": 1,
+   "which": "new",
+   "calls": 10,
+   "tris": 14716,
+   "medianMs": 0.1,
+   "p95Ms": 0.2,
+   "geometries": 114,
+   "modell": "Sedan v2 LOD0"
+  },
+  {
+   "n": 1,
+   "which": "lod1",
+   "calls": 6,
+   "tris": 3010,
+   "medianMs": 0.1,
+   "p95Ms": 0.2,
+   "geometries": 120,
+   "modell": "Sedan v2 LOD1"
+  },
+  {
+   "n": 20,
+   "which": "old",
+   "calls": 181,
+   "tris": 39118,
+   "medianMs": 0.5,
+   "p95Ms": 6,
+   "geometries": 149,
+   "modell": "Spielauto createCar"
+  },
+  {
+   "n": 20,
+   "which": "old",
+   "calls": 321,
+   "tris": 348002,
+   "medianMs": 0.7,
+   "p95Ms": 0.9,
+   "geometries": 150,
+   "modell": "Sedan v1"
+  },
+  {
+   "n": 20,
+   "which": "new",
+   "calls": 181,
+   "tris": 294282,
+   "medianMs": 0.4,
+   "p95Ms": 0.6,
+   "geometries": 151,
+   "modell": "Sedan v2 LOD0"
+  },
+  {
+   "n": 20,
+   "which": "lod1",
+   "calls": 101,
+   "tris": 60162,
+   "medianMs": 0.2,
+   "p95Ms": 0.3,
+   "geometries": 152,
+   "modell": "Sedan v2 LOD1"
+  },
+  {
+   "n": 80,
+   "which": "old",
+   "calls": 794,
+   "tris": 173510,
+   "medianMs": 1.4,
+   "p95Ms": 2,
+   "geometries": 233,
+   "modell": "Spielauto createCar"
+  },
+  {
+   "n": 80,
+   "which": "old",
+   "calls": 1628,
+   "tris": 1820206,
+   "medianMs": 3.2,
+   "p95Ms": 4.2,
+   "geometries": 234,
+   "modell": "Sedan v1"
+  },
+  {
+   "n": 80,
+   "which": "new",
+   "calls": 911,
+   "tris": 1561482,
+   "medianMs": 1.7,
+   "p95Ms": 2,
+   "geometries": 235,
+   "modell": "Sedan v2 LOD0"
+  },
+  {
+   "n": 80,
+   "which": "lod1",
+   "calls": 518,
+   "tris": 329780,
+   "medianMs": 0.9,
+   "p95Ms": 1,
+   "geometries": 236,
+   "modell": "Sedan v2 LOD1"
+  }
+ ],
+ "frames": 285
+}
