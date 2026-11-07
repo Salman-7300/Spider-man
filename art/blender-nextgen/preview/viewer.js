@@ -26,6 +26,13 @@ const ASSETS = {
       'proto:threat_taunt'],
     protos: { threat_taunt: NG + 'animations/enemy-threat-taunt-v1.glb' },
   },
+  enemy2: {
+    label: 'Enforcer v1 -> v2', kind: 'char', slot: 'thug',
+    oldUrl: NG + 'exports/enemy-armored-enforcer-v1.glb', newUrl: NG + 'exports/enemy-armored-enforcer-v2.glb',
+    clips: ['idle', 'walk', 'run', 'punch', 'kick', 'block', 'hit', 'fall', 'ausweichenL', 'uppercut', 'taunt',
+      'proto:threat_taunt'],
+    protos: { threat_taunt: NG + 'animations/enemy-threat-taunt-v1.glb' },
+  },
   hero: {
     label: 'Web Hero Next-Gen', kind: 'char', slot: 'hero',
     oldUrl: ROOT + 'assets/hero.glb', newUrl: NG + 'exports/webhero-nextgen-v1.glb',

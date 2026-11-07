@@ -5,7 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 module.exports = async function (api) {
   const asset = process.env.ASSET || 'enemy';
-  const cfg = {
+  const CFG = {
     enemy: { clips: [['idle', 0.4], ['walk', 0.3], ['run', 0.25], ['punch', 0.42], ['kick', 0.40], ['block', 0.4], ['hit', 0.3],
       ['fall', 0.5], ['ausweichenL', 0.5], ['uppercut', 0.45], ['proto:threat_taunt', 0.41]],
       video: [['idle', 2], ['walk', 2], ['run', 1.5], ['punch', 1.7], ['hit', 1.3], ['fall', 0.7], ['proto:threat_taunt', 3]] },
@@ -14,12 +14,14 @@ module.exports = async function (api) {
       ['klettern', 0.3], ['klettern_seit', 0.5], ['wandlauf', 0.5], ['kante', 0.6], ['punch', 0.42], ['kick', 0.40],
       ['uppercut', 0.45], ['hit', 0.3], ['luftangriff', 0.5], ['proto:landing_pose', 0.35]],
       video: [['idle', 2], ['run', 1.4], ['jump', 0.8], ['swing', 2.2], ['klettern', 2], ['punch', 1.6], ['roll', 1.6], ['proto:landing_pose', 2.6]] },
-  }[asset];
+  };
+  CFG.enemy2 = CFG.enemy;
+  const cfgSel = CFG[asset];
   const out = path.join(api.root, 'art/blender-nextgen/renders/threejs', asset);
   fs.mkdirSync(out, { recursive: true });
   const rep = { asset, clips: {} };
   await api.open('?capture=1');
-  for (const [clip, frac] of cfg.clips) {
+  for (const [clip, frac] of cfgSel.clips) {
     for (const which of ['compare', 'new']) {
       if (which === 'compare' && clip.startsWith('proto:')) continue;
       await api.ev(`T.setup(${JSON.stringify({ asset, which, mode: 'gameDay', env: 'neutral', clip })})`);
@@ -47,7 +49,7 @@ module.exports = async function (api) {
   fs.rmSync(frames, { recursive: true, force: true });
   await api.size(1280, 720);
   let f = 0;
-  for (const [clip, secs] of cfg.video) {
+  for (const [clip, secs] of cfgSel.video) {
     const which = clip.startsWith('proto:') ? 'new' : 'compare';
     await api.ev(`T.setup(${JSON.stringify({ asset, which, mode: 'gameDay', env: 'city', clip })})`);
     for (let i = 0; i < Math.round(secs * 30); i++, f++) {

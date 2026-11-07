@@ -1,0 +1,93 @@
+{
+ "build": {
+  "gear_tris": 10264,
+  "body_tris": 14708,
+  "gear_groups": 67,
+  "rig": "Enforcer2_Rig",
+  "removedSickleFaces": 100,
+  "bulkedVerts": 5235
+ },
+ "gates": {
+  "Enforcer2_Body": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 8326,
+   "tris": 14708,
+   "nanVerts": 0,
+   "nonManifoldEdges": 1884,
+   "boundaryEdges": 1884,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Enf2_Skin_Suit.002"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  },
+  "Enforcer2_Gear": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 5166,
+   "tris": 10264,
+   "nanVerts": 0,
+   "nonManifoldEdges": 0,
+   "boundaryEdges": 0,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "Enf2_Plate",
+    "Enf2_Fabric",
+    "Enf2_Accent"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  }
+ },
+ "glbBytes": 2494652,
+ "blendBytes": 1428236,
+ "size": {
+  "v2_bind_height": 1.8,
+  "v1_bind_height": 1.8115,
+  "thug_bind_height": 1.7898
+ },
+ "reimport": {
+  "objects": 4,
+  "missing": [],
+  "posDelta": {},
+  "materials": [
+   "Enf2_Accent",
+   "Enf2_Fabric",
+   "Enf2_Plate",
+   "Enf2_Skin_Suit"
+  ],
+  "meshTrisAfterImport": 25052
+ },
+ "renders": [
+  "00_compare_idle_back.jpg",
+  "00_compare_idle_front.jpg",
+  "00_compare_kick.jpg",
+  "00_compare_punch.jpg",
+  "01_front.jpg",
+  "02_back.jpg",
+  "03_side.jpg",
+  "04_threequarter.jpg",
+  "05_detail_head.jpg",
+  "06_detail_material_vest_shoulder.jpg",
+  "07_idle.jpg",
+  "08_walk.jpg",
+  "09_run.jpg",
+  "10_punch.jpg",
+  "11_kick_high.jpg",
+  "12_block.jpg",
+  "13_hit.jpg",
+  "14_uppercut_heavy.jpg"
+ ]
+}
