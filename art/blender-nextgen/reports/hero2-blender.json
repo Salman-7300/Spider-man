@@ -1,0 +1,79 @@
+{
+ "build": {
+  "tris": 14958,
+  "verts": 7601,
+  "mats": [
+   "WH2_Suit",
+   "WH2_Lens",
+   "WH2_LensFrame"
+  ],
+  "painted": 1165570
+ },
+ "body": null,
+ "gates": {
+  "WebHero2_Body": {
+   "type": "MESH",
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "negativeScale": false,
+   "verts": 7601,
+   "tris": 14958,
+   "nanVerts": 0,
+   "nonManifoldEdges": 216,
+   "boundaryEdges": 216,
+   "zeroAreaFaces": 0,
+   "materials": [
+    "WH2_Suit",
+    "WH2_Lens",
+    "WH2_LensFrame"
+   ],
+   "valid": true,
+   "unweightedVerts": 0
+  }
+ },
+ "size": {
+  "bind_height": 1.7925
+ },
+ "glbBytes": 1040032,
+ "blendBytes": 2079241,
+ "reimport": {
+  "objects": 3,
+  "missing": [],
+  "posDelta": {},
+  "materials": [
+   "WH2_Lens",
+   "WH2_LensFrame",
+   "WH2_Suit"
+  ],
+  "meshTrisAfterImport": 15038
+ },
+ "renders": [
+  "00_compare_bind.jpg",
+  "00_compare_idle.jpg",
+  "00_compare_kick.jpg",
+  "00_compare_run.jpg",
+  "00_compare_swing.jpg",
+  "01_front.jpg",
+  "02_back.jpg",
+  "03_side.jpg",
+  "04_threequarter.jpg",
+  "05_detail_mask.jpg",
+  "06_detail_material_chest.jpg",
+  "07_idle.jpg",
+  "08_run.jpg",
+  "09_combat_punch.jpg",
+  "10_combat_kick.jpg",
+  "11_strong_bend_roll.jpg",
+  "12_swing.jpg",
+  "13_climb.jpg",
+  "14_glide.jpg",
+  "15_dive_w.jpg",
+  "16_zip.jpg",
+  "17_landing.jpg",
+  "18_uppercut.jpg",
+  "19_wallrun.jpg"
+ ]
+}

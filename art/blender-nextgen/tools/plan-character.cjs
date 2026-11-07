@@ -16,6 +16,7 @@ module.exports = async function (api) {
       video: [['idle', 2], ['run', 1.4], ['jump', 0.8], ['swing', 2.2], ['klettern', 2], ['punch', 1.6], ['roll', 1.6], ['proto:landing_pose', 2.6]] },
   };
   CFG.enemy2 = CFG.enemy;
+  CFG.hero2 = { clips: CFG.hero.clips.concat([['block', 0.4], ['ausweichenL', 0.5]]), video: CFG.hero.video };
   const cfgSel = CFG[asset];
   const out = path.join(api.root, 'art/blender-nextgen/renders/threejs', asset);
   fs.mkdirSync(out, { recursive: true });
@@ -28,7 +29,7 @@ module.exports = async function (api) {
       await api.ev(`T.clip(${JSON.stringify(clip)})`);
       const st = await api.ev('T.stats()');
       const dur = st.per[st.per.length - 1].clipDuration || 1;
-      await api.ev(`T.view(${JSON.stringify({ yaw: 28, pitch: 8, dist: (which === 'compare' ? 44 : 36) * (asset === 'hero' ? 1.35 : 1), target: null })})`);
+      await api.ev(`T.view(${JSON.stringify({ yaw: 28, pitch: 8, dist: (which === 'compare' ? 44 : 36) * (/^hero/.test(asset) ? 1.35 : 1), target: null })})`);
       await api.ev(`T.renderAt(${dur * frac})`);
       const name = clip.replace('proto:', 'proto_');
       await api.shot(path.join(out, `${name}_${which}.jpg`));
@@ -39,10 +40,10 @@ module.exports = async function (api) {
   }
   // Rueckansicht und Nachtlicht
   await api.ev(`T.setup(${JSON.stringify({ asset, which: 'compare', mode: 'gameNight', env: 'city', clip: 'idle' })})`);
-  await api.ev(`T.view({yaw:200,pitch:8,dist:${asset === 'hero' ? 60 : 44},target:null})`); await api.ev('T.renderAt(1)');
+  await api.ev(`T.view({yaw:200,pitch:8,dist:${/^hero/.test(asset) ? 60 : 44},target:null})`); await api.ev('T.renderAt(1)');
   await api.shot(path.join(out, 'back_night_compare.jpg'));
   await api.ev(`T.setup(${JSON.stringify({ asset, which: 'new', mode: 'studio', env: 'neutral', clip: 'idle' })})`);
-  await api.ev(`T.view({yaw:28,pitch:8,dist:${asset === 'hero' ? 46 : 34},target:null})`); await api.ev('T.renderAt(1)');
+  await api.ev(`T.view({yaw:28,pitch:8,dist:${/^hero/.test(asset) ? 46 : 34},target:null})`); await api.ev('T.renderAt(1)');
   await api.shot(path.join(out, 'studio_idle_new.jpg'));
   // Video: Clipfolge im Vergleich, 30 fps
   const frames = path.join(out, 'frames');
@@ -53,7 +54,7 @@ module.exports = async function (api) {
     const which = clip.startsWith('proto:') ? 'new' : 'compare';
     await api.ev(`T.setup(${JSON.stringify({ asset, which, mode: 'gameDay', env: 'city', clip })})`);
     for (let i = 0; i < Math.round(secs * 30); i++, f++) {
-      await api.ev(`T.view({yaw:${20 + f * 0.25},pitch:8,dist:${(which === 'compare' ? 46 : 36) * (asset === 'hero' ? 1.35 : 1)},target:null})`);
+      await api.ev(`T.view({yaw:${20 + f * 0.25},pitch:8,dist:${(which === 'compare' ? 46 : 36) * (/^hero/.test(asset) ? 1.35 : 1)},target:null})`);
       await api.ev(`T.renderAt(${i / 30})`);
       await api.shot(path.join(frames, String(f).padStart(4, '0') + '.jpg'), 86);
     }

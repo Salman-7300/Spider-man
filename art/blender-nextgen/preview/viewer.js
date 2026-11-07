@@ -33,6 +33,14 @@ const ASSETS = {
       'proto:threat_taunt'],
     protos: { threat_taunt: NG + 'animations/enemy-threat-taunt-v1.glb' },
   },
+  hero2: {
+    label: 'Web Hero v1 -> v2', kind: 'char', slot: 'hero',
+    oldUrl: NG + 'exports/webhero-nextgen-v1.glb', newUrl: NG + 'exports/webhero-nextgen-v2.glb',
+    clips: ['bind', 'idle', 'walk', 'run', 'sprint', 'jump', 'land', 'roll', 'fall', 'swing', 'schwungpose', 'zip_zug',
+      'gleiten', 'sturzflug', 'sturzflug2', 'klettern', 'klettern_seit', 'wandlauf', 'kante', 'punch', 'kick', 'uppercut',
+      'hit', 'luftangriff', 'block', 'ausweichenL', 'proto:landing_pose'],
+    protos: { landing_pose: NG + 'animations/webhero-landing-pose-v1.glb' },
+  },
   hero: {
     label: 'Web Hero Next-Gen', kind: 'char', slot: 'hero',
     oldUrl: ROOT + 'assets/hero.glb', newUrl: NG + 'exports/webhero-nextgen-v1.glb',
@@ -167,7 +175,16 @@ function gameCharacter(gltf) {
   scene.traverse((o) => { if (o.isBone) o.name = knochenName(o.name); });
   scene.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(scene);
-  const h = box.max.y - box.min.y;
+  let h = box.max.y - box.min.y;
+  /* wie messeModell im Spiel: ist die Box unbrauchbar (Sketchfab-Rig mit Bind-Matrizen), ueber die
+     Knochen messen und 3 % fuer Sohle/Scheitel zuschlagen */
+  if (!(h > 0.05)) {
+    const p = new THREE.Vector3(); let lo = Infinity, hi = -Infinity, sx = 0, sz = 0, n = 0;
+    scene.traverse((o) => { if (!o.isBone) return; o.getWorldPosition(p); lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); sx += p.x; sz += p.z; n++; });
+    const rand = (hi - lo) * 0.03;
+    box.min.set(sx / n, lo - rand, sz / n); box.max.set(sx / n, hi + rand, sz / n);
+    h = box.max.y - box.min.y;
+  }
   const s = h > 0.01 ? 1.76 / h : 1;
   const inner = new THREE.Group();
   inner.add(scene);
@@ -441,7 +458,7 @@ function step(dt) {
 // ---------------------------------------------------------------- Kamera & Zeichnen
 function frameCamera() {
   const a = ASSETS[state.asset];
-  const target = a.kind === 'car' ? new THREE.Vector3(0, 0.7, 0) : new THREE.Vector3(0, state.asset === 'hero' ? 1.1 : 0.95, 0);
+  const target = a.kind === 'car' ? new THREE.Vector3(0, 0.7, 0) : new THREE.Vector3(0, /^hero/.test(state.asset) ? 1.1 : 0.95, 0);
   if (state.target) target.copy(state.target);
   const d = state.dist / 10;
   const yaw = THREE.MathUtils.degToRad(state.yaw), pitch = THREE.MathUtils.degToRad(state.pitch);
@@ -560,6 +577,14 @@ window.T = {
   async renderAt(t) {
     state.t = t; const p = state.play; state.play = false; step(0); state.play = p; draw(); updateStats();
     await new Promise((r) => requestAnimationFrame(r)); return true;
+  },
+  dims() {
+    return stages.slice(0, state.which === 'compare' ? 2 : 1).map((st) => {
+      const it = st.item; if (!it) return null;
+      it.root.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(it.root);
+      return { scale: it.scale, rawHeight: it.rawHeight, rootPos: it.root.position.toArray(), box: [b.min.toArray(), b.max.toArray()] };
+    });
   },
   stats() {
     const per = stages.slice(0, state.which === 'compare' ? 2 : 1).map((st) => ({ old: !!(st.item && st.item.old),
