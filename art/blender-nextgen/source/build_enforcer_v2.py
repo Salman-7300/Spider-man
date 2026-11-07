@@ -470,6 +470,41 @@ gear.name = "Enforcer2_Gear"
 gear.data.name = "Enforcer2_Gear"
 B.free()
 
+# ---------------------------------------------------------------- v2: Ausruestung in EINEM Material (Leistung)
+# Gemessen im Spiel: 4 Zeichenaufrufe je Enforcer (Koerper + 3 Ausruestungsmaterialien) hoben die Luftansicht
+# um ~19 Aufrufe. Platte/Stoff/Akzent werden deshalb zu Eckfarben (COLOR_0) unter einem gemeinsamen Material
+# mit der Stoff-Detailtextur -> 2 Aufrufe je Enforcer, wie thug + Rollenweste.
+gm = gear.data
+cols = {0: M_PLATE, 1: M_FABRIC, 2: M_ACCENT}
+def _base(m):
+    for n in m.node_tree.nodes:
+        if n.type == 'MIX':
+            return tuple(n.inputs["A"].default_value)[:3]
+    return tuple(m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value)[:3]
+lin = {k: _base(m) for k, m in cols.items()}
+ca = gm.color_attributes.new(name="Col", type='BYTE_COLOR', domain='CORNER')
+for poly in gm.polygons:
+    c3 = lin[poly.material_index]
+    for li in poly.loop_indices:
+        ca.data[li].color = (*c3, 1.0)        # Byte-Farbe: Blender rechnet lineare Werte in sRGB um
+gm.color_attributes.active_color = ca
+M_GEAR = bpy.data.materials.get("Enf2_Gear") or bpy.data.materials.new("Enf2_Gear")
+M_GEAR.use_nodes = True
+nt = M_GEAR.node_tree
+for n in [n for n in nt.nodes if n.type not in ('BSDF_PRINCIPLED', 'OUTPUT_MATERIAL')]: nt.nodes.remove(n)
+bsdf = nt.nodes.get("Principled BSDF")
+bsdf.inputs["Roughness"].default_value = 0.74; bsdf.inputs["Metallic"].default_value = 0.0
+vc = nt.nodes.new("ShaderNodeVertexColor"); vc.layer_name = "Col"
+tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = IMG_FAB
+mx = nt.nodes.new("ShaderNodeMix"); mx.data_type = 'RGBA'; mx.blend_type = 'MULTIPLY'; mx.inputs["Factor"].default_value = 1.0
+nt.links.new(vc.outputs["Color"], mx.inputs["A"]); nt.links.new(tx.outputs["Color"], mx.inputs["B"])
+nt.links.new(mx.outputs["Result"], bsdf.inputs["Base Color"])
+tn = nt.nodes.new("ShaderNodeTexImage"); tn.image = IMG_FAB_N
+nmap = nt.nodes.new("ShaderNodeNormalMap"); nmap.inputs["Strength"].default_value = 0.6
+nt.links.new(tn.outputs["Color"], nmap.inputs["Color"]); nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+gm.materials.clear(); gm.materials.append(M_GEAR)
+for poly in gm.polygons: poly.material_index = 0
+
 gear.data.calc_loop_triangles(); body.data.calc_loop_triangles()
 result = {"gear_tris": len(gear.data.loop_triangles), "body_tris": len(body.data.loop_triangles),
           "gear_groups": len(gear.vertex_groups), "rig": arm.name, "removedSickleFaces": REMOVED_SICKLE_FACES, "bulkedVerts": BULKED}

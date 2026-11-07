@@ -8,22 +8,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 9.933333396911621,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 24,
-    "textures": 25,
+    "geometries": 22,
+    "textures": 18,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -40,22 +40,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 1.0333333015441895,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 27,
-    "textures": 37,
+    "geometries": 25,
+    "textures": 26,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -72,22 +72,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 0.699999988079071,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 30,
-    "textures": 49,
+    "geometries": 28,
+    "textures": 34,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -104,22 +104,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 1.6666666269302368,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 33,
-    "textures": 61,
+    "geometries": 31,
+    "textures": 42,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -136,22 +136,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 2.5,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 36,
-    "textures": 73,
+    "geometries": 34,
+    "textures": 50,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -168,22 +168,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 2.7666666507720947,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 39,
-    "textures": 85,
+    "geometries": 37,
+    "textures": 58,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -200,22 +200,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 1.2666666507720947,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 42,
-    "textures": 97,
+    "geometries": 40,
+    "textures": 66,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -232,22 +232,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 0.699999988079071,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 45,
-    "textures": 109,
+    "geometries": 43,
+    "textures": 74,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -264,22 +264,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 0.9666666388511658,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 48,
-    "textures": 121,
+    "geometries": 46,
+    "textures": 82,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -296,22 +296,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 1.3333333730697632,
       "clipTracks": 22,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 51,
-    "textures": 133,
+    "geometries": 49,
+    "textures": 90,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [
@@ -328,22 +328,22 @@
     "per": [
      {
       "old": false,
-      "loadMs": 38,
+      "loadMs": 42,
       "clipDuration": 3,
       "clipTracks": 54,
-      "meshes": 4,
-      "drawCalls": 4,
+      "meshes": 2,
+      "drawCalls": 2,
       "tris": 24972,
-      "materials": 4,
-      "textures": 7,
-      "texMB": 12.3,
+      "materials": 2,
+      "textures": 4,
+      "texMB": 11.3,
       "bones": 67
      }
     ],
-    "rendererCalls": 13,
+    "rendererCalls": 7,
     "rendererTris": 74918,
-    "geometries": 52,
-    "textures": 137,
+    "geometries": 50,
+    "textures": 92,
     "gl": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
    },
    "bones": [

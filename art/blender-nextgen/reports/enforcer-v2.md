@@ -22,11 +22,19 @@ Skelett unverändert (thug, 67 Gelenke).
 | | v1 | v2 |
 |---|---|---|
 | Dreiecke | 24 972 | 24 972 |
-| Zeichenaufrufe | 4 | 4 |
-| Texturen | 2 (1024²) | 5 (2× 1024², 3× 256²) |
-| GLB | 2,49 MB | 2,49 MB |
+| Zeichenaufrufe | 4 | **2** (Ausrüstung: ein Material mit Eckfarben) |
+| Texturen | 2 (1024²) | 4 (2× 1024², 2× 256²) |
+| GLB | 2,49 MB | 2,54 MB |
 
 ## Prüfungen
 - Blender: 0 NaN, 0 ungewichtete Ecken, keine negative Skalierung, Export/Re-Import ok.
 - Three.js (Spiel-Behandlung): idle, walk, run, punch, kick, block, hit, fall, ausweichenL, uppercut, Threat Taunt → 0 fehlende Knochen.
 - Korrekturrunden: 1 (Kragen).
+
+## Leistungskorrektur (nach Messung im Spiel)
+
+Die erste v2-Fassung hatte wie v1 vier Zeichenaufrufe je Enforcer. `stadt-leistung.js` zeigte damit im
+Spiel 865,5 (Gesamt) und **909,5 in der Luftansicht** gegenüber 857 / 890,5 bei `f4f2b2b`. Platte, Stoff und
+Akzent sind deshalb jetzt Eckfarben (COLOR_0) unter **einem** Material mit der Stoff-Detailtextur:
+2 Zeichenaufrufe je Enforcer – so viele wie thug + Rollenweste vorher. Rauheit ist dabei für alle
+Ausrüstungsteile einheitlich 0,74 (vorher 0,62 / 0,88 / 0,6).

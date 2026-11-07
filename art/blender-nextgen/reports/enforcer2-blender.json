@@ -23,7 +23,7 @@
    "boundaryEdges": 1884,
    "zeroAreaFaces": 0,
    "materials": [
-    "Enf2_Skin_Suit.002"
+    "Enf2_Skin_Suit.004"
    ],
    "valid": true,
    "unweightedVerts": 0
@@ -43,16 +43,14 @@
    "boundaryEdges": 0,
    "zeroAreaFaces": 0,
    "materials": [
-    "Enf2_Plate",
-    "Enf2_Fabric",
-    "Enf2_Accent"
+    "Enf2_Gear"
    ],
    "valid": true,
    "unweightedVerts": 0
   }
  },
- "glbBytes": 2494652,
- "blendBytes": 1428236,
+ "glbBytes": 2535324,
+ "blendBytes": 1377046,
  "size": {
   "v2_bind_height": 1.8,
   "v1_bind_height": 1.8115,
@@ -63,9 +61,7 @@
   "missing": [],
   "posDelta": {},
   "materials": [
-   "Enf2_Accent",
-   "Enf2_Fabric",
-   "Enf2_Plate",
+   "Enf2_Gear",
    "Enf2_Skin_Suit"
   ],
   "meshTrisAfterImport": 25052

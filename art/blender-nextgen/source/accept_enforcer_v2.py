@@ -101,7 +101,7 @@ with bpy.context.temp_override(window=win, scene=sc, view_layer=vl):
         o.select_set(True, view_layer=vl)
     bpy.ops.export_scene.gltf(filepath=glb, export_format='GLB', use_selection=True, use_active_scene=True,
         export_animations=False, export_def_bones=False, export_leaf_bone=False, export_skins=True,
-        export_influence_nb=4, export_yup=True, export_apply=True, export_materials='EXPORT',
+        export_influence_nb=4, export_yup=True, export_apply=True, export_materials='EXPORT', export_vertex_color='MATERIAL',
         export_image_format='AUTO', export_image_quality=88)
 deselect_all()
 glb_bytes = os.path.getsize(glb)
