@@ -7730,7 +7730,9 @@ buildCity();
    Hinweis: GLB-Laden funktioniert nur über http(s) – also auf der Webseite
    oder mit lokalem Server, nicht bei Doppelklick auf die Datei (file://). */
 const GLB_SLOTS = {
-  hero: 'assets/hero.glb',
+  /* Visual-Update 1.1: eigener Held (art/blender-nextgen, webhero-nextgen-v2: eigenes Koerpermesh auf
+     dem Mixamo-Skelett, eigener Anzug). Laedt er nicht, springt GLB_ERSATZ ein. */
+  hero: 'assets/webhero-nextgen.glb',
   civilian: 'assets/civilian.glb',
   civilian2: 'assets/civilian2.glb',
   /* civilian3..5 sind reine T-Pose-Modelle ohne eigene Bewegungsdateien.
@@ -7749,6 +7751,9 @@ const GLB_SLOTS = {
 };
 /* Alle Zivilistenmodelle - fuer die Auswahl beim Erzeugen und fuer die
    Weitergabe der Bewegungen. */
+/* Ersatzdatei je Slot: schlaegt das Laden fehl oder ist das Modell unbrauchbar, wird diese Datei
+   geladen. glbModels[slot].__datei sagt, welche Datei wirklich im Spiel ist. */
+const GLB_ERSATZ = { hero: 'assets/hero.glb' };
 const ZIVI_SLOTS = ['civilian', 'civilian2', 'civilian3', 'civilian4', 'civilian5'];
 /* Nur diese Slots haben eigene <slot>@<teil>.glb-Dateien. */
 const GLB_ANIM_SLOTS = ['hero', 'civilian', 'civilian2', 'thug'];
@@ -8046,8 +8051,10 @@ function loadGlbAssets(done) {
   ladeGesamt = slots.length + slots.length * GLB_ANIM_PARTS.length +
                HELD_NUR_PARTS.length;
   const finish = () => { ladeSchritt(); if (--pending === 0) loadCompanionClips(); };
-  for (const slot of slots) {
-    loader.load(GLB_SLOTS[slot], (gltf) => {
+  const ladeSlot = (slot, datei) => {
+    const ersatz = GLB_ERSATZ[slot] && GLB_ERSATZ[slot] !== datei ? GLB_ERSATZ[slot] : null;
+    const fehler = () => { if (ersatz) ladeSlot(slot, ersatz); else finish(); };
+    loader.load(datei, (gltf) => {
       try {
         /* Manche Modelle bringen durchnummerierte Knochennamen mit
            ("mixamorig:Hips_98"). Die Bewegungsdateien sprechen aber die
@@ -8083,11 +8090,14 @@ function loadGlbAssets(done) {
              dunkle Stellen deutlich und helle kaum, Zivilisten mit
              hellen Hemden veraendern sich daher fast nicht. */
           aufhellen: true,
+          __datei: datei,
+          __ersatz: datei !== GLB_SLOTS[slot],
         };
-      } catch (e) { /* unbrauchbares Modell -> eingebaute Figur */ }
+      } catch (e) { /* unbrauchbares Modell -> Ersatzdatei oder eingebaute Figur */ if (ersatz) { fehler(); return; } }
       finish();
-    }, undefined, finish);
-  }
+    }, undefined, fehler);
+  };
+  for (const slot of slots) ladeSlot(slot, GLB_SLOTS[slot]);
   function loadCompanionClips() {
     const jobs = [];
     for (const slot of slots) {
