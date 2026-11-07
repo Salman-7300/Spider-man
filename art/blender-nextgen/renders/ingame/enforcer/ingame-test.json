@@ -1,0 +1,64 @@
+{
+ "load": {
+  "slots": [
+   "civilian4",
+   "civilian3",
+   "civilian5",
+   "thug",
+   "hero",
+   "civilian",
+   "enforcer",
+   "civilian2"
+  ],
+  "enforcer": true,
+  "enforcerScale": 0.9715687738802781,
+  "thugClips": 44
+ },
+ "spawn": {
+  "tries": 1,
+  "enforcer": 2,
+  "gesamt": 18,
+  "arten": [
+   "schlaeger:thug",
+   "flink:thug",
+   "brecher:enforcer",
+   "waechter:thug",
+   "werfer:thug",
+   "stuermer:civilian5",
+   "brecher:enforcer",
+   "waechter:thug",
+   "duellant:civilian4",
+   "flink:thug",
+   "werfer:thug",
+   "waechter:thug",
+   "schlaeger:thug",
+   "flink:thug",
+   "schlaeger:thug",
+   "werfer:thug",
+   "waechter:thug",
+   "flink:thug"
+  ]
+ },
+ "figuren": {
+  "enfArt": "brecher",
+  "enfHp": 84,
+  "thugArt": "schlaeger",
+  "rolleGear": 0,
+  "cityGearIstPlatzhalter": true,
+  "hautRolle": null,
+  "meshes": 7,
+  "tris": 25004
+ },
+ "konsole": [],
+ "bilder": [
+  "kampf_0.jpg",
+  "kampf_1.jpg",
+  "kampf_2.jpg",
+  "kampf_3.jpg",
+  "kampf_4.jpg",
+  "kampf_5.jpg",
+  "nacht.jpg",
+  "nah_ruecken.jpg",
+  "nah_vorn.jpg"
+ ]
+}

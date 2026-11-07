@@ -71,6 +71,14 @@ async function main() {
       for (let i = 0; i < 200; i++) { await sleep(100); if (await api.ev('!!(window.T && window.T.ready)')) return true; }
       throw new Error('Viewer nicht bereit: ' + consoleLines.join(' | '));
     },
+    /* Beliebige Seite des Repos oeffnen (z. B. das echte Spiel), vorher ein Skript einspielen
+       (Testflaggen wie window.__WEBHERO_TEST__) und warten, bis ready() wahr ist. */
+    async goto(page, initScript, ready, timeoutMs = 120000) {
+      if (initScript) await send('Page.addScriptToEvaluateOnNewDocument', { source: initScript });
+      await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/${page}` });
+      for (let t = 0; t < timeoutMs; t += 250) { await sleep(250); if (await api.ev(ready).catch(() => false)) return true; }
+      throw new Error('Seite nicht bereit: ' + consoleLines.slice(-10).join(' | '));
+    },
     console: consoleLines,
     root,
     log(o) { process.stdout.write(JSON.stringify(o) + '\n'); },

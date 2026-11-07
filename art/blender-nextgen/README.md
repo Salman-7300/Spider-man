@@ -11,6 +11,8 @@ Datei in `assets/` wurde verändert. Übernahme nur nach Freigabe, einzeln.
 
 Gesamtergebnis: `reports/06-abnahmebericht.md`.
 
+**Übernahme vorbereitet:** Enforcer → `adoption/ENFORCER-UEBERNAHME.md` (Patch + Ingame-Test).
+
 ## Ansehen
 
 Der Viewer braucht einen lokalen Webserver, weil GLB-Dateien nicht über `file://` laden. Dafür im Repo-Wurzelordner starten:
